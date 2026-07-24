@@ -1534,9 +1534,9 @@ function activeSurfaceSeqs(session: Session): Set<number> {
   return new Set(session.surface.nodes)
 }
 
-function sessionReferenceCard(meta: unknown): string[] | undefined {
-  if (typeof meta !== 'object' || meta === null) return undefined
-  const record = meta as Record<string, unknown>
+function sessionReferenceCard(source: unknown): string[] | undefined {
+  if (typeof source !== 'object' || source === null) return undefined
+  const record = source as Record<string, unknown>
   if (record['kind'] !== 'session-reference' || !Array.isArray(record['references'])) return undefined
   const references = record['references'] as unknown[]
   const labels: string[] = []
@@ -1553,7 +1553,7 @@ function sessionReferenceCard(meta: unknown): string[] | undefined {
 
 function promptReferenceCards(event: Extract<SessionEvent, { type: 'user/message' | 'steering/message' }>): string[][] {
   return event.data.envelope?.prefixContexts.flatMap((context) => {
-    const card = sessionReferenceCard(context.meta)
+    const card = sessionReferenceCard(context.source)
     return card === undefined ? [] : [card]
   }) ?? []
 }
@@ -1956,7 +1956,7 @@ export function createTuiChat(
         // boolean avoids narrowing `source`, so the label keeps its full union.
         const source = event.data.source
         if (source.kind !== 'user') {
-          const references = sessionReferenceCard(event.data.meta)
+          const references = sessionReferenceCard(event.data.source)
           if (references !== undefined) {
             chat.addChild(new Spacer(1))
             chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))

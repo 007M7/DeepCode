@@ -187,8 +187,6 @@ export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 export interface PromptPrefixContext {
   /** Producer provenance retained for transcript presentation and inspection. */
   source: MessageSource
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
 }
 
 /**
@@ -209,7 +207,7 @@ export interface PromptMessageEnvelope {
  * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
  * steering all project into the model transcript as verbatim user-role content;
  * they are told apart by `source` (a non-`user` kind marks injected context),
- * not by event type. `meta` carries durable model-hidden producer state.
+ * not by event type.
  */
 export interface PromptMessageData {
   /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
@@ -218,15 +216,6 @@ export interface PromptMessageData {
   source: MessageSource
   /** Present only when prompt-prefix contexts were baked into `content`. */
   envelope?: PromptMessageEnvelope
-  /**
-   * Opaque durable JSON state retained on the event but hidden from the model
-   * projection. It is the intended channel for a future framing directive (a
-   * producer declares the frame, a dedicated renderer applies it — see the
-   * deferred note in
-   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
-   * so the surface keeps projecting `content` verbatim rather than wrapping it.
-   */
-  meta?: JsonValue
 }
 
 /**

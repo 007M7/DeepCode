@@ -38,7 +38,6 @@ function appendInjection(session: Session, content: ContentBlock[], options?: Al
   const context = {
     content,
     source,
-    ...options?.meta === undefined ? {} : { meta: options.meta },
   }
   const last = session.events.at(-1)
   const open = last !== undefined && last.type !== 'turn/end'
@@ -137,8 +136,8 @@ describe('GoalService creation and replay', () => {
     const context = session.events[1]
     expect(context?.type).toBe('user/message')
     if (context?.type !== 'user/message') throw new Error('expected goal context')
-    expect(context.data.source).toEqual({ kind: 'goal', goalId: goal.id, revision: 1, round: 0 })
-    const change = decodeGoalChange(context.data.meta)
+    expect(context.data.source).toMatchObject({ kind: 'goal', goalId: goal.id, revision: 1, round: 0 })
+    const change = context.data.source.kind === 'goal' ? decodeGoalChange(context.data.source.change) : undefined
     if (change === undefined) throw new Error('expected decoded goal change')
     expect(change).toMatchObject({ operation: 'create', goal: { id: goal.id } })
     expect(context.data.content).toEqual(renderGoalChange(change))
@@ -412,7 +411,9 @@ describe('GoalService mutations', () => {
     ctx.goals.clear(agent, goal)
     const clear = session.events
       .filter(event => event.type === 'user/message' && event.data.source.kind === 'goal')
-      .map(event => event.type === 'user/message' ? decodeGoalChange(event.data.meta) : undefined)
+      .map(event => event.type === 'user/message' && event.data.source.kind === 'goal'
+        ? decodeGoalChange(event.data.source.change)
+        : undefined)
       .at(-1)
     expect(clear).toMatchObject({ operation: 'clear', clearedAt: 100 })
     expect(() => foldGoal(session.events)).not.toThrow()
@@ -518,11 +519,11 @@ describe('GoalService mutations', () => {
       createdAt: 12,
       updatedAt: 12,
     }
-    const source = { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0 } as const
+    const source = { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0, change } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
     session.append('user/message', {
-      content: renderGoalChange(change), source, meta: change as never,
+      content: renderGoalChange(change), source,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
 
@@ -552,12 +553,13 @@ describe('GoalService mutations', () => {
       updatedAt: 12,
     }
     appendInjection(session, renderGoalChange(change), {
-      source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0 },
-      meta: change as never,
+      source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0, change },
     })
     appendInjection(session, [{ type: 'text', text: 'corrupt' }], {
-      source: { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0 },
-      meta: { ...change, operation: 'edit', extra: true } as never,
+      source: {
+        kind: 'goal', goalId: change.goal.id, revision: 2, round: 0,
+        change: { ...change, operation: 'edit', extra: true } as never,
+      },
     })
 
     expect(() => ctx.goals.get(agent)).toThrow('invalid shape')
@@ -595,13 +597,13 @@ describe('goal replay validation', () => {
       goalId: change.operation === 'clear' ? change.cleared.id : change.goal.id,
       revision: change.operation === 'clear' ? change.cleared.revision : change.goal.revision,
       round: 0,
+      change,
     }
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
     session.append('user/message', {
       content: overrides.content ?? renderGoalChange(change),
       source,
-      meta: change as never,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
@@ -649,7 +651,6 @@ describe('goal replay validation', () => {
     const session = new Session(SessionId('unrelated'))
     appendInjection(session, [{ type: 'text', text: 'other' }], {
       source: { kind: 'plugin', plugin: 'test' },
-      meta: { kind: 'other' },
     })
     expect(foldGoal(session.events)).toEqual({ roundsStarted: 0 })
     const source = { kind: 'plugin', plugin: 'ordinary-user-message' } as const
@@ -799,7 +800,7 @@ describe('goal replay validation', () => {
       content: [{ type: 'text', text: 'missing' }], source,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    expect(() => foldGoal(session.events)).toThrow('lacks goal change metadata')
+    expect(() => foldGoal(session.events)).toThrow('lacks source change data')
   })
 
   it('rejects malformed snapshots, refs, counters, and timestamps', () => {
@@ -854,11 +855,11 @@ describe('goal replay validation', () => {
       cleared: { id: change.goal.id, revision: 2 },
       clearedAt: 20,
     }
-    const source = { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0 } as const
+    const source = { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0, change: clear } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
     session.append('user/message', {
-      content: renderGoalChange(clear), source, meta: clear as never,
+      content: renderGoalChange(clear), source,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
     expect(foldGoal(session.events)).toEqual({

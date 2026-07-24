@@ -43,7 +43,6 @@ function materializeNode(
       if (event.data.source.kind !== 'user') {
         return {
           kind: 'context', seq: event.seq, content: event.data.content, source: event.data.source,
-          meta: event.data.meta,
         }
       }
       return { kind: 'user', seq: event.seq, content: event.data.content, source: event.data.source }

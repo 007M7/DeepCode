@@ -117,11 +117,10 @@ describe('TUI session-reference snapshot', () => {
     expect(user?.type === 'user/message' && user.data.envelope).toMatchObject({
       displayContent: [{ type: 'text', text: 'Use @Source session' }],
       prefixContexts: [{
-        source: { kind: 'plugin', plugin: 'session-reference' },
-        meta: {
+        source: {
           kind: 'session-reference',
           references: [{ sessionId: 'source-session', compacted: true }],
-        },
+        } as never,
       }],
     })
     expect(user?.type === 'user/message' && user.data.content[1]).toEqual({

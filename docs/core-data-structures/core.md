@@ -1,5 +1,7 @@
 # Core Data Structures
 
+English | [中文](core.zh.md)
+
 This folder catalogs the **data structures** of the DeepSeek Harness — what each core type represents, its literal shape, and where the full detail lives. It complements [architecture.md](../architecture.md), which describes *behavior* (the service map, the session/turn/step lifecycle, the event taxonomy); this page describes the *vocabulary* that behavior moves around.
 
 ## What counts as "core"
@@ -397,8 +399,6 @@ interface SendOptions {
    * records them directly at its next checkpoint.
    */
   contexts?: HookContext[]
-  /** Opaque JSON state retained on the durable message but hidden from the model. */
-  meta?: JsonValue
 }
 ```
 
@@ -428,9 +428,7 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
  * message's enqueue, dequeue, and discard events. Source defaults are already
  * applied, so these are the exact values the item was accepted with. `steering`
  * is true for a `next-step` item drained between steps; a `next-turn` item is
- * claimed at a turn boundary. `SendOptions.meta` is intentionally omitted: it is
- * durable model-hidden state that lands on the eventual `user/message`/
- * `steering/message`, not live-event routing data.
+ * claimed at a turn boundary.
  */
 interface AgentMessage {
   /** The id `send` returned for this message. */
@@ -503,7 +501,7 @@ abstract class Agent {
    * Attached contexts share the same snapshot and ownership boundary. Invalid
    * input throws synchronously before any notification, enqueue, or append.
    * @param content - the model-facing content blocks to deliver.
-   * @param options - target queue, wakeup decision, source, contexts, and meta.
+   * @param options - target queue, wakeup decision, source, and contexts.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
   abstract send(content: ContentBlock[], options?: SendOptions): AgentMessageId
@@ -559,7 +557,7 @@ abstract class Agent {
    * checkpoint. Disposal awaits idle checkpoints; flush failures report through
    * `agent/error`. An omitted source defaults to `{ kind: 'plugin', plugin: '' }`.
    * @param content - the injected context content blocks.
-   * @param options - source and durable model-hidden meta.
+   * @param options - source and attached contexts.
    * @returns the accepted message's {@link AgentMessageId}.
    */
   inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
@@ -580,7 +578,7 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as user-role input, while JSON `meta` persists plugin state without exposing it to the model. Absent or `separate` placement becomes an injected `user/message` (plugin/goal source); `prompt-prefix` placement is available to prompt and steering inbox attachments and bakes the context before the effective request in the same message. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, metadata, and placement. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as user-role input; typed source variants retain model-hidden domain provenance. Absent or `separate` placement becomes an injected `user/message`; `prompt-prefix` placement is available to prompt and steering inbox attachments and bakes the context before the effective request in the same message. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance and placement. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -595,8 +593,6 @@ interface HookContext {
    * request delimiter to the same user-role message as its attached prompt.
    */
   placement?: 'separate' | 'prompt-prefix'
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
 }
 ```
 
@@ -617,7 +613,7 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no context metadata — the typed `/goal` pattern):
+`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no attached contexts — the typed `/goal` pattern):
 
 ```ts type-equiv
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */

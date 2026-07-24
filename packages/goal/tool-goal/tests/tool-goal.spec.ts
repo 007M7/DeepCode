@@ -39,7 +39,6 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
       session.append('user/message', {
         content,
         source,
-        ...options?.meta === undefined ? {} : { meta: options.meta },
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },

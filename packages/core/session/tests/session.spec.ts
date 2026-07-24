@@ -147,7 +147,7 @@ describe('Session', () => {
       source: { kind: 'user' },
       envelope: {
         displayContent: [{ type: 'text', text: 'question' }],
-        prefixContexts: [{ source: { kind: 'plugin', plugin: 'reference' }, meta: { kind: 'card' } }],
+        prefixContexts: [{ source: { kind: 'plugin', plugin: 'reference' } }],
       },
     }, { surfaceOp: 'append' })
 
@@ -165,17 +165,11 @@ describe('Session', () => {
       .toEqual(session.deriveMessages())
   })
 
-  it('keeps context meta durable in the event while hiding it from the projection', () => {
+  it('keeps context source durable in the event while hiding it from the projection', () => {
     const session = new Session(SessionId('s2-raw'))
-    const meta = {
-      kind: 'workspace-instructions',
-      version: 1,
-      changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
-    }
     session.append('user/message', {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-context' },
-      meta,
     }, { surfaceOp: 'append' })
 
     expect(session.deriveMessages()).toEqual([{
@@ -183,7 +177,7 @@ describe('Session', () => {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
     }])
     const event = session.events[0]
-    expect(event?.type === 'user/message' && event.data.meta).toEqual(meta)
+    expect(event?.type === 'user/message' && event.data.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
   })
 
   it('replays identically from a seeded event log', () => {

@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -398,26 +398,20 @@ describe('agent loop', () => {
     expect(flat).not.toContain('<context source=')
   })
 
-  it('inject() persists structured context content verbatim with durable hidden meta', async () => {
+  it('inject() persists structured context content verbatim with durable source', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('raw-context'), { provider: 'mock', model: 'mock' })
     const text = '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>'
-    const meta = {
-      kind: 'workspace-instructions',
-      version: 1,
-      changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
-    }
-
     agent.inject([{ type: 'text', text }], {
       source: { kind: 'plugin', plugin: 'workspace-context' },
-      meta,
     })
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
     const contextEvent = agent.session.events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
-    expect(contextEvent?.type === 'user/message' && contextEvent.data).toMatchObject({ meta })
+    expect(contextEvent?.type === 'user/message' && contextEvent.data.source)
+      .toEqual({ kind: 'plugin', plugin: 'workspace-context' })
     const requestText = JSON.stringify(adapter.requests[0]!.messages)
     expect(requestText).toContain('Additional instructions from: pkg/AGENTS.md')
     expect(requestText).not.toContain('<context source=')
@@ -431,7 +425,6 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let visibleDuringTool = false
-    const meta = { kind: 'deferred-test', version: 1 }
     ctx.tools.register(defineTool({
       name: 'noticer',
       description: 'injects a notice',
@@ -441,7 +434,6 @@ describe('agent loop', () => {
         const first = { type: 'text' as const, text: 'mid-turn notice' }
         agent.inject([first], {
           source: { kind: 'plugin', plugin: 'x' },
-          meta,
         })
         first.text = 'mutated after inject'
         agent.inject([{ type: 'text', text: 'second notice' }], { source: { kind: 'plugin', plugin: 'x' } })
@@ -501,8 +493,7 @@ describe('agent loop', () => {
       async execute() {
         expect(() => {
           agent.inject([{ type: 'text', text: 'invalid' }], {
-            source: { kind: 'plugin', plugin: 'test' },
-            meta: { bigint: 1n },
+            source: { kind: 'plugin', plugin: 'test', bigint: 1n } as never,
           })
         }).toThrow('agent context must be losslessly JSON-serializable')
         return [{ type: 'text', text: 'rejected invalid context' }]
@@ -513,28 +504,6 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(agent.session.events.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
-  })
-
-  it('preserves SendOptions.meta on the durable user/message and steering/message', async () => {
-    const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
-    const ctx = await harness(adapter)
-    ctx.tools.register(defineContentToolFixture({
-      name: 'noop', description: '', parameters: {},
-      async execute() {
-        // Running steer carries its own meta onto the durable steering/message.
-        agent.steer([{ type: 'text', text: 's' }], { source: { kind: 'plugin', plugin: 'p' }, meta: { steer: 1 } })
-        return []
-      },
-    }))
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-
-    agent.send([{ type: 'text', text: 'go' }], { target: 'next-turn', wakeup: true, meta: { prompt: 1 } })
-    await waitForIdle(ctx, agent)
-
-    const user = agent.session.events.find(e => e.type === 'user/message')
-    expect(user?.type === 'user/message' && user.data.meta).toEqual({ prompt: 1 })
-    const steering = agent.session.events.find(e => e.type === 'steering/message')
-    expect(steering?.type === 'steering/message' && steering.data.meta).toEqual({ steer: 1 })
   })
 
   it('agent/turn-continuation can force-continue (/loop pattern) and force-stop', async () => {

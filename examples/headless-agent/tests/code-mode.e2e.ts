@@ -373,11 +373,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')
     const outerResult = events.find(event => event.type === 'tool/result')
     const workspaceContext = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && typeof event.data.meta === 'object'
-      && event.data.meta !== null
-      && !Array.isArray(event.data.meta)
-      && event.data.meta.kind === 'workspace-instructions')
+      && event.data.source.kind === 'workspace-instructions')
     expect(dispatch).toBeDefined()
     expect(outerResult).toBeDefined()
     expect(workspaceContext).toBeDefined()

@@ -6,7 +6,7 @@
 
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileSystem, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
@@ -33,8 +33,19 @@ import {
 
 export const name = 'workspace-context'
 
-const PLUGIN_SOURCE = { kind: 'plugin', plugin: name } as const
 const FILE_TOUCH_TOOL_NAMES = new Set(['read', 'write', 'edit'])
+
+/** Durable provenance and reconciliation facts for one workspace context. */
+export interface WorkspaceInstructionSource {
+  kind: 'workspace-instructions'
+  changes: WorkspaceInstructionChange[]
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'workspace-instructions': WorkspaceInstructionSource
+  }
+}
 
 /** Dynamic state waiting for the loop to append its returned context event. */
 export interface PendingInstructionChange {
@@ -70,20 +81,14 @@ export interface ReconciledInstructionContext {
   versionUpdates: InstructionVersionUpdate[]
 }
 
-/** Plugin-owned context with required replay metadata. */
-export interface WorkspaceHookContext extends HookContext {
-  meta: JsonValue
-}
+/** Plugin-owned workspace context. */
+export type WorkspaceHookContext = HookContext
 
 function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): WorkspaceHookContext {
-  const serializedChanges: JsonValue[] = changes.map(change => ({
-    action: change.action,
-    scope: change.scope,
-    path: change.path,
-    ...change.digest !== undefined ? { digest: change.digest } : {},
-  }))
-  const meta: JsonValue = { kind: 'workspace-instructions', version: 1, changes: serializedChanges }
-  return { content: [{ type: 'text', text }], source: PLUGIN_SOURCE, meta }
+  return {
+    content: [{ type: 'text', text }],
+    source: { kind: 'workspace-instructions', changes },
+  }
 }
 
 /**
@@ -103,20 +108,20 @@ function filePathFromExecution(exec: ToolExecution): string | undefined {
   return filePath.length > 0 ? filePath : undefined
 }
 
-function isWorkspaceContextSource(source: unknown): source is typeof PLUGIN_SOURCE {
+function isWorkspaceContextSource(source: unknown): source is WorkspaceInstructionSource {
   return typeof source === 'object' && source !== null
-    && 'kind' in source && source.kind === 'plugin'
-    && 'plugin' in source && source.plugin === name
+    && 'kind' in source && source.kind === 'workspace-instructions'
+    && 'changes' in source && Array.isArray(source.changes)
 }
 
-function isRecord(value: JsonValue | undefined): value is { [key: string]: JsonValue } {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function workspaceInstructionChanges(meta: JsonValue | undefined): WorkspaceInstructionChange[] {
-  if (!isRecord(meta) || meta.kind !== 'workspace-instructions' || meta.version !== 1 || !Array.isArray(meta.changes)) return []
+function workspaceInstructionChanges(source: unknown): WorkspaceInstructionChange[] {
+  if (!isWorkspaceContextSource(source)) return []
   const changes: WorkspaceInstructionChange[] = []
-  for (const value of meta.changes) {
+  for (const value of source.changes) {
     if (!isRecord(value)) continue
     if (value.action !== 'set' && value.action !== 'replace' && value.action !== 'remove') continue
     if (typeof value.scope !== 'string' || typeof value.path !== 'string') continue
@@ -146,7 +151,7 @@ function visibleInstructionChanges(
   const visible = new Map<string, WorkspaceInstructionChange>()
   for (const [seq, event] of agent.session.events.entries()) {
     if (event.type !== 'user/message' || !isWorkspaceContextSource(event.data.source)) continue
-    const changes = workspaceInstructionChanges(event.data.meta)
+    const changes = workspaceInstructionChanges(event.data.source)
     for (const change of changes) {
       const waiting = pending.get(change.scope)
       if (waiting !== undefined && seq >= waiting.afterSeq && sameInstructionChange(waiting.change, change)) {
@@ -283,7 +288,7 @@ export function observeInstructionSessionEvent(
   switch (event.type) {
     case 'user/message': {
       if (!isWorkspaceContextSource(event.data.source)) return
-      for (const change of workspaceInstructionChanges(event.data.meta)) {
+      for (const change of workspaceInstructionChanges(event.data.source)) {
         const waiting = pending.get(change.scope)
         if (waiting !== undefined && event.seq >= waiting.afterSeq && sameInstructionChange(waiting.change, change)) {
           pending.delete(change.scope)
@@ -329,7 +334,7 @@ export function commitPendingInstructionContexts(
   const step = openStep(agent.session)
   for (const context of contexts ?? []) {
     if (!isWorkspaceContextSource(context.source)) continue
-    const changes = workspaceInstructionChanges(context.meta)
+    const changes = workspaceInstructionChanges(context.source)
     if (changes.length === 0) continue
     const pending = pendingChangesFor(agent.session, pendingBySession)
     for (const change of changes) {

@@ -59,7 +59,7 @@ export interface GoalView extends GoalSnapshot {
   readonly activation: GoalActivation
 }
 
-/** Goal state-changing verbs recorded in the durable change metadata. */
+/** Goal state-changing verbs recorded in the durable source change. */
 export type GoalOperation =
   | 'create'
   | 'edit'
@@ -89,7 +89,7 @@ export interface GoalClearChangeMeta {
   readonly clearedAt: number
 }
 
-/** Durable metadata union carried by a goal-owned round-zero `user/message`. */
+/** Durable change union carried by a goal-owned round-zero message source. */
 export type GoalChangeMeta = GoalSnapshotChangeMeta | GoalClearChangeMeta
 
 /** Message attribution for durable goal state and continuation rounds. */
@@ -99,6 +99,8 @@ export interface GoalMessageSource {
   readonly revision: number
   /** Zero for state changes; positive for admitted continuation rounds. */
   readonly round: number
+  /** Complete durable mutation carried only by round-zero state-change messages. */
+  readonly change?: GoalChangeMeta
 }
 
 declare module '@deepseek-ai/dsh-llm' {

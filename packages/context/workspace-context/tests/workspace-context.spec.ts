@@ -184,7 +184,6 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
       session.append('user/message', {
         content,
         source: options?.source ?? { kind: 'user' },
-        ...options?.meta !== undefined ? { meta: options.meta } : {},
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
@@ -206,16 +205,14 @@ function blocksText(blocks: { type: string; text?: string }[] | undefined): stri
 
 function workspaceContextOf(result: { additionalContexts?: HookContext[] }): HookContext | undefined {
   return result.additionalContexts?.find(context =>
-    context.source.kind === 'plugin' && context.source.plugin === 'workspace-context')
+    context.source.kind === 'workspace-instructions')
 }
 
 function workspaceChangeContext(scope: string, digest: string): HookContext {
   return {
     content: [{ type: 'text', text: `instructions for ${scope}` }],
-    source: { kind: 'plugin', plugin: 'workspace-context' },
-    meta: {
+    source: {
       kind: 'workspace-instructions',
-      version: 1,
       changes: [{ action: 'set', scope, path: `${scope}/AGENTS.md`, digest }],
     },
   }
@@ -227,7 +224,6 @@ function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: H
     lastSeq = agent.session.append('user/message', {
       content: context.content,
       source: context.source,
-      ...context.meta !== undefined ? { meta: context.meta } : {},
     }, { surfaceOp: 'append' }).seq
   }
   return lastSeq
@@ -930,7 +926,7 @@ describe('workspace context request injection', () => {
         kind: 'accept' as const,
       }))
       expect(accepted.kind).toBe('accept')
-      expect(workspaceContextOf(accepted)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
+      expect(workspaceContextOf(accepted)?.source).toMatchObject({ kind: 'workspace-instructions' })
       expect(blocksText(workspaceContextOf(accepted)?.content)).toContain('nested package rule')
     } finally {
       await ctx.fiber.dispose()
@@ -1050,7 +1046,7 @@ describe('workspace context request injection', () => {
         callId: CallId('read-after-baseline-change'), name: 'read', arguments: { file_path: 'file.txt' }, agent,
       })
 
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('Updated instructions from: AGENTS.md')
@@ -1079,7 +1075,7 @@ describe('workspace context request injection', () => {
         callId: CallId('read-after-baseline-remove'), name: 'read', arguments: { file_path: 'file.txt' }, agent,
       })
 
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('Instructions removed: AGENTS.md')
@@ -1810,19 +1806,18 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(result.isError).toBe(false)
-      expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({ kind: 'workspace-instructions' })
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         kind: 'workspace-instructions',
-        version: 1,
         changes: [{
           action: 'set',
           scope: sk('pkg', 'AGENTS.md'),
           path: join('pkg', 'AGENTS.md'),
         }],
       })
-      const meta = workspaceContextOf(result)?.meta
-      const firstChange = typeof meta === 'object' && meta !== null && !Array.isArray(meta) && Array.isArray(meta.changes)
-        ? meta.changes[0]
+      const source = workspaceContextOf(result)?.source
+      const firstChange = source?.kind === 'workspace-instructions'
+        ? source.changes[0]
         : undefined
       const changeDigest = typeof firstChange === 'object' && firstChange !== null && !Array.isArray(firstChange)
         ? firstChange.digest
@@ -1901,9 +1896,9 @@ describe('dynamic nested workspace context injection', () => {
         agent: stubAgent(root),
       })
 
-      const meta = workspaceContextOf(result)?.meta
-      const changes = typeof meta === 'object' && meta !== null && !Array.isArray(meta) && Array.isArray(meta.changes)
-        ? meta.changes
+      const source = workspaceContextOf(result)?.source
+      const changes = source?.kind === 'workspace-instructions'
+        ? source.changes
         : []
       expect(changes).toEqual(expect.arrayContaining([
         expect.objectContaining({ action: 'set', path: join('pkg', 'AGENTS.md') }),
@@ -2122,7 +2117,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(changed)?.meta).toMatchObject({
+      expect(workspaceContextOf(changed)?.source).toMatchObject({
         kind: 'workspace-instructions',
         changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
@@ -2168,7 +2163,7 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       // Removing one candidate only removes its own scope; the sibling scope is untouched.
-      expect(workspaceContextOf(removed)?.meta).toMatchObject({
+      expect(workspaceContextOf(removed)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toContain(`Instructions removed: ${join('pkg', 'AGENTS.md')}`)
@@ -2196,7 +2191,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-nested-dup-siblings'), name: 'read', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       const text = blocksText(workspaceContextOf(result)?.content)
@@ -2276,7 +2271,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-dup-convergence'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(converged)?.meta).toMatchObject({
+      expect(workspaceContextOf(converged)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('pkg', 'CLAUDE.md'), path: join('pkg', 'CLAUDE.md') }],
       })
       expect(blocksText(workspaceContextOf(converged)?.content)).toContain(`Instructions removed: ${join('pkg', 'CLAUDE.md')}`)
@@ -2310,7 +2305,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-earlier-converges'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(converged)?.meta).toMatchObject({
+      expect(workspaceContextOf(converged)?.source).toMatchObject({
         changes: [
           { action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') },
           { action: 'remove', scope: sk('pkg', 'CLAUDE.md'), path: join('pkg', 'CLAUDE.md') },
@@ -2347,9 +2342,8 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-remove'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(removed)?.meta).toEqual({
+      expect(workspaceContextOf(removed)?.source).toEqual({
         kind: 'workspace-instructions',
-        version: 1,
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toBe([
@@ -2394,7 +2388,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-symlink-dir'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(removed)?.meta).toMatchObject({
+      expect(workspaceContextOf(removed)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toContain(`Instructions removed: ${join('pkg', 'AGENTS.md')}`)
@@ -2433,7 +2427,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-tombstone'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(restored)?.meta).toMatchObject({
+      expect(workspaceContextOf(restored)?.source).toMatchObject({
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(restored)?.content)).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
@@ -2537,7 +2531,7 @@ describe('dynamic nested workspace context injection', () => {
       await composeBaselinePrefix(ctx, resumed)
 
       const update = resumed.session.events.findLast(event => event.type === 'user/message' && event.data.source.kind !== 'user')
-      expect(update?.type === 'user/message' && update.data.meta).toMatchObject({
+      expect(update?.type === 'user/message' && update.data.source).toMatchObject({
         changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(update?.type === 'user/message' && blocksText(update.data.content)).toContain('new nested rule after resume')
@@ -2691,31 +2685,23 @@ describe('dynamic nested workspace context injection', () => {
           { type: 'reasoning', text: 'Additional instructions from: pkg/AGENTS.md' },
           { type: 'text', text: 'Updated instructions from: pkg/AGENTS.md' },
         ],
-        source: { kind: 'plugin', plugin: 'workspace-context' },
-        meta: {
+        source: {
           kind: 'workspace-instructions',
-          version: 1,
           changes: [
             null,
             { action: 'unknown', scope: 'pkg', path: join('pkg', 'AGENTS.md') },
             { action: 'set', scope: 'pkg', path: 42 },
             { action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md'), digest: 42 },
           ],
-        },
+        } as never,
       }, { surfaceOp: 'append' })
       agent.session.append('user/message', {
         content: [{ type: 'text', text: 'stale metadata version' }],
-        source: { kind: 'plugin', plugin: 'workspace-context' },
-        meta: { kind: 'workspace-instructions', version: 0, changes: [] },
+        source: { kind: 'workspace-instructions', changes: 'invalid' } as never,
       }, { surfaceOp: 'append' })
       agent.session.append('user/message', {
         content: [{ type: 'text', text: 'foreign plugin context' }],
         source: { kind: 'plugin', plugin: 'other' },
-        meta: {
-          kind: 'workspace-instructions',
-          version: 1,
-          changes: [{ action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md'), digest: 'spoof' }],
-        },
       }, { surfaceOp: 'append' })
 
       const result = await ctx.tools.execute({
@@ -2884,8 +2870,8 @@ describe('dynamic nested workspace context injection', () => {
       })
       expect(blocksText(result.content)).toContain('downstream replacement')
       expect(result.additionalContexts).toHaveLength(2)
-      expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({ kind: 'workspace-instructions' })
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         kind: 'workspace-instructions',
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
@@ -3246,7 +3232,6 @@ describe('workspace context pending state', () => {
     const otherWorkspaceEvent = agent.session.append('user/message', {
       content: otherContext.content,
       source: otherContext.source,
-      ...otherContext.meta !== undefined ? { meta: otherContext.meta } : {},
     }, { surfaceOp: 'append' })
     observeInstructionSessionEvent(agent.session, otherWorkspaceEvent, pending, versions)
     expect(pending.get(agent.session)?.has('pkg')).toBe(true)
@@ -3255,7 +3240,6 @@ describe('workspace context pending state', () => {
     const confirmed = agent.session.append('user/message', {
       content: context.content,
       source: context.source,
-      ...context.meta !== undefined ? { meta: context.meta } : {},
     }, { surfaceOp: 'append' })
     observeInstructionSessionEvent(agent.session, confirmed, pending, versions)
 

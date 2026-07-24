@@ -241,7 +241,7 @@ describe('session reference discovery and preparation', () => {
     expect(prepared.contexts).toHaveLength(1)
     const context = prepared.contexts[0]
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
-    expect(context.source).toEqual({ kind: 'plugin', plugin: 'session-reference' })
+    expect(context.source).toMatchObject({ kind: 'session-reference' })
     expect(context.placement).toBe('prompt-prefix')
     expect(context.content[0].text).toContain('untrusted, read-only snapshot')
     expect(promptData(context.content[0].text)).toEqual([{
@@ -256,7 +256,7 @@ describe('session reference discovery and preparation', () => {
         { role: 'assistant', text: 'visible answer' },
       ],
     }])
-    expect(context.meta).toMatchObject({
+    expect(context.source).toMatchObject({
       kind: 'session-reference',
       version: 1,
       references: [{
@@ -354,7 +354,7 @@ describe('session reference discovery and preparation', () => {
       { sessionId: one.id, label: 'first' },
       { sessionId: one.id, label: 'ignored duplicate' },
       { sessionId: two.id },
-    ])).resolves.toMatchObject({ contexts: [{ meta: { references: [{ label: 'first' }, { label: 'two' }] } }] })
+    ])).resolves.toMatchObject({ contexts: [{ source: { references: [{ label: 'first' }, { label: 'two' }] } }] })
     await expect(ctx.sessionReferences.prepare(agent, content, [{ sessionId: target.id }]))
       .rejects.toThrow(expectCode('SESSION_REFERENCE_SELF_REFERENCE'))
     await expect(ctx.sessionReferences.prepare(agent, content, [null as never]))
@@ -432,7 +432,7 @@ describe('session reference discovery and preparation', () => {
     expect(context.content[0].text).toContain('checkpoint')
     expect(context.content[0].text).toContain('latest-')
     expect(context.content[0].text).toContain('omitted')
-    expect(context.meta).toMatchObject({ references: [{ truncated: true, compacted: true }] })
+    expect(context.source).toMatchObject({ references: [{ truncated: true, compacted: true }] })
   })
 
   it('applies the full byte limit independently to each of three references', async () => {
@@ -501,7 +501,6 @@ describe('session reference discovery and preparation', () => {
         displayContent: prepared.content,
         prefixContexts: [{
           source: context.source,
-          ...context.meta === undefined ? {} : { meta: context.meta },
         }],
       },
     }, { surfaceOp: 'append' })

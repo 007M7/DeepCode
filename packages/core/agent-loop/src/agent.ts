@@ -1,8 +1,9 @@
 /**
  * The concrete Agent, in the naive-agent shape: the agent IS the machine.
  * Two inboxes — `queued` (prompts, one turn each) and `outbox` (steering +
- * injected context, taken whole at every step boundary) — and one `run()`
- * per turn: intake the prompt, then step until the model owes no response.
+ * injected context, taken whole at every step boundary). `kick()` admits and
+ * records one queued prompt; `start()` then steps until the model owes no
+ * response.
  *
  * The session log IS the transcript: every take appends, every step re-derives
  * (`session.deriveMessages()`), so editing history between steps is naturally
@@ -38,7 +39,7 @@ import type {
   ContentBlock, GenerateOptions, LlmCallConfig, LlmFailure, Message, MessageSource,
 } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals, snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue, PromptMessageData, Session, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { PromptMessageData, Session, SessionId, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
@@ -50,13 +51,19 @@ interface QueuedMessage {
   source: MessageSource
   contexts: HookContext[]
   wakeup: boolean
-  meta?: JsonValue
 }
 
 /** Input awaiting the next step boundary. */
 type OutboxItem =
   | ({ kind: 'steering' } & QueuedMessage)
   | { kind: 'context'; context: HookContext }
+
+/** Mutable settlement facts shared by one turn's intake and step loop. */
+interface TurnState {
+  turn: number
+  step: number
+  reason: TurnEndReason
+}
 
 /** Build one live inbox event payload from an accepted message. */
 function inboxMessage(message: QueuedMessage, steering: boolean): AgentMessage {
@@ -96,7 +103,6 @@ function preparePromptMessage(
         displayContent: content,
         prefixContexts: prefixContexts.map(context => ({
           source: context.source,
-          ...context.meta === undefined ? {} : { meta: context.meta },
         })),
       },
     },
@@ -211,7 +217,6 @@ export class ReactLoopAgent extends Agent {
       source: options.source ?? { kind: 'user' },
       contexts: options.contexts ?? [],
       wakeup,
-      ...options.meta === undefined ? {} : { meta: options.meta },
     })
     if (steering) this.outbox.push({ kind: 'steering', ...accepted })
     else this.queued.push(accepted)
@@ -225,7 +230,6 @@ export class ReactLoopAgent extends Agent {
     const context = this.accept({
       content,
       source: options.source ?? { kind: 'plugin', plugin: '' },
-      ...options.meta === undefined ? {} : { meta: options.meta },
     })
     if (this.turnAbort !== undefined) {
       this.outbox.push({ kind: 'context', context })
@@ -280,7 +284,7 @@ export class ReactLoopAgent extends Agent {
    */
   retry(): void {
     if (this.turnAbort !== undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
-    this.start()
+    this.launch({ kind: 'retry' }, (state, signal) => this.start(state, signal))
   }
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
@@ -294,18 +298,52 @@ export class ReactLoopAgent extends Agent {
   // The machine.
   // -------------------------------------------------------------------------
 
-  /** Claim the next queued prompt and open a run on it, when nothing is driving. */
+  /** Claim, admit, and record the next queued prompt before starting its step loop. */
   private kick(): void {
     if (this.turnAbort !== undefined || !this.queued.some(message => message.wakeup)) return
     const message = this.queued.shift()
     if (message !== undefined) {
       emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(message, false))
-      this.start(message)
+      this.launch({ kind: 'message', source: message.source }, async (state, signal) => {
+        const decision = await this.loopCtx.waterfall(
+          agentCarrier(this), 'agent/prompt-submit', this, message.content, message.source, signal,
+          () => Promise.resolve<PromptDecision>({
+            kind: 'allow',
+            ...message.contexts.length === 0 ? {} : { additionalContexts: message.contexts },
+          }),
+        )
+        signal.throwIfAborted()
+
+        if (decision.kind === 'block') {
+          this.session.append('prompt/blocked', {
+            content: message.content,
+            source: message.source,
+            reason: decision.reason,
+          })
+          state.reason = { kind: 'rejected', reason: decision.reason }
+          return
+        }
+
+        const prepared = preparePromptMessage(
+          decision.content ?? message.content,
+          message.source,
+          decision.additionalContexts ?? [],
+        )
+        this.session.append('user/message', prepared.data, { surfaceOp: 'append' })
+        for (const context of prepared.separateContexts) {
+          this.outbox.push({ kind: 'context', context: this.accept(context) })
+        }
+        await this.start(state, signal)
+      }, true)
     }
   }
 
-  /** Open one `run()` — on a claimed prompt, or promptless for a retry. */
-  private start(prompt?: QueuedMessage): void {
+  /** Own one turn from its durable opening through settlement and idle handoff. */
+  private launch(
+    trigger: TurnTrigger,
+    work: (state: TurnState, signal: AbortSignal) => Promise<void>,
+    deferOpen = false,
+  ): void {
     const controller = new AbortController()
     this.turnAbort = controller
     if (!this.busy) {
@@ -314,94 +352,57 @@ export class ReactLoopAgent extends Agent {
     }
     // The whole run inherits this agent as its process-local initiator so
     // tools, the llm service, and nested factories can attribute their work.
-    this.done = this.loopCtx.agents.withInitiator(this, () => this.run(prompt, controller))
+    this.done = this.loopCtx.agents.withInitiator(this, async () => {
+      const signal = controller.signal
+      const state: TurnState = {
+        turn: ++this.lastTurn,
+        step: 0,
+        reason: { kind: 'completed' },
+      }
+      let idle: IdleReason = { kind: 'completed' }
+
+      try {
+        // A queued claim keeps its established pre-turn cancellation window:
+        // send() returns before the durable turn opens, while retry starts now.
+        if (deferOpen) await Promise.resolve()
+        signal.throwIfAborted()
+        this.session.append('turn/start', { turn: state.turn, trigger })
+        this.turnOpen = true
+        signal.throwIfAborted()
+        await work(state, signal)
+      } catch (error: unknown) {
+        ({ reason: state.reason, idle } = this.settle(state.turn, state.step, error, signal))
+      } finally {
+        if (this.turnAbort === controller) this.turnAbort = undefined
+        try {
+          this.closeTurn(state.turn, state.step, state.reason)
+        } catch (error: unknown) {
+          // A rejected boundary append (a pre-commit validation veto) must not
+          // kill the machine or strand its running interval: report and move on — the
+          // idle tail below still runs and the next turn still opens.
+          const err = toError(error)
+          this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${state.turn} failed: ${errorChain(err)}`)
+          emitAgentEvent(this.loopCtx, this, 'agent/error', state.turn, state.step, err)
+        }
+        this.idle(state.turn, idle)
+      }
+    })
   }
 
-  /**
-   * One `run()` is one turn: prompt intake (submit waterfall), the durable
-   * turn boundary, then the naive step loop until the model owes no response.
-   * Every failure funnels to the single catch — {@link settle} classifies it
-   * once (interruption beats error) — and the finally always closes the owed
-   * boundaries and runs the idle tail, which opens the next run while work
-   * remains.
-   */
-  private async run(prompt: QueuedMessage | undefined, controller: AbortController): Promise<void> {
-    const signal = controller.signal
-    const turn = ++this.lastTurn
-    let idle: IdleReason = { kind: 'completed' }
-    let reason: TurnEndReason = { kind: 'completed' }
-    let step = 0
-
-    try {
-      // Intake precedes the turn: the submit decision belongs to the prompt,
-      // not the turn (a retry opens a turn with no prompt at all). A failed
-      // intake leaves no durable trace — nothing entered the conversation.
-      const decision = prompt === undefined
-        ? undefined
-        : await this.loopCtx.waterfall(
-          agentCarrier(this), 'agent/prompt-submit', this, prompt.content, prompt.source, signal,
-          () => Promise.resolve<PromptDecision>({
-            kind: 'allow',
-            ...prompt.contexts.length === 0 ? {} : { additionalContexts: prompt.contexts },
-          }),
-        )
+  /** Run the naive step loop after retry or admitted prompt intake has prepared the turn. */
+  private async start(state: TurnState, signal: AbortSignal): Promise<void> {
+    while (true) {
+      state.step += 1
+      const { owes, maxTokens } = await this.step(state.turn, state.step, signal)
+      if (maxTokens) state.reason = { kind: 'max-tokens' }
+      // The naive rule, data-driven: run another step while the model is
+      // owed a response. On a would-stop boundary, `agent/stopping` gives
+      // listeners one chance to object — by steering, not by voting — and
+      // the outbox is re-read: data decides, so listener order cannot.
+      if (owes || this.outbox.some(item => item.kind === 'steering')) continue
+      await this.loopCtx.serial(agentCarrier(this), 'agent/stopping', this, state.turn, signal)
       signal.throwIfAborted()
-
-      this.session.append('turn/start', {
-        turn,
-        trigger: prompt === undefined ? { kind: 'retry' } : { kind: 'message', source: prompt.source },
-      })
-      this.turnOpen = true
-      signal.throwIfAborted()
-
-      if (prompt !== undefined && decision?.kind === 'block') {
-        // The audit record stays turn-enclosed: a zero-step rejected turn.
-        this.session.append('prompt/blocked', { content: prompt.content, source: prompt.source, reason: decision.reason })
-        reason = { kind: 'rejected', reason: decision.reason }
-      } else {
-        if (prompt !== undefined && decision?.kind === 'allow') {
-          const prepared = preparePromptMessage(
-            decision.content ?? prompt.content,
-            prompt.source,
-            decision.additionalContexts ?? [],
-          )
-          this.session.append('user/message', {
-            ...prepared.data,
-            ...prompt.meta === undefined ? {} : { meta: prompt.meta },
-          }, { surfaceOp: 'append' })
-          for (const context of prepared.separateContexts) {
-            this.outbox.push({ kind: 'context', context: this.accept(context) })
-          }
-        }
-        while (true) {
-          step += 1
-          const { owes, maxTokens } = await this.step(turn, step, signal)
-          if (maxTokens) reason = { kind: 'max-tokens' }
-          // The naive rule, data-driven: run another step while the model is
-          // owed a response. On a would-stop boundary, `agent/stopping` gives
-          // listeners one chance to object — by steering, not by voting — and
-          // the outbox is re-read: data decides, so listener order cannot.
-          if (owes || this.outbox.some(item => item.kind === 'steering')) continue
-          await this.loopCtx.serial(agentCarrier(this), 'agent/stopping', this, turn, signal)
-          signal.throwIfAborted()
-          if (!this.outbox.some(item => item.kind === 'steering')) break
-        }
-      }
-    } catch (error: unknown) {
-      ({ reason, idle } = this.settle(turn, step, error, signal))
-    } finally {
-      if (this.turnAbort === controller) this.turnAbort = undefined
-      try {
-        this.closeTurn(turn, step, reason)
-      } catch (error: unknown) {
-        // A rejected boundary append (a pre-commit validation veto) must not
-        // kill the machine or strand its running interval: report and move on — the
-        // idle tail below still runs and the next turn still opens.
-        const err = toError(error)
-        this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(err)}`)
-        emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, err)
-      }
-      this.idle(turn, idle)
+      if (!this.outbox.some(item => item.kind === 'steering')) break
     }
   }
 
@@ -569,12 +570,8 @@ export class ReactLoopAgent extends Agent {
     let steered = false
     for (const item of this.outbox.splice(0)) {
       if (item.kind === 'context') {
-        const { content, source, meta } = item.context
-        this.session.append('user/message', {
-          content,
-          source,
-          ...meta === undefined ? {} : { meta },
-        }, { surfaceOp: 'append' })
+        const { content, source } = item.context
+        this.session.append('user/message', { content, source }, { surfaceOp: 'append' })
         continue
       }
       steered = true
@@ -583,15 +580,10 @@ export class ReactLoopAgent extends Agent {
       this.session.append('steering/message', {
         turn,
         ...prepared.data,
-        ...item.meta === undefined ? {} : { meta: item.meta },
       }, { surfaceOp: 'append' })
       for (const context of prepared.separateContexts) {
-        const { content, source, meta } = context
-        this.session.append('user/message', {
-          content,
-          source,
-          ...meta === undefined ? {} : { meta },
-        }, { surfaceOp: 'append' })
+        const { content, source } = context
+        this.session.append('user/message', { content, source }, { surfaceOp: 'append' })
       }
     }
     return steered

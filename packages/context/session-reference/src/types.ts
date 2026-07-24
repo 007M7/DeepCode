@@ -4,6 +4,30 @@ import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
+/** Durable provenance for one prepared cross-session context. */
+export interface SessionReferenceSource {
+  kind: 'session-reference'
+  version: 1
+  references: {
+    sessionId: string
+    label: string
+    capturedThroughSeq: number | null
+    compacted: boolean
+    originalMessages: number
+    retainedMessages: number
+    omittedMessages: number
+    omittedBytes: number
+    truncated: boolean
+    inputIndex: number
+  }[]
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'session-reference': SessionReferenceSource
+  }
+}
+
 /** One source session selected by a host. */
 export interface SessionReferenceInput {
   /** Opaque source session identity. */

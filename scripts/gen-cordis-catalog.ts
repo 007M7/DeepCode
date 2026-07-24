@@ -38,6 +38,7 @@ export const LINK_MAP: Record<string, string> = {
   AgentMessage: 'core.md',
   AgentMessageId: 'core.md',
   HookContext: 'core.md',
+  IdleReason: 'core.md',
   LlmCallConfig: 'core.md',
   LlmModelContext: 'core.md',
   LlmFailure: 'llm-streaming.md',

@@ -515,7 +515,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
         additionalContexts: [{
           content: [{ type: 'text' as const, text: 'from-downstream' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
-          meta: { owner: 'policy' },
         }],
       }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -533,7 +532,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
         { kind: 'plugin', plugin: 'hooks-claude' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'user/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
 
     it('folds the bridge PostToolUse context onto a downstream canonical value replacement', async () => {
@@ -566,7 +564,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
         additionalContexts: [{
           content: [{ type: 'text' as const, text: 'downstream-note' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
-          meta: { owner: 'policy' },
         }],
       }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -578,7 +575,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
         { kind: 'plugin', plugin: 'hooks-claude' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'user/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
 
     it('folds the bridge PostToolUse context onto a downstream listener BLOCK', async () => {

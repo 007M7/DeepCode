@@ -1067,8 +1067,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })
     expect(result.agent.sentOptions[0]?.contexts).toMatchObject([{
-      source: { kind: 'plugin', plugin: 'session-reference' },
-      meta: { kind: 'session-reference', references: [{ sessionId: 'source-session' }] },
+      source: { kind: 'session-reference', references: [{ sessionId: 'source-session' }] },
     }])
 
     result.agent.status = 'running'
@@ -1324,11 +1323,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
       envelope: {
         displayContent: [{ type: 'text', text: 'visible referenced question' }],
         prefixContexts: [{
-          source: { kind: 'plugin', plugin: 'session-reference' },
-          meta: {
+          source: {
             kind: 'session-reference',
             references: [{ sessionId: 'prefixed', label: 'Prefixed source' }],
-          },
+          } as never,
         }],
       },
     }, { surfaceOp: 'append' })
@@ -1348,13 +1346,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
       envelope: {
         displayContent: [{ type: 'text', text: 'visible steering prompt' }],
         prefixContexts: [
-          { source: { kind: 'plugin', plugin: 'other' }, meta: { kind: 'other' } },
+          { source: { kind: 'plugin', plugin: 'other' } },
           {
-            source: { kind: 'plugin', plugin: 'session-reference' },
-            meta: {
+            source: {
               kind: 'session-reference',
               references: [{ sessionId: 'steering-source', label: 'Steering source' }],
-            },
+            } as never,
           },
         ],
       },
@@ -1366,12 +1363,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     result.session.append('user/message', {
       content: [{ type: 'text', text: 'secret full snapshot payload' }],
-      source: { kind: 'plugin', plugin: 'session-reference' },
-      meta: {
+      source: {
         kind: 'session-reference',
         version: 1,
         references: [{ sessionId: 'source', label: 'Source', capturedThroughSeq: 2 }],
-      },
+      } as never,
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('Referenced sessions · Source (source)')
@@ -1382,17 +1378,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
       [{ kind: 'session-reference', references: [null] }, 'invalid-entry'],
       [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],
     ]
-    for (const [meta, text] of invalidCards) {
+    for (const [source, text] of invalidCards) {
       result.session.append('user/message', {
         content: [{ type: 'text', text }],
-        source: { kind: 'plugin', plugin: 'session-reference' },
-        meta,
+        source: source as never,
       }, { surfaceOp: 'append' })
     }
     result.session.append('user/message', {
       content: [{ type: 'text', text: 'same-label snapshot' }],
-      source: { kind: 'plugin', plugin: 'session-reference' },
-      meta: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] },
+      source: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] } as never,
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('Referenced sessions · same')

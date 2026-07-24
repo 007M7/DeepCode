@@ -92,14 +92,12 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    const meta = { kind: 'prompt-context', version: 1 }
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
         additionalContexts: [{
           content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
           source: { kind: 'plugin', plugin: 'test' },
-          meta,
         }],
       }))
 
@@ -112,7 +110,6 @@ describe('agent/prompt-submit', () => {
     expect(userMsg).toBeDefined()
     expect(ctxMsg?.type === 'user/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
     expect(ctxMsg?.type === 'user/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    expect(ctxMsg?.type === 'user/message' && ctxMsg.data.meta).toEqual(meta)
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
   })
@@ -133,7 +130,6 @@ describe('agent/prompt-submit', () => {
         content: [{ type: 'text', text: 'untrusted prefix' }],
         source: { kind: 'plugin', plugin: 'prefix' },
         placement: 'prompt-prefix',
-        meta: { kind: 'prefix-card' },
       }],
     })
     await waitForIdle(ctx, agent)
@@ -151,7 +147,6 @@ describe('agent/prompt-submit', () => {
         displayContent: [{ type: 'text', text: 'rewritten request' }],
         prefixContexts: [{
           source: { kind: 'plugin', plugin: 'prefix' },
-          meta: { kind: 'prefix-card' },
         }],
       },
     })
@@ -616,7 +611,6 @@ describe('tool additionalContexts buffering across a step', () => {
         additionalContexts: [{
           content: [{ type: 'text', text: `ctx-${exec.callId}` }],
           source: { kind: 'plugin', plugin: 'p' },
-          meta: { callId: exec.callId },
         }],
       }))
 
@@ -638,7 +632,6 @@ describe('tool additionalContexts buffering across a step', () => {
       .flatMap(e => (e.type === 'user/message' ? e.data.content : []))
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
-    expect(injected.map(e => e.type === 'user/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
   })
 
   it('appends multiple contexts deferred by one composite tool after its outer result', async () => {
@@ -647,8 +640,8 @@ describe('tool additionalContexts buffering across a step', () => {
     ctx.tools.register(defineContentToolFixture({
       name: 'composite', description: 'composite', parameters: {},
       async execute(_args, exec) {
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' }, meta: { order: 1 } })
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, meta: { order: 2 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' } })
         return [{ type: 'text', text: 'outer result' }]
       },
     }))
@@ -666,7 +659,6 @@ describe('tool additionalContexts buffering across a step', () => {
       { kind: 'plugin', plugin: 'a' },
       { kind: 'plugin', plugin: 'b' },
     ])
-    expect(contextEvents.map(event => event.type === 'user/message' && event.data.meta)).toEqual([{ order: 1 }, { order: 2 }])
   })
 })
 

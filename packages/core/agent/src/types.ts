@@ -26,7 +26,7 @@ import type { Context } from 'cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, LlmFailure, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -78,8 +78,6 @@ export interface SendOptions {
    * records them directly at its next checkpoint.
    */
   contexts?: HookContext[]
-  /** Opaque JSON state retained on the durable message but hidden from the model. */
-  meta?: JsonValue
 }
 
 /** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
@@ -106,9 +104,7 @@ export function AgentMessageId(id: string): AgentMessageId {
  * message's enqueue, dequeue, and discard events. Source defaults are already
  * applied, so these are the exact values the item was accepted with. `steering`
  * is true for a `next-step` item drained between steps; a `next-turn` item is
- * claimed at a turn boundary. `SendOptions.meta` is intentionally omitted: it is
- * durable model-hidden state that lands on the eventual `user/message`/
- * `steering/message`, not live-event routing data.
+ * claimed at a turn boundary.
  */
 export interface AgentMessage {
   /** The id `send` returned for this message. */
@@ -150,8 +146,6 @@ export interface HookContext {
    * request delimiter to the same user-role message as its attached prompt.
    */
   placement?: 'separate' | 'prompt-prefix'
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
 }
 
 /**
@@ -414,7 +408,7 @@ declare module 'cordis' {
      * @param step - the step whose request this is.
      * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode compose
+     * @mode waterfall
      */
     'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
