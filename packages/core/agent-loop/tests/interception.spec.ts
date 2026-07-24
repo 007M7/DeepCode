@@ -114,53 +114,6 @@ describe('agent/prompt-submit', () => {
     expect(sent).toContain('extra ctx')
   })
 
-  it('bakes prompt-prefix contexts and a request delimiter into one durable user message', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('prefixed'), { provider: 'mock', model: 'mock' })
-
-    ctx.on('agent/prompt-submit', async (_agent, _content, _source, _signal, next): Promise<PromptDecision> => {
-      const downstream = await next()
-      return downstream.kind === 'block'
-        ? downstream
-        : { ...downstream, content: [{ type: 'text', text: 'rewritten request' }] }
-    })
-    agent.send([{ type: 'text', text: 'original request' }], {
-      contexts: [{
-        content: [{ type: 'text', text: 'untrusted prefix' }],
-        source: { kind: 'plugin', plugin: 'prefix' },
-        placement: 'prompt-prefix',
-      }],
-    })
-    await waitForIdle(ctx, agent)
-
-    const log = events(agent)
-    const user = log.find(event => event.type === 'user/message')
-    expect(user?.type === 'user/message' && user.data).toEqual({
-      content: [
-        { type: 'text', text: 'untrusted prefix' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'rewritten request' },
-      ],
-      source: { kind: 'user' },
-      envelope: {
-        displayContent: [{ type: 'text', text: 'rewritten request' }],
-        prefixContexts: [{
-          source: { kind: 'plugin', plugin: 'prefix' },
-        }],
-      },
-    })
-    expect(log.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
-    expect(adapter.requests[0]?.messages.at(-1)).toEqual({
-      role: 'user',
-      content: [
-        { type: 'text', text: 'untrusted prefix' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'rewritten request' },
-      ],
-    })
-  })
-
   it('runs pre-step after prompt rewrites and injected context become durable', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
@@ -198,9 +151,7 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    agent.send([{ type: 'text', text: 'do something' }], {
-      contexts: [{ content: [{ type: 'text', text: 'must be dropped' }], source: { kind: 'plugin', plugin: 'test' } }],
-    })
+    agent.send([{ type: 'text', text: 'do something' }])
     await waitForIdle(ctx, agent)
 
     // the model was never called

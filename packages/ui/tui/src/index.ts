@@ -44,7 +44,6 @@ import {
   type AgentLlmTarget,
   type AgentLlmTargetRef,
   type AgentStatus,
-  type HookContext,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -58,7 +57,6 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
-  displayPromptContent,
   SessionId,
   type JsonValue,
   type Session,
@@ -1551,13 +1549,6 @@ function sessionReferenceCard(source: unknown): string[] | undefined {
   return labels
 }
 
-function promptReferenceCards(event: Extract<SessionEvent, { type: 'user/message' | 'steering/message' }>): string[][] {
-  return event.data.envelope?.prefixContexts.flatMap((context) => {
-    const card = sessionReferenceCard(context.source)
-    return card === undefined ? [] : [card]
-  }) ?? []
-}
-
 function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
   const ids = new Set<string>()
   for (const event of session.events) {
@@ -1974,27 +1965,19 @@ export function createTuiChat(
           }
           break
         }
-        const text = displayText(contentText(displayPromptContent(event.data)).trim())
+        const text = displayText(contentText(event.data.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme))
           if (options.addHistory) editor.addToHistory(text)
         }
-        for (const references of promptReferenceCards(event)) {
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
-        }
         break
       }
       case 'steering/message': {
-        const text = displayText(contentText(displayPromptContent(event.data)).trim())
+        const text = displayText(contentText(event.data.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
-        }
-        for (const references of promptReferenceCards(event)) {
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
         }
         break
       }
@@ -2518,19 +2501,19 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  const dispatchMessage = (content: ContentBlock[], contexts: HookContext[]): void => {
+  const dispatchMessage = (content: ContentBlock[]): void => {
     if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
-      agent.steer(content, { source: { kind: 'user' }, contexts })
+      agent.steer(content, { source: { kind: 'user' } })
     } else {
-      agent.send(content, { source: { kind: 'user' }, contexts })
+      agent.send(content, { source: { kind: 'user' } })
     }
   }
 
   /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
   const deliver = (payload: string): void => {
-    dispatchMessage([{ type: 'text', text: payload }], [])
+    dispatchMessage([{ type: 'text', text: payload }])
   }
 
   /** Load a manually invoked skill and deliver its rendered body as a user turn, reporting lookup outcomes as notices. */
@@ -2671,7 +2654,7 @@ export function createTuiChat(
     if (parsed.references.length === 0) {
       editor.addToHistory(text)
       editor.setText('')
-      dispatchMessage([{ type: 'text', text: parsed.text }], [])
+      dispatchMessage([{ type: 'text', text: parsed.text }])
       return
     }
     const sessionReferences = ctx.get('sessionReferences')
@@ -2692,7 +2675,10 @@ export function createTuiChat(
       if (disposed) return
       editor.addToHistory(text)
       if (editor.getText() === value) editor.setText('')
-      dispatchMessage(prepared.content, prepared.contexts)
+      if (prepared.additionalContext !== undefined) {
+        agent.inject(prepared.additionalContext.content, { source: prepared.additionalContext.source })
+      }
+      dispatchMessage(prepared.content)
     }, (error: unknown) => {
       if (!disposed && !controller.signal.aborted) {
         restoreSubmittedInput()

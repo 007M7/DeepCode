@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-workspace-context/state
  */
 
-import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
+import type { AdditionalContext, Agent } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileSystem, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -77,14 +77,14 @@ export interface InstructionVersionUpdate {
 
 /** Rendered reconciliation plus cache transitions awaiting final policy. */
 export interface ReconciledInstructionContext {
-  context: WorkspaceHookContext
+  context: WorkspaceAdditionalContext
   versionUpdates: InstructionVersionUpdate[]
 }
 
 /** Plugin-owned workspace context. */
-export type WorkspaceHookContext = HookContext
+export type WorkspaceAdditionalContext = AdditionalContext
 
-function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): WorkspaceHookContext {
+function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): WorkspaceAdditionalContext {
   return {
     content: [{ type: 'text', text }],
     source: { kind: 'workspace-instructions', changes },
@@ -327,7 +327,7 @@ export function observeInstructionSessionEvent(
  */
 export function commitPendingInstructionContexts(
   agent: Agent,
-  contexts: readonly HookContext[] | undefined,
+  contexts: readonly AdditionalContext[] | undefined,
   pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
 ): WorkspaceInstructionChange[] {
   const committed: WorkspaceInstructionChange[] = []

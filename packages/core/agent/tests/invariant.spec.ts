@@ -58,7 +58,7 @@ describe('agent status invariants', () => {
 })
 
 describe('agent inbox invariants', () => {
-  const info = (steering: boolean) => ({ id: AgentMessageId('m'), content: [], source: { kind: 'user' as const }, contexts: [], steering, wakeup: true })
+  const info = (steering: boolean) => ({ id: AgentMessageId('m'), content: [], source: { kind: 'user' as const }, steering, wakeup: true })
 
   it('accepts a dequeue and a discard covered by prior enqueues', async () => {
     const ctx = await setup()

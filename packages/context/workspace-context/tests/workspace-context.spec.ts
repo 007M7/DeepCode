@@ -7,7 +7,7 @@ import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentMessageId, type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMessageId, type AdditionalContext, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -203,12 +203,12 @@ function blocksText(blocks: { type: string; text?: string }[] | undefined): stri
   return blocks?.map(block => block.type === 'text' ? block.text ?? '' : '').join('\n') ?? ''
 }
 
-function workspaceContextOf(result: { additionalContexts?: HookContext[] }): HookContext | undefined {
+function workspaceContextOf(result: { additionalContexts?: AdditionalContext[] }): AdditionalContext | undefined {
   return result.additionalContexts?.find(context =>
     context.source.kind === 'workspace-instructions')
 }
 
-function workspaceChangeContext(scope: string, digest: string): HookContext {
+function workspaceChangeContext(scope: string, digest: string): AdditionalContext {
   return {
     content: [{ type: 'text', text: `instructions for ${scope}` }],
     source: {
@@ -218,7 +218,7 @@ function workspaceChangeContext(scope: string, digest: string): HookContext {
   }
 }
 
-function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: HookContext[] }): number | undefined {
+function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: AdditionalContext[] }): number | undefined {
   let lastSeq: number | undefined
   for (const context of result.additionalContexts ?? []) {
     lastSeq = agent.session.append('user/message', {

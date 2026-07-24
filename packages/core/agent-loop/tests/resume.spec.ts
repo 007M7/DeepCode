@@ -454,16 +454,15 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
   })
 
   it('an idle inject() is flushed durably on its own (survives without explicit flush/dispose)', async () => {
-    // Idle injection creates and flushes a one-shot turn. No explicit flush or
-    // clean disposal follows, so disk presence proves its own checkpoint ran.
+    // No clean disposal follows, so disk presence proves the idle injection's
+    // own checkpoint ran without a synthetic turn.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
-    // Let inject()'s fire-and-forget flush settle (NO explicit flush/dispose).
-    await new Promise(r => setTimeout(r, 30))
+    await a1.whenIdle()
 
     // A SEPARATE backend reads the on-disk log — proving the inject persisted
     // itself, not a later dispose drain.
@@ -476,16 +475,14 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx1.fiber.dispose()
   })
 
-  it('an idle inject() survives persist + resume (turn-enclosed, not dropped as crash tail)', async () => {
-    // Turn enclosure keeps idle context out of crash-tail repair, so it must
-    // survive persistence and resume.
+  it('an idle inject() survives persist + resume without a synthetic turn', async () => {
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
-    await ctx1.sessions.flush(a1.session)
+    await a1.whenIdle()
     await ctx1.fiber.dispose()
 
     // Lifecycle 2: resume; the injected context is still in the derived history.

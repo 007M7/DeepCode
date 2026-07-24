@@ -1,16 +1,7 @@
 /**
- * The concrete Agent, in the naive-agent shape: the agent IS the machine.
- * Two inboxes — `queued` (prompts, one turn each) and `outbox` (steering +
- * injected or admitted input, taken at turn start and every step boundary).
- * `kick()` claims one queued prompt and resolves admission before `run()` owns
- * the turn boundaries, step loop, settlement, and idle handoff.
- *
- * The session log IS the transcript: every take appends, every step re-derives
- * (`session.deriveMessages()`), so editing history between steps is naturally
- * legal — recovery is "observe the error idle, repair the log, retry()".
- * Because the outbox is only ever taken at a step boundary, nothing can land
- * between an assistant tool-call batch and its results; wire adjacency needs
- * no dedicated machinery.
+ * Concrete Agent loop over two pending-input lists: queued prompts each open a
+ * turn, while admitted input, steering, and injected context enter through the
+ * outbox at step boundaries. Every request is derived from the session log.
  *
  * @module dsh-agent-loop/agent
  */
@@ -27,7 +18,6 @@ import type {
   AgentInterruptReason,
   AgentOptions,
   AgentStatus,
-  HookContext,
   IdleReason,
   PromptDecision,
   SendOptions,
@@ -44,63 +34,28 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
-/** A prompt waiting for a turn of its own. */
-interface QueuedMessage {
+/** One message waiting in the queued or steering inbox. */
+interface PendingMessage {
   id: AgentMessageIdType
   content: ContentBlock[]
   source: MessageSource
-  contexts: HookContext[]
   wakeup: boolean
 }
 
-/** One model-facing input awaiting the next step boundary. */
-interface OutboxItem {
-  data: PromptMessageData
-  steering?: QueuedMessage
+/** Model-facing input awaiting the next step boundary. */
+interface OutboxItem extends PromptMessageData {
+  /** Present only when this input is a live inbox item. */
+  steering?: PendingMessage
 }
 
-/** Build one live inbox event payload from a queued message. */
-function inboxMessage(message: QueuedMessage, steering: boolean): AgentMessage {
+/** Build one live inbox event payload from a pending message. */
+function inboxMessage(message: PendingMessage, steering: boolean): AgentMessage {
   return {
     id: message.id,
     content: message.content,
     source: message.source,
-    contexts: message.contexts,
     steering,
     wakeup: message.wakeup,
-  }
-}
-
-const PROMPT_PREFIX_REQUEST_DELIMITER: ContentBlock = {
-  type: 'text',
-  text: '\n\n## My request:\n',
-}
-
-/** Bake prompt-prefix contexts into one reconstructable prompt event. */
-function preparePromptMessage(
-  content: ContentBlock[],
-  source: MessageSource,
-  contexts: readonly HookContext[],
-): { data: PromptMessageData; separateContexts: HookContext[] } {
-  const prefixContexts = contexts.filter(context => context.placement === 'prompt-prefix')
-  const separateContexts = contexts.filter(context => context.placement !== 'prompt-prefix')
-  if (prefixContexts.length === 0) return { data: { content, source }, separateContexts }
-  return {
-    data: {
-      content: [
-        ...prefixContexts.flatMap(context => context.content),
-        PROMPT_PREFIX_REQUEST_DELIMITER,
-        ...content,
-      ],
-      source,
-      envelope: {
-        displayContent: content,
-        prefixContexts: prefixContexts.map(context => ({
-          source: context.source,
-        })),
-      },
-    },
-    separateContexts,
   }
 }
 
@@ -126,26 +81,21 @@ function withoutToolCalls(message: Message): Message {
   return { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
 }
 
-// ---------------------------------------------------------------------------
-// The agent.
-// ---------------------------------------------------------------------------
-
 /**
- * The concrete {@link Agent}: the classic naive agent loop — whole derived
- * history in, one assistant message out, loop until a reply owes no tool call.
- * One `run()` owns one complete turn.
+ * The concrete {@link Agent}: each `run()` owns one turn and repeats model
+ * steps while tools or steering require another request.
  */
 export class ReactLoopAgent extends Agent {
-  /** Prompts awaiting a turn of their own: one dequeued per turn, FIFO. */
-  private queued: QueuedMessage[] = []
-  /** Taken whole at every step boundary; caller-editable until taken (taken = entered the log). */
+  /** Prompts awaiting individual turns. */
+  private queued: PendingMessage[] = []
+  /** Input taken into the session log at step boundaries. */
   private outbox: OutboxItem[] = []
 
-  /** Whether observers see one running drain interval; queued turns share it. */
+  /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
-  /** The claimed activity's abort owner, spanning prompt admission and its turn. */
-  private turnAbort: AbortController | undefined
-  /** Resolves when the current admission-plus-turn activity fully exits. */
+  /** Abort owner for the current admission or turn. */
+  private abort: AbortController | undefined
+  /** Resolves when the current admission and turn exit. */
   done: Promise<void> = Promise.resolve()
 
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after {@link done}. */
@@ -153,13 +103,9 @@ export class ReactLoopAgent extends Agent {
   /** The agent's scoped composition context ({@link Agent.ctx}). */
   readonly ctx: Context
 
-  /**
-   * The last turn number this machine (or the seeded log) opened. The machine
-   * is the session's only turn author, so after the one seed scan below it
-   * simply counts.
-   */
+  /** Last turn number opened by this loop or present in its seeded log. */
   private lastTurn: number
-  /** Whether the machine owes the log a `turn/end` / `step/end` right now. */
+  /** Whether the session log is owed a matching turn end event. */
   private turnOpen = false
   private stepOpen = false
 
@@ -171,7 +117,6 @@ export class ReactLoopAgent extends Agent {
   ) {
     super()
     this.lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
-    // The scope is keyed by this agent — an opaque identity, fine mid-construction.
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx.extend({ agent: this })
   }
@@ -181,51 +126,35 @@ export class ReactLoopAgent extends Agent {
     return this.busy ? 'running' : 'idle'
   }
 
-  // -------------------------------------------------------------------------
-  // Public driving verbs.
-  // -------------------------------------------------------------------------
-
   /** Accept and route one unified send item. */
   send(content: ContentBlock[], options: SendOptions = {}): AgentMessageIdType {
     const id = AgentMessageId(randomUUID())
     const target = options.target ?? 'next-turn'
     const wakeup = options.wakeup ?? true
     if (target === 'next-step' && !wakeup) {
-      const context: HookContext = {
-        content,
-        source: options.source ?? { kind: 'plugin', plugin: '' },
-      }
-      if (this.turnAbort !== undefined) {
-        this.outbox.push({ data: { content: context.content, source: context.source } })
+      const source = options.source ?? { kind: 'plugin', plugin: '' }
+      if (this.turnOpen) {
+        this.outbox.push({ content, source })
         return id
       }
-
-      const turn = ++this.lastTurn
-      let opened = false
-      try {
-        this.session.append('turn/start', { turn, trigger: { kind: 'injection', source: context.source } })
-        opened = true
-        this.session.append('user/message', context, { surfaceOp: 'append' })
-      } finally {
-        if (opened) this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
-      }
+      this.session.append('user/message', { content, source }, { surfaceOp: 'append' })
+      const previous = this.done
+      const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
+        this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${errorChain(toError(error))}`)
+      })
+      this.done = Promise.all([previous, flush]).then(() => undefined)
       return id
     }
 
-    const steering = target === 'next-step' && this.turnAbort !== undefined
-    const message: QueuedMessage = {
+    const steering = target === 'next-step' && this.turnOpen
+    const message: PendingMessage = {
       id,
       content,
       source: options.source ?? { kind: 'user' },
-      contexts: options.contexts ?? [],
       wakeup,
     }
     if (steering) {
-      const prepared = preparePromptMessage(message.content, message.source, message.contexts)
-      this.outbox.push({ data: prepared.data, steering: message })
-      for (const context of prepared.separateContexts) {
-        this.outbox.push({ data: { content: context.content, source: context.source } })
-      }
+      this.outbox.push({ content: message.content, source: message.source, steering: message })
     } else {
       this.queued.push(message)
     }
@@ -242,7 +171,7 @@ export class ReactLoopAgent extends Agent {
    * all owned by the factory.
    */
   cancel(cause: AgentInterruptReason, options: CancelOptions = {}): void {
-    if (this.turnAbort !== undefined || this.queued.length > 0 || this.outbox.length > 0) {
+    if (this.abort !== undefined || this.queued.length > 0 || this.outbox.length > 0) {
       // Observe-only: coordination consumers update their state before the
       // inboxes clear; listener failures are contained by the dispatcher.
       if (cause.kind !== 'disposed') emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)
@@ -258,7 +187,7 @@ export class ReactLoopAgent extends Agent {
       if (discarded.length > 0) emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', discarded)
     }
     const reason = Object.freeze({ kind: cause.kind })
-    this.turnAbort?.abort(reason)
+    this.abort?.abort(reason)
   }
 
   /**
@@ -268,133 +197,74 @@ export class ReactLoopAgent extends Agent {
    * @throws while a turn is running — there is nothing to retry yet.
    */
   retry(): void {
-    if (this.turnAbort !== undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
-    this.done = this.loopCtx.agents.withInitiator(this, () => this.run({ kind: 'retry' }))
+    if (this.abort !== undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
+    const previous = this.done
+    const run = this.loopCtx.agents.withInitiator(this, () => this.run({ kind: 'retry' }))
+    this.done = Promise.all([previous, run]).then(() => undefined)
   }
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
   async whenIdle(): Promise<void> {
-    // `done` is replaced per run, so re-reading it each lap follows chained
-    // turns; a run failure still counts as quiescence for the waiter.
-    while (this.turnAbort !== undefined || this.queued.some(message => message.wakeup)) {
-      await this.done.catch(() => undefined)
+    // `done` is replaced by runs and idle-injection flushes. Re-read after
+    // every settlement so work admitted by a synchronous observer is included.
+    while (true) {
+      const done = this.done
+      await done.catch(() => undefined)
+      if (done === this.done && this.abort === undefined && !this.queued.some(message => message.wakeup)) return
     }
   }
 
-  // -------------------------------------------------------------------------
-  // The machine.
-  // -------------------------------------------------------------------------
-
   /** Claim and admit the next queued prompt, then start its turn. */
   private kick(): void {
-    if (this.turnAbort !== undefined || !this.queued.some(message => message.wakeup)) return
+    if (this.abort !== undefined || !this.queued.some(message => message.wakeup)) return
     const message = this.queued.shift()
     if (message === undefined) return
 
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(message, false))
-    const controller = new AbortController()
-    this.turnAbort = controller
-    this.done = this.loopCtx.agents.withInitiator(this, async () => {
-      const signal = controller.signal
+    const admission = new AbortController()
+    this.abort = admission
+    const previous = this.done
+    const admissionTask = this.loopCtx.agents.withInitiator(this, async () => {
+      const signal = admission.signal
       const trigger: TurnTrigger = { kind: 'message', source: message.source }
+      let admitted = false
       try {
         signal.throwIfAborted()
         const decision = await this.loopCtx.waterfall(
           agentCarrier(this), 'agent/prompt-submit', this, message.content, message.source, signal,
-          () => Promise.resolve<PromptDecision>({
-            kind: 'allow',
-            ...message.contexts.length === 0 ? {} : { additionalContexts: message.contexts },
-          }),
+          () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
         )
         signal.throwIfAborted()
 
-        if (decision.kind === 'block') {
-          this.rejectPrompt(trigger, message, decision.reason, controller)
-          return
-        } else {
-          const prepared = preparePromptMessage(
-            decision.content ?? message.content,
-            message.source,
-            decision.additionalContexts ?? [],
-          )
-          this.outbox.push({ data: prepared.data })
-          for (const context of prepared.separateContexts) {
-            this.outbox.push({ data: { content: context.content, source: context.source } })
+        if (decision.kind === 'allow') {
+          this.outbox.push({ content: decision.content ?? message.content, source: message.source })
+          for (const context of decision.additionalContexts ?? []) {
+            this.outbox.push({ content: context.content, source: context.source })
           }
+          admitted = true
         }
       } catch (error: unknown) {
-        this.failAdmission(trigger, error, controller)
+        if (agentInterruptReasonOf(signal) === undefined) {
+          const failure = toError(error)
+          this.loopCtx.logger.warn(`agent "${this.id}": prompt admission failed: ${errorChain(failure)}`)
+        }
+      }
+
+      if (this.abort === admission) this.abort = undefined
+      if (!admitted) {
+        this.continueOrIdle()
         return
       }
-      if (this.turnAbort === controller) this.turnAbort = undefined
       await this.run(trigger)
     })
-  }
-
-  /** Record a policy-blocked prompt as a zero-step turn. */
-  private rejectPrompt(
-    trigger: TurnTrigger,
-    message: QueuedMessage,
-    rejection: string,
-    controller: AbortController,
-  ): void {
-    if (!this.busy) {
-      this.busy = true
-      emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
-    }
-    const signal = controller.signal
-    const turn = ++this.lastTurn
-    let reason: TurnEndReason = { kind: 'rejected', reason: rejection }
-    let idle: IdleReason = { kind: 'completed' }
-
-    try {
-      signal.throwIfAborted()
-      this.session.append('turn/start', { turn, trigger })
-      this.turnOpen = true
-      signal.throwIfAborted()
-      this.drainOutbox(turn)
-      this.session.append('prompt/blocked', {
-        content: message.content,
-        source: message.source,
-        reason: rejection,
-      })
-    } catch (error: unknown) {
-      ({ reason, idle } = this.settle(turn, 0, error, signal))
-    } finally {
-      this.finishTurn(controller, turn, 0, reason, idle)
-    }
-  }
-
-  /** Settle a prompt-admission failure without entering the step loop. */
-  private failAdmission(trigger: TurnTrigger, failure: unknown, controller: AbortController): void {
-    if (!this.busy) {
-      this.busy = true
-      emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
-    }
-    const signal = controller.signal
-    const turn = ++this.lastTurn
-    let reason: TurnEndReason = { kind: 'completed' }
-    let idle: IdleReason = { kind: 'completed' }
-
-    try {
-      signal.throwIfAborted()
-      this.session.append('turn/start', { turn, trigger })
-      this.turnOpen = true
-      signal.throwIfAborted()
-      this.drainOutbox(turn)
-      throw failure
-    } catch (error: unknown) {
-      ({ reason, idle } = this.settle(turn, 0, error, signal))
-    } finally {
-      this.finishTurn(controller, turn, 0, reason, idle)
-    }
+    this.done = Promise.all([previous, admissionTask]).then(() => undefined)
   }
 
   /** Own one complete turn over input already admitted by {@link kick}, or retry history as-is. */
   private async run(trigger: TurnTrigger): Promise<void> {
-    if (this.turnAbort !== undefined) throw new Error(`agent "${this.id}" is already running`)
+    if (this.abort !== undefined) throw new Error(`agent "${this.id}" is already running`)
     const controller = new AbortController()
-    this.turnAbort = controller
+    this.abort = controller
     if (!this.busy) {
       this.busy = true
       emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
@@ -415,9 +285,9 @@ export class ReactLoopAgent extends Agent {
 
       while (true) {
         step += 1
-        const { owes, maxTokens } = await this.step(turn, step, signal)
+        const { continueTurn, maxTokens } = await this.step(turn, step, signal)
         if (maxTokens) reason = { kind: 'max-tokens' }
-        if (owes || this.outbox.some(item => item.steering !== undefined)) continue
+        if (continueTurn || this.outbox.some(item => item.steering !== undefined)) continue
         await this.loopCtx.serial(agentCarrier(this), 'agent/stopping', this, turn, signal)
         signal.throwIfAborted()
         if (!this.drainOutbox(turn)) break
@@ -425,17 +295,36 @@ export class ReactLoopAgent extends Agent {
     } catch (error: unknown) {
       ({ reason, idle } = this.settle(turn, step, error, signal))
     } finally {
-      this.finishTurn(controller, turn, step, reason, idle)
+      try {
+        if (this.stepOpen) {
+          this.stepOpen = false
+          this.session.append('step/end', { turn, step })
+        }
+        if (this.turnOpen) {
+          // Re-entrant turn/end listeners must route new input to a later turn.
+          this.turnOpen = false
+          this.session.append('turn/end', { turn, reason })
+        }
+      } catch (error: unknown) {
+        const err = toError(error)
+        this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(err)}`)
+        emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, err)
+      }
+      if (this.abort === controller) this.abort = undefined
+      emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
+      this.continueOrIdle()
     }
   }
 
   /**
-   * One whole step: the `agent/step` seam, take the outbox, derive the
-   * history, one request, its tool calls — bracketed by the durable
-   * step/start / step/end pair. The naive core: whole history in, one
-   * assistant message out.
+   * Run the `agent/step` seam, commit pending input, derive one request, and
+   * execute its tool calls inside one durable step boundary.
    */
-  private async step(turn: number, step: number, signal: AbortSignal): Promise<{ owes: boolean; maxTokens: boolean }> {
+  private async step(
+    turn: number,
+    step: number,
+    signal: AbortSignal,
+  ): Promise<{ continueTurn: boolean; maxTokens: boolean }> {
     const { session } = this
 
     // The single between-steps seam: listeners inject, steer, or edit the log
@@ -462,7 +351,6 @@ export class ReactLoopAgent extends Agent {
 
     const request = await this.buildRequest(turn, step, assembly.tools, system, boundaryMessages, signal)
 
-    // --- Model call (streaming-first; raw chunks are the replay record) ---
     const assembler = new BlockAssembler()
     const chunkSeqs: number[] = []
     const stream = this.loopCtx.llm.stream(request)
@@ -507,26 +395,22 @@ export class ReactLoopAgent extends Agent {
       { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
     )
 
-    // Dispatch may overlap; policy, durable results, and result context stay
-    // model-ordered. Tool-produced context rides the outbox like any other
-    // injection, so it lands after the batch's results — adjacency-safe.
     const toolCalls = assembled.content.filter(block => block.type === 'tool-call')
     let concluded = false
     if (toolCalls.length > 0) {
       ({ concluded } = await executeToolCalls(
         this.loopCtx, turn, step, toolCalls, signal,
-        context => this.outbox.push({ data: { content: context.content, source: context.source } }),
+        context => this.outbox.push({ content: context.content, source: context.source }),
       ))
     }
 
-    // Steering/context that arrived during streaming or tool execution lands
-    // inside the step (after the batch's results — adjacency-safe).
+    // Tool results stay adjacent to their calls; input accepted during the
+    // request enters the log only after the complete result batch.
     const steered = this.drainOutbox(turn)
     session.append('step/end', { turn, step })
     this.stepOpen = false
-    // Owed: live tool calls none of which concluded the turn, or steering.
     return {
-      owes: (toolCalls.length > 0 && !concluded) || steered,
+      continueTurn: (toolCalls.length > 0 && !concluded) || steered,
       maxTokens: finish.kind === 'max-tokens',
     }
   }
@@ -566,7 +450,7 @@ export class ReactLoopAgent extends Agent {
       ...system ? { system } : {},
       ...tools.length > 0 ? { tools } : {},
     })
-    // Log the header the request will ACTUALLY use, only when it differs
+    // Log the header the request will use only when it differs
     // from the folded baseline — reconstruction folds the log, so an
     // unchanged header needs no new snapshot.
     const baseline = session.requestHeader()
@@ -588,18 +472,18 @@ export class ReactLoopAgent extends Agent {
     }))
   }
 
-  /** Commit the outbox whole and report whether it contained steering. */
+  /** Commit the outbox and report whether it contained steering. */
   private drainOutbox(turn: number): boolean {
     let steered = false
     for (const item of this.outbox.splice(0)) {
-      const message = item.steering
+      const { steering: message, ...data } = item
       if (message === undefined) {
-        this.session.append('user/message', item.data, { surfaceOp: 'append' })
+        this.session.append('user/message', data, { surfaceOp: 'append' })
         continue
       }
       steered = true
       emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(message, true))
-      this.session.append('steering/message', { turn, ...item.data }, { surfaceOp: 'append' })
+      this.session.append('steering/message', { turn, ...data }, { surfaceOp: 'append' })
     }
     return steered
   }
@@ -632,61 +516,12 @@ export class ReactLoopAgent extends Agent {
     }
   }
 
-  /** Close the owed boundaries, exactly once per turn. Durability is persistence's own eager concern. */
-  private closeTurn(turn: number, step: number, reason: TurnEndReason): void {
-    if (this.stepOpen) {
-      this.stepOpen = false
-      this.session.append('step/end', { turn, step })
-    }
-    if (this.turnOpen) {
-      this.turnOpen = false
-      this.session.append('turn/end', { turn, reason })
-    }
-  }
-
-  /** Close one claimed turn and hand the machine back to the idle boundary. */
-  private finishTurn(
-    controller: AbortController,
-    turn: number,
-    step: number,
-    reason: TurnEndReason,
-    idle: IdleReason,
-  ): void {
-    try {
-      this.closeTurn(turn, step, reason)
-    } catch (error: unknown) {
-      // A rejected boundary append must not strand the running interval.
-      const err = toError(error)
-      this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(err)}`)
-      emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, err)
-    }
-    if (this.turnAbort === controller) this.turnAbort = undefined
-    this.idle(turn, idle)
-  }
-
-  /**
-   * The turn boundary's tail (naive `idle()`): no turn owner remains,
-   * the idle report fires (a listener may synchronously `retry()` or `send()`
-   * here — both are legal now), leftover steering becomes queued prompts, and
-   * the next run opens while the queue is non-empty; otherwise the machine
-   * parks.
-   */
-  private idle(turn: number, idle: IdleReason): void {
-    // Requeue BEFORE the idle report so earlier-arrived steering keeps its
-    // FIFO position ahead of anything a listener send()s synchronously.
-    for (const item of this.outbox.splice(0)) {
-      const message = item.steering
-      if (message === undefined) {
-        this.outbox.push(item)
-        continue
-      }
-      this.queued.push(message)
-    }
-    emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
-    // A synchronous idle listener may retry()/send(), installing a new owner.
-    if (this.turnAbort !== undefined) return // a listener already re-opened
-    if (this.queued.some(message => message.wakeup)) this.kick()
-    else {
+  /** Continue with a waking prompt, or publish the idle status. */
+  private continueOrIdle(): void {
+    if (this.abort !== undefined) return
+    if (this.queued.some(message => message.wakeup)) {
+      this.kick()
+    } else if (this.busy) {
       this.busy = false
       emitAgentEvent(this.loopCtx, this, 'agent/status', 'idle')
     }

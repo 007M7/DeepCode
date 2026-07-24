@@ -15,7 +15,7 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { AdditionalContext, Agent, ContinuationDecision, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -163,14 +163,14 @@ export function apply(ctx: Context, config: Config): void {
 
   // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
 
-  function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
+  function contextFrom(merged: MergedHookOutcome): AdditionalContext | undefined {
     if (merged.additionalContext.length === 0) return undefined
     const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
     return { content, source: PLUGIN_SOURCE }
   }
 
   /** Prepend one context without flattening downstream provenance or metadata. */
-  function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+  function prependContext(ours: AdditionalContext, theirs: AdditionalContext[] | undefined): AdditionalContext[] {
     return [ours, ...theirs ?? []]
   }
 

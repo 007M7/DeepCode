@@ -183,25 +183,6 @@ export interface EpochHeader {
  */
 export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
-/** Durable model-hidden annotation for one context baked into a prompt message. */
-export interface PromptPrefixContext {
-  /** Producer provenance retained for transcript presentation and inspection. */
-  source: MessageSource
-}
-
-/**
- * Human-facing view of a prompt whose exact model content includes prefixed
- * context. `content` on the owning event remains the reconstructable model
- * input; this envelope prevents transcript, title, and re-reference consumers
- * from treating the baked context as direct human text.
- */
-export interface PromptMessageEnvelope {
-  /** Effective user prompt after interception rewrites, without baked context. */
-  displayContent: ContentBlock[]
-  /** Ordered descriptors for contexts already baked into the event content. */
-  prefixContexts: PromptPrefixContext[]
-}
-
 /**
  * Shared payload for user, injected-context, and steering prompt messages. A
  * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
@@ -210,12 +191,10 @@ export interface PromptMessageEnvelope {
  * not by event type.
  */
 export interface PromptMessageData {
-  /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
+  /** Exact model-facing blocks. */
   content: ContentBlock[]
-  /** Producer provenance for the direct prompt. */
+  /** Producer provenance. */
   source: MessageSource
-  /** Present only when prompt-prefix contexts were baked into `content`. */
-  envelope?: PromptMessageEnvelope
 }
 
 /**
@@ -226,10 +205,7 @@ export interface PromptMessageData {
  */
 export interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — one claimed queued
-   * message or an idle-time injection. The turn is the durability/replay
-   * boundary: every event sits between a `turn/start` and its matching
-   * `turn/end` (the turn-enclosure invariant).
+   * Opens turn `turn`. `trigger` records what started the model loop.
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
@@ -248,9 +224,8 @@ export interface SessionEventMap {
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
    * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` (with a non-`user` kind marking
-   * injected context) is the only channel that tells them apart. An idle
-   * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+   * project their `content` verbatim; `source` tells them apart. An idle
+   * injection may append this event between turns without running the model.
    */
   'user/message': PromptMessageData
   /**

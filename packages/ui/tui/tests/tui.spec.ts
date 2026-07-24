@@ -575,7 +575,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('queued')
 
     const queueSteering = (text: string): void => {
-      result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
+      result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text }], source: { kind: 'user' }, steering: true, wakeup: true })
     }
     const drainSteering = (text: string): void => {
       result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -584,7 +584,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as unknown as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
+    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' }, steering: true, wakeup: true })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -597,7 +597,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     // A non-steering queue (an idle-style send) leaves the badge untouched.
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'sent' }], source: { kind: 'user' }, contexts: [], steering: false, wakeup: true })
+    result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'sent' }], source: { kind: 'user' }, steering: false, wakeup: true })
     drainSteering('first')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -651,7 +651,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const idle = await setup()
     // A steering queue arriving while idle has no status line to badge, so the
     // refresh is a no-op beyond requesting a render.
-    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
+    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' }, steering: true, wakeup: true })
     idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
     await tick()
     expect(idle.terminal.output).not.toContain('Executing tools')
@@ -1063,19 +1063,18 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
     expect(result.agent.sent).toEqual([[{ type: 'text', text: '@Source chat' }]])
-    expect(result.agent.sentOptions[0]?.contexts).toHaveLength(1)
+    expect(result.agent.injected).toHaveLength(1)
 
     const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })
-    expect(result.agent.sentOptions[0]?.contexts).toMatchObject([{
-      source: { kind: 'session-reference', references: [{ sessionId: 'source-session' }] },
-    }])
+    expect(result.agent.injectedOptions[0]?.source)
+      .toMatchObject({ kind: 'session-reference', references: [{ sessionId: 'source-session' }] })
 
     result.agent.status = 'running'
     result.terminal.send(`steer ${mention}`)
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.steered).toHaveLength(1) })
     expect(result.agent.steered).toEqual([[{ type: 'text', text: 'steer @Source chat' }]])
-    expect(result.agent.steeredOptions[0]?.contexts).toHaveLength(1)
+    expect(result.agent.injected).toHaveLength(2)
     await dispose(result)
   })
 
@@ -1115,7 +1114,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
       result.terminal.send('\r')
       await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
       expect(result.agent.sent[0]).toEqual([{ type: 'text', text: '@src/source-file.ts' }])
-      expect(result.agent.sentOptions[0]?.contexts).toEqual([])
 
       result.terminal.send('@do')
       await vi.waitFor(() => {
@@ -1130,7 +1128,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
       result.terminal.send('\r')
       await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
       expect(result.agent.sent[1]).toEqual([{ type: 'text', text: '@"docs/design notes.md"' }])
-      expect(result.agent.sentOptions[1]?.contexts).toEqual([])
 
       result.terminal.send('@unsafe')
       await tick()
@@ -1226,9 +1223,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.sent).toEqual([[
       { type: 'text', text: '@evil\\x1b\\x07\\x9b\\x0as' },
     ]])
-    expect(result.agent.sentOptions[0]?.contexts).toMatchObject([{
-      meta: { references: [{ sessionId: unsafeId }] },
-    }])
+    expect(result.agent.injectedOptions[0]?.source)
+      .toMatchObject({ references: [{ sessionId: unsafeId }] })
     await dispose(result)
   })
 
@@ -1314,52 +1310,37 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('keep @[')
 
     result.session.append('user/message', {
-      content: [
-        { type: 'text', text: 'hidden baked snapshot payload' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'visible referenced question' },
-      ],
+      content: [{ type: 'text', text: 'hidden snapshot payload' }],
+      source: {
+        kind: 'session-reference',
+        references: [{ sessionId: 'prefixed', label: 'Prefixed source' }],
+      } as never,
+    }, { surfaceOp: 'append' })
+    result.session.append('user/message', {
+      content: [{ type: 'text', text: 'visible referenced question' }],
       source: { kind: 'user' },
-      envelope: {
-        displayContent: [{ type: 'text', text: 'visible referenced question' }],
-        prefixContexts: [{
-          source: {
-            kind: 'session-reference',
-            references: [{ sessionId: 'prefixed', label: 'Prefixed source' }],
-          } as never,
-        }],
-      },
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('visible referenced question')
     expect(result.terminal.output).toContain('Referenced sessions · Prefixed source (prefixed)')
-    expect(result.terminal.output).not.toContain('hidden baked snapshot payload')
+    expect(result.terminal.output).not.toContain('hidden snapshot payload')
 
+    result.session.append('user/message', {
+      content: [{ type: 'text', text: 'hidden steering context' }],
+      source: {
+        kind: 'session-reference',
+        references: [{ sessionId: 'steering-source', label: 'Steering source' }],
+      } as never,
+    }, { surfaceOp: 'append' })
     result.session.append('steering/message', {
       turn: 1,
-      content: [
-        { type: 'text', text: 'hidden non-reference prefix' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'visible steering prompt' },
-      ],
+      content: [{ type: 'text', text: 'visible steering prompt' }],
       source: { kind: 'user' },
-      envelope: {
-        displayContent: [{ type: 'text', text: 'visible steering prompt' }],
-        prefixContexts: [
-          { source: { kind: 'plugin', plugin: 'other' } },
-          {
-            source: {
-              kind: 'session-reference',
-              references: [{ sessionId: 'steering-source', label: 'Steering source' }],
-            } as never,
-          },
-        ],
-      },
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('visible steering prompt')
     expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')
-    expect(result.terminal.output).not.toContain('hidden non-reference prefix')
+    expect(result.terminal.output).not.toContain('hidden steering context')
 
     result.session.append('user/message', {
       content: [{ type: 'text', text: 'secret full snapshot payload' }],
@@ -1426,7 +1407,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     let release: (() => void) | undefined
     const prepare = vi.spyOn(result.ctx.sessionReferences, 'prepare').mockImplementation(
       (_agent, content) => new Promise((resolve) => {
-        release = () => { resolve({ content, contexts: [] }) }
+        release = () => { resolve({ content }) }
       }),
     )
     result.terminal.send(value)
@@ -1474,7 +1455,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     let resolveAfterDispose: (() => void) | undefined
     const latePrepare = vi.spyOn(lateSuccess.ctx.sessionReferences, 'prepare').mockImplementation(
       (_agent, content) => new Promise((resolve) => {
-        resolveAfterDispose = () => { resolve({ content, contexts: [] }) }
+        resolveAfterDispose = () => { resolve({ content }) }
       }),
     )
     lateSuccess.terminal.send(value)

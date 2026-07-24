@@ -374,25 +374,52 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(2)
   })
 
-  it('inject() while idle wraps context in a one-shot turn, visible to the next request', async () => {
+  it('keeps steering staged after a failed step until retry', async () => {
+    const adapter = new MockAdapter([textResponse('recovered')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
+    let fail = true
+    ctx.on('agent/step', (subject) => {
+      if (subject !== agent || !fail) return
+      fail = false
+      subject.steer([{ type: 'text', text: 'pending steering' }])
+      throw new Error('step failed')
+    })
+
+    send(agent, 'prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
+
+    const idle = waitForIdle(ctx, agent)
+    agent.retry()
+    await idle
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(true)
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
+  })
+
+  it('inject() while idle appends context without opening a turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     agent.inject([{ type: 'text', text: 'file changed: a.ts' }], { source: { kind: 'plugin', plugin: 'watcher' } })
-    // The idle inject records a self-contained turn (turn/start → user/message
-    // → turn/end) so the event stays turn-enclosed, but does NOT run the model.
-    await new Promise(r => setTimeout(r, 20))
     expect(agent.status).toBe('idle')
     expect(adapter.requests).toHaveLength(0)
-    const injectedTurn = agent.session.events.filter(e => e.type === 'turn/start')
-    expect(injectedTurn).toHaveLength(1)
-    const it0 = injectedTurn[0]!
-    expect(it0.type === 'turn/start' && it0.data.trigger.kind).toBe('injection')
-    expect(agent.session.events.at(-1)!.type).toBe('turn/end') // turn-enclosed
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(0)
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'user/message',
+      data: { source: { kind: 'plugin', plugin: 'watcher' } },
+    })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     const flat = JSON.stringify(adapter.requests[0]!.messages)
     expect(flat).toContain('file changed: a.ts')
     expect(flat).not.toContain('<context source=')

@@ -14,7 +14,6 @@ import type {
   SessionEvent,
   SessionEventMap,
 } from '@deepseek-ai/dsh-session'
-import { displayPromptContent } from '@deepseek-ai/dsh-session'
 import { fallbackSessionTitle, normalizeSessionTitle } from './normalize.ts'
 
 export { fallbackSessionTitle, normalizeSessionTitle, truncateTitleUtf8 } from './normalize.ts'
@@ -202,7 +201,7 @@ export function collectSessionTitleMessages(
   for (const event of events) {
     if (throughSeq !== undefined && event.seq > throughSeq) break
     if (event.type !== 'user/message' || event.data.source.kind !== 'user') continue
-    const content = displayPromptContent(event.data)
+    const content = event.data.content
     const text = content
       .filter((block): block is Extract<(typeof content)[number], { type: 'text' }> => block.type === 'text')
       .map(block => block.text)

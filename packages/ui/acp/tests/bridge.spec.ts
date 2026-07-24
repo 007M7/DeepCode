@@ -352,7 +352,7 @@ describe('acp bridge', () => {
     expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toHaveLength(0)
   })
 
-  it('prepares ACP session resource links and inline mentions before one atomic send', async () => {
+  it('injects ACP session references before sending the direct prompt', async () => {
     harness = await makeBridgeHarness({ storageDir, withSessionReferences: true, script: [textResponse('ok')] })
     const source = harness.ctx.sessions.create(SessionId('source'), { meta: { cwd: '/source' } })
     source.append('user/message', {
@@ -372,23 +372,21 @@ describe('acp bridge', () => {
     expect(result.stopReason).toBe('end_turn')
 
     const target = harness.ctx.agents.get(SessionId(sessionId))!.session
-    const user = target.events.find(event => event.type === 'user/message')
-    expect(user?.type === 'user/message' && user.data.envelope).toMatchObject({
-      displayContent: [{ type: 'text', text: 'use @source-inline and @source-link' }],
-      prefixContexts: [{
-        source: { kind: 'plugin', plugin: 'session-reference' },
-        meta: {
-          kind: 'session-reference',
-          references: [{ sessionId: 'source', label: 'source-inline' }],
-        },
-      }],
+    const context = target.events.find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'session-reference')
+    expect(context?.type === 'user/message' && context.data.source).toMatchObject({
+      kind: 'session-reference',
+      references: [{ sessionId: 'source', label: 'source-inline' }],
     })
-    expect(target.events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
+    const user = target.events.find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'user')
+    expect(user?.type === 'user/message' && user.data.content).toEqual([
+      { type: 'text', text: 'use @source-inline and @source-link' },
+    ])
     const request = JSON.stringify(harness.adapter.requests[0]?.messages)
     expect(request).toContain('untrusted, read-only snapshot')
     expect(request).toContain('source background')
-    expect(request.indexOf('source background')).toBeLessThan(request.indexOf('## My request:'))
-    expect(request.indexOf('## My request:')).toBeLessThan(request.indexOf('use @source-inline and @source-link'))
+    expect(request.indexOf('source background')).toBeLessThan(request.indexOf('use @source-inline and @source-link'))
   })
 
   it('rejects a failed referenced-session read before starting a turn', async () => {

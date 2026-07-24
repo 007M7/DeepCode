@@ -22,9 +22,9 @@ If messages A and B are both processed, B's turn starts only after A records `tu
 
 Prompt admission decides one message at a time. An allowed prompt becomes that turn's `user/message`; a blocked prompt records one durable `prompt/blocked` and closes its one-message turn as `rejected`. Mixed-batch and all-blocked-batch branches do not exist.
 
-The no-batching rule applies only to ordinary `send()`. Running `steer()` puts input in a separate steering FIFO. While a turn remains open, the loop records that input at the next steering checkpoint, which comes before either a model request or the decision whether to continue. Steering makes another step the default, but continuation or terminal policy can still stop before the step starts. Steering left after the turn closes and its durability checkpoint settles becomes later queued input; terminal `agent/turn-stop`, cancellation, or disposal can discard it. When the agent is idle, `steer()` delegates to `send()`, so it creates an independent ordinary queue item.
+The no-batching rule applies only to ordinary `send()`. Running `steer()` puts input in the outbox. While a turn remains open, the loop records that input at the next step boundary and steering makes another step the default. A failure before that boundary leaves the steering staged without waking the agent; `retry()` or a later prompt takes it, while cancellation or disposal can discard it. When the agent is idle, `steer()` delegates to `send()`, so it creates an independent ordinary queue item.
 
-`inject()` continues to add model-facing context without submitting an ordinary message; its existing turn-enclosure and flush behavior stays unchanged. `cancel()` remains a whole-agent operation that can clear all unstarted ordinary and steering input and abort the current step. `status` and `whenIdle()` also describe the whole agent, not one message. Several one-message turns can share one `running` interval, including turn close and its checkpoint, so `running` does not prove that a turn is open.
+`inject()` continues to add model-facing context without submitting an ordinary message. During a turn it waits in the outbox for a safe step boundary; while idle it appends and flushes a `user/message` directly, without opening a turn or running the model. `whenIdle()` and disposal await that flush. `cancel()` remains a whole-agent operation that can clear all unstarted ordinary and steering input and abort the current step. `status` and `whenIdle()` also describe the whole agent, not one message. Several one-message turns can share one `running` interval, so `running` does not prove that a turn is open.
 
 ## Alternatives considered
 
@@ -36,7 +36,7 @@ The no-batching rule applies only to ordinary `send()`. Running `steer()` puts i
 - A built-stdio test submits two lines and observes two model requests and two turn boundaries.
 - Delayed and rejected first-turn checkpoints keep the next turn waiting and prove that its request sees the preceding assistant result.
 - Failure-path tests cover prompt veto, listener failure, broad cancellation, disposal, and failure before `turn/start`; recorded turns stay balanced, messages do not merge, and surviving queued work still drains.
-- Separate tests cover open-turn, post-turn-close, and idle `steer()`, plus `inject()`, whole-agent status, and `whenIdle()`.
+- Separate tests cover open-turn, failed-turn, and idle `steer()`, plus `inject()`, whole-agent status, and `whenIdle()`.
 
 ## Consequences
 

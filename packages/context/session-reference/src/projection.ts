@@ -1,7 +1,6 @@
 /** Current-surface projection and byte-bounded rendering. */
 
 import { isCompactCheckpointSource } from '@deepseek-ai/dsh-compact'
-import { displayPromptContent } from '@deepseek-ai/dsh-session'
 import type { SessionSurfaceSnapshot } from '@deepseek-ai/dsh-session-query'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
@@ -41,13 +40,13 @@ function projectSessionConversation(snapshot: SessionSurfaceSnapshot): Projected
       case 'user/message': {
         const checkpoint = isCompactCheckpointSource(event.data.source)
         if (!checkpoint && event.data.source.kind !== 'user') break
-        const text = textContent(displayPromptContent(event.data))
+        const text = textContent(event.data.content)
         if (text !== '') conversation.push({ role: 'user', text, checkpoint, originalText: text, omittedBytes: 0 })
         break
       }
       case 'steering/message': {
         if (event.data.source.kind !== 'user') break
-        const text = textContent(displayPromptContent(event.data))
+        const text = textContent(event.data.content)
         if (text !== '') conversation.push({ role: 'user', text, checkpoint: false, originalText: text, omittedBytes: 0 })
         break
       }

@@ -72,12 +72,6 @@ export interface SendOptions {
    */
   wakeup?: boolean
   source?: MessageSource
-  /**
-   * Model-facing contexts captured with this inbox item. A queued prompt exposes
-   * them through the default `agent/prompt-submit` allow decision, while steering
-   * records them directly at its next checkpoint.
-   */
-  contexts?: HookContext[]
 }
 
 /** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
@@ -111,7 +105,6 @@ export interface AgentMessage {
   id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
-  contexts: HookContext[]
   /** Whether the item joined the steering FIFO (`next-step`) rather than the queued FIFO. */
   steering: boolean
   /** Whether the item is marked to wake the driver or force a continuation. */
@@ -136,29 +129,20 @@ export interface CancelOptions {
  */
 export type AgentStatus = 'idle' | 'running'
 
-/** Model-facing context injected by a listener or atomically attached to one inbox message. */
-export interface HookContext {
+/** Additional model-facing context produced beside a prompt or tool result. */
+export interface AdditionalContext {
   content: ContentBlock[]
   source: MessageSource
-  /**
-   * Model placement. Absent or `separate` records an independent injected
-   * `user/message`; `prompt-prefix` prepends this context and a stable
-   * request delimiter to the same user-role message as its attached prompt.
-   */
-  placement?: 'separate' | 'prompt-prefix'
 }
 
 /**
- * Prompt interception result. `allow.content` replaces the prompt. Each
- * `additionalContexts` entry follows its declared placement: separate context
- * message by default, or a prefix inside the prompt's user-role message.
- * `block` records a durable `prompt/blocked` and ends the claimed prompt's
- * zero-step turn as rejected. An `allow` returned by a listener is
- * authoritative: a listener wrapping `next()` preserves downstream `content`
- * and `additionalContexts` unless it intentionally replaces them.
+ * Prompt interception result. `allow.content` replaces the prompt, while
+ * `additionalContexts` appends model-facing context before the turn starts.
+ * An `allow` returned by a listener is authoritative: a listener wrapping
+ * `next()` preserves both fields unless it intentionally replaces them.
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: AdditionalContext[] }
   | { kind: 'block'; reason: string }
 
 /**
@@ -206,14 +190,13 @@ export abstract class Agent {
    * - `next-step` with `wakeup:true` submits steering into the active turn
    *   (idle falls back to a woken `next-turn`).
    * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: an open turn joins at the current log position
-   *   (deferred behind an executing tool batch until it settles), and an idle
-   *   inject records a one-shot turn with its own durability checkpoint.
+   *   without running the model: an open turn stages it for the next safe log
+   *   position, while an idle injection appends it immediately without opening
+   *   a turn.
    *
-   * Attached contexts share the same snapshot and ownership boundary. Invalid
-   * input throws synchronously before any notification, enqueue, or append.
+   * Invalid input throws synchronously before any notification, enqueue, or append.
    * @param content - the model-facing content blocks to deliver.
-   * @param options - target queue, wakeup decision, source, contexts, and meta.
+   * @param options - target queue, wakeup decision, and source.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
   abstract send(content: ContentBlock[], options?: SendOptions): AgentMessageId
@@ -238,7 +221,7 @@ export abstract class Agent {
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
    * @param content - the prompt content blocks.
-   * @param options - source and attached contexts.
+   * @param options - message source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
   followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
@@ -248,12 +231,12 @@ export abstract class Agent {
   /**
    * Submit steering into the running turn — the `next-step`/wakeup preset of
    * {@link send}. An open turn records it at the next steering checkpoint before
-   * a request or continuation decision; policy may stop before another step.
-   * After turn close and its checkpoint, any remainder is queued for a later
-   * turn; terminal `agent/turn-stop`, cancellation, or disposal may discard it.
-   * Idle steering falls back to a woken follow-up turn.
+   * a request or stop decision. If the turn fails before that boundary, the
+   * remainder stays staged without waking the agent; retry or a later prompt
+   * takes it. Idle steering falls back to a woken follow-up turn, while
+   * cancellation or disposal may discard pending steering.
    * @param content - the steering content blocks.
-   * @param options - source and attached contexts.
+   * @param options - message source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
   steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
@@ -261,15 +244,13 @@ export abstract class Agent {
   }
 
   /**
-   * Append detached model-facing context without running the model — the
-   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection joins
-   * at the current log position unless the current tool batch is executing;
-   * then it waits FIFO until that batch settles and drains before turn close
-   * even when interrupted. Idle injection uses a one-shot turn and durability
-   * checkpoint. Disposal awaits idle checkpoints; flush failures report through
-   * `agent/error`. An omitted source defaults to `{ kind: 'plugin', plugin: '' }`.
+   * Append model-facing context without running the model — the
+   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
+   * at the next safe log position; an idle injection appends immediately
+   * without opening a turn. An omitted source defaults to
+   * `{ kind: 'plugin', plugin: '' }`.
    * @param content - the injected context content blocks.
-   * @param options - source and durable model-hidden meta.
+   * @param options - context source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
   inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
@@ -340,11 +321,9 @@ declare module 'cordis' {
     /**
      * Pending inbox items were dropped without delivering them, so every
      * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR
-     * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after
-     * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`
-     * dropping pending steering (in-turn and on the post-turn late-steering
-     * drain); and disposal of any still-pending items (before
-     * `agent/status('disposed')`). Fires once per drop with every dropped item.
+     * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,
+     * emits this after `agent/cancel-requested` when applicable and before
+     * aborting the active work. Fires once per drop with every dropped item.
      * @param agent - the agent whose inbox items were dropped.
      * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -378,8 +357,7 @@ declare module 'cordis' {
     // ---- the machine's extension seams ----
     /**
      * Allow, rewrite, or block one claimed prompt before it becomes a user
-     * message. Call `next()` for the unchanged default, including contexts
-     * captured with the queued item. The signal controls only this turn;
+     * message. Call `next()` for the unchanged default. The signal controls only this turn;
      * listeners may cooperate with it but must not retain it for another turn.
      * @param agent - the agent whose turn claimed the message.
      * @param content - the claimed message's blocks, as queued.

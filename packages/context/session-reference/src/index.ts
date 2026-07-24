@@ -7,7 +7,7 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
+import type { AdditionalContext, Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionSurfaceSnapshot } from '@deepseek-ai/dsh-session-query'
@@ -148,7 +148,7 @@ export class SessionReferenceService extends Service {
    * @param content - already host-normalized readable message content.
    * @param references - structured source sessions in mention order.
    * @param signal - optional cancellation boundary for host request teardown.
-   * @returns detached content and zero or one prepared contexts.
+   * @returns detached content and optional referenced-session context.
    */
   async prepare(
     agent: Agent,
@@ -158,7 +158,7 @@ export class SessionReferenceService extends Service {
   ): Promise<PreparedReferencedMessage> {
     const acceptedContent = structuredClone(content)
     const inputs = normalizeReferences(agent.id, references, this.config.maxReferences)
-    if (inputs.length === 0) return { content: acceptedContent, contexts: [] }
+    if (inputs.length === 0) return { content: acceptedContent }
     assertNotCancelled(signal)
     let prepared: PreparedSource[]
     try {
@@ -192,12 +192,11 @@ export class SessionReferenceService extends Service {
         inputIndex: index,
       })),
     }
-    const context: HookContext = {
+    const additionalContext: AdditionalContext = {
       source,
       content: [{ type: 'text', text: prompt }],
-      placement: 'prompt-prefix',
     }
-    return { content: acceptedContent, contexts: [context] }
+    return { content: acceptedContent, additionalContext }
   }
 
   private renderSources(sources: readonly PreparedSource[]): RenderedSource[] {

@@ -83,130 +83,71 @@ describe('Agent', () => {
     await ctx.fiber.dispose()
   })
 
-  it('inject() decides enclosure from the LOG (open turn), not agent status', async () => {
+  it('idle inject() appends context and flushes without opening a turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const release = Promise.withResolvers<void>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushes += 1
+      await release.promise
+    })
 
-    // Simulate an OPEN turn in the log while the agent is idle (status is not a
-    // reliable open-turn signal). inject must append into that open turn, NOT
-    // wrap a new one.
-    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    agent.inject([{ type: 'text', text: 'mid' }], { source: { kind: 'plugin', plugin: 'p' } })
-    expect(agent.session.events.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(agent.session.events.at(-1)!.type).toBe('user/message')
+    agent.inject([{ type: 'text', text: 'context' }], { source: { kind: 'plugin', plugin: 'p' } })
+    expect(agent.session.events.map(event => event.type)).toEqual(['user/message'])
+    expect(agent.status).toBe('idle')
+    expect(adapter.requests).toHaveLength(0)
 
-    // Close the turn; now inject must wrap its own one-shot injection turn.
-    agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    agent.inject([{ type: 'text', text: 'after' }], { source: { kind: 'plugin', plugin: 'p' } })
-    const starts = agent.session.events.filter(e => e.type === 'turn/start')
-    expect(starts).toHaveLength(2)
-    const last = starts[1]!
-    expect(last.type === 'turn/start' && last.data.trigger.kind).toBe('injection')
-    expect(agent.session.events.at(-1)!.type).toBe('turn/end') // turn-enclosed
+    let idle = false
+    const settled = agent.whenIdle().then(() => { idle = true })
+    await Promise.resolve()
+    expect(flushes).toBe(1)
+    expect(idle).toBe(false)
+    release.resolve()
+    await settled
   })
 
   it('inject() defaults its source to an empty plugin, never user', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     agent.inject([{ type: 'text', text: 'no explicit source' }])
     const injected = agent.session.events.at(-1)!
     expect(injected.type === 'user/message' && injected.data.source).toEqual({ kind: 'plugin', plugin: '' })
+    await agent.whenIdle()
   })
 
-  it('idle inject() contains a failing flush (logs, does not throw into the caller)', async () => {
+  it('idle inject() contains a failing flush without inventing an agent turn error', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    // A persistence-like listener whose flush rejects.
     ctx.on('session/flush', () => { throw new Error('disk gone') })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
 
-    // inject() is synchronous and fires a fire-and-forget flush; a rejecting
-    // flush must be contained (logged), never thrown into the caller.
     expect(() => { agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } }) }).not.toThrow()
-    await new Promise(r => setTimeout(r, 20)) // let the contained flush settle
+    await agent.whenIdle()
+    expect(errors).toEqual([])
+    expect(agent.session.events.map(event => event.type)).toEqual(['user/message'])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('flush after idle injection failed'))
     warn.mockRestore()
   })
 
-  it('idle inject() closes its one-shot turn AND still checkpoints even if the append throws', async () => {
+  it('idle inject() does not flush input rejected before append', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    // Non-serializable injected content makes Session.append throw AFTER
-    // turn/start was recorded. The turn/end must still be appended (finally),
-    // AND the durability checkpoint must still fire — the balanced turn is in
-    // memory and a crash before the next turn/dispose would otherwise lose it.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
     }).toThrow(/non-JSON-serializable/)
-    const types = agent.session.events.map(e => e.type)
-    expect(types).toEqual(['turn/start', 'turn/end']) // balanced, no open turn
-    await new Promise(r => setTimeout(r, 10)) // let the fire-and-forget flush run
-    expect(flushes).toBe(1) // checkpoint fired despite the throw
-  })
-
-  it('idle inject() still checkpoints when a listener throws on the synthetic turn/end', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    let flushes = 0
-    ctx.on('session/flush', () => { flushes += 1 })
-    // Session contains a throwing post-commit turn/end observer. The accepted
-    // boundary still triggers the idle injection's durability checkpoint.
-    let threw = false
-    ctx.on('session/event', (_s, event) => {
-      if (!threw && event.type === 'turn/end') { threw = true; throw new Error('boom turn/end') }
-    })
-
-    expect(() => { agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } }) }).not.toThrow()
-    const types = agent.session.events.map(e => e.type)
-    expect(types).toEqual(['turn/start', 'user/message', 'turn/end']) // balanced
-    await new Promise(r => setTimeout(r, 10))
-    expect(flushes).toBe(1) // checkpoint fired despite the throwing turn/end listener
-  })
-
-  it('idle inject() reports a failing flush via agent/error (step 0) AND the logger', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    // A non-Error rejection exercises the String() normalization branch.
-    ctx.on('session/flush', () => { throw 'disk gone' })
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const errors: { turn: number; step: number; message: string }[] = []
-    ctx.on('agent/error', (_a, turn, step, error) => void errors.push({ turn, step, message: error.message }))
-
-    agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } })
-    await new Promise(r => setTimeout(r, 20)) // let the contained flush settle
-
-    // Reported via agent/error (step 0 — the idle-injection convention) so
-    // plugins monitoring agent/error see idle-injection persistence failures,
-    // mirroring the loop's post-turn/end flush path. A non-Error throw is
-    // normalized to an Error.
-    expect(errors).toEqual([{ turn: 1, step: 0, message: 'disk gone' }])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('flush after idle injection failed'))
-    warn.mockRestore()
-  })
-
-  it('idle inject() with a non-serializable source opens no turn (nothing to close)', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-
-    // A non-serializable source makes the turn/start append throw BEFORE the
-    // event is pushed (Session.append validates before push), so NO turn opens.
-    // The finally's isTurnOpen() guard sees no open turn and appends nothing —
-    // the log stays empty, not left with a dangling turn/start.
-    expect(() => {
-      agent.inject([{ type: 'text', text: 'x' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
-    }).toThrow(/non-JSON-serializable/)
     expect(agent.session.events).toHaveLength(0)
+    expect(flushes).toBe(0)
   })
 
   it('steer() when idle falls through to send() and starts a turn', async () => {

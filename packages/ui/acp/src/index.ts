@@ -54,13 +54,14 @@ import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   installAgentLlmTarget,
+  type AdditionalContext,
   type Agent,
   type AgentLlmTarget as LlmTarget,
   type AgentLlmTargetRef as LlmTargetRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
-import { displayPromptContent, SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
+import { SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -1056,7 +1057,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         const { text } = referencedPrompt
         let preparedContent: ContentBlock[] = [{ type: 'text', text }]
-        let preparedContexts: NonNullable<Parameters<Agent['send']>[1]>['contexts'] = []
+        let additionalContext: AdditionalContext | undefined
         if (referencedPrompt.references.length > 0) {
           const sessionReferences = ctx.get('sessionReferences')
           if (sessionReferences === undefined) {
@@ -1072,7 +1073,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
               controller.signal,
             )
             preparedContent = prepared.content
-            preparedContexts = prepared.contexts
+            additionalContext = prepared.additionalContext
           } catch (error: unknown) {
             if (controller.signal.aborted) return { stopReason: 'cancelled' }
             throw invalidParams(`session reference preparation failed: ${renderThrown(error)}`)
@@ -1088,7 +1089,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
-          rec.agent.send(preparedContent, { source: { kind: 'user' }, contexts: preparedContexts })
+          if (additionalContext !== undefined) {
+            rec.agent.inject(additionalContext.content, { source: additionalContext.source })
+          }
+          rec.agent.send(preparedContent, { source: { kind: 'user' } })
         })
         return { stopReason }
       },
@@ -1380,7 +1384,7 @@ export function streamSessionEventUpdate(
       // Replay the user's prompt so a loaded session shows both sides of each
       // turn. Live prompt turns suppress this path to avoid duplicating what
       // the client just sent.
-      for (const block of displayPromptContent(event.data)) {
+      for (const block of event.data.content) {
         const content = harnessBlockToAcpContent(block)
         if (content !== undefined) {
           notify({ sessionId, update: { sessionUpdate: 'user_message_chunk', content } })

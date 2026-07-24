@@ -78,46 +78,41 @@ choose declarative identity and fresh/resume path
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
   wait for a queued message
-  emit agent/status(running)
-  TURN:
-    'turn/start'
-    claimed message + contexts -> agent/prompt-submit
-      allowed prompt -> 'user/message' with prompt-prefix context baked in; append separate contexts
-      blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
+  claimed message -> agent/prompt-submit
+    blocked prompt -> park without opening a turn
+    allowed prompt:
+      emit agent/status(running)
+      'turn/start'
+      append prompt + additional contexts as separate 'user/message' events
     STEP loop:
-      drain steering with the same prefix/separate context placement (no prompt-submit)
+      agent/step
+      drain injected context and steering (steering bypasses prompt-submit)
       assemble system prompt and tool schemas
-      agent/session-prefix (first step)
-      agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
-      on final adapter-path or terminal in-band failure:
-        'step/end'
-        agent/request-error(original error, failure facts, immutable prior failures, signal)
-        retry in the next numbered step or preserve the original error
-      otherwise:
-        'assistant/chunk'
-        agent/step-result
-        'assistant/message' (transformed content or empty success anchor after step-result rejection)
-        schedule tool calls by ctx.tools.executionMode:
-          exclusive -> one-call barrier
-          parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-          each start -> 'tool/call' -> ordered tools/pre-execute -> checkpoint -> concurrent tools/execute
-          each model-order result -> ordered tools/post-execute -> 'tool/result'
-        append accepted tool-batch context after all recorded results, then steering
-        agent/post-step -> checkpoint complete response/results
-        'step/end'
-        agent/turn-continuation
-        agent/turn-stop (terminal policy)
-        stop unless tools or continuation policy ask for another step
-    'turn/end'
-    checkpoint persistence and notify idle/running status
+      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      'assistant/chunk'
+      'assistant/message'
+      schedule tool calls by ctx.tools.executionMode:
+        exclusive -> one-call barrier
+        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
+        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        each model-order result -> ordered tools/post-execute -> 'tool/result'
+      drain accepted tool context and steering
+      'step/end'
+      continue when tools or steering require another step
+      otherwise agent/stopping -> drain once more -> continue only for steering
+    'turn/end' -> agent/idle
+  start the next waking queued message, or emit agent/status(idle)
+
+idle inject:
+  append 'user/message' -> flush persistence
+  do not open a turn or run the model
 ```
 
 每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定，循环则提供 `model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-工具执行阶段的上下文，包括异步 `inject()` 和工具执行后的 `additionalContexts`，会在结果产生后稳定。steering（中途引导）会在 `agent/post-step` 前排空；该事件会观察持久输出、结果、上下文和 steering。余留内容进入队列。终止型 `agent/turn-stop` 在关闭和刷写期间始终具有最终决定权；后续 steering 会被丢弃，排队提示词仍予保留。
+工具执行阶段的上下文，包括活跃轮次内的 `inject()` 和工具执行后的 `additionalContexts`，会在结果记录完毕后落定。steering（中途引导）会在同一边界排空，并请求再执行一个步骤。空闲状态下的 `inject()` 则会立即追加上下文并完成持久化刷新，且不改变轮次编号；`whenIdle()` 和 dispose（资源释放）会等待该刷新完成。
 
 裁剪先于摘要；溢出重试必须取得持久进展。有界的瞬态重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 
@@ -125,9 +120,9 @@ forever:
 
 适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
 
-其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose 会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
-会话事件均位于轮次边界内。重新加载会用合成的 `interrupted` 轮次结束事件闭合中断的日志尾部。关闭后的故障只通过 `agent/error` 报告；此时已没有安全的轮次内位置。每个轮次有一个 `TurnEndReason`；各变体由 [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) 统一定义。
+轮次和步骤的执行事件均位于轮次边界内；空闲时注入的 `user/message` 可以位于两个轮次之间。重新加载会用合成的 `interrupted` 轮次结束事件闭合中断轮次的日志尾部。关闭后的故障只通过 `agent/error` 报告；此时已没有安全的轮次内位置。每个轮次有一个 `TurnEndReason`；各变体由 [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) 统一定义。
 
 ### Agent 句柄
 

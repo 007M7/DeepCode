@@ -25,8 +25,8 @@ New emit: `agent/idle (agent, turn, reason: IdleReason)` fires once per closed t
 
 - `send()` — unchanged (queued FIFO, one turn each).
 - `steer()` while running — enters the outbox; taken whole at the next step
-  boundary. Steering left when the turn closes becomes a queued prompt.
-  There is NO terminal-stop discard of steering anymore.
+  boundary. A turn failure leaves untaken steering staged without waking the
+  agent; `retry()` or a later prompt takes it.
 - `inject()` while the machine is busy — enters the outbox (a `context/message`
   appears at the NEXT step boundary, not immediately). While idle — writes a
   one-shot turn (`turn/start(injection)` + `context/message` + `turn/end`) and
@@ -43,10 +43,10 @@ New emit: `agent/idle (agent, turn, reason: IdleReason)` fires once per closed t
 - `kick()` runs SYNCHRONOUSLY from `send()` when idle: status flips to
   `running` inside the `send()` call. There is no parked driver loop, no
   waitForQueued, no microtask collection window.
-- One `run()` = one turn. The idle tail (`idle()`) runs after turn/end +
-  flush: it sets `busy=false`, emits `agent/idle`, requeues leftover steering,
-  then either kicks the next turn or settles `whenIdle` waiters and flips
-  status to `idle`. Status stays `running` continuously across queued turns.
+- One `run()` = one turn. After `turn/end`, it emits `agent/idle`, then either
+  starts the next waking queued prompt or flips status to `idle`. Residual
+  outbox input does not wake the agent. Status stays `running` continuously
+  across queued turns.
 - `step/end` is appended INSIDE the step (after tools + the in-step outbox
   drain), before `agent/continue` runs. The old `post-step → step/end`
   window no longer exists.

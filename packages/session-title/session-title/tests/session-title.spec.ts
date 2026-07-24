@@ -82,16 +82,8 @@ describe('SessionTitleService', () => {
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('user/message', {
-      content: [
-        { type: 'text', text: 'referenced snapshot title must stay hidden' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'Explain this referenced session' },
-      ],
+      content: [{ type: 'text', text: 'Explain this referenced session' }],
       source: { kind: 'user' },
-      envelope: {
-        displayContent: [{ type: 'text', text: 'Explain this referenced session' }],
-        prefixContexts: [{ source: { kind: 'plugin', plugin: 'session-reference' } }],
-      },
     }, { surfaceOp: 'append' })
 
     await settleTitles()

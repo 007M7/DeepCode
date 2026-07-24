@@ -78,46 +78,41 @@ choose declarative identity and fresh/resume path
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
   wait for a queued message
-  emit agent/status(running)
-  TURN:
-    'turn/start'
-    claimed message + contexts -> agent/prompt-submit
-      allowed prompt -> 'user/message' with prompt-prefix context baked in; append separate contexts
-      blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
+  claimed message -> agent/prompt-submit
+    blocked prompt -> park without opening a turn
+    allowed prompt:
+      emit agent/status(running)
+      'turn/start'
+      append prompt + additional contexts as separate 'user/message' events
     STEP loop:
-      drain steering with the same prefix/separate context placement (no prompt-submit)
+      agent/step
+      drain injected context and steering (steering bypasses prompt-submit)
       assemble system prompt and tool schemas
-      agent/session-prefix (first step)
-      agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
-      on final adapter-path or terminal in-band failure:
-        'step/end'
-        agent/request-error(original error, failure facts, immutable prior failures, signal)
-        retry in the next numbered step or preserve the original error
-      otherwise:
-        'assistant/chunk'
-        agent/step-result
-        'assistant/message' (transformed content or empty success anchor after step-result rejection)
-        schedule tool calls by ctx.tools.executionMode:
-          exclusive -> one-call barrier
-          parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-          each start -> 'tool/call' -> ordered tools/pre-execute -> checkpoint -> concurrent tools/execute
-          each model-order result -> ordered tools/post-execute -> 'tool/result'
-        append accepted tool-batch context after all recorded results, then steering
-        agent/post-step -> checkpoint complete response/results
-        'step/end'
-        agent/turn-continuation
-        agent/turn-stop (terminal policy)
-        stop unless tools or continuation policy ask for another step
-    'turn/end'
-    checkpoint persistence and notify idle/running status
+      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      'assistant/chunk'
+      'assistant/message'
+      schedule tool calls by ctx.tools.executionMode:
+        exclusive -> one-call barrier
+        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
+        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        each model-order result -> ordered tools/post-execute -> 'tool/result'
+      drain accepted tool context and steering
+      'step/end'
+      continue when tools or steering require another step
+      otherwise agent/stopping -> drain once more -> continue only for steering
+    'turn/end' -> agent/idle
+  start the next waking queued message, or emit agent/status(idle)
+
+idle inject:
+  append 'user/message' -> flush persistence
+  do not open a turn or run the model
 ```
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona, while the loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Tool-time context—including async `inject()` and post-tool `additionalContexts`—settles after results. Steering drains before `agent/post-step`, which sees durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` remains authoritative through close/flush; later steering is discarded while queued prompts remain.
+Tool-time context—including active-turn `inject()` and post-tool `additionalContexts`—settles after results. Steering drains at the same boundary and requests another step. Idle `inject()` instead appends and flushes context immediately without changing turn numbering; `whenIdle()` and disposal await that flush.
 
 Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
@@ -127,7 +122,7 @@ Adapter failures close the step before `agent/request-error` with exact `Error`,
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The turn signal retires before `turn/end`. Effective `cancel()` emits its typed cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Session events are turn-enclosed. Reload closes an interrupted tail with a synthetic `interrupted` turn end. Post-close failures report only through `agent/error`; no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
+Turn and step execution events are turn-enclosed; an idle injected `user/message` may sit between turns. Reload closes an interrupted turn tail with a synthetic `interrupted` turn end. Post-close failures report only through `agent/error`; no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
 ### Agent Handles
 
