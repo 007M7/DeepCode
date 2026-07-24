@@ -1,6 +1,6 @@
-/* NEW SESSION hero: headline over the shared InputBar card, centered in the
-   conversation column. The card is the same component as the composer —
-   only positioning lives here. */
+/* NEW SESSION hero (figma Input_Bottom 75:8208): fish + title, workspace chip
+   above the shared InputBar card. The input itself is InputBar — only stack
+   geometry and the chip live here. */
 
 .root {
   display: flex;
@@ -11,58 +11,154 @@
   padding: 24px;
 }
 
-/* figma hero group 34:10409: headline block sits 36px above the input card. */
-.card {
+/* Cap matches InputBar card width (800). Glow may paint past the sides. */
+.stack {
   display: flex;
   flex-direction: column;
-  gap: 36px;
+  align-items: stretch;
+  /* figma 75:8208: 12 between title block / workspace / card. */
+  gap: 12px;
   width: 100%;
-  max-width: 776px;
+  max-width: 800px;
+  overflow: visible;
 }
 
-/* figma 34:10411: fish + title row, gap 10, centered; title 26/32 wt600 (34:10414). */
+/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt600; title block
+   keeps 36px below the headline before the flex gap. */
 .headline {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
+  padding-bottom: 36px;
   font-size: 26px;
   line-height: 32px;
   font-weight: 600;
   color: var(--dsw-alias-label-primary);
 }
 
-/* figma 34:10412/10413: brand-blue vector. */
+/* figma fish fill rides business blue. */
 .fish {
   flex: none;
   color: var(--dsw-alias-state-business-primary);
 }
 
-.picker {
+/* Workspace row sits 12px above the input card (figma y80 → y112). Glow is
+   centered on this block so it stays under the picker + InputBar together. */
+.body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  overflow: visible;
+}
+
+/* Design input 776 → glow SVG 1051×468 (ellipse 851×268 + blur pad). */
+.glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: calc(100% * 1051 / 776);
+  aspect-ratio: 1051 / 468;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.body > :not(.glow) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Must beat `.body > :not(.glow)` specificity so the open Menu (and its
+   right-hand submenu) paints above the InputBar card. */
+.body > .workspaceRow {
+  z-index: 10;
   display: flex;
   align-items: center;
   min-width: 0;
+  /* figma 75:8208 workspace row: px 8 above the card. */
+  padding-left: 8px;
 }
 
-.select,
-.customInput {
-  max-width: 320px;
-  padding: 4px 10px;
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+/* Folder + label + chevron — transparent at rest; fill only on hover / open. */
+.workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  border: none;
   border-radius: 12px;
-  background: var(--dsw-alias-bg-base);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+  cursor: pointer;
 }
 
-.customInput {
-  width: 320px;
-  outline: none;
+.workspace:hover,
+.workspace[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.customInput:focus {
-  /* Business blue, not brand-primary: that token resolves to ink in this sheet. */
-  border-color: var(--dsw-alias-state-business-primary);
+.folder {
+  flex: none;
   color: var(--dsw-alias-label-primary);
+}
+
+.workspaceLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Workspace menu width tracks the longest basename in the Figma frame. */
+.workspaceMenu :global([role='menu']) {
+  min-width: 240px;
+}
+
+/* Dialog field (figma 451:18655 Input): h44, r22, px 14, caption placeholder. */
+.modalInput {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 22px;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.modalInput::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+.modalInput:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.modalInput:disabled {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.modalAction {
+  min-width: 72px;
+}
+
+.modalError {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
 }

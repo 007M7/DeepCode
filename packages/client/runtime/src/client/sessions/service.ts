@@ -95,9 +95,10 @@ export class SessionsService {
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
    * purpose: reads go through the list snapshot; writes through {@link
-   * SessionsService.open}. Projection validates it against the live list
-   * instead of destructively pruning, so a selection survives transient list
-   * states (reconnect re-pull) and resurfaces when its session returns.
+   * SessionsService.open} / {@link SessionsService.clear}. Projection
+   * validates it against the live list instead of destructively pruning, so a
+   * selection survives transient list states (reconnect re-pull) and
+   * resurfaces when its session returns.
    */
   private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
 
@@ -116,7 +117,7 @@ export class SessionsService {
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
    */
-  constructor(private readonly rootCtx: Context, api: IApiClient) {
+  constructor(private readonly rootCtx: Context, private readonly api: IApiClient) {
     this.manager = new SessionManager(api)
     this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
       {},
@@ -137,7 +138,7 @@ export class SessionsService {
 
   /**
    * Select a session as current. Unknown ids fail loud instead of navigating
-   * nowhere (the sole selection write path).
+   * nowhere.
    * @param id - session id (must exist in the list store).
    */
   open(id: SessionId): void {
@@ -149,6 +150,17 @@ export class SessionsService {
   }
 
   /**
+   * Clear the current selection so the layout shows the no-session empty
+   * state. Wipes the persisted selection too — a reload stays on empty until
+   * the user opens or starts a session. Staging holds the previous occupant
+   * across the blank (same masked-gap rule as a transient list miss).
+   */
+  clear(): void {
+    this.selection.set({})
+    this.list.update((draft) => { draft.current = undefined })
+  }
+
+  /**
    * Create a session on the host.
    * @param opts - creation options (project directory).
    * @returns the new session id.
@@ -157,6 +169,27 @@ export class SessionsService {
     const result = await this.manager.create(opts.cwd)
     if (!result.ok) throw new Error(`session create failed: ${result.error.code}: ${result.error.message}`)
     return result.value.sessionId
+  }
+
+  /**
+   * Create a workspace folder under the host process cwd and a session in it.
+   * Name is a single path segment (no separators); the host mkdir runs inside
+   * session.create. Caller opens the returned id when it wants the session staged.
+   * @param name - workspace folder basename.
+   * @returns the new session id.
+   */
+  async createWorkspace(name: string): Promise<SessionId> {
+    const trimmed = name.trim()
+    if (trimmed === '') throw new Error('sessions.createWorkspace: name is required')
+    if (/[/\\]/.test(trimmed)) {
+      throw new Error('sessions.createWorkspace: name must not contain path separators')
+    }
+    const { result } = await this.api.host.describe({})
+    if (!result.ok) {
+      throw new Error(`host.describe failed: ${result.error.code}: ${result.error.message}`)
+    }
+    const hostCwd = result.value.cwd.replace(/[/\\]+$/, '')
+    return this.create({ cwd: `${hostCwd}/${trimmed}` })
   }
 
   /**
