@@ -9,7 +9,7 @@ import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import SubagentService, { SUBAGENT_DESCRIPTOR_VERSION } from '@deepseek-ai/dsh-subagent'
+import SubagentService, { SUBAGENT_DESCRIPTOR_VERSION, SubagentError } from '@deepseek-ai/dsh-subagent'
 import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { resumeInProcessRun, startInProcessRun } from '../src/index.ts'
 
@@ -38,6 +38,22 @@ function request(parent: Agent, signal = new AbortController().signal) {
   return { prompt: [{ type: 'text' as const, text: 'child task' }], parent, signal }
 }
 
+function continuableRequest(parent: Agent) {
+  const sessionId = SessionId('continuable-child')
+  return {
+    ...request(parent),
+    continuation: {
+      sessionId,
+      descriptor: {
+        version: SUBAGENT_DESCRIPTOR_VERSION,
+        provider: 'spawn',
+        agentProvider: 'mock',
+        agentModel: 'mock',
+      },
+    },
+  }
+}
+
 function text(blocks: readonly { type: string; text?: string }[]): string {
   return blocks.filter(block => block.type === 'text').map(block => block.text).join('')
 }
@@ -54,6 +70,59 @@ describe('startInProcessRun', () => {
     await run.dispose()
     await run.dispose()
     expect(ctx.agents.get(run.id)).toBeUndefined()
+  })
+
+  it('requires a final durability checkpoint for a continuable child', async () => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    const failure = new Error('disk full')
+    let flushes = 0
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession === undefined) return
+      flushes++
+      throw failure
+    })
+
+    const run = await startInProcessRun(continuableRequest(parent), {})
+    const caught: unknown = await run.result.catch((error: unknown) => error)
+    expect(caught).toBeInstanceOf(SubagentError)
+    const durabilityError = caught as SubagentError
+    expect(durabilityError.code).toBe('DURABILITY_FAILED')
+    expect(durabilityError.cause).toBe(failure)
+    expect(durabilityError.message).toContain(
+      'the latest child state was not confirmed persisted and may be unavailable or stale on resume: disk full',
+    )
+    expect(flushes).toBe(2)
+    await run.dispose()
+  })
+
+  it('completes a continuable child when the final checkpoint retries a transient flush failure', async () => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    let flushes = 0
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession === undefined) return
+      flushes++
+      if (flushes === 1) throw new Error('temporary append failure')
+    })
+
+    const run = await startInProcessRun(continuableRequest(parent), {})
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    expect(flushes).toBe(2)
+    await run.dispose()
+  })
+
+  it('keeps foreground runs best-effort when their turn checkpoint fails', async () => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    let flushes = 0
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession === undefined) return
+      flushes++
+      throw new Error('disk full')
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    expect(flushes).toBe(1)
+    await run.dispose()
   })
 
   it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
@@ -201,13 +270,21 @@ describe('startInProcessRun', () => {
 
   it('resumes without inventing undeclared agent model options', async () => {
     const childId = SessionId('resumed-child')
+    let flushes = 0
     const child = {
       id: childId,
       options: {},
       session: new Session(childId),
       status: 'idle',
       acceptsNextStep: false,
-      ctx: new Context(),
+      ctx: {
+        sessions: {
+          flush: () => {
+            flushes++
+            return Promise.resolve()
+          },
+        },
+      } as unknown as Context,
       send(): void {},
       reserveTurnAdmission: () => undefined,
       updateInbox: () => 'not-found',
@@ -238,6 +315,7 @@ describe('startInProcessRun', () => {
     })
     expect(resumedOptions).toEqual({})
     await expect(run.result).resolves.toMatchObject({ stopReason: 'error' })
+    expect(flushes).toBe(1)
     await run.dispose()
   })
 

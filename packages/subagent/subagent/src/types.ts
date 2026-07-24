@@ -207,8 +207,10 @@ export interface SubagentRun {
    * Resolves with the child's terminal {@link SubagentResult} when the run
    * settles. Does NOT reject on a child-level failure — a model/transport
    * failure resolves with `stopReason: 'error'` so the consumer maps it to an
-   * `isError` tool result. Rejects only on an infrastructure fault the seam
-   * cannot represent as a stop reason.
+   * `isError` tool result. For a continuable activation, a completed result
+   * also means the provider confirmed the activation's final state durable.
+   * Rejects on an infrastructure fault the seam cannot represent as a stop
+   * reason, including a failed required durability checkpoint.
    */
   readonly result: Promise<SubagentResult>
   /**

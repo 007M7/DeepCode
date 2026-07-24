@@ -203,7 +203,7 @@ interface SubagentStopReasonMap {
 
 ## A live run: `SubagentRun`
 
-`SubagentRun` is the consumer-owned handle for a ready child — one disposable activation, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. The optional strict `steer` method advertises live delivery by presence; cold resume deliberately does NOT live here (a disposed run cannot be reconstructed after restart) — it is `SubagentProvider.resume`.
+`SubagentRun` is the consumer-owned handle for a ready child — one disposable activation, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A completed continuable result additionally means the provider confirmed the activation's final state durable; a failed required checkpoint rejects. The optional strict `steer` method advertises live delivery by presence; cold resume deliberately does NOT live here (a disposed run cannot be reconstructed after restart) — it is `SubagentProvider.resume`.
 
 ```ts type-equiv
 /**
@@ -228,8 +228,10 @@ interface SubagentRun {
    * Resolves with the child's terminal {@link SubagentResult} when the run
    * settles. Does NOT reject on a child-level failure — a model/transport
    * failure resolves with `stopReason: 'error'` so the consumer maps it to an
-   * `isError` tool result. Rejects only on an infrastructure fault the seam
-   * cannot represent as a stop reason.
+   * `isError` tool result. For a continuable activation, a completed result
+   * also means the provider confirmed the activation's final state durable.
+   * Rejects on an infrastructure fault the seam cannot represent as a stop
+   * reason, including a failed required durability checkpoint.
    */
   readonly result: Promise<SubagentResult>
   /**

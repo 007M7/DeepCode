@@ -116,6 +116,13 @@ export function runOutcome(result: SubagentResult): TaskOutcome {
   }
 }
 
+/** Render infrastructure failure detail without hiding a durability diagnosis. */
+function runFailureDetail(error: unknown): string {
+  return error instanceof HarnessError && error.code === 'DURABILITY_FAILED'
+    ? error.message
+    : String(error)
+}
+
 /**
  * Await the child result, dispose the run, then return its task outcome. Result
  * and disposal failures become `failed`; when both fail, both details survive.
@@ -127,7 +134,7 @@ export async function settleRun(run: SubagentRun): Promise<TaskOutcome> {
   try {
     outcome = runOutcome(await run.result)
   } catch (error: unknown) {
-    outcome = { status: 'failed', detail: String(error) }
+    outcome = { status: 'failed', detail: runFailureDetail(error) }
   }
   try {
     await run.dispose()

@@ -71,6 +71,102 @@ export interface SubagentDescriptorInput {
   readonly toolFilter?: ToolRestriction
 }
 
+const DESCRIPTOR_KEYS = new Set([
+  'version',
+  'provider',
+  'agentProvider',
+  'agentModel',
+  'persona',
+  'toolFilter',
+])
+const TOOL_FILTER_KEYS = new Set(['allow', 'deny'])
+
+/** Whether a persisted JSON value is an object record. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Reject fields outside one versioned record's declared schema. */
+function assertKnownKeys(value: Record<string, unknown>, keys: ReadonlySet<string>, path: string): void {
+  const unknown = Object.keys(value).find(key => !keys.has(key))
+  if (unknown !== undefined) {
+    throw new Error(`persisted subagent descriptor ${path} has unknown field "${unknown}"`)
+  }
+}
+
+/** Read one optional string field from a persisted descriptor record. */
+function optionalString(value: Record<string, unknown>, key: string): string | undefined {
+  if (!Object.hasOwn(value, key)) return undefined
+  const field = value[key]
+  if (typeof field !== 'string') {
+    throw new Error(`persisted subagent descriptor ${key} must be a string`)
+  }
+  return field
+}
+
+/** Read one optional string-array field from a persisted tool restriction. */
+function optionalStringArray(value: Record<string, unknown>, key: string): string[] | undefined {
+  if (!Object.hasOwn(value, key)) return undefined
+  const field = value[key]
+  if (!Array.isArray(field)) {
+    throw new Error(`persisted subagent descriptor toolFilter.${key} must be an array of strings`)
+  }
+  const items: unknown[] = field
+  if (items.some(item => typeof item !== 'string')) {
+    throw new Error(`persisted subagent descriptor toolFilter.${key} must be an array of strings`)
+  }
+  return items as string[]
+}
+
+/** Validate and reconstruct a persisted tool restriction. */
+function parseToolFilter(value: unknown): ToolRestriction {
+  if (!isRecord(value)) {
+    throw new Error('persisted subagent descriptor toolFilter must be an object')
+  }
+  assertKnownKeys(value, TOOL_FILTER_KEYS, 'toolFilter')
+  const allow = optionalStringArray(value, 'allow')
+  const deny = optionalStringArray(value, 'deny')
+  if (allow === undefined && deny === undefined) {
+    throw new Error('persisted subagent descriptor toolFilter must declare allow and/or deny')
+  }
+  return {
+    ...allow !== undefined ? { allow } : {},
+    ...deny !== undefined ? { deny } : {},
+  }
+}
+
+/** Validate one persisted descriptor payload for the current runtime. */
+function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undefined {
+  if (!isRecord(value)) {
+    throw new Error('persisted subagent descriptor payload must be an object')
+  }
+  const version = value['version']
+  if (typeof version !== 'number') {
+    throw new Error('persisted subagent descriptor version must be a number')
+  }
+  if (version !== SUBAGENT_DESCRIPTOR_VERSION) return undefined
+
+  assertKnownKeys(value, DESCRIPTOR_KEYS, 'payload')
+  const provider = value['provider']
+  if (typeof provider !== 'string') {
+    throw new Error('persisted subagent descriptor provider must be a string')
+  }
+  const agentProvider = optionalString(value, 'agentProvider')
+  const agentModel = optionalString(value, 'agentModel')
+  const persona = optionalString(value, 'persona')
+  const toolFilter = Object.hasOwn(value, 'toolFilter')
+    ? parseToolFilter(value['toolFilter'])
+    : undefined
+  return {
+    version: SUBAGENT_DESCRIPTOR_VERSION,
+    provider,
+    ...agentProvider !== undefined ? { agentProvider } : {},
+    ...agentModel !== undefined ? { agentModel } : {},
+    ...persona !== undefined ? { persona } : {},
+    ...toolFilter !== undefined ? { toolFilter } : {},
+  }
+}
+
 /**
  * Validate and detach descriptor inputs into the durable payload, before any
  * Task or provider work begins — the same detached lossless-JSON boundary the
@@ -105,12 +201,13 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
  * @returns the descriptor, or `undefined` when the log has none or its
  *   version is not {@link SUBAGENT_DESCRIPTOR_VERSION} (the child is not
  *   resumable by this runtime).
+ * @throws when a current-version persisted payload does not match its complete
+ *   declared schema.
  */
 export function foldSubagentDescriptor(events: readonly SessionEvent[]): SubagentDescriptorData | undefined {
   const event = events.find(
     (candidate): candidate is SessionEvent<'subagent/descriptor'> => candidate.type === 'subagent/descriptor',
   )
   if (event === undefined) return undefined
-  if (event.data.version !== SUBAGENT_DESCRIPTOR_VERSION) return undefined
-  return event.data
+  return parseSubagentDescriptor(event.data)
 }

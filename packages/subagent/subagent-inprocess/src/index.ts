@@ -11,8 +11,8 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
 import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
-import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
-import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
+import { createUserMessage, errorChain, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertSubagentMaxDepth, delegationDepthOf, SubagentError } from '@deepseek-ai/dsh-subagent'
 import type {
   SubagentDescriptorData,
   SubagentResult,
@@ -66,6 +66,9 @@ export interface InProcessRunOptions {
   /** Completed-turn seed for fork, or undefined for a fresh spawn. */
   readonly seed?: SessionEvent[]
 }
+
+/** Whether one activation must prove its final state durable before success. */
+type Durability = 'best-effort' | 'required'
 
 /** Error used when cancellation wins before the child publication boundary. */
 function prePublicationAbort(): Error {
@@ -168,7 +171,15 @@ export async function startInProcessRun(
     signal: request.signal,
     setup,
   })
-  return driveTurn(handle, request.signal, request.prompt, childId, seedLength, structured)
+  return driveTurn(
+    handle,
+    request.signal,
+    request.prompt,
+    childId,
+    seedLength,
+    request.continuation === undefined ? 'best-effort' : 'required',
+    structured,
+  )
 }
 
 /**
@@ -203,14 +214,15 @@ export async function resumeInProcessRun(request: SubagentResumeRequest): Promis
   // The result boundary is this activation's own work: everything already in
   // the resumed transcript belongs to earlier turns.
   const resumePoint = handle.agent.session.events.length
-  return driveTurn(handle, request.signal, request.prompt, request.sessionId, resumePoint)
+  return driveTurn(handle, request.signal, request.prompt, request.sessionId, resumePoint, 'required')
 }
 
 /**
  * Drive one activation turn on a published child and wrap it as a run. The
  * caller has already created or resumed the agent; this owns the
  * signal-handoff race, the live abort listener, result collection past
- * `boundary`, strict steering, and disposal.
+ * `boundary`, the continuable-run durability confirmation, strict steering,
+ * and disposal.
  */
 function driveTurn(
   handle: AgentHandle,
@@ -218,6 +230,7 @@ function driveTurn(
   prompt: ContentBlock[],
   childId: SessionId,
   boundary: number,
+  durability: Durability,
   structured?: StructuredAttachment,
 ): SubagentRun | Promise<never> {
   const child = handle.agent
@@ -238,6 +251,17 @@ function driveTurn(
     try {
       child.followup(createUserMessage({ content: prompt, source: { kind: 'user' } }))
       await child.whenIdle()
+      if (durability === 'required') {
+        try {
+          await child.ctx.sessions.flush(child.session)
+        } catch (error: unknown) {
+          throw new SubagentError(
+            `subagent "${childId}" durability checkpoint failed; the latest child state was not confirmed persisted and may be unavailable or stale on resume: ${errorChain(error)}`,
+            'DURABILITY_FAILED',
+            { cause: error },
+          )
+        }
+      }
       return readResult(
         child,
         boundary,

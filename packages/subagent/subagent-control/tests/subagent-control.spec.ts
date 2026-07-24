@@ -16,7 +16,7 @@ import { TaskId } from '@deepseek-ai/dsh-tasks'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, HarnessError, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentControlService, { runOutcome, settleRun, SubagentControlError } from '../src/index.ts'
 
@@ -685,8 +685,21 @@ describe('outcome mapping helpers', () => {
     expect(failed).toEqual({ status: 'failed', detail: 'Error: transport gone' })
     expect(disposed).toBe(true)
 
-    const disposeFailed = await settleRun({
+    const durabilityMessage = 'subagent "child-3" durability checkpoint failed; latest state unavailable: disk full'
+    const durabilityFailed = await settleRun({
       id: SessionId('child-3'),
+      localAgent: undefined,
+      result: Promise.reject(new HarnessError(
+        durabilityMessage,
+        'DURABILITY_FAILED',
+        { cause: new Error('disk full') },
+      )),
+      dispose: () => Promise.resolve(),
+    })
+    expect(durabilityFailed).toEqual({ status: 'failed', detail: durabilityMessage })
+
+    const disposeFailed = await settleRun({
+      id: SessionId('child-4'),
       localAgent: undefined,
       result: Promise.resolve({ output: [], stopReason: 'completed' }),
       dispose: () => Promise.reject(new Error('reap failed')),
@@ -694,7 +707,7 @@ describe('outcome mapping helpers', () => {
     expect(disposeFailed).toEqual({ status: 'failed', detail: 'dispose failed: Error: reap failed' })
 
     const bothFailed = await settleRun({
-      id: SessionId('child-4'),
+      id: SessionId('child-5'),
       localAgent: undefined,
       result: Promise.reject(new Error('result failed')),
       dispose: () => Promise.reject(new Error('reap failed')),
