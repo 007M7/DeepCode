@@ -1,13 +1,13 @@
 /**
- * ClientModuleLoaderImpl — the implementation behind the {@link ClientModuleLoader}
+ * ClientModuleSystem — the implementation behind the {@link ClientModuleLoader}
  * seam. The conceptual contract (lazy CJS model, resolution branch order) is
- * documented on the package module and the public interfaces in `./index.ts`;
- * this file owns the state tables and the fetch/execute/materialize machinery.
+ * documented on the public interfaces in `./manifest.ts`; this file owns the
+ * state tables and the fetch/execute/materialize machinery.
  */
 import type {
-  ClientModuleLoader, ClientModuleLoaderOptions, ClientModuleRecord,
-  ClientPluginHandoff, DshWindow, WebBootEntry,
-} from './index.ts'
+  BootModuleRow, ClientModuleLoader, ClientModuleRecord,
+  ClientModuleSystemOptions, ClientPluginHandoff, DshWindow,
+} from './manifest.ts'
 
 /** A registered-but-unmaterialized bundle: the factory plus its source URL (diagnostics). */
 interface RegisteredFactory {
@@ -33,13 +33,6 @@ const defaultExecuteBundle = (code: string, url: string): void => {
   // now, so the node (and its source text) has no further job. Removing it
   // keeps repeated HMR rebuilds from accumulating dead script nodes.
   el.remove()
-}
-
-const urlOf = (row: WebBootEntry): string => {
-  // url is conditional on the wire (shell-own pseudo rows omit it); those
-  // ids resolve through the static registry and never reach a fetch.
-  if (row.url === undefined) throw new Error(`client-modules: entry "${row.id}" has no bundle url and no static registration`)
-  return row.url
 }
 
 /**
@@ -70,10 +63,10 @@ const claimStyles = (id: string): string[] => {
 /**
  * The client module system: state tables plus the arrival/materialization
  * machinery implementing {@link ClientModuleLoader} (whose members carry the
- * seam contract docs). Construction indexes the boot graph and installs the
+ * seam contract docs). Construction indexes the boot rows and installs the
  * `window.__ModuleLoader__` registration sink (contract C6) — once per page.
  */
-export class ClientModuleLoaderImpl implements ClientModuleLoader {
+export class ClientModuleSystem implements ClientModuleLoader {
   readonly version = 'client'
   readonly loadCache = new Map<string, ClientModuleRecord>()
 
@@ -84,7 +77,7 @@ export class ClientModuleLoaderImpl implements ClientModuleLoader {
   private readonly pendingArrival = new Map<string, Promise<void>>()
   /** Materialization re-entrancy guard: factory-form CJS cannot deliver partial exports, so a cycle is fatal. */
   private readonly materializing = new Set<string>()
-  private readonly graphRows = new Map<string, WebBootEntry>()
+  private readonly graphRows = new Map<string, BootModuleRow>()
   // Execution URL of the bundle currently being executed (bound into the
   // factory registration so diagnostics can name the source).
   private executingUrl = ''
@@ -97,17 +90,17 @@ export class ClientModuleLoaderImpl implements ClientModuleLoader {
   private readonly executeBundle: (code: string, url: string) => void
 
   /**
-   * Build the module system over the host graph.
-   * @param options - entry graph, module-table staticModules, fetch/execute seams.
+   * Build the module system over the parsed boot rows.
+   * @param options - module rows, module-table staticModules, fetch/execute seams.
    */
-  constructor(options: ClientModuleLoaderOptions) {
+  constructor(options: ClientModuleSystemOptions) {
     this.seed = new Map(Object.entries(options.staticModules))
     this.fetchBundle = options.fetchBundle ?? defaultFetchBundle
     this.executeBundle = options.executeBundle ?? defaultExecuteBundle
 
-    for (const entry of options.graph.entries) {
-      if (this.graphRows.has(entry.id)) throw new Error(`client-modules: duplicate graph entry "${entry.id}"`)
-      this.graphRows.set(entry.id, entry)
+    for (const row of options.modules) {
+      if (this.graphRows.has(row.id)) throw new Error(`client-modules: duplicate graph entry "${row.id}"`)
+      this.graphRows.set(row.id, row)
     }
 
     const win = globalThis as DshWindow
@@ -129,13 +122,12 @@ export class ClientModuleLoaderImpl implements ClientModuleLoader {
   }
 
   /** Fetch + execute one graph row so its factory is registered (idempotent per in-flight arrival). */
-  private arrive(row: WebBootEntry): Promise<void> {
-    const { id } = row
+  private arrive(row: BootModuleRow): Promise<void> {
+    const { id, url } = row
     const pending = this.pendingArrival.get(id)
     if (pending !== undefined) return pending
     if (this.factories.has(id)) return Promise.resolve()
     const task = (async (): Promise<void> => {
-      const url = urlOf(row)
       const code = await this.fetchBundle(url)
       this.executingUrl = url
       this.executingId = id
