@@ -10,7 +10,7 @@ The layering/protocol decisions are recorded in the [GUI layering and RPC protoc
 
 The mux stream projects the latest log-backed title as a validated `session/title` control frame after each attached-session subscription baseline and immediately after the corresponding live raw title event. This projection does not add titles to `session.list`; cold sessions remain metadata-only there until opening or resuming attaches their logs.
 
-Plan mode uses two unary methods instead of deriving current state from a history page: `session.planMode` returns the committed state plus any boundary-pending selection, and `session.setPlanMode` records a selection and returns the same authoritative shape. Both return `null` when the optional host service is absent; `null` is capability absence, while `{ active: false }` is a supported inactive session. Committed changes still arrive through the raw logged `plan/mode` session event.
+Plan mode uses two unary methods instead of deriving current state from a history page: `session.planMode` returns the committed state plus any boundary-pending selection, and `session.setPlanMode` records a selection and returns the same authoritative shape. A present `pending` target must differ from `active`; a net-zero service cleanup intent projects as `{ active }`, and the wire schema rejects equal values. Both methods return `null` when the optional host service is absent; `null` is capability absence, while `{ active: false }` is a supported inactive session. Committed changes still arrive through the raw logged `plan/mode` session event.
 
 ## Carrier layer (`/client` + root)
 

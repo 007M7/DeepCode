@@ -47,7 +47,7 @@ export interface SessionSummary {
 /**
  * Plan collaboration state exposed to clients. `active` is the logged state
  * shaping the current request; `pending`, when present, is the user's
- * next-boundary selection.
+ * next-boundary selection and differs from `active`.
  */
 export interface PlanModeState {
   active: boolean

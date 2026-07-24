@@ -114,6 +114,8 @@ describe('sessions domain schemas', () => {
     expect(sessionSetPlanModeValueSchema.parse({ active: true })).toEqual({ active: true })
     expect(() => sessionSetPlanModeRequestSchema.parse({ sessionId: 's1', active: 'yes' })).toThrow()
     expect(() => sessionPlanModeValueSchema.parse({ active: 'yes' })).toThrow()
+    expect(() => sessionPlanModeValueSchema.parse({ active: false, pending: false })).toThrow()
+    expect(() => sessionSetPlanModeValueSchema.parse({ active: true, pending: true })).toThrow()
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
   })
 })

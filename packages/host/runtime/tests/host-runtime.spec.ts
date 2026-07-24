@@ -256,8 +256,8 @@ describe('sessions.planMode / setPlanMode', () => {
     })
     expect(expectOk(await running.api.sessions.setPlanMode(request({ sessionId, active: false })))).toEqual({
       active: false,
-      pending: false,
     })
+    expect(expectOk(await running.api.sessions.planMode(request({ sessionId })))).toEqual({ active: false })
   })
 
   it('returns the normal session-not-found error for both methods', async () => {

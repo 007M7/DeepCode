@@ -96,6 +96,29 @@ describe('plan mode projection', () => {
     expect(result).toEqual({ ok: true, value: { active: false, pending: true } })
     expect(api.callsOf('session.setPlanMode')).toEqual([{ sessionId: SID, active: true }])
     expect(session.getSnapshot().planMode).toEqual({ active: false, pending: true })
+
+    api.onSetPlanMode = () => Promise.resolve(ok({ active: false }))
+    await session.setPlanMode(false)
+    expect(session.getSnapshot().planMode).toEqual({ active: false })
+  })
+
+  it('drops an older overlapping selection response after the newer selection lands', async () => {
+    const { api, session } = makeSession()
+    api.onPlanMode = () => Promise.resolve(ok({ active: false }))
+    await session.open()
+    const older = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    const newer = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    let call = 0
+    api.onSetPlanMode = () => ++call === 1 ? older.promise : newer.promise
+
+    const selectPlan = session.setPlanMode(true)
+    const selectDefault = session.setPlanMode(false)
+    newer.resolve(ok({ active: false }))
+    await selectDefault
+    older.resolve(ok({ active: false, pending: true }))
+    await selectPlan
+
+    expect(session.getSnapshot().planMode).toEqual({ active: false })
   })
 
   it('retains the prior state when a selection fails at the business or transport layer', async () => {
@@ -172,6 +195,26 @@ describe('plan mode projection', () => {
     selectionResponse.resolve(ok({ active: false, pending: true }))
     await selecting
     expect(selection.session.getSnapshot().planMode).toEqual({ active: true })
+  })
+
+  it('applies a plan commit recovered through a gap-repair replacement window', async () => {
+    const { api, session } = makeSession()
+    const initial = plainTurn(0, 0, 'a', 'b')
+    api.onHistory = () => histResponse(initial)
+    api.onPlanMode = () => Promise.resolve(ok({ active: false, pending: true }))
+    await session.open()
+
+    const planCommit = at(6, { type: 'plan/mode', data: { active: true } })
+    const later = ev.turnStart(7, 1)
+    api.onHistory = () => histResponse([...initial, planCommit, later])
+    session.handleMuxEnvelope('rp-gap' as never, {
+      type: 'session/event', sessionId: SID, event: later,
+    })
+
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history')).toHaveLength(2)
+      expect(session.getSnapshot().planMode).toEqual({ active: true })
+    })
   })
 
   it('keeps history usable when the independent capability query fails', async () => {
