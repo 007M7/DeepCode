@@ -146,7 +146,16 @@ describe('goal tool registration and presentation', () => {
       goal_id: 'goal-1', revision: 2, action: 'blocked', blocked_reason: 'Waiting for a human choice.',
     })).toEqual({ card: 'generic', title: 'Mark goal', kind: 'other', rawInput: 'Waiting for a human choice.' })
     expect(ctx.tools.get('update_goal')?.presentCall?.({
+      goal_id: 'goal-1', revision: 2, action: 'edit',
+      objective: 'ship', max_goal_rounds: 0, blocked_reason: '',
+    })).toEqual({ card: 'generic', title: 'Edit goal', kind: 'other', rawInput: 'ship' })
+    expect(ctx.tools.get('update_goal')?.presentCall?.({
+      goal_id: 'goal-1', revision: 2, action: 'edit',
+      objective: '', max_goal_rounds: 8, blocked_reason: '',
+    })).toEqual({ card: 'generic', title: 'Edit goal', kind: 'other', rawInput: 8 })
+    expect(ctx.tools.get('update_goal')?.presentCall?.({
       goal_id: 'goal-1', revision: 2, action: 'resume',
+      objective: '', max_goal_rounds: 0, blocked_reason: '',
     })).toEqual({ card: 'generic', title: 'Resume goal', kind: 'other', rawInput: 'goal-1' })
     expect(ctx.tools.get('update_goal')?.presentCall?.({ wrong: true })).toBeUndefined()
   })
@@ -426,6 +435,77 @@ describe('goal tool state transitions', () => {
       goal_id: '', revision: 0, action: 'edit', objective: 'x',
     }, root.agent)
     expect(malformedRef.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+  })
+
+  it('accepts only empty fillers in fields unused by the selected action', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, { kind: 'user' })
+    let goal = ctx.goals.create(root.agent, { objective: 'valid' })
+
+    const edited = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'edit',
+      objective: 'edited',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(edited)).toMatchObject({ objective: 'edited' })
+    goal = ctx.goals.get(root.agent)!
+
+    const capped = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'edit',
+      objective: '',
+      max_goal_rounds: 8,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(capped)).toMatchObject({ objective: 'edited', maxGoalRounds: 8 })
+    goal = ctx.goals.get(root.agent)!
+
+    const paused = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'pause',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(paused)).toMatchObject({ phase: 'paused', objective: 'edited' })
+    goal = ctx.goals.get(root.agent)!
+
+    const resumed = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'resume',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(resumed)).toMatchObject({ phase: 'active', objective: 'edited' })
+    goal = ctx.goals.get(root.agent)!
+
+    const blocked = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'blocked',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: 'actual blocker',
+    }, root.agent)
+    expect(resultGoal(blocked)).toMatchObject({ phase: 'blocked' })
+    goal = ctx.goals.resume(root.agent, { id: goal.id, revision: goal.revision + 1 })
+
+    const complete = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'complete',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(complete)).toMatchObject({ phase: 'complete', objective: 'edited' })
   })
 
   it('allows exact goal rounds to complete but not edit or pause', async () => {

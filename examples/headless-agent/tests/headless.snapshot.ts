@@ -222,7 +222,12 @@ describe('headless stream-json snapshots', () => {
         const records = parseJsonl(logs[0]?.content ?? '')
         const calls = records.filter(record => record.type === 'tool/call')
           .map(record => (record.data as JsonObject | undefined)?.name)
-        expect(calls).toEqual(['create_goal', 'get_goal'])
+        expect(calls).toEqual(['update_goal', 'create_goal', 'get_goal'])
+        const probeResult = records.find(record => record.type === 'tool/result'
+          && (record.data as JsonObject | undefined)?.callId === 'call_goal_probe')
+        const probeData = probeResult?.data as JsonObject | undefined
+        expect(probeData?.isError).toBe(true)
+        expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
         const goalChanges = records.filter((record) => {
           if (record.type !== 'user/message') return false
           const data = record.data as JsonObject | undefined
