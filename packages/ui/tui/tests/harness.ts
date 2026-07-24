@@ -10,6 +10,7 @@ import AgentRegistry, {
 import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionLiveLease } from '@deepseek-ai/dsh-session-persistence'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -53,6 +54,7 @@ export interface TuiHarnessOptions {
     list(): Promise<SessionHeader[]>
     load?(id: ReturnType<typeof SessionId>): Promise<{ meta: SessionHeader; events: Session['events'] }>
     isLive?(id: ReturnType<typeof SessionId>): Promise<boolean>
+    claimLive?(id: ReturnType<typeof SessionId>): Promise<SessionLiveLease>
   }
   handoffResume?: TuiRuntime['handoffResume']
   /** Set false to exercise the optional session-query degradation path. */
@@ -138,7 +140,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       inspect: persistence.load === undefined
         ? (id: ReturnType<typeof SessionId>) => Promise.reject(new Error(`session "${id}" not found`))
         : (id: ReturnType<typeof SessionId>) => persistence.load!(id),
-      claimLive: () => Promise.resolve({ release: () => Promise.resolve() }),
+      claimLive: persistence.claimLive === undefined
+        ? () => Promise.resolve({ release: () => Promise.resolve() })
+        : (id: ReturnType<typeof SessionId>) => persistence.claimLive!(id),
       isLive: persistence.isLive === undefined
         ? () => Promise.resolve(false)
         : (id: ReturnType<typeof SessionId>) => persistence.isLive!(id),

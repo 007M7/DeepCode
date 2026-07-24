@@ -249,6 +249,13 @@ describe('SessionPersistenceJsonl: cross-process live leases', () => {
       const inheritedClaim = await ctx.sessionPersistence.claimLive(inherited)
       await inheritedClaim.release()
 
+      const reusedPid = SessionId('reused-pid')
+      const reusedPidPath = join(liveDir, `${encodeSegment(reusedPid)}.lock`)
+      await writeFile(reusedPidPath, JSON.stringify({ pid: process.pid, nonce: 'prior-incarnation' }))
+      await expect(ctx.sessionPersistence.isLive(reusedPid)).resolves.toBe(false)
+      const reusedPidClaim = await ctx.sessionPersistence.claimLive(reusedPid)
+      await reusedPidClaim.release()
+
       await expect(ctx.sessionPersistence.claimLive(SessionId('x'.repeat(300))))
         .rejects.toThrow()
 

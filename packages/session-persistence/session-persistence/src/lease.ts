@@ -8,7 +8,7 @@ const LIVE_OWNER_ENV = 'DSH_SESSION_LIVE_OWNER'
 export interface SessionLiveOwner {
   /** Operating-system process id; retained across an `execve` handoff. */
   readonly pid: number
-  /** Per-process-start nonce that distinguishes PID reuse. */
+  /** Exec-stable process-start nonce used when the observer has the same PID. */
   readonly nonce: string
 }
 
@@ -42,9 +42,26 @@ export function sessionLeaseProcessIsLive(pid: number): boolean {
   }
 }
 
+/**
+ * Whether a recorded owner still names this process incarnation or another live PID.
+ * A same-PID nonce mismatch proves reuse and is stale; an unrelated live PID is
+ * fail-closed because its private nonce is not observable across processes.
+ * @param recorded - owner stored in the backend lease.
+ * @param observer - identity of the process inspecting or claiming the lease.
+ * @returns whether the recorded owner must still be treated as live.
+ */
+export function sessionLeaseOwnerIsLive(
+  recorded: SessionLiveOwner,
+  observer: SessionLiveOwner,
+): boolean {
+  if (recorded.pid === observer.pid) return recorded.nonce === observer.nonce
+  return sessionLeaseProcessIsLive(recorded.pid)
+}
+
 interface SharedLeaseEntry {
   refs: number
   readonly acquired: Promise<() => Promise<void>>
+  finalizing?: Promise<void>
 }
 
 const sharedLeases = new Map<string, SharedLeaseEntry>()
@@ -59,40 +76,48 @@ export async function shareSessionLiveLease(
   key: string,
   acquire: () => Promise<() => Promise<void>>,
 ): Promise<() => Promise<void>> {
-  let entry = sharedLeases.get(key)
-  if (entry === undefined) {
-    entry = { refs: 0, acquired: acquire() }
-    sharedLeases.set(key, entry)
-    void entry.acquired.catch(() => {
-      /* v8 ignore next -- no public operation can replace a still-acquiring module-private entry */
-      if (sharedLeases.get(key) === entry) sharedLeases.delete(key)
-    })
-  }
-  entry.refs += 1
-  try {
-    await entry.acquired
-  } catch (error) {
-    entry.refs -= 1
-    throw error
-  }
-  let releaseTask: Promise<void> | undefined
-  return () => {
-    if (releaseTask !== undefined) return releaseTask
-    const task = (async () => {
+  for (;;) {
+    let entry = sharedLeases.get(key)
+    if (entry?.finalizing !== undefined) {
+      await entry.finalizing
+      continue
+    }
+    if (entry === undefined) {
+      entry = { refs: 0, acquired: acquire() }
+      sharedLeases.set(key, entry)
+      void entry.acquired.catch(() => {
+        /* v8 ignore next -- no public operation can replace a still-acquiring module-private entry */
+        if (sharedLeases.get(key) === entry) sharedLeases.delete(key)
+      })
+    }
+    entry.refs += 1
+    try {
+      await entry.acquired
+    } catch (error) {
       entry.refs -= 1
-      if (entry.refs > 0 || sharedLeases.get(key) !== entry) return
-      const release = await entry.acquired
-      await release()
-      /* v8 ignore next -- the entry remains installed until this exact final release succeeds */
-      if (sharedLeases.get(key) === entry) sharedLeases.delete(key)
-    })()
-    const wrapped = task.catch((error: unknown) => {
-      entry.refs += 1
-      /* v8 ignore next -- this closure is the sole writer of its releaseTask until settlement */
-      if (releaseTask === wrapped) releaseTask = undefined
       throw error
-    })
-    releaseTask = wrapped
-    return wrapped
+    }
+    let releaseTask: Promise<void> | undefined
+    return () => {
+      if (releaseTask !== undefined) return releaseTask
+      const task = (async () => {
+        entry.refs -= 1
+        if (entry.refs > 0 || sharedLeases.get(key) !== entry) return
+        const release = await entry.acquired
+        await release()
+        /* v8 ignore next -- claims wait for finalization before they can replace this exact entry */
+        if (sharedLeases.get(key) === entry) sharedLeases.delete(key)
+      })()
+      const wrapped = task.catch((error: unknown) => {
+        entry.refs += 1
+        /* v8 ignore next -- this closure is the sole writer of its release state until settlement */
+        if (entry.finalizing === wrapped) delete entry.finalizing
+        releaseTask = undefined
+        throw error
+      })
+      if (entry.refs === 0 && sharedLeases.get(key) === entry) entry.finalizing = wrapped
+      releaseTask = wrapped
+      return wrapped
+    }
   }
 }

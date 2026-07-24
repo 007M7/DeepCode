@@ -15,7 +15,7 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  sessionLeaseProcessIsLive, shareSessionLiveLease,
+  sessionLeaseOwnerIsLive, shareSessionLiveLease,
   type PersistenceBackend, type SessionLiveLease, type SessionLiveOwner,
   type SessionLocation, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
@@ -295,7 +295,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       const current = this.liveLeaseFor(id)
       if (current !== undefined
         && (current.pid !== owner.pid || current.nonce !== owner.nonce)) {
-        if (sessionLeaseProcessIsLive(current.pid)) {
+        if (sessionLeaseOwnerIsLive(current, owner)) {
           throw new Error(`session "${id}" is occupied by another live process`)
         }
         this.db.prepare('DELETE FROM live_session_leases WHERE session_id = ?').run(id)
@@ -323,7 +323,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     const current = this.liveLeaseFor(id)
     if (current === undefined) return false
     if ((current.pid === owner.pid && current.nonce === owner.nonce)
-      || sessionLeaseProcessIsLive(current.pid)) return true
+      || sessionLeaseOwnerIsLive(current, owner)) return true
     this.db.prepare('DELETE FROM live_session_leases WHERE session_id = ? AND pid = ? AND nonce = ?')
       .run(id, current.pid, current.nonce)
     return false

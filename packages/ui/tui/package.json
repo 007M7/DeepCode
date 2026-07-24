@@ -53,9 +53,6 @@
     "@deepseek-ai/dsh-session-query": {
       "optional": true
     },
-    "@deepseek-ai/dsh-goal": {
-      "optional": true
-    },
     "@deepseek-ai/dsh-skill": {
       "optional": true
     }

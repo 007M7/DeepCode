@@ -13,7 +13,12 @@ import type { SessionLiveLease } from './lease.ts'
 // Re-export the metadata vocabulary so consumers import it from the seam.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
 export { SessionPersistenceRevision } from './revision.ts'
-export { sessionLeaseProcessIsLive, sessionLiveOwner, shareSessionLiveLease } from './lease.ts'
+export {
+  sessionLeaseOwnerIsLive,
+  sessionLeaseProcessIsLive,
+  sessionLiveOwner,
+  shareSessionLiveLease,
+} from './lease.ts'
 export type { SessionLiveLease, SessionLiveOwner } from './lease.ts'
 
 /** Lightweight immutable source identity returned without loading a full log. */

@@ -69,6 +69,6 @@ JSONL storage does not mutate live request prefixes. A resumed loop can reuse pr
 - **Only the configured encoding and current `SESSION_FORMAT_VERSION` (v0) load** — changing compression requires a separate/fresh root or selecting the legacy raw mode; the pre-release format has no migration.
 - **Compressed files are not directly line-readable** — use the backend to load them, or select `compression: 'none'` before writing a fresh root when text fixtures or external line readers are required.
 - **Nothing deletes session files** — logs accumulate under `root` until removed externally (the seam has no deletion surface).
-- **Lease scope is local-host advisory ownership** — PID liveness prevents two ordinary local Harness processes from resuming the same id, but it is not a distributed lease for shared network filesystems or hostile principals.
+- **Lease scope is local-host advisory ownership** — PID plus same-process nonce checks prevent two ordinary local Harness processes from resuming the same id, but foreign PID reuse remains fail-closed and this is not a distributed lease for shared network filesystems or hostile principals.
 - **A crash during stale-lease takeover fails closed** — if the reclaiming process itself crashes while holding the short-lived `.reclaim` guard, an operator must remove that guard after confirming no recovery is active.
 - **POSIX materialization requires hard-link support** — first append uses `link()` so same-id races fail instead of overwriting a committed log; Windows uses write-through rename without replacement.

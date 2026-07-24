@@ -77,9 +77,9 @@ import type {
   SessionLogSnapshot,
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
-// Side-effect type import: declaration-merges the optional `sessionPersistence`
+// Type import also declaration-merges the optional `sessionPersistence`
 // service onto `Context` so `ctx.get('sessionPersistence')` is typed.
-import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { SessionLiveLease } from '@deepseek-ai/dsh-session-persistence'
 import type { SkillDefinition, SkillResourceBase, SkillService } from '@deepseek-ai/dsh-skill'
 import type {
   FileDiff,
@@ -1841,6 +1841,8 @@ export function createTuiChat(
   let modelOverlay: TuiOverlaySession | undefined
   let resumeOverlay: TuiOverlaySession | undefined
   let resumeInFlight = false
+  let resumeReservation: SessionLiveLease | undefined
+  let resumeReservationCommitted = false
   let resumeScan = 0
   let tuiServiceFiber: Fiber | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
@@ -1853,6 +1855,12 @@ export function createTuiChat(
   const now = (): number => runtime.now?.() ?? Date.now()
   const agentStatus = (): AgentStatus => agent.status
   const isDisposed = (): boolean => disposed
+  const releaseResumeReservation = async (): Promise<void> => {
+    const reservation = resumeReservation
+    if (reservation === undefined) return
+    await reservation.release()
+    resumeReservation = undefined
+  }
 
   // A configured subtitle renders as a banner line; when absent, the banner has
   // no subtitle. The banner itself sweeps in on start (see startBannerReveal).
@@ -2436,6 +2444,8 @@ export function createTuiChat(
     shuttingDown ??= (async () => {
       disposed = true
       overlayManager.beginShutdown()
+      /* v8 ignore else -- the committed branch is the non-returning exec handoff covered by the keyless PTY test */
+      if (!resumeReservationCommitted) await releaseResumeReservation()
       contextResolution = undefined
       clearStatus()
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
@@ -2871,6 +2881,7 @@ export function createTuiChat(
   const handoffResume = async (candidate: ResumeCandidate, overlay: TuiOverlaySession): Promise<void> => {
     if (resumeInFlight) return
     resumeInFlight = true
+    let terminalReleased = false
     try {
       const checked = await preflightResume(candidate.record.header.id)
       const hostHandoff = runtime.handoffResume
@@ -2884,29 +2895,51 @@ export function createTuiChat(
           : `This host cannot hand off in place. Exit and run: ${fallback}`, 'warning')
         return
       }
+      if (persistence === undefined) {
+        throw new Error('Resume is unavailable: session persistence is not mounted.')
+      }
+      resumeReservation = await persistence.claimLive(checked.record.header.id)
+      if (disposed) {
+        await releaseResumeReservation()
+        return
+      }
       await ctx.sessions.flush(agent.session)
+      // Disposal can run while the flush promise is pending; TypeScript does not model that reentry.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (disposed) return
       if (agent.status !== 'idle') throw new Error(`Resume requires an idle agent (status: ${agent.status}).`)
       await overlay.close()
       resumeOverlay = undefined
       await runtime.terminal.drainInput(100, 20)
+      // Disposal can run while terminal draining is pending; TypeScript does not model that reentry.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (disposed) return
       ui.stop()
-      try {
-        await hostHandoff(checked.record.header.id)
-        throw new Error('resume host returned without replacing the process')
-      } catch (error: unknown) {
-        /* v8 ignore next -- a committed host disposes this TUI and never returns; pre-commit rejection keeps it live */
-        if (!disposed) {
+      terminalReleased = true
+      resumeReservationCommitted = true
+      await hostHandoff(checked.record.header.id)
+      throw new Error('resume host returned without replacing the process')
+    } catch (error: unknown) {
+      /* v8 ignore next -- a committed host disposes this TUI and never returns; recoverable rejection keeps it live */
+      if (!disposed) {
+        resumeReservationCommitted = false
+        let reported = error
+        try {
+          await releaseResumeReservation()
+        } catch (releaseError: unknown) {
+          reported = new Error(
+            `${errorChain(error)}; target reservation release failed: ${errorChain(releaseError)}`,
+          )
+        }
+        if (terminalReleased) {
           ui.start()
           ui.setFocus(editor)
-          appendNotice(`Resume handoff failed: ${errorChain(error)}`, 'error')
+          appendNotice(`Resume handoff failed: ${errorChain(reported)}`, 'error')
+        } else {
+          await overlay.close()
+          resumeOverlay = undefined
+          appendNotice(`Resume failed: ${errorChain(reported)}`, 'error')
         }
-      }
-    } catch (error: unknown) {
-      /* v8 ignore next -- disposal settles the overlay and suppresses late preflight diagnostics */
-      if (!disposed) {
-        await overlay.close()
-        resumeOverlay = undefined
-        appendNotice(`Resume failed: ${errorChain(error)}`, 'error')
       }
     } finally {
       resumeInFlight = false

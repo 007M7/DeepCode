@@ -57,3 +57,4 @@ SQLite storage does not mutate live request prefixes. A resumed loop can reuse p
 - **Write contention has no wait or retry policy** — the backend sets no busy timeout and retries no locked-database error, so another connection holding a write transaction makes the operation reject immediately.
 - **Only the current `SCHEMA_VERSION` opens** — a database with any other schema version is rejected rather than migrated (unreleased software; no persisted user data to preserve).
 - **Nothing deletes stored sessions** — rows accumulate until removed externally (the seam has no deletion surface; `ON DELETE CASCADE` is wired for such out-of-band cleanup).
+- **Foreign PID reuse is fail-closed** — same-PID claimants compare the exec-stable nonce, while other processes conservatively retain a stale row until the reused PID exits or an operator verifies and removes it.

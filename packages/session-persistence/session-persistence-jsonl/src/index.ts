@@ -14,7 +14,7 @@ import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  sessionLeaseProcessIsLive, shareSessionLiveLease,
+  sessionLeaseOwnerIsLive, shareSessionLiveLease,
   type PersistenceBackend, type SessionLiveLease, type SessionLiveOwner,
   type SessionLocation, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
@@ -314,7 +314,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
         const current = await this.readLiveLease(path)
         if (current !== undefined && current.pid === owner.pid && current.nonce === owner.nonce) break
-        if (current === undefined || sessionLeaseProcessIsLive(current.pid)) {
+        if (current === undefined || sessionLeaseOwnerIsLive(current, owner)) {
           throw new Error(`session "${id}" is occupied by another live process`)
         }
         const reclaimPath = `${path}.reclaim`
@@ -335,7 +335,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
           if (latest === undefined) {
             if (await this.exists(path)) throw new Error(`session "${id}" has an unreadable live-process lease`)
           } else if (latest.pid !== owner.pid || latest.nonce !== owner.nonce) {
-            if (sessionLeaseProcessIsLive(latest.pid)) {
+            if (sessionLeaseOwnerIsLive(latest, owner)) {
               throw new Error(`session "${id}" is occupied by another live process`)
             }
             await rm(path, { force: true })
@@ -356,13 +356,13 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /** Report one non-stale process lease and clean up a crashed owner's record. */
+  /** Report one non-stale process lease; acquisition reclaims a crashed owner's record. */
   async inspectLive(id: SessionId, owner: SessionLiveOwner): Promise<boolean> {
     const path = this.liveLeasePath(id)
     const current = await this.readLiveLease(path)
     if (current === undefined) return await this.exists(path)
     if (current.pid === owner.pid && current.nonce === owner.nonce) return true
-    if (sessionLeaseProcessIsLive(current.pid)) return true
+    if (sessionLeaseOwnerIsLive(current, owner)) return true
     return false
   }
 
