@@ -89,6 +89,20 @@ async function waitTerminal(ctx: Context, taskId: TaskId, parent: Agent) {
   return ctx.tasks.wait(taskId, 5_000, parent)
 }
 
+async function waitPublishedRun(ctx: Context, childId: SessionId): Promise<void> {
+  const control = ctx.subagentControl as unknown as {
+    activations: Map<SessionId, { run: unknown }>
+  }
+  await new Promise<void>((resolve) => {
+    const timer = setInterval(() => {
+      if (control.activations.get(childId)?.run !== undefined) {
+        clearInterval(timer)
+        resolve()
+      }
+    }, 5)
+  })
+}
+
 function message(text: string) {
   return [{ type: 'text' as const, text }]
 }
@@ -145,6 +159,20 @@ describe('SubagentControlService.startContinuable', () => {
     expect(ctx.tasks.list(parent)).toEqual([])
   })
 
+  it('rolls back the activation when Task preflight throws', async () => {
+    const { ctx, parent } = await setup([textResponse('unused')])
+    const realStart = ctx.tasks.start.bind(ctx.tasks)
+    ctx.tasks.start = () => { throw new Error('task preflight failed') }
+    try {
+      expect(() => ctx.subagentControl.startContinuable(startSpec(parent)))
+        .toThrow('task preflight failed')
+    } finally {
+      ctx.tasks.start = realStart
+    }
+    const control = ctx.subagentControl as unknown as { activations: Map<SessionId, unknown> }
+    expect(control.activations.size).toBe(0)
+  })
+
   it('rejects a non-JSON descriptor input synchronously with no Task', async () => {
     const { ctx, parent } = await setup([textResponse('unused')])
     const spec = startSpec(parent)
@@ -195,6 +223,85 @@ describe('SubagentControlService.startContinuable', () => {
 })
 
 describe('SubagentControlService.sendMessage', () => {
+  it('omits undeclared model selectors and rejects a provider without live delivery', async () => {
+    const { ctx } = await setup([])
+    const result = Promise.withResolvers<{
+      output: { type: 'text'; text: string }[]
+      stopReason: 'completed'
+    }>()
+    let descriptor: SessionEvent<'subagent/descriptor'>['data'] | undefined
+    ctx.subagents.registerProvider({
+      name: 'no-steer',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async (request) => {
+        descriptor = request.continuation?.descriptor
+        return {
+          id: request.continuation!.sessionId,
+          localAgent: undefined,
+          result: result.promise,
+          async dispose() {},
+        }
+      },
+      resume: async () => { throw new Error('not used') },
+    })
+    const parent = ctx.agentLoop.create(SessionId('bare-parent'), {})
+    const started = ctx.subagentControl.startContinuable(startSpec(parent, 'no-steer'))
+    await waitPublishedRun(ctx, started.childId)
+
+    expect(descriptor).toEqual({ version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'no-steer' })
+    expect(() => ctx.subagentControl.sendMessage(parent, started.childId, message('join')))
+      .toThrow(/provider does not accept live delivery/)
+
+    let terminalDeliveryError: unknown
+    ctx.tasks.onTaskDone((snapshot) => {
+      if (snapshot.id !== started.taskId) return
+      try {
+        ctx.subagentControl.sendMessage(parent, started.childId, message('after terminal'))
+      } catch (error: unknown) {
+        terminalDeliveryError = error
+      }
+    })
+    result.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' })
+    await waitTerminal(ctx, started.taskId, parent)
+    expect(String(terminalDeliveryError)).toContain('is completed')
+  })
+
+  it('rejects a registry agent different from the associated run agent', async () => {
+    const { ctx, parent } = await setup([])
+    const result = Promise.withResolvers<{
+      output: { type: 'text'; text: string }[]
+      stopReason: 'completed'
+    }>()
+    ctx.subagents.registerProvider({
+      name: 'mismatched-local',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async (request) => {
+        const childId = request.continuation!.sessionId
+        const handle = await ctx.agents.create({
+          sessionId: childId,
+          meta: { parentSession: request.parent.id },
+          agentOptions: { provider: 'mock', model: 'mock' },
+        })
+        return {
+          id: childId,
+          localAgent: {} as Agent,
+          result: result.promise,
+          dispose: () => handle.dispose(),
+        }
+      },
+      resume: async () => { throw new Error('not used') },
+    })
+    const started = ctx.subagentControl.startContinuable(startSpec(parent, 'mismatched-local'))
+    await waitPublishedRun(ctx, started.childId)
+
+    expect(() => ctx.subagentControl.sendMessage(parent, started.childId, message('join')))
+      .toThrow(/registry agent is not the associated activation's agent/)
+    result.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' })
+    await waitTerminal(ctx, started.taskId, parent)
+  })
+
   it('steers a running activation into the existing Task without creating a second Task', async () => {
     // Hold the child's first model call open so the child is observably
     // running when the message arrives; the steered content then drives a
@@ -358,7 +465,23 @@ describe('SubagentControlService.sendMessage', () => {
     const attempt = ctx.subagentControl.sendMessage(parent, SessionId('plain-child'), message('continue?'))
     const snapshot = await waitTerminal(ctx, attempt.taskId, parent)
     expect(snapshot.status).toBe('failed')
-    expect(snapshot.detail).toContain('continuation descriptor')
+    expect(snapshot.detail).toContain(
+      'has no supported continuation state and cannot be resumed; do not retry send_message with this id',
+    )
+  })
+
+  it('derives fallback and bounded labels for resumed activations', async () => {
+    const { ctx, parent } = await setup([])
+    const blank = ctx.subagentControl.sendMessage(parent, SessionId('blank-child'), message('   '))
+    const longText = 'x'.repeat(100)
+    const long = ctx.subagentControl.sendMessage(parent, SessionId('long-child'), message(longText))
+
+    expect(ctx.tasks.get(blank.taskId, parent).label).toBe('subagent follow-up')
+    expect(ctx.tasks.get(long.taskId, parent).label).toBe(`${'x'.repeat(79)}…`)
+    await Promise.all([
+      waitTerminal(ctx, blank.taskId, parent),
+      waitTerminal(ctx, long.taskId, parent),
+    ])
   })
 
   it('rejects delivery to a live agent outside control-service ownership', async () => {
@@ -491,7 +614,7 @@ describe('service disposal with live activations', () => {
     await ctx.plugin(JsonlSessionPersistence, { root })
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks, {})
     // A provider that stays pending until its signal aborts, so the activation
     // is observably mid-start when the control service is disposed.
@@ -518,7 +641,7 @@ describe('service disposal with live activations', () => {
       label: 'will be interrupted',
       request: { prompt: message('go'), parent },
     })
-    // TaskService keeps the producer Task; the disposing control service must
+    // LocalTaskService keeps the producer Task; the disposing control service must
     // cancel its activation and await settlement rather than strand it.
     await controlFiber.dispose()
     expect(sawAbort).toBe(true)

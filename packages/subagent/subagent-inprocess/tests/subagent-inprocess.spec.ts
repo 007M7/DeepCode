@@ -2,16 +2,16 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentService, { SUBAGENT_DESCRIPTOR_VERSION } from '@deepseek-ai/dsh-subagent'
 import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { startInProcessRun } from '../src/index.ts'
+import { resumeInProcessRun, startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -186,6 +186,61 @@ describe('startInProcessRun', () => {
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 
+  it('rejects an already-aborted resume before publication', async () => {
+    const { parent } = await setup([])
+    const controller = new AbortController()
+    controller.abort('too late')
+    await expect(resumeInProcessRun({
+      sessionId: SessionId('resumed-child'),
+      prompt: [{ type: 'text', text: 'continue' }],
+      parent,
+      signal: controller.signal,
+      descriptor: { version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn' },
+    })).rejects.toThrow('aborted before child publication')
+  })
+
+  it('resumes without inventing undeclared agent model options', async () => {
+    const childId = SessionId('resumed-child')
+    const child = {
+      id: childId,
+      options: {},
+      session: new Session(childId),
+      status: 'idle',
+      acceptsNextStep: false,
+      ctx: new Context(),
+      send(): void {},
+      reserveTurnAdmission: () => undefined,
+      updateInbox: () => 'not-found',
+      followup(): void {},
+      steer(): void {},
+      inject(): void {},
+      cancel(): void {},
+      whenIdle: () => Promise.resolve(),
+    } as Agent
+    let resumedOptions: unknown
+    const parent = {
+      ctx: {
+        agents: {
+          resume: (options: { agentOptions: unknown }) => {
+            resumedOptions = options.agentOptions
+            return Promise.resolve({ agent: child, dispose: () => Promise.resolve() })
+          },
+        },
+      },
+    } as unknown as Agent
+
+    const run = await resumeInProcessRun({
+      sessionId: childId,
+      prompt: [{ type: 'text', text: 'continue' }],
+      parent,
+      signal: new AbortController().signal,
+      descriptor: { version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn' },
+    })
+    expect(resumedOptions).toEqual({})
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'error' })
+    await run.dispose()
+  })
+
   it('uses the request signal after publication and dispose as cancellation paths', async () => {
     const { parent, adapter } = await setup(['hang', 'hang'])
     const controller = new AbortController()
@@ -258,14 +313,12 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
-  it('strict steer rejects the between-steps window where a terminal turn-stop discards steering', async () => {
-    // Hold `agent/turn-stop` open: the step has closed, pending steering was
-    // already folded into the continuation decision, and a terminal stop
-    // would discard a message arriving now — the exact window an
-    // acknowledged delivery would be a lie.
+  it('strict steer rejects the between-steps turn-stopping window', async () => {
+    // Hold `agent/turn-stopping` open after the step closed and pending
+    // steering was folded into the continuation decision.
     const { ctx, parent } = await setup([textResponse('quick')])
     let releaseStop: (() => void) | undefined
-    ctx.on('agent/turn-stop', (agent) => {
+    ctx.on('agent/turn-stopping', (agent) => {
       if (agent.session.header.parentSession === undefined || releaseStop !== undefined) return undefined
       return new Promise((resolve) => {
         releaseStop = () => { resolve(undefined) }
@@ -285,6 +338,87 @@ describe('startInProcessRun', () => {
     await run.result
     expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
     await run.dispose()
+  })
+
+  it('strict steer rejects reentrant delivery after the final drain begins', async () => {
+    const { ctx, parent } = await setup([textResponse('quick')])
+    let run: Awaited<ReturnType<typeof startInProcessRun>> | undefined
+    let seeded = false
+    let rejected: unknown
+    ctx.on('session/event', (session, event) => {
+      if (session.header.parentSession === undefined || run === undefined) return
+      if (event.type === 'assistant/chunk' && !seeded) {
+        seeded = true
+        run.steer?.([{ type: 'text', text: 'accepted before the drain' }])
+      } else if (event.type === 'steering/message' && rejected === undefined) {
+        try {
+          run.steer?.([{ type: 'text', text: 'after the drain began' }])
+        } catch (error: unknown) {
+          rejected = error
+        }
+      }
+    })
+
+    run = await startInProcessRun(request(parent), {})
+    const child = ctx.agents.get(run.id)!
+    await run.result
+    expect(seeded).toBe(true)
+    expect(rejected).toBeInstanceOf(Error)
+    expect((rejected as Error).message)
+      .toMatch(/passed its steering checkpoint; the message was not delivered/)
+    expect(child.session.events.filter(event => event.type === 'steering/message')).toHaveLength(1)
+    await run.dispose()
+  })
+
+  it('strict steer rejects an Agent implementation without atomic steering', async () => {
+    const childId = SessionId('custom-loop-child')
+    const childSession = new Session(childId)
+    childSession.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    childSession.append('step/start', { turn: 1, step: 1 })
+    const idle = Promise.withResolvers<undefined>()
+    const child = {
+      id: childId,
+      options: {},
+      session: childSession,
+      status: 'running',
+      acceptsNextStep: false,
+      ctx: new Context(),
+      send(): void {},
+      reserveTurnAdmission: () => undefined,
+      updateInbox: () => 'not-found',
+      followup(): void {},
+      steer(): void {},
+      inject(): void {},
+      cancel(): void {},
+      whenIdle: () => idle.promise,
+    } as Agent
+    const parentId = SessionId('custom-loop-parent')
+    const parent = {
+      id: parentId,
+      options: {},
+      session: new Session(parentId),
+      ctx: {
+        get: () => undefined,
+        agents: {
+          create: () => Promise.resolve({
+            agent: child,
+            dispose: () => {
+              idle.resolve(undefined)
+              return Promise.resolve()
+            },
+          }),
+        },
+      },
+    } as unknown as Agent
+
+    const run = await startInProcessRun(request(parent), {})
+    expect(() => { run.steer!([{ type: 'text', text: 'unsupported strict delivery' }]) })
+      .toThrow(/does not support strict steering; the message was not delivered/)
+    await run.dispose()
+    await run.result
   })
 
   it('strict steer rejects the closed-turn flush window where the loop discards steering', async () => {

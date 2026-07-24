@@ -5,6 +5,9 @@ import { type Agent } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import SubagentService, {
+  foldSubagentDescriptor,
+  snapshotSubagentDescriptor,
+  SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
   assertSubagentMaxDepth,
   type SubagentCapabilities,
@@ -13,7 +16,7 @@ import SubagentService, {
   type SubagentRun,
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 
 function fakeParent(id = 'parent-1'): Agent {
   return { id: SessionId(id) } as unknown as Agent
@@ -97,6 +100,28 @@ describe('SubagentService', () => {
       .toThrow(expect.objectContaining({ code: 'DUPLICATE_PROVIDER' }))
     await expect(subagents.start('missing', baseRequest()))
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
+  })
+
+  it('rejects continuable start and resume when the provider has no resume capability', async () => {
+    const { subagents } = await service()
+    subagents.registerProvider(new StubProvider('one-shot'))
+    const descriptor = snapshotSubagentDescriptor({ provider: 'one-shot' })
+    const sessionId = SessionId('continuable-child')
+    const parent = fakeParent()
+    const signal = new AbortController().signal
+
+    await expect(subagents.start('one-shot', baseRequest({
+      parent,
+      signal,
+      continuation: { sessionId, descriptor },
+    }))).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
+    await expect(subagents.resume('one-shot', {
+      sessionId,
+      prompt: [{ type: 'text', text: 'continue' }],
+      parent,
+      signal,
+      descriptor,
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
   })
 
   it.each([
@@ -245,5 +270,19 @@ describe('SubagentService', () => {
     expect(error).toBeInstanceOf(HarnessError)
     expect(error.name).toBe('SubagentError')
     expect(error.code).toBe('NO_PROVIDER')
+  })
+})
+
+describe('subagent descriptors', () => {
+  it('omits absent model selectors and rejects unsupported versions', () => {
+    expect(snapshotSubagentDescriptor({ provider: 'spawn' })).toEqual({
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      provider: 'spawn',
+    })
+    const unsupported = {
+      type: 'subagent/descriptor',
+      data: { version: SUBAGENT_DESCRIPTOR_VERSION + 1, provider: 'spawn' },
+    } as unknown as SessionEvent<'subagent/descriptor'>
+    expect(foldSubagentDescriptor([unsupported])).toBeUndefined()
   })
 })

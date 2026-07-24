@@ -132,7 +132,6 @@ export class ReactLoopAgent implements Agent {
   private abort: AbortController | undefined
   /** Resolves when the current admission and turn exit. */
   done: Promise<void> = Promise.resolve()
-
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after {@link done}. */
   readonly scope: Scope
   /** The agent's scoped composition context ({@link Agent.ctx}). */
@@ -143,6 +142,8 @@ export class ReactLoopAgent implements Agent {
   /** Whether the session log is owed a matching turn end event. */
   private turnOpen = false
   private stepOpen = false
+  /** Whether {@link trySteer} can still join the current step's final drain. */
+  private strictSteeringOpen = false
   /** Whether this loop instance has appended its initial/resume request anchor. */
   private requestHeaderLogged = false
 
@@ -240,6 +241,16 @@ export class ReactLoopAgent implements Agent {
       target: 'next-step',
       wakeup: true,
     })
+  }
+
+  /** Atomically steer only while the current step still owns its final drain. */
+  trySteer(input: UserMessage): boolean {
+    if (!this.strictSteeringOpen) return false
+    this.send(input, {
+      target: 'next-step',
+      wakeup: true,
+    })
+    return true
   }
 
   /** Append model-facing context without waking the driver. */
@@ -500,6 +511,7 @@ export class ReactLoopAgent implements Agent {
           case 'request-failed': {
             // step() reports request failures only after step/start commits
             // and before its own step/end, so the step is always open here.
+            this.strictSteeringOpen = false
             this.stepOpen = false
             this.session.append('step/end', { turn, step })
             if (!signal.aborted) {
@@ -535,6 +547,7 @@ export class ReactLoopAgent implements Agent {
     } catch (caught: unknown) {
       try {
         if (this.stepOpen) {
+          this.strictSteeringOpen = false
           this.stepOpen = false
           this.session.append('step/end', { turn, step })
         }
@@ -552,6 +565,7 @@ export class ReactLoopAgent implements Agent {
       // failure paths (step(), the request-failed branch, the catch), so the
       // finally owes only the turn boundary.
       this.acceptsNextStep = false
+      this.strictSteeringOpen = false
       try {
         if (this.turnOpen) {
           // Re-entrant turn/end listeners must route new input to a later turn.
@@ -624,6 +638,7 @@ export class ReactLoopAgent implements Agent {
 
     session.append('step/start', { turn, step })
     this.stepOpen = true
+    this.strictSteeringOpen = true
     signal.throwIfAborted()
 
     const { request, preparedCall } = await this.buildRequest(
@@ -692,6 +707,7 @@ export class ReactLoopAgent implements Agent {
 
     // Tool results stay adjacent to their calls; input accepted during the
     // request enters the log only after the complete result batch.
+    this.strictSteeringOpen = false
     const steered = this.drainOutbox(turn)
     session.append('step/end', { turn, step })
     this.stepOpen = false

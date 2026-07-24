@@ -181,7 +181,12 @@ export class SubagentControlService extends Service {
         activation.controller.abort('subagent control service disposed')
         activation.terminal.resolve()
       }
-      await Promise.allSettled(active.map(activation => activation.done ?? Promise.resolve()))
+      await Promise.allSettled(active.map((activation) => {
+        /* v8 ignore next 2 -- TaskService invokes `run` synchronously before `start` returns;
+         * every retained activation has `done`, while registration failure removes it. */
+        if (activation.done === undefined) return Promise.resolve()
+        return activation.done
+      }))
     }, 'subagentControl.activations()')
   }
 
@@ -354,7 +359,8 @@ export class SubagentControlService extends Service {
       const descriptor = foldSubagentDescriptor(loaded.events.slice(loaded.meta.seedLength ?? 0))
       if (descriptor === undefined) {
         throw new SubagentControlError(
-          `subagent "${childId}" has no supported continuation descriptor`,
+          `subagent "${childId}" has no supported continuation state and cannot be resumed; `
+            + 'do not retry send_message with this id',
           'NOT_RESUMABLE',
         )
       }

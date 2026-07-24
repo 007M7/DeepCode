@@ -237,6 +237,16 @@ export interface Agent {
   steer(message: UserMessage): void
 
   /**
+   * Atomically submit steering only while the current step still owns its final
+   * drain. Returns `false` without accepting the message during admission,
+   * between steps, or after the final per-step drain has begun. Cancellation or
+   * disposal may still discard previously accepted steering.
+   * @param message - identified steering content and its producer provenance.
+   * @returns whether the message entered the current step.
+   */
+  trySteer?(message: UserMessage): boolean
+
+  /**
    * Append model-facing context without running the model — the
    * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
    * stages it at the next safe log position; outside that window it appends

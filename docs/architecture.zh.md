@@ -98,6 +98,7 @@ forever:
       materialize changed runtime context as sourced 'user/message'
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
+      open strict-steering acceptance
       agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
@@ -106,7 +107,7 @@ forever:
         parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
         start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
         model-order result -> ordered tools/post-execute -> 'tool/result'
-      drain accepted tool context and steering
+      close strict-steering acceptance, then drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn
       otherwise agent/turn-stopping -> drain -> continue only for steering
@@ -121,7 +122,7 @@ idle inject:
 
 每个步骤都会组装有序的稳定系统提示词片段、缓存安全的动态上下文、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
+接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。默认循环会在最后一次排空 steering 前立即关闭其可选 `trySteer()` 的准入；普通 `steer()` 保留尽力路由语义。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 
 裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
 
@@ -135,7 +136,7 @@ idle inject:
 
 ### Agent 句柄
 
-`ctx.agents` 拥有 agent，返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`，或使用 `followup()`、`steer()` 和 `inject()` 预设；[`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) 为持久工作同步预留空闲状态，同时不改变排队提示词身份。`cancel()` 与 `whenIdle()` 控制生命周期。需等待完成的资源释放负责拆卸。
+`ctx.agents` 拥有 agent，返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`，或使用 `followup()`、`steer()`、可选的 `trySteer()` 和 `inject()` 预设；[`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) 为持久工作同步预留空闲状态，同时不改变排队提示词身份。当前步骤开始最后一次排空 steering 后，默认循环的 `trySteer()` 会原子地拒绝调用，而普通 `steer()` 保留尽力路由语义。`cancel()` 与 `whenIdle()` 控制生命周期。需等待完成的资源释放负责拆卸。
 
 ### Agent 作用域
 

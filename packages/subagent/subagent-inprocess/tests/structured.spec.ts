@@ -121,28 +121,25 @@ describe('in-process structured output', () => {
   })
 
   it('strict steer rejects delivery once the structured result is captured', async () => {
-    // Hold the capture's tool result open so the child is observably running
-    // with a committed capture: the pending agent/turn-stop checkpoint is
-    // terminal, and the loop would DISCARD a steering message, so an
-    // acknowledged delivery here would be a lie.
-    let releaseResult: (() => void) | undefined
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
     ])
-    ctx.on('agent/post-step', (agent) => {
-      if (agent.session.header.parentSession === undefined || releaseResult !== undefined) return
-      return new Promise<void>((resolve) => { releaseResult = resolve })
+    let run: Awaited<ReturnType<typeof ctx.subagents.start>> | undefined
+    let rejected: unknown
+    ctx.on('session/event', (session, event) => {
+      if (session.header.parentSession === undefined || run === undefined
+        || event.type !== 'tool/result' || rejected !== undefined) return
+      try {
+        run.steer?.([{ type: 'text', text: 'one more thing' }])
+      } catch (error: unknown) {
+        rejected = error
+      }
     })
-    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
-    await new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        if (releaseResult !== undefined) { clearInterval(timer); resolve() }
-      }, 5)
-    })
-    expect(() => { run.steer!([{ type: 'text', text: 'one more thing' }]) })
-      .toThrow(/already reported its structured result; the message was not delivered/)
-    releaseResult!()
+    run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
+    expect(rejected).toBeInstanceOf(Error)
+    expect((rejected as Error).message)
+      .toMatch(/already reported its structured result; the message was not delivered/)
     expect(result.structured).toEqual({ answer: 7 })
     await run.dispose()
   })

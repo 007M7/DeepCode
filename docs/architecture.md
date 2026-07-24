@@ -98,6 +98,7 @@ forever:
       materialize changed runtime context as sourced 'user/message'
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
+      open strict-steering acceptance
       agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
@@ -106,7 +107,7 @@ forever:
         parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
         start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
         model-order result -> ordered tools/post-execute -> 'tool/result'
-      drain accepted tool context and steering
+      close strict-steering acceptance, then drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn
       otherwise agent/turn-stopping -> drain -> continue only for steering
@@ -121,7 +122,7 @@ idle inject:
 
 Each step assembles ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
+Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. The default loop closes its optional `trySteer()` acceptance immediately before the final steering drain; ordinary `steer()` keeps its best-effort routing semantics. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
 
 Pruning precedes summaries; overflow retries require durable progress. `agent/request-error` may authorize one retry turn between failed-step and turn close; cancellation wins. Adapter-owned `retryPolicy` makes normal mode bounded; always mode delegates specialized recovery before retrying until success or cancellation ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)).
 
@@ -135,7 +136,7 @@ Turn and step events are turn-enclosed. Idle `user/message` and standalone `comp
 
 ### Agent Handles
 
-`ctx.agents` owns agents, returning `AgentHandle { agent, dispose() }`. Plugins use `send()` or `followup()`, `steer()`, and `inject()` presets; [`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) synchronously reserves idle for durable work without changing queued prompt identity. `cancel()` and `whenIdle()` control lifecycle. Awaited disposal owns teardown.
+`ctx.agents` owns agents, returning `AgentHandle { agent, dispose() }`. Plugins use `send()` or `followup()`, `steer()`, optional `trySteer()`, and `inject()` presets; [`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) synchronously reserves idle for durable work without changing queued prompt identity. The default loop's `trySteer()` atomically rejects after the current step's final steering drain begins, while ordinary `steer()` retains best-effort routing. `cancel()` and `whenIdle()` control lifecycle. Awaited disposal owns teardown.
 
 ### Agent Scope
 

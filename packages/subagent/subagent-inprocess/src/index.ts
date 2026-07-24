@@ -276,10 +276,10 @@ function driveTurn(
       if (lastBoundary?.type !== 'turn/start') {
         throw new Error(`subagent child "${childId}" turn has already closed; the message was not delivered`)
       }
-      // Terminal turn-stops only run between steps: with no step open, the
-      // loop may be awaiting its continuation/turn-stop checkpoints, where
-      // pending steering was already folded and a terminal decision discards
-      // a later arrival. A message accepted during an OPEN step is instead
+      // Turn settlement only runs between steps: with no step open, the loop
+      // may be awaiting its continuation/turn-stopping checkpoint, where
+      // pending steering was already folded and a later arrival would miss
+      // this turn. A message accepted during an OPEN step is instead
       // drained and recorded at that step's settlement checkpoint before any
       // terminal decision (cancellation remains the documented shared-outcome
       // race).
@@ -289,14 +289,20 @@ function driveTurn(
       if (lastStep?.type !== 'step/start') {
         throw new Error(`subagent child "${childId}" is between steps; the message was not delivered`)
       }
-      // A committed structured capture makes the pending `agent/turn-stop`
-      // checkpoint terminal, and the loop then discards late steering. The
-      // capture is synchronously observable, so reject rather than
-      // acknowledge a message the run is about to drop.
+      // A committed structured capture makes the pending step conclusion
+      // terminal. The capture is synchronously observable, so reject rather
+      // than acknowledge a message the run is about to drop.
       if (structured?.captured() !== undefined) {
         throw new Error(`subagent child "${childId}" already reported its structured result; the message was not delivered`)
       }
-      child.steer(createUserMessage({ content, source: { kind: 'user' } }))
+      // The atomic Agent operation closes before the final drain, so this
+      // cannot acknowledge content that the current step will not record.
+      if (child.trySteer === undefined) {
+        throw new Error(`subagent child "${childId}" agent does not support strict steering; the message was not delivered`)
+      }
+      if (!child.trySteer(createUserMessage({ content, source: { kind: 'user' } }))) {
+        throw new Error(`subagent child "${childId}" passed its steering checkpoint; the message was not delivered`)
+      }
     },
   }
 }
