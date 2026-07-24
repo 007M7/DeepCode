@@ -84,6 +84,9 @@ export class WorkspaceRegistry extends Service {
   /** Open the domain and rebuild the entity cache before the service is published as active. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storage.domain.open(workspaceDomainSpec)
+    // This registry owns the domain handle it opened: closing on fiber
+    // disposal frees the domain name, so a re-plugged registry can reopen it.
+    this.ctx.effect(() => () => domain.close(), 'workspace.domainClose')
     this.table = domain.table('workspaces')
     const persistence = this.ctx.get('sessionPersistence')
     if (persistence !== undefined) {

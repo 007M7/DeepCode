@@ -48,6 +48,15 @@ describe('defineDomain', () => {
       name: 'ok', version: 1, tables: { 'Bad Table': domainTable<string, Item>(itemSchema) },
     })).toThrow(/table name/)
   })
+
+  it('rejects a global schema that accepts null (the never-written sentinel)', () => {
+    expect(() => defineDomain({
+      name: 'ok',
+      version: 1,
+      global: { schema: settingsSchema.nullable(), initial: null },
+      tables: {},
+    })).toThrow(/must not accept null/)
+  })
 })
 
 describe('DomainFacility.open', () => {
@@ -262,21 +271,56 @@ describe('global singleton', () => {
   })
 })
 
-describe('disposal', () => {
-  it('drains queued writes, closes the unit, then rejects reads and writes', async () => {
+describe('close and lifecycle', () => {
+  it('close drains queued writes, then rejects reads and writes, and frees the name', async () => {
     const pool = new MemoryMediaPool()
-    const { ctx, facility } = await harness({ pool })
+    const { facility } = await harness({ pool })
     const domain = await facility.open(spec)
     const table = domain.table('items')
     const pending = Promise.all([
       table.put('a', { label: 'x', count: 1 }),
       table.put('b', { label: 'y', count: 2 }),
     ])
-    await ctx.fiber.dispose() // effect disposer: drain chain, close unit
-    await pending // queued before dispose → still landed
+    await Promise.all([domain.close(), domain.close()]) // idempotent
+    await pending // queued before close → still landed
     // Durability is the drain contract: both queued writes reached the medium.
     expect([...pool.media.get('demo')!.tables.get('items')!.keys()].sort()).toEqual(['a', 'b'])
     await expect(table.put('c', { label: 'z', count: 3 })).rejects.toMatchObject({ code: 'closed' })
     expect(() => table.get('a')).toThrow(/closed/)
+    // The name is free again: reopening sees the drained state.
+    const reopened = await facility.open(spec)
+    expect([...reopened.table('items').keys()].sort()).toEqual(['a', 'b'])
+  })
+
+  it('facility unmount closes domains the consumer never closed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend())
+    const DomainPlugin = await import('../src/index.ts')
+    const fiber = await ctx.plugin(DomainPlugin, { backend: 'memory' })
+    const domain = await ctx.storage.domain.open(bareSpec)
+    const table = domain.table('rows')
+    await table.put('a', { label: 'x', count: 1 })
+    await fiber.dispose()
+    await expect(table.put('b', { label: 'y', count: 2 })).rejects.toMatchObject({ code: 'closed' })
+    expect(() => ctx.storage.form('domain')).toThrow(/not mounted/)
+  })
+
+  it('contains a throwing domain/changed listener without rejecting the committed write', async () => {
+    const pool = new MemoryMediaPool()
+    const { ctx, facility, changes } = await harness({ pool })
+    const domain = await facility.open(spec)
+    const table = domain.table('items')
+    ctx.on('domain/changed', () => {
+      throw new Error('hostile observer')
+    })
+    await expect(table.put('a', { label: 'x', count: 1 })).resolves.toBeUndefined()
+    // Commit survived intact on both planes, and well-behaved listeners
+    // (registered before the thrower) still observed the event.
+    expect(table.get('a')).toEqual({ label: 'x', count: 1 })
+    expect(pool.media.get('demo')!.tables.get('items')!.get('a')).toEqual({ label: 'x', count: 1 })
+    expect(changes).toHaveLength(1)
+    // The chain is unpoisoned: subsequent writes proceed normally.
+    await expect(table.delete('a')).resolves.toBe(true)
   })
 })

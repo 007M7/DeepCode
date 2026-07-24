@@ -81,8 +81,12 @@ export class DomainFacility {
    * (`facet-unsupported`); open the unit projected from the spec (backend
    * `version-mismatch`/`malformed-medium` pass through); load and validate
    * every stored record against the spec's zod schemas (`invalid-record`
-   * with the offending table and key); construct the domain and register its
-   * disposal effect (drain the write chain, close the unit).
+   * with the offending table and key); construct the domain.
+   *
+   * Lifecycle: the CALLER owns the returned handle and closes it via
+   * `Domain.close()` (typically as its own `ctx.effect` disposer) — the
+   * facility does not tie the domain to any consumer fiber. Domains still
+   * open when the facility unmounts are closed by the plugin disposer.
    * @param spec - The domain declaration, typically from `defineDomain`.
    * @returns the opened domain handle, typed by the spec.
    */
@@ -119,20 +123,15 @@ export class DomainFacility {
           : snapshot.global === null
             ? globalSpec.initial
             : parseRecord(spec.name, '', '', () => globalSpec.schema.parse(snapshot.global))
-        const domain = new DomainImpl(this.ctx, spec, unit, tables, globalValue)
-        // The open-domain table entry is itself the effect: registration and
-        // the drain-then-unlist teardown live in one closure.
-        this.ctx.effect(() => {
-          this.domains.set(spec.name, domain)
-          return async () => {
-            // Drain before unlisting: writes landing during the drain still
-            // emit domain/changed, and the domain must stay resolvable (the
-            // package invariant cross-checks each event) until fully closed.
-            await domain.dispose()
-            this.domains.delete(spec.name)
-            this.reserved.delete(spec.name)
-          }
+        // The onClosed hook runs strictly after teardown completes: writes
+        // landing during the drain still emit domain/changed, and the domain
+        // stays resolvable (the package invariant cross-checks each event)
+        // until fully closed — only then does the name free up for reopening.
+        const domain: DomainImpl = new DomainImpl(this.ctx, spec, unit, tables, globalValue, () => {
+          this.domains.delete(spec.name)
+          this.reserved.delete(spec.name)
         })
+        this.domains.set(spec.name, domain)
         // The single type-erasure point: DomainImpl is the untyped runtime,
         // Domain<S> the spec-typed view; the unknown hop is required because
         // S's conditional global-handle type stays unresolved here.
@@ -142,7 +141,7 @@ export class DomainFacility {
         throw error
       }
     } catch (error) {
-      // Any failure means the effect never registered (nothing can throw
+      // Any failure means the domain never registered (nothing can throw
       // after it), so releasing the name reservation is unconditional.
       this.reserved.delete(spec.name)
       throw error
@@ -158,6 +157,16 @@ export class DomainFacility {
    */
   get(name: string): DomainImpl | undefined {
     return this.domains.get(name)
+  }
+
+  /**
+   * Close every domain still open on this facility. The unmount path for
+   * consumers that never called `Domain.close()` themselves; closing is
+   * idempotent, so double-closing an already-closed domain is harmless.
+   * @returns resolution after every unit is released.
+   */
+  async closeAll(): Promise<void> {
+    await Promise.all([...this.domains.values()].map(domain => domain.close()))
   }
 }
 
@@ -181,5 +190,14 @@ function parseRecord<T>(domain: string, table: string, key: string, parse: () =>
  * @param config - Validated plugin config.
  */
 export function apply(ctx: Context, config: Config) {
-  ctx.effect(() => ctx.storage.mount('domain', new DomainFacility(ctx, config)))
+  const facility = new DomainFacility(ctx, config)
+  ctx.effect(() => {
+    const unmount = ctx.storage.mount('domain', facility)
+    return async () => {
+      // Close leftovers before unmounting: draining writes still emit
+      // domain/changed, whose invariant resolves the facility through the hub.
+      await facility.closeAll()
+      unmount()
+    }
+  })
 }

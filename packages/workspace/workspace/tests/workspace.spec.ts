@@ -185,6 +185,24 @@ describe('WorkspaceRegistry.create', () => {
     const registry = new WorkspaceRegistry(ctx)
     await expect(registry.create(dir)).rejects.toThrow(/not started/)
   })
+
+  it('closes its domain on fiber disposal so a re-plugged registry reopens it', async () => {
+    const dir = await makeDir('replug')
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend())
+    ctx.storage.mount('domain', new DomainFacility(ctx, { backend: 'memory', routes: {} }))
+    const fiber = ctx.plugin(WorkspaceRegistry)
+    await fiber
+    const first = await ctx.workspace.create(dir)
+    await fiber.dispose()
+    // The registry's effect closed the domain, freeing the name: a second
+    // plugin of the same registry must reopen it (not already-open) and see
+    // the durable record.
+    await ctx.plugin(WorkspaceRegistry)
+    const reloaded = await ctx.workspace.resolveByPath(dir)
+    expect(reloaded?.id).toBe(first.id)
+  })
 })
 
 describe('Workspace.attachSession', () => {

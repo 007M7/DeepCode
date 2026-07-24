@@ -65,10 +65,14 @@ export function domainTable<K extends string, V>(schema: ZodType<V>): DomainTabl
 }
 
 /**
- * Identity helper that pins a spec's literal types and validates its names.
- * Misconfiguration fails loud: a domain or table name outside `UNIT_NAME_RE`
- * or a version that is not a non-negative integer throws here, at the owning
- * package's module load, before any medium is touched.
+ * Identity helper that pins a spec's literal types and validates its shape.
+ * Misconfiguration fails loud at the owning package's module load, before any
+ * medium is touched: a domain or table name outside `UNIT_NAME_RE`, a version
+ * that is not a non-negative integer, or a global schema that accepts `null`
+ * all throw. The `null` rejection guards round-tripping: backends store the
+ * global as opaque JSON with `null` as the "never written" sentinel, so a
+ * nullable global would be indistinguishable from an absent one on reopen
+ * (a stored `null` silently reverts to `initial`).
  * @param spec - The domain declaration.
  * @returns the same spec, narrowed to its literal type.
  */
@@ -83,6 +87,12 @@ export function defineDomain<S extends DomainSpec>(spec: S): S {
     if (!UNIT_NAME_RE.test(table)) {
       throw new Error(`domain '${spec.name}' table name '${table}' must match ${UNIT_NAME_RE}`)
     }
+  }
+  if (spec.global !== undefined && spec.global.schema.safeParse(null).success) {
+    throw new Error(
+      `domain '${spec.name}' global schema must not accept null: `
+      + 'null is the medium\'s "never written" sentinel, so a stored null could not round-trip',
+    )
   }
   return spec
 }

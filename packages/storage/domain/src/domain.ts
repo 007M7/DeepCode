@@ -106,6 +106,16 @@ export interface Domain<S extends DomainSpec> {
    * @returns the typed table handle.
    */
   table<N extends keyof S['tables'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>
+
+  /**
+   * Close this domain: reject new writes immediately, drain already-queued
+   * writes (their events still emit), release the backend unit, then free
+   * the domain name for a later open. Idempotent — repeated calls share one
+   * teardown. The consumer owns this call (typically as its own `ctx.effect`
+   * disposer); the facility closes any domain left open when it unmounts.
+   * @returns resolution after the unit is released.
+   */
+  close(): Promise<void>
 }
 
 /** Internal seam handing table handles their domain-owned write machinery. */
@@ -137,9 +147,9 @@ export class DomainImpl {
 
   /** Tail of the write chain; every link settles (rejections are observed by the caller's slice). */
   private chain: Promise<void> = Promise.resolve()
-  /** Set when dispose begins: new writes reject while already-queued writes drain. */
+  /** Set when close begins: new writes reject while already-queued writes drain. */
   private disposing = false
-  /** Set when dispose finishes (chain drained, unit closed): reads reject from here on. */
+  /** Set when close finishes (chain drained, unit closed): reads reject from here on. */
   private closed = false
   private disposal?: Promise<void>
 
@@ -152,6 +162,8 @@ export class DomainImpl {
    * the spec, so the entry set IS the table set.
    * @param globalValue - Validated stored global, or the spec's `initial`
    * when the medium held none; `undefined` when the spec declares no global.
+   * @param onClosed - Facility hook run once after teardown completes; frees
+   * the domain name for a later open.
    */
   constructor(
     private readonly ctx: Context,
@@ -159,6 +171,7 @@ export class DomainImpl {
     private readonly unit: KvUnit,
     records: Map<string, Map<string, unknown>>,
     globalValue: unknown,
+    private readonly onClosed: () => void,
   ) {
     this.name = spec.name
     const host: TableHost = {
@@ -166,7 +179,7 @@ export class DomainImpl {
       unit,
       enqueue: job => this.enqueue(job),
       assertReadable: () => { this.assertReadable() },
-      emitChanged: (change) => { this.ctx.emit('domain/changed', change) },
+      emitChanged: (change) => { this.emitChanged(change) },
     }
     for (const [table, tableRecords] of records) {
       this.tables.set(table, new KvTableImpl(host, table, tableRecords))
@@ -181,7 +194,7 @@ export class DomainImpl {
         set: value => this.enqueue(async () => {
           await this.unit.setGlobal(value)
           this.globalValue = value
-          host.emitChanged({ domain: this.name, table: '', key: '', operation: 'put', value })
+          this.emitChanged({ domain: this.name, table: '', key: '', operation: 'put', value })
         }),
       }
     }
@@ -211,22 +224,40 @@ export class DomainImpl {
 
   /**
    * Close this domain: reject new writes immediately, drain already-queued
-   * writes (their events still emit), then close the unit. Idempotent —
-   * repeated calls share one teardown.
+   * writes (their events still emit), close the unit, then free the name via
+   * the facility hook. Idempotent — repeated calls share one teardown.
    * @returns resolution after the unit is released.
    */
-  dispose(): Promise<void> {
-    this.disposal ??= this.runDispose()
+  close(): Promise<void> {
+    this.disposal ??= this.runClose()
     return this.disposal
   }
 
-  private async runDispose(): Promise<void> {
+  private async runClose(): Promise<void> {
     this.disposing = true
     // Chain links never reject (each is settled via then(noop, noop)), so
     // this await is a pure drain barrier.
     await this.chain
     await this.unit.close()
     this.closed = true
+    this.onClosed()
+  }
+
+  /**
+   * Dispatch one post-durability change notification, containing observer
+   * failures: the write is already committed (medium and memory both hold
+   * the new state), so a throwing listener must not retroactively reject it.
+   */
+  private emitChanged(change: DomainChanged): void {
+    try {
+      this.ctx.emit('domain/changed', change)
+    } catch (error) {
+      // Swallows synchronous observer exceptions only: emit dispatches
+      // listeners inline and nothing else runs in the try. The event is a
+      // notification, not a transaction participant — the commit point has
+      // passed, so containment (with a log) is the only correct outcome.
+      this.ctx.logger.warn(`domain '${this.name}': domain/changed listener failed: ${String(error)}`)
+    }
   }
 
   private enqueue<T>(job: () => Promise<T>): Promise<T> {
