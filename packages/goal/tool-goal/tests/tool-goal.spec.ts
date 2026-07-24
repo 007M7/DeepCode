@@ -409,10 +409,18 @@ describe('goal tool state transitions', () => {
     }
 
     const paused = await execute(ctx, 'update_goal', {
-      goal_id: goal.id, revision: goal.revision, action: 'pause', ...strictArgs,
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'pause',
+      objective: 'ignored replacement',
+      max_goal_rounds: 1,
+      blocked_reason: 'ignored blocker',
     }, root.agent)
     goal = ctx.goals.get(root.agent)!
-    expect(resultGoal(paused)).toMatchObject({ phase: 'paused', objective: 'valid' })
+    expect(resultGoal(paused)).toMatchObject({
+      phase: 'paused', objective: 'valid', maxGoalRounds: goal.maxGoalRounds,
+    })
+    expect(goal.blockedReason).toBeUndefined()
     const resumed = await execute(ctx, 'update_goal', {
       goal_id: goal.id, revision: goal.revision, action: 'resume', ...strictArgs,
     }, root.agent)
