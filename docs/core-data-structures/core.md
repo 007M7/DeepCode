@@ -1,5 +1,7 @@
 # Core Data Structures
 
+English | [中文](core.zh.md)
+
 This folder catalogs the **data structures** of the DeepSeek Harness — what each core type represents, its literal shape, and where the full detail lives. It complements [architecture.md](../architecture.md), which describes *behavior* (the service map, the session/turn/step lifecycle, the event taxonomy); this page describes the *vocabulary* that behavior moves around.
 
 ## What counts as "core"
@@ -162,6 +164,8 @@ interface MessageSourceMap {
 Adapters emit a raw **chunk** protocol; the loop logs the chunks (replay fidelity) while feeding the same chunks through a `BlockAssembler` to rebuild blocks and messages. `StreamChunk` is a closed discriminated union over `type` — `block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`.
 
 The full union, the adapter contract (usage-before-finish, raw-JSON tool arguments, the two sanctioned error paths), and `BlockAssembler` live on **[llm-streaming.md](llm-streaming.md)**.
+
+<a id="the-model-request-and-result"></a>
 
 ## The model request
 
@@ -560,7 +564,7 @@ interface Agent {
 
 `AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `running` describes the driver-wide drain interval, which can span turn close, its durability checkpoint, and consecutive queued turns; it does not prove a turn is still open. `AgentOptions` is merge-extensible: core declares `provider?` and `model?` (dispatch requires both after `agent/request`). Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
-The cause is a TypeScript-enforced same-process input. An active holder copies its discriminant into the runtime-only `AbortSignal.reason`; it is retired before `turn/end` publication. `agentInterruptReasonOf(signal)` recognizes `user`, `parent`, and lifecycle-only `disposed` without consulting ambient initiator state. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
+The cause is a TypeScript-enforced same-process input. An active `TurnCancellation` holder copies its discriminant into the runtime-only `AbortSignal.reason` and is retired before `turn/end` publication; the frozen `AbortSignal.reason` remains readable after that retirement. `agentInterruptReasonOf(signal)` recognizes `user`, `parent`, and lifecycle-only `disposed` without consulting ambient initiator state. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 

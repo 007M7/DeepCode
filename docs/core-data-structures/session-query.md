@@ -1,5 +1,7 @@
 # Session Query
 
+English | [中文](session-query.zh.md)
+
 Query vocabulary over the live-preferred logical session corpus. The [interface package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite package](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)

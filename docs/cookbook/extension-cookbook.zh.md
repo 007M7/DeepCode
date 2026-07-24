@@ -60,7 +60,7 @@ export function apply(ctx: Context) {
 
 ## 客户端驱动插件（外部协议桥接）
 
-*客户端驱动*是面向协议格式（wire format）对端的 UI 插件。它拥有 stdio，因此必须禁用 stdout 日志；通过工厂创建或恢复 agent（智能体）；将 harness 事件映射为协议消息；将请求映射为 `followup()` 或 `cancel()`。每个请求从持久的 `turn/end` 恰好结算一次（即使渲染失败），并通过 `AgentHandle.dispose()` 拆除 agent 以使 dispose（资源释放）达到静止状态。
+*客户端驱动*是面向协议格式（wire format）对端的 UI 插件。它拥有 stdio，因此必须禁用 stdout 日志；通过工厂创建或恢复 agent（智能体）；将 harness 事件映射为协议消息；将请求映射为 `followup()` 或 `cancel()`。每个请求从持久的 `turn/end` 恰好结算一次（即使渲染失败），并通过 `AgentHandle.dispose()` 拆除 agent，确保 dispose（资源释放）流程完全停稳。
 
 `packages/ui/acp` 是完整的工作示例：它将 agent 桥接到 ACP（Agent Client Protocol）（基于 stdio 的 JSON-RPC），使 Zed 及其他 ACP 编辑器能够驱动它。其 README 描述了完整的方法接口以及它在审批 seam 上注册的权限提示应答器。
 

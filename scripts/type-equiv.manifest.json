@@ -460,26 +460,6 @@
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "SessionReferenceInput",
-      "source": "packages/context/session-reference/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "SessionReferenceCandidate",
-      "source": "packages/context/session-reference/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "PreparedReferencedMessage",
-      "source": "packages/context/session-reference/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "SessionReferenceErrorCode",
-      "source": "packages/context/session-reference/src/config.ts"
-    },
-    {
       "doc": "docs/core-data-structures/session-title.md",
       "symbol": "SessionTitleProviderId",
       "source": "packages/session-title/session-title/src/index.ts"
@@ -533,6 +513,26 @@
       "doc": "docs/core-data-structures/session-title.md",
       "symbol": "SessionTitleProvider",
       "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceInput",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceCandidate",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "PreparedReferencedMessage",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceErrorCode",
+      "source": "packages/context/session-reference/src/config.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
@@ -1228,6 +1228,929 @@
       "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionSearchHit",
       "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "Branded",
+      "source": "packages/util/brand/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "ContentBlockMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "AssistantProvenance",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "Message",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "MessageSourceMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "FinishReasonMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "LlmProviderInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "LlmModelInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "LlmModelContext",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "GenerateOptions",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "ToolSchema",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "LlmCallConfig",
+      "source": "packages/llm/llm/src/call-config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "SessionEvent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "SendOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "AgentCancelCause",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "InjectOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "ResolvedAgentInput",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "AgentMessageId",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "AgentMessage",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "CancelOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "Agent",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "HookContext",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "PromptDecision",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "ContinuationDecision",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "RequestError",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "RequestErrorDecision",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "ContinuationStop",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "SessionStartSource",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/scope.zh.md",
+      "symbol": "ScopeKey",
+      "source": "packages/core/scope/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/scope.zh.md",
+      "symbol": "Scoped",
+      "source": "packages/core/scope/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/scope.zh.md",
+      "symbol": "Scope",
+      "source": "packages/core/scope/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/scope.zh.md",
+      "symbol": "ScopeLayer",
+      "source": "packages/core/scope/src/store.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.zh.md",
+      "symbol": "AssembleContext",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.zh.md",
+      "symbol": "PromptSection",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.zh.md",
+      "symbol": "ToolProviderResult",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "StreamChunk",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "LlmFailure",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "TokenUsage",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "ContentBlockMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "AppIdentity",
+      "source": "packages/llm/llm/src/attribution.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "BlockAssembler",
+      "source": "packages/llm/llm/src/assembler.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "LlmAdapter",
+      "source": "packages/llm/llm/src/index.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "PromptMessageData",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SessionEventMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "OutOfBandSessionEventMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "EpochHeader",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "TodoItem",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SessionEvent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "TurnTriggerMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "TurnEndReasonMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceEventType",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceOp",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceIntent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SessionSurface",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceFoldReplacement",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceFoldResult",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "Session",
+      "source": "packages/core/session/src/index.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.zh.md",
+      "symbol": "SessionHeader",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.zh.md",
+      "symbol": "CreateSessionOptions",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.zh.md",
+      "symbol": "SessionLocation",
+      "source": "packages/session-persistence/session-persistence/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.zh.md",
+      "symbol": "SessionPersistenceRevision",
+      "source": "packages/session-persistence/session-persistence/src/revision.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.zh.md",
+      "symbol": "SessionPersistenceSnapshot",
+      "source": "packages/session-persistence/session-persistence/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventSurface",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionRecord",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionLogSnapshot",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionSurfaceSnapshot",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventRecord",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionResultFilter",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventResultFilter",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventSearchDocument",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionSearchCursor",
+      "source": "packages/session-query/session-query/src/cursor.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionSearchRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventSearchRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionSearchPage",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventSearchHit",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionSearchHit",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionLineageNode",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionLineageTrace",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionQueryErrorCode",
+      "source": "packages/session-query/session-query/src/config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventReadRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventWindow",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventTraceRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventTrace",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolOutputDefinition",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolDefinition",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ValueSchemaSpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ParameterPropertySpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ParameterSchemaSpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "InferValue",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "InferArgs",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionToken",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionInput",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecution",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolDispatchExecution",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionMode",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolRunContext",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolGuard",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolRestriction",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionSuccess",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionResult",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "PreToolDecision",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "PostToolDecision",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "JsonSchemaScalar",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "JsonSchemaType",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "JsonSchemaNode",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ObjectJsonSchema",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.zh.md",
+      "symbol": "AskUserQuestionOption",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.zh.md",
+      "symbol": "AskUserQuestionItem",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.zh.md",
+      "symbol": "AskUserQuestionRequest",
+      "source": "packages/ui/user-interaction/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.zh.md",
+      "symbol": "AskUserQuestionAnswerItem",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.zh.md",
+      "symbol": "AskUserQuestionAnswer",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.zh.md",
+      "symbol": "UserInteractionProvider",
+      "source": "packages/ui/user-interaction/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.zh.md",
+      "symbol": "UserInteractionError",
+      "source": "packages/ui/user-interaction/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.zh.md",
+      "symbol": "ApprovalRequestId",
+      "source": "packages/ui/user-approval/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.zh.md",
+      "symbol": "ApprovalOutcome",
+      "source": "packages/ui/user-approval/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.zh.md",
+      "symbol": "ApprovalPolicy",
+      "source": "packages/ui/user-approval/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.zh.md",
+      "symbol": "ApprovalRequest",
+      "source": "packages/ui/user-approval/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "DshEnvironmentKey",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "DshEnvironment",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "BashExecRequest",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "BashExecSpec",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "BashRunResult",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "BashSandboxInfo",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "CollectedOutput",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "BashProcess",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.zh.md",
+      "symbol": "BashProcessRead",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.zh.md",
+      "symbol": "SandboxMode",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.zh.md",
+      "symbol": "ConfinedSandboxMode",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.zh.md",
+      "symbol": "SandboxExecutionPolicy",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.zh.md",
+      "symbol": "SandboxEnforcement",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.zh.md",
+      "symbol": "SandboxPolicy",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.zh.md",
+      "symbol": "SandboxPolicyRequest",
+      "source": "packages/sandbox/sandbox-policy/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.zh.md",
+      "symbol": "ConfinedArgv",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeJsonValue",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeRunRequest",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeRunResult",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeBindingNamespace",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeBindingErrorClass",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeBindingFunction",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeRunFailure",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsTarget",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsTargetKey",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsVersion",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsInfo",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsPathInfo",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsDirEntry",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsWriteIntent",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsWriteOutcome",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsEditRequest",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsEditOutcome",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsErrorCode",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FsPolicyExec",
+      "source": "packages/fs/fs-policy/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.zh.md",
+      "symbol": "FileReadOutcome",
+      "source": "packages/fs/tool-fs/src/read-render.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillSource",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillResourceBase",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillSummary",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillCandidate",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillDefinition",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillRegistration",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillLookupOptions",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "SkillProvider",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.zh.md",
+      "symbol": "Config",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.zh.md",
+      "symbol": "CompactionResult",
+      "source": "packages/compact/compact/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.zh.md",
+      "symbol": "CompactionTrigger",
+      "source": "packages/compact/compact/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.zh.md",
+      "symbol": "PrunedEntry",
+      "source": "packages/compact/compact-tool-result-prune/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.zh.md",
+      "symbol": "PruneResult",
+      "source": "packages/compact/compact-tool-result-prune/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.zh.md",
+      "symbol": "SubagentCapabilities",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.zh.md",
+      "symbol": "SubagentStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.zh.md",
+      "symbol": "SubagentResult",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.zh.md",
+      "symbol": "SubagentStopReasonMap",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.zh.md",
+      "symbol": "SubagentRun",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.zh.md",
+      "symbol": "SubagentProvider",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.zh.md",
+      "symbol": "WebSearchRequest",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.zh.md",
+      "symbol": "WebSearchResult",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.zh.md",
+      "symbol": "WebSearchSource",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.zh.md",
+      "symbol": "WebFetchRequest",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.zh.md",
+      "symbol": "WebFetchResult",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.zh.md",
+      "symbol": "WebFetchBody",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.zh.md",
+      "symbol": "WorkflowStartRequest",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.zh.md",
+      "symbol": "WorkflowMeta",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.zh.md",
+      "symbol": "WorkflowResult",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.zh.md",
+      "symbol": "WorkflowRun",
+      "source": "packages/workflow/workflow/src/types.ts"
     }
   ]
 }
