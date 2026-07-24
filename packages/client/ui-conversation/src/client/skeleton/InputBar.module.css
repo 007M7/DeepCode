@@ -119,12 +119,81 @@
   min-height: 84px;
 }
 
-/* figma Frame 1123 (34:11463): pad 12/0/10/10, buttons vertically centered. */
+/* Toolbar: attach + Plan + Read-only on the left; model + send on the right
+   (figma Input_Bottom chrome). */
 .row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 10px 10px 12px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 10px 10px;
+  min-width: 0;
+}
+
+.tools,
+.trailing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trailing {
+  flex: none;
+  gap: 8px;
+}
+
+/* Attach circle (figma + control): 28px, selector fill, primary glyph. */
+.add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: var(--dsw-specific-selector);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.add:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.add:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Plan / Read-only / model — native <select>, chip-like closed chrome. */
+.select {
+  max-width: 220px;
+  height: 28px;
+  padding: 0 22px 0 6px;
+  border: none;
+  border-radius: 8px;
+  outline: none;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3.5 5.25L7 8.75L10.5 5.25' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 14px 14px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  appearance: none;
+}
+
+.select:hover:not(:disabled) {
+  background-color: var(--dsw-alias-interactive-bg-hover);
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* Primary send (figma IconButton 34:10465): 34px circle, #3964FE light /
@@ -133,6 +202,7 @@
 .primary {
   display: grid;
   place-items: center;
+  flex: none;
   width: 34px;
   height: 34px;
   border: none;

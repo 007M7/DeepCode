@@ -133,6 +133,26 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
     expect(b.svc.list.getSnapshot().current).toBe('s1') // failed open leaves the selection alone
   })
 
+  it('clear() blanks list.current and the persisted selection', async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v) },
+      removeItem: (k: string) => { storage.delete(k) },
+      clear: () => { storage.clear() },
+    })
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.open(sid('s1'))
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
+    b.svc.clear()
+    expect(b.svc.list.getSnapshot().current).toBeUndefined()
+    // Persisted wipe: a fresh service with the same storage stays on empty.
+    const again = bench()
+    await feedList(again, [{ id: 's1' }])
+    expect(again.svc.list.getSnapshot().current).toBeUndefined()
+  })
+
   it('masks (not destroys) the selection while its session is off the list', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])

@@ -95,9 +95,10 @@ export class SessionsService {
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
    * purpose: reads go through the list snapshot; writes through {@link
-   * SessionsService.open}. Projection validates it against the live list
-   * instead of destructively pruning, so a selection survives transient list
-   * states (reconnect re-pull) and resurfaces when its session returns.
+   * SessionsService.open} / {@link SessionsService.clear}. Projection
+   * validates it against the live list instead of destructively pruning, so a
+   * selection survives transient list states (reconnect re-pull) and
+   * resurfaces when its session returns.
    */
   private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
 
@@ -137,7 +138,7 @@ export class SessionsService {
 
   /**
    * Select a session as current. Unknown ids fail loud instead of navigating
-   * nowhere (the sole selection write path).
+   * nowhere.
    * @param id - session id (must exist in the list store).
    */
   open(id: SessionId): void {
@@ -146,6 +147,17 @@ export class SessionsService {
     }
     this.selection.update((draft) => { draft.sessionId = id })
     this.list.update((draft) => { draft.current = id })
+  }
+
+  /**
+   * Clear the current selection so the layout shows the no-session empty
+   * state. Wipes the persisted selection too — a reload stays on empty until
+   * the user opens or starts a session. Staging holds the previous occupant
+   * across the blank (same masked-gap rule as a transient list miss).
+   */
+  clear(): void {
+    this.selection.set({})
+    this.list.update((draft) => { draft.current = undefined })
   }
 
   /**

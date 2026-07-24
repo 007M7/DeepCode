@@ -261,7 +261,7 @@ describe('EmptyState branches', () => {
     await waitFor(() => expect(view.getByText(/发送失败：plain-string/)).toBeTruthy())
   })
 
-  it('cwd derivation skips blank cwds; select picks, swaps to free-form, submits the typed path', async () => {
+  it('cwd derivation skips blank cwds; menu picks, swaps to free-form, submits the typed path', async () => {
     const startSession = vi.fn(() => Promise.resolve())
     const view = render(
       <EmptyState
@@ -272,12 +272,13 @@ describe('EmptyState branches', () => {
         startSession={startSession}
       />,
     )
-    const select = view.container.querySelector('select')!
-    expect([...(select as HTMLSelectElement).options].map(o => o.value))
-      .toEqual(['', '/proj', '::new-directory'])
-    fireEvent.change(select, { target: { value: '/proj' } })
-    expect((select as HTMLSelectElement).value).toBe('/proj')
-    fireEvent.change(select, { target: { value: '::new-directory' } })
+    fireEvent.click(view.getByRole('button', { name: '项目目录' }))
+    expect([...view.getByRole('menu').querySelectorAll('[role="menuitem"]')].map(el => el.textContent))
+      .toEqual(['Default directory', '/proj', 'New directory…'])
+    fireEvent.click(view.getByRole('menuitem', { name: '/proj' }))
+    expect(view.getByRole('button', { name: '项目目录' }).textContent).toContain('proj')
+    fireEvent.click(view.getByRole('button', { name: '项目目录' }))
+    fireEvent.click(view.getByRole('menuitem', { name: 'New directory…' }))
     const custom = view.container.querySelector('input')!
     fireEvent.change(custom, { target: { value: '/typed/dir' } })
     const textarea = view.container.querySelector('textarea')!

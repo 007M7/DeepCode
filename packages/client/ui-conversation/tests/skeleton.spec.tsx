@@ -28,7 +28,8 @@ const sid = (s: string): SessionId => s as SessionId
 
 afterEach(cleanup)
 beforeEach(() => {
-  localStorage.clear()
+  // jsdom normally provides localStorage; some host Node builds surface it as undefined.
+  globalThis.localStorage?.clear()
 })
 
 /** Minimal conversation snapshot slice the skeleton reads. */
@@ -95,11 +96,13 @@ describe('EmptyState', () => {
     const startSession = vi.fn(() => new Promise<void>((_res, rej) => { reject = rej }))
     render(<EmptyState useSessions={useSessions} startSession={startSession} />)
 
-    const select = screen.getByRole('combobox', { name: '项目目录' })
-    expect([...(select as HTMLSelectElement).options].map(o => o.value))
-      .toEqual(['', '/w/app', '/w/lib', '::new-directory'])
-    fireEvent.change(select, { target: { value: '/w/app' } })
-    const box = screen.getByPlaceholderText('Message to run task, plan and build')
+    const trigger = screen.getByRole('button', { name: '项目目录' })
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('menu')
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map(el => el.textContent))
+      .toEqual(['Default directory', '/w/app', '/w/lib', 'New directory…'])
+    fireEvent.click(screen.getByRole('menuitem', { name: '/w/app' }))
+    const box = screen.getByPlaceholderText('Message to run task, plan and build, enter for / commands')
     fireEvent.change(box, { target: { value: '造一个轮子' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(startSession).toHaveBeenCalledWith({ text: '造一个轮子', mode: 'queue', cwd: '/w/app' })
@@ -110,11 +113,12 @@ describe('EmptyState', () => {
     expect((box as HTMLTextAreaElement).value).toBe('造一个轮子')
   })
 
-  it('new-directory option swaps the select for a free-form input', () => {
+  it('new-directory option swaps the chip for a free-form input', () => {
     const { useSessions } = fakeSessions([])
     render(<EmptyState useSessions={useSessions} startSession={() => Promise.resolve()} />)
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '::new-directory' } })
-    const custom = screen.getByPlaceholderText(/目录路径/)
+    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New directory…' }))
+    const custom = screen.getByPlaceholderText(/Directory path/)
     fireEvent.change(custom, { target: { value: '/tmp/fresh' } })
     expect((custom as HTMLInputElement).value).toBe('/tmp/fresh')
   })
