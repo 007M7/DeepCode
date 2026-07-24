@@ -13,7 +13,13 @@ Status: implemented
 - **配对兄弟文件，两种语言同权。** 一对文档由三个兄弟文件组成：英文 `foo.md`、中文 `foo.zh.md`，以及一份一致性记录 `foo.i18n.yaml`。没有哪种语言是正典：一篇文档可以先用中文撰写和评审、之后再译成英文，反之亦可；约束配对的是：两侧必须表达相同的内容，且配对整体合并（两种语言加记录，绝不单独落一侧）。政策见 [docs/i18n/README.md](../../../../docs/i18n/README.md)；翻译规则见 [docs/i18n/translation-rules.md](../../../../docs/i18n/translation-rules.md)；术语真源见 [docs/i18n/terminology.md](../../../../docs/i18n/terminology.md)。
 - **伴随记录保存两侧 blob hash，使一致性可检查。** `foo.i18n.yaml` 保存两侧文件在上一次确认一致时各自的完整 git blob hash。此后修改了任一侧而未重新确认配对，都能被机械检测出来（纯内容比较，无需查询历史），而且同一个 PR（Pull Request）内改动的文件也能计算出 hash，commit hash 式的记录做不到这一点。重新记录（`verify-translation-pairing --write`）会产生一份可评审的 yaml diff：确认一致在 PR 中是一个显式、可见的动作。
 - **`verify-translation-pairing` 加入 `doc-sync`。** 门禁（[scripts/verify-translation-pairing.ts](../../../../scripts/verify-translation-pairing.ts)）强制执行以下规则：required 的配对必须存在；任何已存在的配对必须完整（三个文件齐全）且一致（两个 hash 匹配、切换行双向互链、结构签名一致）；被排除的文件（生成物或本身即双语的）不得配对；凡文件名以日期开头且日期不早于 manifest（元数据清单）中 `requiredSince` 分界日期的文档，也必须有完整配对。[scripts/translation-pairing.manifest.json](../../../../scripts/translation-pairing.manifest.json) 中的 `required` 清单只进不退：每个合并的翻译批次将自己的文件加入其中，覆盖面只增不减。
+- **执行红线按连贯的评审批次推进。** 一组相关文档只有在评审者能够将其作为整体评估时，才进入 `required`。核心红线将[架构](../../../../docs/architecture.md)、[Cordis 入门](../../../../docs/cordis-primer.md)、[防御性模式](../../../../docs/defensive-patterns.md)、[术语表](../../../../docs/glossary.md)和[测试](../../../../docs/testing.md)归为一组，因为它们的术语、链接和贡献者契约相互关联；只纳入其中一部分会使受门禁约束的文档集合内部不一致。发布到文档站的配对使用 `pairedPages()`，由根 locale 投影 `.zh.md`，由 `/en/` 投影 `.md`；仅创建对侧文件并不会发布它。
+- **配对记录是元数据，而不是 Cordis Loader 配置。** Cordis 配置发现会接受实际的 `.cordis.yml` 和 `.cordis.yaml` 文件，同时排除 `*.i18n.yaml`，即使文档名中包含 `cordis` 也不例外。这样既能继续校验可执行的 Loader 配置项，又不会把翻译 hash 当作配置来解析。
 - **翻译是 agent 的工作，由人评审。** 仓库内置的工作流是 [.agents/skills/dsh-translate-docs](../../../skills/dsh-translate-docs/SKILL.md)，与 [dsh-code-review](../../../skills/dsh-code-review/SKILL.md) 模式相同：skill（技能）承载工作流，并将文档作为真源。该 skill 要求编排 agent 把翻译写作委派给 subagent。
+
+## 验证
+
+验证契约分别覆盖每个边界。`verify-translation-pairing` 固定配对完整性、hash、切换行和结构；[`project-doc-site.spec.ts`](../../../../scripts/project-doc-site.spec.ts) 固定已发布配对按 locale 选择对应源文件；[`cordis-config-files.spec.ts`](../../../../scripts/cordis-config-files.spec.ts) 固定 Loader YAML 的发现以及翻译记录的排除；[翻译提示词可运行快照](../../../../scripts/translation-prompt.snapshot.ts)则固定渲染后的系统消息、五对经评审的示例、源请求和响应消费结果。这些检查共同使配对漂移、发布漂移、配置误分类和模型可见提示词漂移都可在评审中看见。
 
 ## 曾考虑的替代方案
 
