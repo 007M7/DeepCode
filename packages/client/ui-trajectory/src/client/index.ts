@@ -24,8 +24,8 @@ export const inject = ['slots', 'conversation']
 /**
  * Client plugin body: register the trajectory and waterfall view tabs. The
  * registrations ride the slot service's effect wrapper (plugin unload
- * removes both tabs); the span stats header renders inside each view body
- * (the chrome attachment mechanism retired with the view ring).
+ * removes both tabs). Trajectory owns its turn list in-body; Waterfall keeps
+ * the span stats header inside its body (chrome attachment retired).
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
