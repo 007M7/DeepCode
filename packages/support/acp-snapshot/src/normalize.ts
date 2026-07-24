@@ -19,6 +19,8 @@ const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
 const PATH_TAG_RE = /(<path>)([^<]*)(<\/path>)/g
 const ADDITIONAL_INSTRUCTIONS_PATH_RE = /(Additional instructions from: )([^\r\n]+)/g
 const EMBEDDED_EVENT_TIME_RE = /("time": )\d+(?=,\r?\n)/g
+const EVENT_READ_RESULT_RE
+  = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n/
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -74,9 +76,12 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   }
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
-  // Exact event-read tools render pretty JSON inside a text block. The event's
-  // wall-clock time is volatile even though its seq and payload are deterministic.
-  out = out.replace(EMBEDDED_EVENT_TIME_RE, `$1${EVENT_TIME}`)
+  // Exact event-read results render pretty JSON inside a distinctive text
+  // envelope. Restrict time scrubbing to that envelope so JSON printed by
+  // models, bash, or unrelated tools remains regression-visible.
+  if (EVENT_READ_RESULT_RE.test(out)) {
+    out = out.replace(EMBEDDED_EVENT_TIME_RE, `$1${EVENT_TIME}`)
+  }
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
   return out

@@ -134,7 +134,7 @@ Additional instructions from: nested\AGENTS.md`,
             type: 'content',
             content: {
               type: 'text',
-              text: 'Target event:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {}\n}\n```',
+              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {}\n}\n```',
             },
           }],
         },
@@ -143,6 +143,28 @@ Additional instructions from: nested\AGENTS.md`,
     const out = normalizeStdout(raw, ctx)
     expect(out).toContain('\\"time\\": {{eventTime}}')
     expect(out).not.toContain('1784876275593')
+  })
+
+  it('preserves event-like timestamps in unrelated output text', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        update: {
+          sessionUpdate: 'tool_call_update',
+          content: [{
+            type: 'content',
+            content: {
+              type: 'text',
+              text: 'bash output:\n```json\n{\n  "time": 1784876275593,\n  "data": {}\n}\n```',
+            },
+          }],
+        },
+      },
+    })
+    const out = normalizeStdout(raw, ctx)
+    expect(out).toContain('1784876275593')
+    expect(out).not.toContain('{{eventTime}}')
   })
 
   it('throws on a non-JSON stdout line (the purity check)', () => {

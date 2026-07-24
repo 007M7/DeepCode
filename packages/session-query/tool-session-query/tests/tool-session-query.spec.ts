@@ -506,8 +506,10 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
         })
       }
       return Promise.resolve({
-        items: [sessionHit('b', '/work', 'second')],
-        nextCursor: SessionSearchCursor('more'),
+        items: [
+          sessionHit('b', '/work', 'second'),
+          sessionHit('additional-authorized', '/work', 'third'),
+        ],
       })
     }
 
@@ -521,6 +523,27 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     expect(output).toContain('Parent: [outside workspace]')
     expect(output).not.toContain('outside-parent-secret')
     expect(output).toContain('Result cap reached')
+  })
+
+  it('does not report a cap when only rejected hits remain after the authorized limit', async () => {
+    const mounted = await mount({ maxSearchResults: 1 })
+    const cursor = SessionSearchCursor('rejected-tail')
+    FakeQuery.sessionSearch = request => request.cursor === undefined
+      ? Promise.resolve({
+        items: [sessionHit('authorized', '/work')],
+        nextCursor: cursor,
+      })
+      : Promise.resolve({
+        items: [
+          sessionHit(mounted.caller.id, '/work'),
+          sessionHit('outside', '/outside'),
+        ],
+      })
+
+    const output = text(await mounted.call('session_search', { query: 'needle' }))
+    expect(FakeQuery.sessionRequests.map(request => request.cursor)).toEqual([undefined, cursor])
+    expect(output).toContain('Session authorized')
+    expect(output).not.toContain('Result cap reached')
   })
 
   it('preserves stale-cursor diagnostics without transparently restarting', async () => {

@@ -658,13 +658,10 @@ async function collectPages<T>(
     signal.throwIfAborted()
     for (const item of page.items) {
       if (!accept(item)) continue
-      items.push(item)
       if (items.length === maxResults) {
-        return {
-          items,
-          capped: page.nextCursor !== undefined || item !== page.items.at(-1),
-        }
+        return { items, capped: true }
       }
+      items.push(item)
     }
     if (page.nextCursor === undefined) return { items, capped: false }
     if (seen.has(page.nextCursor)) {
