@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 session.md: b342e1c5c3bff030d67c61a6f1daa0c8167182c1
-session.zh.md: 8e8a3f923b2f4ec1dd5d86ebe6bb7eff0511474c
+session.zh.md: 4f539155a1a035a3fb9807c6990ab10b72c7a421
