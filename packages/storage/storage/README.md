@@ -15,7 +15,7 @@ Storage hub (`ctx.storage`) for non-session data: a named backend registry plus 
 | `dsh-storage` | The hub service + backend vocabulary + shared conformance suite |
 | `dsh-storage-json` | JSON backend: one unit per human-readable file, atomic whole-file rewrite |
 | `dsh-storage-sqlite` | SQLite backend: one database hosting all routed units, document-per-row |
-| `dsh-domain` | Domain data form (`ctx.storage.domain`): typed schemas, write chain, change events |
+| `dsh-storage-domain` | Domain data form (`ctx.storage.domain`): typed schemas, write chain, change events |
 
 ## Model Experience
 

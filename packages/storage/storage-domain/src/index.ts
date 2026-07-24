@@ -4,7 +4,7 @@
  * layer — consumers depend on this package and never touch backends directly.
  * Plugin `Config` is schemastery; record schemas inside domain specs are zod
  * (see `src/spec.ts` for the split rationale).
- * @module @deepseek-ai/dsh-domain
+ * @module @deepseek-ai/dsh-storage-domain
  */
 
 import type { Context } from 'cordis'
@@ -32,7 +32,7 @@ declare module '@deepseek-ai/dsh-storage' {
 }
 
 /** Cordis plugin name. */
-export const name = 'domain'
+export const name = 'storage-domain'
 /** The storage hub must be present before the form can mount. */
 export const inject = ['storage']
 

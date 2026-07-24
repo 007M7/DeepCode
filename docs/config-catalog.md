@@ -369,27 +369,6 @@ export interface ToolResultPruneConfig {
 
 Source: [`packages/compact/compact-tool-result-prune/src/types.ts:4`](../packages/compact/compact-tool-result-prune/src/types.ts)
 
-## `@deepseek-ai/dsh-domain`
-
-Requires: `storage`
-
-```ts config-catalog
-/**
- * Plugin config. Which backend serves which domain is decided here, not
- * globally on the hub: `backend` is the default route and `routes` overrides
- * it per domain name. A route naming an unregistered backend fails loud at
- * `open` with `backend-not-found`.
- */
-export interface Config {
-  /** Default backend name for every domain without an explicit route. Required: there is no universally correct medium. */
-  backend: string
-  /** Per-domain overrides: domain name → backend name. */
-  routes?: Record<string, string>
-}
-```
-
-Source: [`packages/storage/domain/src/index.ts:45`](../packages/storage/domain/src/index.ts)
-
 ## `@deepseek-ai/dsh-fs-local`
 
 ```ts config-catalog
@@ -1175,6 +1154,27 @@ export interface Config {
 ```
 
 Source: [`packages/spill/spill-policy/src/index.ts:51`](../packages/spill/spill-policy/src/index.ts)
+
+## `@deepseek-ai/dsh-storage-domain`
+
+Requires: `storage`
+
+```ts config-catalog
+/**
+ * Plugin config. Which backend serves which domain is decided here, not
+ * globally on the hub: `backend` is the default route and `routes` overrides
+ * it per domain name. A route naming an unregistered backend fails loud at
+ * `open` with `backend-not-found`.
+ */
+export interface Config {
+  /** Default backend name for every domain without an explicit route. Required: there is no universally correct medium. */
+  backend: string
+  /** Per-domain overrides: domain name → backend name. */
+  routes?: Record<string, string>
+}
+```
+
+Source: [`packages/storage/storage-domain/src/index.ts:45`](../packages/storage/storage-domain/src/index.ts)
 
 ## `@deepseek-ai/dsh-storage-json`
 

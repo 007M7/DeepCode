@@ -140,7 +140,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Non-session storage hub',
     mode: 'seam',
     implementations: ['storage-json', 'storage-sqlite'],
-    consumers: ['domain', 'workspace'],
+    consumers: ['storage-domain', 'workspace'],
     note: 'Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives.',
   },
   {

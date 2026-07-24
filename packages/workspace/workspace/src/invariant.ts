@@ -5,7 +5,7 @@
 
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import type { DomainChanged } from '@deepseek-ai/dsh-domain'
+import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-workspace'

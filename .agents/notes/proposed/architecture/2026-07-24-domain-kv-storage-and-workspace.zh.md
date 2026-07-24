@@ -22,7 +22,7 @@ host 侧唯一的持久化面是 session 事件日志（`packages/session-persis
 | `@deepseek-ai/dsh-storage` | `packages/storage/storage/` | `ctx.storage`（枢纽） | ✓ |
 | `@deepseek-ai/dsh-storage-json` | `packages/storage/storage-json/` | 注册 backend `json` | ✓ |
 | `@deepseek-ai/dsh-storage-sqlite` | `packages/storage/storage-sqlite/` | 注册 backend `sqlite` | ✓ |
-| `@deepseek-ai/dsh-domain` | `packages/storage/domain/` | 挂载 `ctx.storage.domain` | ✓ |
+| `@deepseek-ai/dsh-storage-domain` | `packages/storage/storage-domain/` | 挂载 `ctx.storage.domain` | ✓ |
 | `@deepseek-ai/dsh-workspace` | `packages/workspace/workspace/` | `ctx.workspace` | ✓ |
 | `SessionPersistence.delete` 扩面 + 级联删编排 | `packages/session-persistence/*` | 既有 seam 新方法 | ✗ future work（本期不动 session 侧） |
 | `workspace.*` / `session.delete` RPC、GUI 接线、boot 组装 | — | — | ✗ 下期 |
@@ -157,7 +157,7 @@ export interface KvTable<K extends string, V> {
 - **记录是纯数据**：可直接 JSON 序列化的不可变 POJO；`get`/`entries` 返回值不得原地改（TypeScript readonly 投影，不做运行时冻结）。带行为的领域对象属于消费者包。
 - **写串行**：域内一条 promise 链，`put`/`delete`/`update`/`global.set` 全排队；`update` 的 fn 在链上执行，并发不交错。不做 active-record（取出可变对象自动落盘——落盘时机不可控，与整域原子覆写冲突）。
 - **版本 fail loud**：盘上版本与 spec 不符直接报错，不迁移不重建（数据不可再生，pre-release 拒绝旧格式）。
-- **变更事件**：每次写落盘 resolve 后 emit `domain/changed`（`@mode emit`），逐条发、不带旧值（对齐仓库"新快照 + 操作判别"惯例，范本 `goal/changed`）；payload `DomainChanged` 是 put/deleted 判别联合——域名 + 表名 + key（global 变更两者为 `''`）+ operation，put 支带新快照 value、deleted 支无 value（`packages/storage/domain/src/events.ts`）。此为下期 RPC 推帧的事件源。错误词汇 `DomainError`，码表：`already-open` / `facet-unsupported` / `invalid-record`（带 `{ table, key }`）/ `missing-key` / `closed`。
+- **变更事件**：每次写落盘 resolve 后 emit `domain/changed`（`@mode emit`），逐条发、不带旧值（对齐仓库"新快照 + 操作判别"惯例，范本 `goal/changed`）；payload `DomainChanged` 是 put/deleted 判别联合——域名 + 表名 + key（global 变更两者为 `''`）+ operation，put 支带新快照 value、deleted 支无 value（`packages/storage/storage-domain/src/events.ts`）。此为下期 RPC 推帧的事件源。错误词汇 `DomainError`，码表：`already-open` / `facet-unsupported` / `invalid-record`（带 `{ table, key }`）/ `missing-key` / `closed`。
 
 ### Future work：session 侧删除（设计定案，本期不实施）
 

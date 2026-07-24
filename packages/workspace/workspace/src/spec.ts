@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { defineDomain, domainTable } from '@deepseek-ai/dsh-domain'
+import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { WorkspaceId } from './types.ts'
 
 /**

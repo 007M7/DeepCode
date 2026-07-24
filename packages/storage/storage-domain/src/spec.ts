@@ -5,7 +5,7 @@
  * (validation, descriptor projection) derive from it. Record schemas are zod
  * (`z.infer` keeps types un-duplicated and the same schemas later project to
  * RPC wire schemas); plugin `Config` stays schemastery.
- * @module @deepseek-ai/dsh-domain/src/spec
+ * @module @deepseek-ai/dsh-storage-domain/src/spec
  */
 
 import type { ZodType } from 'zod'

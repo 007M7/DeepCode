@@ -10,7 +10,7 @@ packages/storage/
   storage/         dsh-storage         枢纽：Storage service + BackendRegistry + StorageForms
   storage-json/    dsh-storage-json    JsonStorageBackend（kv facet）
   storage-sqlite/  dsh-storage-sqlite  SqliteStorageBackend（kv facet）
-  domain/          dsh-domain          DomainFacility + Domain + KvTable + domain/changed
+  storage-domain/  dsh-storage-domain          DomainFacility + Domain + KvTable + domain/changed
 packages/workspace/
   workspace/       dsh-workspace       WorkspaceRegistry + WorkspaceEntity + workspaceDomainSpec
 ```
@@ -56,7 +56,7 @@ class/接口逐条（签名以 Note 为准，此处列实现要点）：
 | `const UNIT_NAME_RE = /^[a-z][a-z0-9_]*$/` | 导出；descriptor 校验用（backend open 时验，fail loud） |
 | invariant | 枢纽自身无运行时不变量（纯注册表，无事件流/可变盘面），写"explained empty"（措辞照抄 sqlite 后端 invariant.ts 的 "No runtime invariant:" 模板） |
 
-事件面：本包**无**事件（`domain/changed` 归 dsh-domain）。
+事件面：本包**无**事件（`domain/changed` 归 dsh-storage-domain）。
 
 ## 2. W2a：`dsh-storage-json` —— teammate **json-backend**
 
@@ -99,10 +99,10 @@ packages/storage/storage-sqlite/
 | `class SqliteKvUnit` | 预编译语句（每表 upsert/delete/select-all + global upsert）；`loadAll` 全表 SELECT 组装；`putRecord` = `INSERT … ON CONFLICT(key) DO UPDATE`；单语句原子，无显式事务；value `JSON.stringify`/parse |
 | invariant | 断言候选：STRICT 表 + user_version 与常量一致（open 后检）；或 explained empty |
 
-## 4. W3：`dsh-domain` —— teammate **domain-layer**
+## 4. W3：`dsh-storage-domain` —— teammate **domain-layer**
 
 ```
-packages/storage/domain/
+packages/storage/storage-domain/
   src/index.ts                # Config + apply + DomainFacility
   src/spec.ts                 # DomainSpec/defineDomain/domainTable + descriptorOf
   src/domain.ts               # DomainImpl + KvTableImpl + 写链

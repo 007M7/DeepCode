@@ -14,7 +14,7 @@ import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 // Type-only: merges `sessionPersistence` into the Context service map for the
 // optional `ctx.get` lookups below.
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import type { KvTable } from '@deepseek-ai/dsh-domain'
+import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { workspaceDomainSpec } from './spec.ts'
 import type { WorkspaceRecord } from './spec.ts'
 import { WorkspaceEntity } from './entity.ts'

@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-domain
+# @deepseek-ai/dsh-storage-domain
 
 Domain data form for the DeepSeek Harness storage hub: mounts `ctx.storage.domain`, opening schema-validated KV domains over configured storage backends. A domain is declared once with `defineDomain` (zod record schemas, `z.infer`-derived types), opened through `DomainFacility.open`, and served from authoritative in-memory state — reads are synchronous, writes serialize on one per-domain chain, reach durability on the routed backend first, then update memory and emit `domain/changed`. The opening consumer owns the handle's lifecycle and releases it with `Domain.close()` (idempotent; typically its own `ctx.effect` disposer); domains still open when the plugin unmounts are closed by the facility.
 

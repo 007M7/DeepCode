@@ -21,7 +21,7 @@
       "path": "../../storage/storage"
     },
     {
-      "path": "../../storage/domain"
+      "path": "../../storage/storage-domain"
     },
     {
       "path": "../../core/session"

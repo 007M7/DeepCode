@@ -22,7 +22,7 @@ Create the `packages/storage/` group — the `ctx.storage` hub (backend registry
 | `@deepseek-ai/dsh-storage` | `packages/storage/storage/` | `ctx.storage` (the hub) | ✓ |
 | `@deepseek-ai/dsh-storage-json` | `packages/storage/storage-json/` | registers backend `json` | ✓ |
 | `@deepseek-ai/dsh-storage-sqlite` | `packages/storage/storage-sqlite/` | registers backend `sqlite` | ✓ |
-| `@deepseek-ai/dsh-domain` | `packages/storage/domain/` | mounts `ctx.storage.domain` | ✓ |
+| `@deepseek-ai/dsh-storage-domain` | `packages/storage/storage-domain/` | mounts `ctx.storage.domain` | ✓ |
 | `@deepseek-ai/dsh-workspace` | `packages/workspace/workspace/` | `ctx.workspace` | ✓ |
 | `SessionPersistence.delete` extension + cascade orchestration | `packages/session-persistence/*` | new method on the existing seam | ✗ future work (session side untouched this phase) |
 | `workspace.*` / `session.delete` RPC, GUI wiring, boot assembly | — | — | ✗ next phase |
@@ -157,7 +157,7 @@ Rules:
 - **Records are plain data**: immutable, directly JSON-serializable POJOs; values returned by `get`/`entries` must not be mutated in place (TypeScript readonly projection, no runtime freezing). Behavior-carrying domain objects belong to consumer packages.
 - **Serialized writes**: one promise chain per domain; `put`/`delete`/`update`/`global.set` all queue on it; `update`'s fn runs on the chain, so concurrency cannot interleave. No active-record (pulling out a mutable object that auto-persists — uncontrollable persist timing, in conflict with the whole-unit atomic-rewrite model).
 - **Version fails loud**: a stored version differing from the spec throws outright; no migration, no rebuild (the data is not regenerable; pre-release rejects old formats).
-- **Change events**: after each write's durability resolves, emit `domain/changed` (`@mode emit`), one per record, no old value (matching the repository's "new snapshot + operation discriminant" convention, template `goal/changed`); the payload `DomainChanged` is a put/deleted discriminated union — domain + table + key (both `''` for global changes) + operation, with the put branch carrying the new snapshot value and the deleted branch carrying none (`packages/storage/domain/src/events.ts`). This is next phase's RPC push-frame event source. The error vocabulary is `DomainError`, codes: `already-open` / `facet-unsupported` / `invalid-record` (with `{ table, key }`) / `missing-key` / `closed`.
+- **Change events**: after each write's durability resolves, emit `domain/changed` (`@mode emit`), one per record, no old value (matching the repository's "new snapshot + operation discriminant" convention, template `goal/changed`); the payload `DomainChanged` is a put/deleted discriminated union — domain + table + key (both `''` for global changes) + operation, with the put branch carrying the new snapshot value and the deleted branch carrying none (`packages/storage/storage-domain/src/events.ts`). This is next phase's RPC push-frame event source. The error vocabulary is `DomainError`, codes: `already-open` / `facet-unsupported` / `invalid-record` (with `{ table, key }`) / `missing-key` / `closed`.
 
 ### Future work: session-side deletion (design settled, not implemented this phase)
 

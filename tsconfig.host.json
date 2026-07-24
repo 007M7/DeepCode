@@ -47,7 +47,7 @@
     { "path": "./packages/storage/storage" },
     { "path": "./packages/storage/storage-json" },
     { "path": "./packages/storage/storage-sqlite" },
-    { "path": "./packages/storage/domain" },
+    { "path": "./packages/storage/storage-domain" },
     { "path": "./packages/workspace/workspace" },
     { "path": "./packages/session-title/session-title" },
     { "path": "./packages/session-title/session-title-llm" },
