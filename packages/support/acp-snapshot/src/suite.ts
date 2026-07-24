@@ -629,6 +629,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             ...result.sessionLogs.map(l => l.id),
           ],
           cwd: result.cwd,
+          cwdAliases: result.cwdAliases,
         }
 
         // Record writes live model fixtures; keyless refresh writes every comparable replayed

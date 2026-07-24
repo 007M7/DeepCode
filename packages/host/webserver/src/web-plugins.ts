@@ -22,8 +22,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFileSync, unwatchFile, watchFile } from 'node:fs'
-import type { Stats } from 'node:fs'
+import { readFileSync, statSync, type Stats } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Context } from 'cordis'
 
@@ -107,9 +106,9 @@ export interface WebPluginRegistryDeps {
   onError: (err: Error) => void
   /**
    * Dev-mode bundle watching: stat-poll every scanned row's client bundle
-   * (fs.watchFile — polling by design: network mounts deliver no inotify
-   * events) and re-hash + notify onRebuilt subscribers on change. Absent =
-   * no watching (prod composition).
+   * with an explicit stat baseline (polling by design: network mounts deliver
+   * no inotify events) and re-hash + notify onRebuilt subscribers on change.
+   * Absent = no watching (prod composition).
    */
   watch?: {
     /** Stat-poll interval in milliseconds; default 500 (the build-side watcher's polling default). */
@@ -217,51 +216,65 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
     return rev
   }
 
-  // Dev bundle watch: one fs.watchFile stat poll per table row. A torn read
-  // of a half-written bundle self-heals — the ongoing write keeps changing
-  // the stats, so the next poll tick re-hashes the completed file.
-  const watched = new Map<string, { path: string; listener: (curr: Stats, prev: Stats) => void }>()
+  // Dev bundle watch: capture every row's baseline synchronously before the
+  // registry is returned, then poll those baselines. fs.watchFile establishes
+  // its first baseline asynchronously, so an immediate rebuild can otherwise
+  // become the baseline and disappear without an observed delta.
+  const watched = new Map<string, { path: string; mtimeMs: number; size: number }>()
   const syncWatches = (): void => {
     if (watchInterval === undefined) return
     for (const [id, watch] of watched) {
       if (table.get(id)?.clientPath === watch.path) continue
-      unwatchFile(watch.path, watch.listener)
       watched.delete(id)
     }
     for (const [id, record] of table) {
       if (watched.has(id)) continue
-      const listener = (curr: Stats, prev: Stats): void => {
-        // fs.watchFile fires on any stat delta (atime included); only content
-        // signals count. An all-zero curr means the file vanished mid-rebuild
-        // — the completing write fires the next tick, so skipping is safe.
-        if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return
-        if (curr.mtimeMs === 0) return
-        const before = table.get(id)?.entry.rev
-        let rev: string | undefined
-        try {
-          rev = rebuilt(id)
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code
-          if (code === 'ENOENT') return // mid-rename window; the completed write fires the next poll tick
-          deps.onError(error instanceof Error ? error : new Error(String(error)))
-          return
-        }
-        if (rev === undefined || rev === before) return
-        for (const notify of rebuildListeners) {
-          // A throwing subscriber must not escape the fs.watchFile callback
-          // (that would skip later subscribers and can kill the process).
-          try {
-            notify(id, rev)
-          } catch (error) {
-            deps.onError(error instanceof Error ? error : new Error(String(error)))
-          }
-        }
-      }
-      watchFile(record.clientPath, { interval: watchInterval, persistent: false }, listener)
-      watched.set(id, { path: record.clientPath, listener })
+      const baseline = statSync(record.clientPath)
+      watched.set(id, { path: record.clientPath, mtimeMs: baseline.mtimeMs, size: baseline.size })
     }
   }
   syncWatches()
+
+  const pollWatches = (): void => {
+    for (const [id, watch] of watched) {
+      let current: Stats
+      try {
+        current = statSync(watch.path)
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ENOENT') continue // mid-rename window; retry against the retained baseline
+        deps.onError(error instanceof Error ? error : new Error(String(error)))
+        continue
+      }
+      if (current.mtimeMs === watch.mtimeMs && current.size === watch.size) continue
+      const before = table.get(id)?.entry.rev
+      let rev: string | undefined
+      try {
+        rev = rebuilt(id)
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ENOENT') continue // mid-rename window; retry against the retained baseline
+        watch.mtimeMs = current.mtimeMs
+        watch.size = current.size
+        deps.onError(error instanceof Error ? error : new Error(String(error)))
+        continue
+      }
+      watch.mtimeMs = current.mtimeMs
+      watch.size = current.size
+      if (rev === undefined || rev === before) continue
+      for (const notify of rebuildListeners) {
+        // A throwing subscriber must not skip later subscribers or escape the
+        // polling callback into the process event loop.
+        try {
+          notify(id, rev)
+        } catch (error) {
+          deps.onError(error instanceof Error ? error : new Error(String(error)))
+        }
+      }
+    }
+  }
+  const watchTimer = watchInterval === undefined ? undefined : setInterval(pollWatches, watchInterval)
+  watchTimer?.unref()
 
   let pending = false
   const unsubscribe = deps.ctx.on('internal/plugin', () => {
@@ -291,7 +304,7 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
     },
     dispose: () => {
       unsubscribe()
-      for (const { path, listener } of watched.values()) unwatchFile(path, listener)
+      if (watchTimer !== undefined) clearInterval(watchTimer)
       watched.clear()
       rebuildListeners.clear()
     },

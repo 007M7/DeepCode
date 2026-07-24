@@ -187,7 +187,12 @@ describe('LocalPtyBackend startup rollback', () => {
       kill() { exitListener?.({ exitCode: 0, signal: 15 }) },
       resize() {}, clear() {}, pause() {}, resume() {},
     } as IPty
-    const backend = new LocalPtyBackend(ctx, config(), inspector, () => terminal)
+    const backend = new LocalPtyBackend(
+      ctx,
+      config(),
+      { ...inspector, foregroundPgid: () => terminal.pid },
+      () => terminal,
+    )
     const session = await backend.spawn(spec(agent(ctx)))
     expect(session.motd).toBe('dsh> ')
     await session.close('test complete')

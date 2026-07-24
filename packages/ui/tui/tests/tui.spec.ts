@@ -1877,7 +1877,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await mkdir(join(cwd, 'docs'), { recursive: true })
     await writeFile(join(cwd, 'src', 'source-file.ts'), 'export const source = true\n')
     await writeFile(join(cwd, 'docs', 'design notes.md'), '# Design\n')
-    await writeFile(join(cwd, 'unsafe\nfile.ts'), 'unsafe name\n')
+    await writeFile(join(cwd, 'unsafe\u007ffile.ts'), 'unsafe name\n')
     const result = await setup({
       cwd,
       tools: {

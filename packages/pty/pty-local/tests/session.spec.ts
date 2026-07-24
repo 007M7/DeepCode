@@ -286,7 +286,7 @@ describe('LocalPtySession readiness and output', () => {
     expect(session.motd).toBe('dsh> ')
   })
 
-  it('trusts prompt markers only while the startup shell owns the foreground group', async () => {
+  it('retains a prompt marker until the startup shell regains the foreground group', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
@@ -297,13 +297,13 @@ describe('LocalPtySession readiness and output', () => {
     let settled = false
     void operation.done.then(() => { settled = true })
     inspector.pgid = 789
-    terminal.emitData('\x1b]133;D;0\x07spoofed')
-    await vi.advanceTimersByTimeAsync(10)
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(60)
     expect(settled).toBe(false)
 
     inspector.pgid = 456
-    terminal.emitData('\x1b]133;D;0\x07dsh> ')
     await vi.advanceTimersByTimeAsync(10)
+    expect(settled).toBe(true)
     expect((await operation.done).waitReason).toBe('stdin_read')
   })
 })
