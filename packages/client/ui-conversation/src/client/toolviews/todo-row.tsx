@@ -6,6 +6,7 @@
 // row stays one line.
 
 import type { Context } from 'cordis'
+import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
 import { toolRowModel } from '../contract/tool-call-model.ts'
 import css from './todo-row.module.css'
@@ -38,17 +39,22 @@ function summarize(argsRaw: string): string | null {
     : head
 }
 
-/** One-line plan update row (click opens the raw args in details). */
+/** One-line plan update row (click opens the raw args in details). Non-ok
+ *  execution states keep the generic row's dot semantics — a cancelled call
+ *  wrote no todo/write, so it must not read as a completed update. */
 export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
   const summary = summarize(argsRaw) ?? model.summary
   return (
-    <div className={css.row} data-sample="todo-row" onClick={openDetails}>
-      <span className={css.badge} aria-hidden>☰</span>
+    <div className={css.row} data-sample="todo-row" data-state={model.state} onClick={openDetails}>
+      {model.state === 'ok'
+        ? <span className={css.badge} aria-hidden>☰</span>
+        : <StateDot state={model.state === 'running' ? 'ongoing' : model.state === 'stopped' ? 'warning' : 'error'} />}
       <span className={css.title}>更新任务清单</span>
       <span className={css.summary}>{summary}</span>
       {model.state === 'error' && <span className={css.err}>failed</span>}
+      {model.state === 'stopped' && <span className={css.err}>已中断</span>}
     </div>
   )
 }

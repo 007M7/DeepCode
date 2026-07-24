@@ -94,8 +94,21 @@ describe('TodoRow', () => {
 
   it('omits the active clause when no item is in progress and reads running-call args', () => {
     const args = JSON.stringify({ todos: [{ content: 'x', status: 'completed' }] })
-    render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, callView: null })} />)
+    render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, time: 1_000, callView: null })} />)
     expect(screen.getByText('1/1 已完成')).toBeTruthy()
+  })
+
+  it('keeps the non-ok execution states visible: running dot, interrupted marker', () => {
+    // A running call (no result yet) shows the ongoing dot, never the ok badge.
+    const args = JSON.stringify({ todos: LIST })
+    const running = render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, time: 1_000, callView: null })} />)
+    expect(running.container.querySelector('[data-state="running"]')).not.toBeNull()
+    expect(running.container.querySelector('[data-state="running"] svg')).not.toBeNull()
+    running.unmount()
+    // A cancelled call wrote no todo/write: the row must not read as a completed update.
+    const stopped = render(<TodoRow {...rowProps(resultNode(args, { isError: true, error: { name: 'Interrupted', code: 'interrupted' } }))} />)
+    expect(stopped.container.querySelector('[data-state="stopped"]')).not.toBeNull()
+    expect(stopped.getByText('已中断')).toBeTruthy()
   })
 
   it('falls back to the generic summary on malformed args and flags errors', () => {
