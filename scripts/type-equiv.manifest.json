@@ -1514,6 +1514,11 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionLogSnapshot",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
       "symbol": "SessionSurfaceSnapshot",
       "source": "packages/session-query/session-query/src/types.ts"
     },
