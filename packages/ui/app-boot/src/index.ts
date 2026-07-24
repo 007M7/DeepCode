@@ -36,50 +36,6 @@ export function resolveConfigPath(
   return resolve(dir, replayName)
 }
 
-/** CLI flag the interactive surface accepts to resume a persisted session by id. */
-const RESUME_FLAG = '--resume'
-
-/**
- * Split a leading `--resume <id>` / `--resume=<id>` flag out of a CLI argument
- * vector, returning the resumed session id (when the flag is present) and the
- * remaining arguments with the flag and its value removed — so a positional
- * config path stays readable regardless of the flag's position. A `--resume`
- * with no following id, an empty id (`--resume=`), or a repeated `--resume`
- * throws: a mistyped resume must fail loud, never silently start a fresh
- * session. The id is not validated here; an unknown id fails loud downstream
- * when the session cannot load.
- * @param argv - the CLI arguments after subcommand dispatch.
- * @returns the parsed resume id (or `undefined`) and the flag-stripped arguments.
- */
-export function parseResumeArg(
-  argv: readonly string[],
-): { resumeSessionId: string | undefined; rest: string[] } {
-  const rest: string[] = []
-  let resumeSessionId: string | undefined
-  let skipNext = false
-  for (const [i, arg] of argv.entries()) {
-    if (skipNext) {
-      skipNext = false
-      continue
-    }
-    const inlineValue = arg.startsWith(`${RESUME_FLAG}=`)
-    if (arg === RESUME_FLAG || inlineValue) {
-      if (resumeSessionId !== undefined) throw new Error(`${RESUME_FLAG} may be given only once`)
-      const value = inlineValue ? arg.slice(RESUME_FLAG.length + 1) : argv[i + 1]
-      // A following token that is itself resume syntax (`--resume --resume x`)
-      // is a missing id, not a session literally named `--resume…`.
-      if (value === undefined || value === '' || value === RESUME_FLAG || value.startsWith(`${RESUME_FLAG}=`)) {
-        throw new Error(`${RESUME_FLAG} requires a session id (e.g. ${RESUME_FLAG} <session-id>)`)
-      }
-      resumeSessionId = value
-      skipNext = !inlineValue // the space form consumed the following token as its value
-      continue
-    }
-    rest.push(arg)
-  }
-  return { resumeSessionId, rest }
-}
-
 /**
  * Load the optional gitignored `.env` from `dir`. Missing files fall back to the
  * ambient environment; other read failures are reported through `warn`.

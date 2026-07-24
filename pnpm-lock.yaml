@@ -122,6 +122,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../packages/core/session
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
 
   apps/web:
     dependencies:

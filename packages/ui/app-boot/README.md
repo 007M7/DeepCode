@@ -5,7 +5,6 @@ Shared boot glue for the app bins ([`dsh-tui-demo`](../../examples/tui-demo/READ
 | Export | Role |
 |---|---|
 | `resolveConfigPath(path, snapshotMode, cwd?)` | Absolute config path; `snapshotMode === 'replay'` swaps a `cordis.yml`/`.yaml` basename for its sibling `cordis.snapshot.yml` |
-| `parseResumeArg(argv)` | Split the `--resume <id>` / `--resume=<id>` flag out of the arguments, returning `{ resumeSessionId, rest }`; a valueless, empty, or repeated flag throws so a mistyped resume fails loud instead of silently starting fresh |
 | `loadEnv(binName, dir?, warn?)` | Load the gitignored `.env` (Node `process.loadEnvFile`); absent file is fine, an unloadable one warns a single labelled line (default: stderr) |
 | `installFailLoud(binName, proc?)` | Turn a post-`boot()` unhandled Loader rejection into one labelled stderr line + `exit(1)`; returns the uninstaller (for tests) |
 | `assertEntriesLoaded(ctx, binName)` | Throw when a settled tree holds an enabled entry with no fiber (a plugin module that failed to import) |

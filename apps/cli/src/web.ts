@@ -4,37 +4,19 @@
  * concerns is this app module's job (packages stay single-sided).
  */
 
-import { parseArgs } from 'node:util'
 import { networkInterfaces } from 'node:os'
 import { createRequire } from 'node:module'
 import { mountWebPlugins, startHost } from '@deepseek-ai/dsh-host-runtime'
 import { createHostWebPluginRegistry, startWebServer } from '@deepseek-ai/dsh-host-webserver'
+import { ALL_INTERFACES_HOST, LOOPBACK_HOST } from './args.ts'
 
-const LOOPBACK_HOST = '127.0.0.1'
-const ALL_INTERFACES_HOST = '0.0.0.0'
-
-export async function runWeb(argv: string[]): Promise<void> {
-  const { values } = parseArgs({
-    args: argv,
-    options: {
-      host: { type: 'string', default: LOOPBACK_HOST },
-      port: { type: 'string', default: '3080' },
-    },
-    allowPositionals: false,
-  })
-  if (values.host !== LOOPBACK_HOST && values.host !== ALL_INTERFACES_HOST) {
-    process.stderr.write(
-      `dsh web: invalid --host ${values.host}; expected ${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST}\n`,
-    )
-    process.exit(1)
-  }
-  const hostAddress = values.host
-  const port = Number(values.port)
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    process.stderr.write(`dsh web: invalid --port ${values.port}\n`)
-    process.exit(1)
-  }
-
+/**
+ * Serve the browser UI. Host and port are already validated by the argument
+ * adapter (host constrained to loopback/all-interfaces, port a 0–65535 integer).
+ * @param hostAddress - the bind host: {@link LOOPBACK_HOST} or {@link ALL_INTERFACES_HOST}.
+ * @param port - the listen port; `0` lets the OS choose a free port.
+ */
+export async function runWeb(hostAddress: string, port: number): Promise<void> {
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
   const host = await startHost({
     boot: {

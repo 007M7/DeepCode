@@ -18,7 +18,6 @@ import {
   installFailLoud,
   loadEnv,
   loadPersonalPatches,
-  parseResumeArg,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -45,11 +44,12 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
    the tui-agent PTY smoke drives this path end to end, personal overlay included */
 /**
  * Run the interactive TUI from the invoking directory.
- * @param argv - arguments after the subcommand dispatch; a `--resume <id>` flag
- * resumes that persisted session, and the first non-flag argument may name a
- * config to boot instead of the shipped default.
+ * @param config - a config path to boot instead of the shipped default, or
+ * `undefined` for the default; already parsed from the optional positional.
+ * @param resumeSessionId - a persisted session id to resume, or `undefined`;
+ * already parsed and non-empty-validated from `--resume`.
  */
-export async function runTui(argv: string[]): Promise<void> {
+export async function runTui(config: string | undefined, resumeSessionId: string | undefined): Promise<void> {
   // Refuse pipes BEFORE booting: a compose-time throw inside the Loader tree
   // is logged per-entry rather than rethrown, so a piped launch would
   // otherwise settle into an idle UI-less process instead of exiting nonzero.
@@ -63,9 +63,8 @@ export async function runTui(argv: string[]): Promise<void> {
   loadEnv(NAME, resolveDshHome())
   // An explicit `--resume` flag beats any ambient RESUME_SESSION_ID, so set it
   // after loadEnv and before boot reads it through the config's `!!js`.
-  const { resumeSessionId, rest } = parseResumeArg(argv)
   if (resumeSessionId !== undefined) process.env[RESUME_SESSION_ID_ENV] = resumeSessionId
-  const ctx = await boot(NAME, resolveConfigPath(rest[0] ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
+  const ctx = await boot(NAME, resolveConfigPath(config ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
   addHarnessSourceSection(ctx, SOURCE_ROOT)
 }
 /* v8 ignore stop */

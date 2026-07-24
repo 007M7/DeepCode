@@ -7,7 +7,6 @@
  * (completed → 0, else 1).
  */
 
-import { parseArgs } from 'node:util'
 import { startHost } from '@deepseek-ai/dsh-host-runtime'
 import { InProcessApiClient } from '@deepseek-ai/dsh-host-apiproxy'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -65,17 +64,13 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
   return { text, reason: 'error' }
 }
 
-export async function runHeadless(argv: string[]): Promise<void> {
-  const { values } = parseArgs({
-    args: argv,
-    options: { prompt: { type: 'string', short: 'p' } },
-    allowPositionals: false,
-  })
-  const task = values.prompt
-  if (task === undefined || task === '') {
-    process.stderr.write('usage: dsh -p "task"\n')
-    process.exit(1)
-  }
+/**
+ * Run one headless turn for `task` and exit (completed → 0, else 1). The task
+ * is the non-empty prompt the argument adapter parsed from `-p`/`--prompt`
+ * (the adapter rejects an empty task, so no guard is needed here).
+ * @param task - the prompt text for the single turn.
+ */
+export async function runHeadless(task: string): Promise<void> {
 
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
   const host = await startHost({

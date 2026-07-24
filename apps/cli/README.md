@@ -2,6 +2,8 @@
 
 The `dsh` command-line entry follows the `apps/` assembly tier: `apps/*` are product assemblies over `packages/*` libraries. Plain `dsh [config.yml]` boots the interactive TUI coding agent, `dsh -p "task"` runs one headless turn, and `dsh web` serves the browser UI.
 
+Argv is parsed once through a [Commander](https://github.com/tj/commander.js) adapter ([`src/args.ts`](src/args.ts)) that resolves the invocation into a single mode; `src/bin.ts` switches on that mode and dynamic-imports only the chosen mode's module. `dsh --help` and `dsh web --help` render usage, `dsh --version` prints this app's version, and an unknown option or an invalid `--host`/`--port`/`--resume` value fails loud (stderr, exit 1) instead of misrouting.
+
 The TUI surface:
 
 - boots the shipped default config (`examples/tui-agent/cordis.yml`) or an explicit config argument, through [`dsh-app-boot`](../../packages/ui/app-boot/README.md);
