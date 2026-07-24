@@ -165,7 +165,7 @@ describe('DetailsPanel branches', () => {
 
   it('shows non-JSON args verbatim (streaming fragment path)', () => {
     const view = panel({ turnSeq: 1, callId: 'c1', toolName: 'bash' }, {
-      runningCalls: [{ callId: 'c1', name: 'bash', argsRaw: '{"cmd": tru', turn: 1, step: 1, callView: null }],
+      runningCalls: [{ callId: 'c1', name: 'bash', argsRaw: '{"cmd": tru', turn: 1, step: 1, time: 1_000, callView: null }],
     })
     expect(view.getByText('{"cmd": tru')).toBeTruthy()
   })
@@ -176,7 +176,7 @@ describe('DetailsPanel branches', () => {
   })
 
   it('snapshot updates re-run the material selector through the shallow equality arm', () => {
-    let snap = { ...snapshotBase(), runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{"a":1}', turn: 1, step: 1, callView: null }] } as ConversationSnapshot
+    let snap = { ...snapshotBase(), runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{"a":1}', turn: 1, step: 1, time: 1_000, callView: null }] } as ConversationSnapshot
     const subs = new Set<() => void>()
     const source = {
       getSnapshot: () => snap,

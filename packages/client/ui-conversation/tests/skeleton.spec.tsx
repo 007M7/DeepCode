@@ -234,10 +234,11 @@ describe('DetailsPanel', () => {
   it('renders the selected call args and result off the shared store; close fires the injected callback', () => {
     const { closeDetails } = benchDetails({
       nodes: [{
-        kind: 'tool-result', callId: 'c1',
+        kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
         call: { name: 'bash', argsRaw: '{"cmd":"ls"}' },
+        callTime: 500,
         content: [{ type: 'text', text: 'file-a\nfile-b' }],
-        isError: false,
+        isError: false, callView: null, resultView: null,
       }],
     }, { turnSeq: 1, callId: 'c1' })
     expect(screen.getByText('bash')).toBeTruthy()
@@ -248,10 +249,10 @@ describe('DetailsPanel', () => {
   })
 
   it('shows the empty hint without a selection and the running state for open calls', () => {
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}' }] }, null)
+    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}', turn: 1, step: 1, time: 1_000, callView: null }] }, null)
     expect(screen.getByText(/点击消息流中的工具行/)).toBeTruthy()
     cleanup()
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}' }] }, { turnSeq: 1, callId: 'c9' })
+    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}', turn: 1, step: 1, time: 1_000, callView: null }] }, { turnSeq: 1, callId: 'c9' })
     expect(screen.getByText('运行中…')).toBeTruthy()
   })
 
