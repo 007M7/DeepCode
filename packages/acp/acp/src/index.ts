@@ -193,8 +193,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
     conn = connection
     return {
       initialize(_params: InitializeRequest): Promise<InitializeResponse> {
-        // Single-version agent: per spec, answer the latest version this
-        // server supports regardless of the client's requested version.
+        // Single-version agent: the spec's "same version if supported, else
+        // the latest supported" both resolve to this server's one version.
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
           agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
