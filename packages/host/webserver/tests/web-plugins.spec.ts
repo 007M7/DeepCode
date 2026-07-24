@@ -1,10 +1,40 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  statSync,
+  type PathLike,
+  type Stats,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHostWebPluginRegistry, injectBootManifest } from '../src/index.ts'
 import type { LoaderEntryView, WebPluginRegistryDeps } from '../src/index.ts'
+
+const fsControl = vi.hoisted(() => ({ failNextStatPath: undefined as string | undefined }))
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    statSync: (path: PathLike): Stats => {
+      if (String(path) === fsControl.failNextStatPath) {
+        fsControl.failNextStatPath = undefined
+        throw Object.assign(new Error('staged bundle missing'), { code: 'ENOENT' })
+      }
+      return actual.statSync(path)
+    },
+  }
+})
+
+afterEach(() => {
+  fsControl.failNextStatPath = undefined
+  vi.useRealTimers()
+})
 
 /** Write a fake installed package (package.json + optional client bundle) and return its package.json path. */
 function makePkg(root: string, name: string, pkg: Record<string, unknown>, withBundle = true): string {
@@ -145,6 +175,58 @@ describe('createHostWebPluginRegistry', () => {
     writeFileSync(join(root, 'watched', 'lib', 'client.js'), '// post-dispose contents')
     await new Promise((resolve) => { setTimeout(resolve, 100) })
     expect(rebuilds).toHaveLength(1)
+  })
+
+  it('watch mode: a failed rescan baseline preserves the published table and graph', async () => {
+    const { deps, entries, errors, ctx, root } = makeDeps([
+      { name: 'stable', pkg: webDecl() },
+      { name: 'late', pkg: webDecl(), loaded: false },
+    ])
+    deps.watch = { intervalMs: 1_000 }
+    const registry = createHostWebPluginRegistry(deps)
+    const before = registry.graph()
+
+    ;(entries[1] as { fiber?: unknown }).fiber = {}
+    fsControl.failNextStatPath = join(root, 'late', 'lib', 'client.js')
+    ctx.emit('internal/plugin', ctx.fiber)
+    await Promise.resolve()
+
+    expect(errors[0]?.message).toContain('staged bundle missing')
+    expect(registry.graph()).toBe(before)
+    expect(registry.clientPath('late')).toBeUndefined()
+
+    ctx.emit('internal/plugin', ctx.fiber)
+    await Promise.resolve()
+    expect(registry.graph().entries.map(row => row.id)).toEqual(['stable', 'late'])
+    registry.dispose()
+  })
+
+  it('watch mode: a missing bundle forces a re-hash when identical metadata reappears', async () => {
+    vi.useFakeTimers()
+    const { deps, root } = makeDeps([{ name: 'watched', pkg: webDecl() }])
+    const bundle = join(root, 'watched', 'lib', 'client.js')
+    const fixedTime = new Date(1_600_000_000_000)
+    utimesSync(bundle, fixedTime, fixedTime)
+    deps.watch = { intervalMs: 20 }
+    const registry = createHostWebPluginRegistry(deps)
+    const baseline = statSync(bundle)
+    const rebuilds: { id: string; rev: string }[] = []
+    registry.onRebuilt((id, rev) => rebuilds.push({ id, rev }))
+
+    unlinkSync(bundle)
+    await vi.advanceTimersByTimeAsync(20)
+    writeFileSync(bundle, 'x'.repeat(baseline.size))
+    utimesSync(bundle, fixedTime, fixedTime)
+    const restored = statSync(bundle)
+    expect({ mtimeMs: restored.mtimeMs, size: restored.size }).toEqual({
+      mtimeMs: baseline.mtimeMs,
+      size: baseline.size,
+    })
+    await vi.advanceTimersByTimeAsync(20)
+
+    expect(rebuilds).toHaveLength(1)
+    expect(registry.graph().entries[0]?.rev).toBe(rebuilds[0]?.rev)
+    registry.dispose()
   })
 
   it('rejects a non-positive or non-integer watch interval at build time', () => {
