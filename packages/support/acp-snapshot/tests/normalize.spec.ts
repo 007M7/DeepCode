@@ -123,6 +123,28 @@ Additional instructions from: nested\AGENTS.md`,
     expect(out).not.toContain('2026-07-20T17:03:13.689Z')
   })
 
+  it('stabilizes a pretty-printed event timestamp embedded in tool-result text', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        update: {
+          sessionUpdate: 'tool_call_update',
+          content: [{
+            type: 'content',
+            content: {
+              type: 'text',
+              text: 'Target event:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {}\n}\n```',
+            },
+          }],
+        },
+      },
+    })
+    const out = normalizeStdout(raw, ctx)
+    expect(out).toContain('\\"time\\": {{eventTime}}')
+    expect(out).not.toContain('1784876275593')
+  })
+
   it('throws on a non-JSON stdout line (the purity check)', () => {
     const raw = `${JSON.stringify({ jsonrpc: '2.0', id: 1 })}\noops a log leaked\n`
     expect(() => normalizeStdout(raw, ctx)).toThrow()

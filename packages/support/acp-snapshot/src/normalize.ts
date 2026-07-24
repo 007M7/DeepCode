@@ -12,11 +12,13 @@ const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
 const MESSAGE_PREFIX = '{{messagePrefix}}'
 const UPDATED_AT = '{{updatedAt}}'
+const EVENT_TIME = '{{eventTime}}'
 
 /** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
 const PATH_TAG_RE = /(<path>)([^<]*)(<\/path>)/g
 const ADDITIONAL_INSTRUCTIONS_PATH_RE = /(Additional instructions from: )([^\r\n]+)/g
+const EMBEDDED_EVENT_TIME_RE = /("time": )\d+(?=,\r?\n)/g
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -72,6 +74,9 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   }
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
+  // Exact event-read tools render pretty JSON inside a text block. The event's
+  // wall-clock time is volatile even though its seq and payload are deterministic.
+  out = out.replace(EMBEDDED_EVENT_TIME_RE, `$1${EVENT_TIME}`)
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
   return out

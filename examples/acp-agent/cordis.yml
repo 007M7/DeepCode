@@ -65,6 +65,24 @@
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
+# Workspace-authorized prior-session search and exact trace/read tools. The app
+# above owns ctx.sessionQuery; this leaf owns the model-facing consumer.
+- id: tool-session-query
+  name: '@deepseek-ai/dsh-tool-session-query'
+
+# Enforce declared search deadlines and spill oversized plain-text tool output
+# without introducing a session-query-specific truncation path.
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-timeout-policy'
+
+- id: spill-local
+  name: '@deepseek-ai/dsh-spill-local'
+
+- id: spill-policy
+  name: '@deepseek-ai/dsh-spill-policy'
+  config:
+    maxInlineBytes: 50000
+
 # Plan mode is additive to the canonical ACP server. The ACP bridge projects
 # it onto the protocol picker; sandbox and approval remain independent options.
 - id: plan-mode

@@ -29,6 +29,14 @@ flowchart LR
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
+  plugin_acp_tool_session_query["tool-session-query<br/>@deepseek-ai/dsh-tool-session-query"]
+  cfg --> plugin_acp_tool_session_query
+  plugin_acp_timeout_policy["timeout-policy<br/>@deepseek-ai/dsh-timeout-policy"]
+  cfg --> plugin_acp_timeout_policy
+  plugin_acp_spill_local["spill-local<br/>@deepseek-ai/dsh-spill-local"]
+  cfg --> plugin_acp_spill_local
+  plugin_acp_spill_policy["spill-policy<br/>@deepseek-ai/dsh-spill-policy"]
+  cfg --> plugin_acp_spill_policy
   plugin_acp_plan_mode["plan-mode<br/>@deepseek-ai/dsh-plan-mode"]
   cfg --> plugin_acp_plan_mode
   plugin_acp_tool_ask_user["tool-ask-user<br/>@deepseek-ai/dsh-tool-ask-user"]
@@ -78,6 +86,10 @@ flowchart LR
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `permission` | `@deepseek-ai/dsh-permission` |
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
+| `tool-session-query` | `@deepseek-ai/dsh-tool-session-query` |
+| `timeout-policy` | `@deepseek-ai/dsh-timeout-policy` |
+| `spill-local` | `@deepseek-ai/dsh-spill-local` |
+| `spill-policy` | `@deepseek-ai/dsh-spill-policy` |
 | `plan-mode` | `@deepseek-ai/dsh-plan-mode` |
 | `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |

@@ -7,6 +7,7 @@
 
 - id: hmr
   name: '@cordisjs/plugin-hmr'
+  disabled: !!js process.env.CI === 'true'
   config:
     root: ['.']
 
@@ -51,6 +52,11 @@
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.
+
+# The app above owns ctx.sessionQuery; expose its workspace-authorized
+# prior-session search and exact trace/read operations to the model.
+- id: tool-session-query
+  name: '@deepseek-ai/dsh-tool-session-query'
 
 # Model-made session titles on the first-message cadence: replaces the spine's
 # deterministic fallback title with a short model summary. The TUI renders the

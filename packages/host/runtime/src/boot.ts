@@ -5,6 +5,7 @@
  */
 
 import { Context } from 'cordis'
+import { join } from 'node:path'
 import Timer from '@cordisjs/plugin-timer'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -18,6 +19,8 @@ import TaskService from '@deepseek-ai/dsh-tasks'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
+import * as toolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as toolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -61,7 +64,7 @@ const DEFAULT_SESSION_TITLE_LLM_CONFIG: SessionTitleLlmConfig = {
 
 /** Options for bootHost — the assembly-layer composition knobs. */
 export interface BootHostOptions {
-  /** Root directory for JSONL session persistence. */
+  /** Root for JSONL persistence and parent directory of the derived session-query SQLite index. */
   persistenceRoot: string
   /** Workspace-instruction byte budget/config, or false to disable AGENTS.md/CLAUDE.md loading. */
   workspaceContext: workspaceContext.Config | false
@@ -131,6 +134,8 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, {})
   await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
+  await ctx.plugin(SessionQuerySqlite, { path: join(options.persistenceRoot, 'session-query.db') })
+  await ctx.plugin(toolSessionQuery, {})
   await ctx.plugin(LocalBashExecutor, {})
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +
   // the agent-spine bundle) so web sessions get the same coding-agent tool

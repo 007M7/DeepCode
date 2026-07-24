@@ -1,0 +1,100 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import SessionStore, {
+  SESSION_FORMAT_VERSION,
+  SessionId,
+  type Session,
+} from '@deepseek-ai/dsh-session'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
+
+const temporaryDirectories: string[] = []
+const contexts: Context[] = []
+
+afterEach(async () => {
+  for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+  for (const directory of temporaryDirectories.splice(0)) {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+function fakeAgent(session: Session): Agent {
+  return { id: session.id, session } as unknown as Agent
+}
+
+describe('tool-session-query with the real SQLite provider', () => {
+  it('searches live prior-step history and a persisted same-workspace log', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-tool-session-query-'))
+    temporaryDirectories.push(root)
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
+    await ctx.plugin(SessionQuerySqlite, { path: join(root, 'session-query.db') })
+    await ctx.plugin(ToolSessionQuery)
+
+    const persisted = SessionId('persisted')
+    await ctx.sessionPersistence.create({
+      version: SESSION_FORMAT_VERSION,
+      id: persisted,
+      createdAt: 1,
+      cwd: '/work',
+    })
+    await ctx.sessionPersistence.append(persisted, [{
+      type: 'user/message',
+      seq: 0,
+      time: 2,
+      data: {
+        content: [{ type: 'text', text: 'persisted integration needle' }],
+        source: { kind: 'user' },
+      },
+      surfaceOp: 'append',
+    }])
+
+    const caller = ctx.sessions.create(SessionId('caller'), {
+      meta: { createdAt: 10, cwd: '/work' },
+    })
+    caller.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    caller.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'live integration needle' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    caller.append('step/start', { turn: 1, step: 1 })
+
+    let call = 0
+    const execute = (name: string, args: unknown) => ctx.tools.execute({
+      name,
+      arguments: args,
+      callId: CallId(`integration-${++call}`),
+      signal: new AbortController().signal,
+      agent: fakeAgent(caller),
+    })
+
+    const sessions = await execute('session_search', { query: 'persisted integration needle' })
+    expect(sessions.isError).toBe(false)
+    expect(sessions.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toContain('Session persisted')
+    const persistedEvents = await execute('session_event_search', {
+      session_id: persisted,
+      query: 'persisted integration needle',
+    })
+    expect(persistedEvents.isError).toBe(false)
+    expect(persistedEvents.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toContain('seq 0')
+    const liveEvents = await execute('session_event_search', { query: 'live integration needle' })
+    expect(liveEvents.isError).toBe(false)
+    expect(liveEvents.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toContain('seq 1')
+  })
+})

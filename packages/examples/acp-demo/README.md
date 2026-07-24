@@ -15,7 +15,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | `@deepseek-ai/dsh-command-goal` | the discoverable direct `/goal` producer; the app enables the spine's persisted-goal stack with it |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by clients that can complete ACP elicitation requests |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
-| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | combined exact/FTS session queries and bounded `dsh-session:` snapshots |
+| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | combined exact/FTS session queries and bounded `dsh-session:` snapshots; the default leaf adds the model-facing query tools |
 | `@deepseek-ai/dsh-session-checkpoint-policy` | semantic durability barriers before model requests and top-level tool effects, plus completed-step checkpoints |
 | `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |
 | ~~`@deepseek-ai/dsh-tool-ask-user`~~ | **omitted by default** — ACP elicitation support is still client-dependent, so leaves must opt in deliberately |

@@ -101,6 +101,13 @@ const SCENARIOS: Scenario[] = [
   },
   { name: 'bash-spill', hasModelTurn: true, recorded: false, configPath: FS_CONFIG },
   {
+    name: 'session-query-spill',
+    hasModelTurn: true,
+    recorded: false,
+    configPath: FS_CONFIG,
+    posixOnly: true,
+  },
+  {
     name: 'pty-tools',
     hasModelTurn: true,
     recorded: false,
