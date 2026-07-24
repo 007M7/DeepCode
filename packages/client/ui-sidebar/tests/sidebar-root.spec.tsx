@@ -91,10 +91,13 @@ const projectData = () => [
 /** Flush the store's microtask-batched notification into React. */
 const flush = async () => { await act(async () => { await Promise.resolve() }) }
 
+/** The brand wordmark is decorative svg (aria-hidden, no text); locate it by its native viewBox. */
+const wordmark = () => document.querySelector('svg[viewBox="0 0 182 24"]')
+
 describe('SidebarRoot', () => {
   it('renders chrome and collapsed project rows', () => {
     mount(...projectData())
-    expect(screen.getByText('HARNESS')).toBeTruthy()
+    expect(wordmark()).not.toBeNull()
     expect(screen.getByText('New Session')).toBeTruthy()
     expect(screen.getByText('proj')).toBeTruthy()
     expect(screen.getByText('2 sessions')).toBeTruthy()
@@ -166,15 +169,15 @@ describe('SidebarRoot', () => {
       act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
       expect(onToggleSidebar).toHaveBeenCalledOnce()
       // Fade window: the wide chrome is still mounted while it fades.
-      expect(screen.getByText('HARNESS')).toBeTruthy()
+      expect(wordmark()).not.toBeNull()
       expect(screen.getByRole('tree')).toBeTruthy()
       // Settle: wide content unmounts, the rail controls remain.
       act(() => { vi.advanceTimersByTime(300) })
-      expect(screen.queryByText('HARNESS')).toBeNull()
+      expect(wordmark()).toBeNull()
       expect(screen.queryByText('New Session')).toBeNull()
       expect(screen.queryByRole('tree')).toBeNull()
-      // Rail order mirrors the expanded rows: expand, new session, new workspace, search.
-      const rail = ['Expand sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']
+      // Rail order mirrors the expanded rows: open, new session, new workspace, search.
+      const rail = ['Open sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']
         .map((label) => screen.getByLabelText(label))
       for (let i = 1; i < rail.length; i++) {
         expect(rail[i - 1]!.compareDocumentPosition(rail[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -182,7 +185,7 @@ describe('SidebarRoot', () => {
       // Rail creation entries route like their expanded counterparts.
       act(() => { fireEvent.click(screen.getByLabelText('New session')) })
       expect(onCreate).toHaveBeenLastCalledWith()
-      act(() => { fireEvent.click(screen.getByLabelText('Expand sidebar')) })
+      act(() => { fireEvent.click(screen.getByLabelText('Open sidebar')) })
       expect(onToggleSidebar).toHaveBeenCalledTimes(2)
       expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy()
       expect(screen.getByText('New Session')).toBeTruthy()
@@ -195,10 +198,15 @@ describe('SidebarRoot', () => {
     vi.useFakeTimers()
     try {
       const { onToggleSidebar } = mount(...projectData())
+      // While expanded the search control is inert (the row click focuses instead).
+      act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+      expect(onToggleSidebar).not.toHaveBeenCalled()
       act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
       act(() => { vi.advanceTimersByTime(300) })
       act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
       expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+      // Focus waits out the 300ms column slide (EXPAND_SLIDE_MS).
+      act(() => { vi.advanceTimersByTime(300) })
       const input = screen.getByPlaceholderText('Search name, keywords...')
       expect(document.activeElement).toBe(input)
     } finally {
@@ -222,7 +230,7 @@ describe('SidebarRoot', () => {
       act(() => { fireEvent.change(input, { target: { value: 'forked' } }) })
       act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
       act(() => { vi.advanceTimersByTime(300) })
-      act(() => { fireEvent.click(screen.getByLabelText('Expand sidebar')) })
+      act(() => { fireEvent.click(screen.getByLabelText('Open sidebar')) })
       const restored = screen.getByPlaceholderText('Search name, keywords...') as HTMLInputElement
       expect(restored.value).toBe('forked')
       expect(screen.getByText('forked child')).toBeTruthy()

@@ -14,8 +14,13 @@ import { QuestionComposer } from './QuestionComposer.tsx'
 export { PendingQuestion } from './contract/slots.ts'
 export type { QuestionAnswer, QuestionComposerProps, QuestionWait } from './contract/slots.ts'
 
-/** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
-export const inject = ['slots']
+/**
+ * Required services (cordis fiber inject). 'conversation' is an ordering
+ * edge, not a call dependency: the 'conversation.composer' chain slot is
+ * declared by ui-conversation's apply, and register() into an undeclared
+ * slot throws — service waiting orders this apply after the declaring one.
+ */
+export const inject = ['slots', 'conversation']
 
 /** Chain routing: claim the composer while a question wait is pending (pure — owner props only). */
 function selectQuestion({ interactions }: ComposerChainProps): QuestionWait | null {

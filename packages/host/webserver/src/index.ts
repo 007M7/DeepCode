@@ -13,12 +13,14 @@ import { readFile } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
 import { dirname } from 'node:path'
 import { serveStatic } from './static.ts'
-import type { HostWebPluginRegistry } from './web-plugins.ts'
+import { createPluginEventChannel } from './plugin-events.ts'
+import type { HostWebPluginRegistry, WebBootGraph } from './web-plugins.ts'
 
 export { createHostWebPluginRegistry } from './web-plugins.ts'
 export type {
-  HostWebPluginRegistry, LoaderEntryView, LoaderView, WebPluginBootEntry, WebPluginRegistryDeps,
+  HostWebPluginRegistry, LoaderEntryView, LoaderView, WebBootEntry, WebBootGraph, WebPluginRegistryDeps,
 } from './web-plugins.ts'
+export type { PluginEventChannel, PluginEventFrame } from './plugin-events.ts'
 
 /** Options for startWebServer. */
 export interface WebServerOptions {
@@ -34,11 +36,14 @@ export interface WebServerOptions {
   /** Fetch-shaped API carrier; /api/*-prefixed requests are bridged to it. */
   apiHandler: { fetch: typeof fetch }
   /**
-   * Web plugin table. When present, every index.html response carries a
-   * `window.__DSH_BOOT__` manifest script and `/plugins/<id>/client.js` serves
-   * each plugin's client bundle. Absent = both surfaces off (carrier-only use).
+   * Web plugin table. When present, every index.html response carries the
+   * `window.__DSH_BOOT__` entry graph script, `/plugins/<id>/client.js` serves
+   * each fetch entry's client bundle, and `GET /plugins/events` streams graph/
+   * rebuilt frames (SSE) — rebuilt frames ride the registry's own bundle-watch
+   * notifications (`onRebuilt`). Absent = all three surfaces off (carrier-only
+   * use).
    */
-  webPlugins?: Pick<HostWebPluginRegistry, 'snapshot' | 'clientPath'>
+  webPlugins?: Pick<HostWebPluginRegistry, 'graph' | 'clientPath' | 'onRebuilt'>
 }
 
 /** Listening web server handle. */
@@ -70,8 +75,14 @@ export function startWebServer(options: WebServerOptions, onError: (err: Error) 
   const distRoot = dirname(distIndex)
   const renderIndex = webPlugins === undefined ? undefined : async (): Promise<string> => {
     const html = await readFile(distIndex, 'utf8')
-    return injectBootManifest(html, webPlugins.snapshot())
+    return injectBootManifest(html, webPlugins.graph())
   }
+  const pluginEvents = webPlugins === undefined ? undefined : createPluginEventChannel()
+  // Rebuilt frames come from the registry's own bundle watch (dev mode); a
+  // prod registry without watching simply never notifies.
+  const unsubscribeRebuilt = webPlugins !== undefined && pluginEvents !== undefined
+    ? webPlugins.onRebuilt((id, rev) => { pluginEvents.broadcast({ type: 'rebuilt', id, rev }) })
+    : undefined
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server
@@ -84,6 +95,10 @@ export function startWebServer(options: WebServerOptions, onError: (err: Error) 
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405)
       res.end()
+      return
+    }
+    if (webPlugins !== undefined && pluginEvents !== undefined && rawPath === '/plugins/events') {
+      pluginEvents.connect(res, webPlugins.graph())
       return
     }
     if (webPlugins !== undefined && rawPath.startsWith('/plugins/') && rawPath.endsWith('/client.js')) {
@@ -110,6 +125,7 @@ export function startWebServer(options: WebServerOptions, onError: (err: Error) 
 
   let closing: Promise<void> | undefined
   const close = (): Promise<void> => (closing ??= new Promise((resolveClose) => {
+    unsubscribeRebuilt?.()
     server.close(() => { resolveClose() })
     server.closeAllConnections()
   }))
@@ -125,15 +141,15 @@ export function startWebServer(options: WebServerOptions, onError: (err: Error) 
 }
 
 /**
- * Inject the boot manifest into index.html: `window.__DSH_BOOT__` as the first
- * script in <head> (before the shell bundle reads it). `<` is escaped in the
- * JSON so plugin-controlled strings cannot break out of the script element.
+ * Inject the boot entry graph into index.html: `window.__DSH_BOOT__` as the
+ * first script in <head> (before the shell bundle reads it). `<` is escaped in
+ * the JSON so plugin-controlled strings cannot break out of the script element.
  * @param html - the index.html source.
- * @param plugins - the manifest rows from the registry snapshot.
- * @returns the html with the manifest script injected.
+ * @param graph - the composed entry graph from the registry.
+ * @returns the html with the graph script injected.
  */
-export function injectBootManifest(html: string, plugins: readonly unknown[]): string {
-  const json = JSON.stringify({ plugins }).replaceAll('<', '\\u003c')
+export function injectBootManifest(html: string, graph: WebBootGraph): string {
+  const json = JSON.stringify(graph).replaceAll('<', '\\u003c')
   const script = `<script>window.__DSH_BOOT__ = ${json}</script>`
   const head = html.indexOf('<head>')
   if (head !== -1) return `${html.slice(0, head + 6)}${script}${html.slice(head + 6)}`
@@ -141,7 +157,12 @@ export function injectBootManifest(html: string, plugins: readonly unknown[]): s
   return `${script}${html}`
 }
 
-/** Serve one plugin client bundle from the registry table (unknown id = 404; the id may contain a scope slash). */
+/**
+ * Serve one plugin client bundle from the registry table (unknown id = 404;
+ * the id may contain a scope slash). The `?rev=` query is a cache-busting
+ * parameter only — serving ignores it; `no-cache` makes the browser revalidate
+ * so a stale rev never sticks.
+ */
 async function servePluginBundle(
   pathname: string, res: ServerResponse, webPlugins: Pick<HostWebPluginRegistry, 'clientPath'>,
 ): Promise<void> {
@@ -154,7 +175,7 @@ async function servePluginBundle(
   }
   try {
     const body = await readFile(path)
-    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' })
     res.end(body)
   } catch {
     // Registered but unreadable (bundle not built yet): loud 404 beats a silent SPA-fallback HTML page.
