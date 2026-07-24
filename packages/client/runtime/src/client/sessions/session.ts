@@ -65,6 +65,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private planRequestVersion = 0
   /** Latest valid commit, held until the initial capability query resolves. */
   private latestLivePlanMode: PlanModeState | null = null
+  /**
+   * Latest selector mutation, retained after settlement so prompt admission
+   * cannot miss a failure that completed before it began waiting.
+   */
+  private planSelection: Promise<RpcResult<PlanModeState | null>> | null = null
   // Revision counters + caches backing the snapshot's reference-stability contract (§A.9.4/§C.2,
   // audit S5): buildSnapshot reuses the previous array when the revision is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
@@ -108,9 +113,30 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.promptError = null
     this.lastAgentError = null
     this.notifier.markDirty()
+    while (this.planSelection !== null) {
+      const pending = this.planSelection
+      const selection = await pending
+      // A newer selection owns the target and its outcome, even when this
+      // superseded request fails after the replacement has already settled.
+      if (this.planSelection !== pending) continue
+      if (!selection.ok) {
+        this.promptError = { op: 'send', error: selection.error }
+        this.notifier.markDirty()
+        return selection
+      }
+      break
+    }
+    const planTarget = this.planMode === null
+      ? undefined
+      : this.planMode.pending ?? this.planMode.active
     let result: RpcResult<{ accepted: true }>
     try {
-      result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      result = (await this.api.sessions.prompt({
+        sessionId: this.sessionId,
+        mode,
+        content,
+        ...(planTarget === undefined ? {} : { planMode: planTarget }),
+      })).result
     } catch (error) {
       result = transportError(error)
     }
@@ -147,7 +173,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @param active Whether plan mode should be selected.
    * @returns The host-confirmed state, or null when plan mode is unavailable.
    */
-  async setPlanMode(active: boolean): Promise<RpcResult<PlanModeState | null>> {
+  setPlanMode(active: boolean): Promise<RpcResult<PlanModeState | null>> {
+    const selection = this.selectPlanMode(active)
+    this.planSelection = selection
+    return selection
+  }
+
+  /** Run one selector mutation; {@link setPlanMode} retains its latest outcome for prompt admission. */
+  private async selectPlanMode(active: boolean): Promise<RpcResult<PlanModeState | null>> {
     const planEventVersion = this.planEventVersion
     const planRequestVersion = ++this.planRequestVersion
     let result: RpcResult<PlanModeState | null>

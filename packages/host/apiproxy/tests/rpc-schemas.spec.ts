@@ -101,9 +101,14 @@ describe('sessions domain schemas', () => {
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
     expect(sessionHistoryValueSchema.parse({ events: [], hasMore: false }).hasMore).toBe(false)
-    const prompt = sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
-    expect(prompt.mode).toBe('queue')
+    const prompt = sessionPromptRequestSchema.parse({
+      sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }], planMode: true,
+    })
+    expect(prompt).toMatchObject({ mode: 'queue', planMode: true })
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
+    expect(() => sessionPromptRequestSchema.parse({
+      sessionId: 's1', mode: 'queue', content: [], planMode: 'plan',
+    })).toThrow()
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)

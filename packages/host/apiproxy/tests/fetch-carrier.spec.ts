@@ -84,7 +84,12 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
   it('covers create/prompt/cancel/plan/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
-    expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
+    expect((await c.sessions.prompt({
+      sessionId: 's' as never,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'x' }],
+      planMode: true,
+    })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.sessions.planMode({ sessionId: 's' as never })).result).toEqual({ ok: true, value: null })
     expect((await c.sessions.setPlanMode({ sessionId: 's' as never, active: true })).result).toEqual({ ok: true, value: null })

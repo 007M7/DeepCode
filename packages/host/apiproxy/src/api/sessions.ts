@@ -74,8 +74,17 @@ export interface SessionsApi {
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean }>>
 
-  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
-  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
+  /**
+   * Sends a message. `content` is core's ContentBlock[] verbatim and `mode`
+   * maps 1:1 — queue→send, steer→steer. An optional `planMode` target is
+   * admitted atomically with the prompt.
+   */
+  prompt(request: RpcRequest<{
+    sessionId: SessionId
+    mode: 'queue' | 'steer'
+    content: ContentBlock[]
+    planMode?: boolean
+  }>):
   Promise<RpcResponse<{ accepted: true }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
