@@ -941,15 +941,17 @@ abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEven
  * This read is serialized with writes for the same id and returns detached
  * values, so observers cannot mutate backend-owned state.
  * @param id - the persisted session to inspect.
+ * @param signal - optional cancellation for queued and backend read work.
  * @returns the header and valid stored event prefix exactly as observed.
  */
-abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
 /**
  * Lightweight listing from metadata, without a full-log parse.
+ * @param signal - optional cancellation for backend listing work.
  * @returns one header per materialized session.
  */
-abstract list(): Promise<SessionHeader[]>
+abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 
 /**
  * List materialized sessions with cheap per-log change tokens.
@@ -1014,16 +1016,29 @@ async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRe
 /**
  * Fold the latest log-backed title from one live-preferred logical session.
  * @param sessionId - live or persisted session id to read.
+ * @param signal - optional cancellation for source resolution and title folding.
  * @returns latest title snapshot, or `undefined` when the log has no title event.
  */
-async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>
+async readTitle( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleSnapshot | undefined>
 
 /**
  * Fold the latest title and return its source header from one corpus observation.
  * @param sessionId - live or persisted session id to read.
+ * @param signal - optional cancellation for source resolution and title folding.
  * @returns cloned source header and optional latest title snapshot.
  */
-async readTitleSnapshot(sessionId: SessionId): Promise<SessionTitleObservation>
+async readTitleSnapshot( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleObservation>
+
+/**
+ * Fold titles for unique sessions from one cancellable corpus observation.
+ *
+ * Results preserve first-occurrence input order. Operational failures stay
+ * isolated per session, while cancellation rejects the complete operation.
+ * @param sessionIds - live or persisted session ids to observe.
+ * @param signal - optional cancellation shared by all source reads.
+ * @returns one fulfilled or rejected result per unique requested id.
+ */
+async readTitleSnapshots( sessionIds: readonly SessionId[], signal?: AbortSignal, ): Promise<SessionTitleObservationResult[]>
 
 /**
  * List lightweight raw-log event records for one logical session.
@@ -1072,9 +1087,9 @@ async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTraceOb
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleObservationResult](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:75`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:76`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessionReferences` — `SessionReferenceService`
 

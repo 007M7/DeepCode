@@ -131,8 +131,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.load(id)
   }
 
-  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.coordinator.inspect(id)
+  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id, signal)
   }
 
   // One method serves both public `list` and the backend hook; delegating it to
@@ -142,24 +142,33 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   // --- PersistenceBackend hooks (the file-bytes storage primitives) ---
 
   /** Read a stored prefix by id across all cwd buckets when cwd is unknown. */
-  async loadStored(id: SessionId): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
+  async loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
+    signal?.throwIfAborted()
     await this.ensureRootEncoding()
-    const path = await this.findLog(id)
+    signal?.throwIfAborted()
+    const path = await this.findLog(id, signal)
     if (path === undefined) return undefined
-    return this.readPrefix(path, id)
+    return this.readPrefix(path, id, signal)
   }
 
   /**
    * Read a stored prefix and convert torn-tail state to the opaque marker the
    * coordinator can round-trip without knowing the physical encoding.
    */
-  private async readPrefix(path: string, expectedId?: SessionId): Promise<StoredPrefix<JsonlTornMarker>> {
-    const buffer = await readFile(path)
+  private async readPrefix(
+    path: string,
+    expectedId?: SessionId,
+    signal?: AbortSignal,
+  ): Promise<StoredPrefix<JsonlTornMarker>> {
+    const buffer = await readFile(path, { signal })
+    signal?.throwIfAborted()
     let prefix: StoredPrefix<JsonlTornMarker>
     if (this.compression === 'zstd') {
-      prefix = await this.readZstdPrefix(buffer)
+      prefix = await this.readZstdPrefix(buffer, signal)
     } else {
+      signal?.throwIfAborted()
       const { meta, events, committedBytes } = scanLog(buffer)
+      signal?.throwIfAborted()
       prefix = {
         meta,
         events,
@@ -168,30 +177,45 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
           : {},
       }
     }
+    signal?.throwIfAborted()
     this.assertStoredIdentity(path, prefix.meta, expectedId)
     return prefix
   }
 
   /** Decode complete frames and retain complete JSONL records from a torn final frame. */
-  private async readZstdPrefix(buffer: Buffer): Promise<StoredPrefix<JsonlTornMarker>> {
+  private async readZstdPrefix(
+    buffer: Buffer,
+    signal?: AbortSignal,
+  ): Promise<StoredPrefix<JsonlTornMarker>> {
+    signal?.throwIfAborted()
     const { frames, tornStart } = scanZstdFrames(buffer)
+    signal?.throwIfAborted()
     if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
 
     const plaintextFrames: Buffer[] = []
     for (const frame of frames) {
+      let plaintext: Buffer
       try {
-        plaintextFrames.push(await decompressZstdFrame(buffer.subarray(frame.start, frame.end)))
+        signal?.throwIfAborted()
+        plaintext = await decompressZstdFrame(buffer.subarray(frame.start, frame.end))
       } catch (error) {
+        /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+        if (signal?.aborted) signal.throwIfAborted()
         throw new Error(`corrupt Zstandard session log: frame at byte ${frame.start} failed validation`, { cause: error })
       }
+      signal?.throwIfAborted()
+      plaintextFrames.push(plaintext)
     }
 
     const headerFrame = plaintextFrames[0]
     if (headerFrame === undefined || headerFrame.length === 0 || headerFrame.indexOf(0x0A) !== headerFrame.length - 1) {
       throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
     }
+    signal?.throwIfAborted()
     const completePlaintext = Buffer.concat(plaintextFrames)
+    signal?.throwIfAborted()
     const completePrefix = scanLog(completePlaintext)
+    signal?.throwIfAborted()
     if (completePrefix.committedBytes !== completePlaintext.length) {
       throw new Error('corrupt Zstandard session log: complete frame contains a torn JSONL record')
     }
@@ -201,12 +225,17 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
     let recoveredPlaintext: Buffer = Buffer.alloc(0)
     try {
+      signal?.throwIfAborted()
       recoveredPlaintext = await decompressZstdFrame(buffer.subarray(tornStart))
     } catch {
+      /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+      if (signal?.aborted) signal.throwIfAborted()
       // A structurally incomplete final frame may end before Node's decoder can
       // emit any plaintext; the complete prior frames remain recoverable.
     }
+    signal?.throwIfAborted()
     const recoveredPrefix = scanLog(Buffer.concat([completePlaintext, recoveredPlaintext]))
+    signal?.throwIfAborted()
     /* v8 ignore next 3 -- appending plaintext cannot shorten the already-scanned complete prefix */
     if (recoveredPrefix.events.length < completePrefix.events.length) {
       throw new Error('corrupt Zstandard session log: recovered prefix does not extend complete frames')
@@ -247,8 +276,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** List valid unique stored sessions' metadata (header line only — no full-log parse). */
-  async list(): Promise<SessionHeader[]> {
-    return (await this.listArtifacts()).map(artifact => artifact.header)
+  async list(signal?: AbortSignal): Promise<SessionHeader[]> {
+    return (await this.listArtifacts(signal)).map(artifact => artifact.header)
   }
 
   /** List metadata plus a stat-derived identity for each append-only log. */
@@ -274,17 +303,21 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return snapshots
   }
 
-  private async listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>> {
+  private async listArtifacts(signal?: AbortSignal): Promise<Array<{ header: SessionHeader; path: string }>> {
+    signal?.throwIfAborted()
     await this.ensureRootEncoding()
+    signal?.throwIfAborted()
     const artifacts: Array<{ header: SessionHeader; path: string }> = []
     const ids = new Set<SessionId>()
-    for (const dir of await this.listCwdDirs()) {
-      for (const name of await this.listArtifactNames(dir)) {
+    for (const dir of await this.listCwdDirs(signal)) {
+      for (const name of await this.listArtifactNames(dir, signal)) {
+        signal?.throwIfAborted()
         const path = join(dir, name)
         // Read only headers so listing scales with session count, not log size.
         const first = this.compression === 'zstd'
-          ? await this.readFirstZstdLine(path)
-          : await this.readFirstLine(path)
+          ? await this.readFirstZstdLine(path, signal)
+          : await this.readFirstLine(path, signal)
+        signal?.throwIfAborted()
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
@@ -492,18 +525,23 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
    * file. Returns undefined if the file is empty or has no complete first line.
    * Reads in bounded chunks so a huge log costs only the header read.
    */
-  private async readFirstLine(path: string): Promise<string | undefined> {
+  private async readFirstLine(path: string, signal?: AbortSignal): Promise<string | undefined> {
+    signal?.throwIfAborted()
     const handle = await open(path, 'r')
     try {
+      signal?.throwIfAborted()
       const chunks: Buffer[] = []
       const buf = Buffer.alloc(8192)
       for (;;) {
+        signal?.throwIfAborted()
         const { bytesRead } = await handle.read(buf, 0, buf.length, null)
+        signal?.throwIfAborted()
         if (bytesRead === 0) return undefined // EOF with no newline → no complete line
         const slice = buf.subarray(0, bytesRead)
         const nl = slice.indexOf(0x0a)
         if (nl !== -1) {
           chunks.push(slice.subarray(0, nl))
+          signal?.throwIfAborted()
           return Buffer.concat(chunks).toString('utf8')
         }
         chunks.push(Buffer.from(slice))
@@ -514,23 +552,34 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** Read and validate only the independently compressed header frame. */
-  private async readFirstZstdLine(path: string): Promise<string | undefined> {
+  private async readFirstZstdLine(path: string, signal?: AbortSignal): Promise<string | undefined> {
+    signal?.throwIfAborted()
     const handle = await open(path, 'r')
     try {
+      signal?.throwIfAborted()
       let content = Buffer.alloc(0)
       const chunk = Buffer.alloc(8192)
       for (;;) {
+        signal?.throwIfAborted()
         const { bytesRead } = await handle.read(chunk, 0, chunk.length, null)
+        signal?.throwIfAborted()
         if (bytesRead === 0) return undefined
+        signal?.throwIfAborted()
         content = Buffer.concat([content, chunk.subarray(0, bytesRead)])
+        signal?.throwIfAborted()
         const first = scanZstdFrames(content, 1).frames[0]
+        signal?.throwIfAborted()
         if (first === undefined) continue
         let plaintext: Buffer
         try {
+          signal?.throwIfAborted()
           plaintext = await decompressZstdFrame(content.subarray(first.start, first.end))
         } catch (error) {
+          /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+          if (signal?.aborted) signal.throwIfAborted()
           throw new Error('corrupt Zstandard session log: header frame failed validation', { cause: error })
         }
+        signal?.throwIfAborted()
         if (plaintext.length === 0 || plaintext.indexOf(0x0A) !== plaintext.length - 1) {
           throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
         }
@@ -542,11 +591,12 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** Find the unique physical log for an id across every cwd bucket. */
-  private async findLog(id: SessionId): Promise<string | undefined> {
+  private async findLog(id: SessionId, signal?: AbortSignal): Promise<string | undefined> {
     const target = encodeSegment(id) + logSuffix(this.compression)
     const oppositeTarget = encodeSegment(id) + logSuffix(this.oppositeCompression())
     const matches: string[] = []
-    for (const dir of await this.listCwdDirs()) {
+    for (const dir of await this.listCwdDirs(signal)) {
+      signal?.throwIfAborted()
       const path = join(dir, target)
       const opposite = join(dir, oppositeTarget)
       if (await this.exists(opposite)) throw this.encodingMismatch(opposite)
@@ -585,9 +635,11 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** The cwd-bucket directories under the root (absolute paths). */
-  private async listCwdDirs(): Promise<string[]> {
+  private async listCwdDirs(signal?: AbortSignal): Promise<string[]> {
     try {
+      signal?.throwIfAborted()
       const entries = await readdir(this.root, { withFileTypes: true })
+      signal?.throwIfAborted()
       return entries.filter(e => e.isDirectory()).map(e => join(this.root, e.name))
     } catch (error) {
       // Only an absent root means no sessions; rethrow every other I/O failure.
@@ -596,8 +648,10 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  private async listArtifactNames(dir: string): Promise<string[]> {
+  private async listArtifactNames(dir: string, signal?: AbortSignal): Promise<string[]> {
+    signal?.throwIfAborted()
     const entries = await readdir(dir)
+    signal?.throwIfAborted()
     const oppositeSuffix = logSuffix(this.oppositeCompression())
     const incompatible = entries.find(name => name.endsWith(oppositeSuffix))
     if (incompatible !== undefined) throw this.encodingMismatch(`${dir}/${incompatible}`)

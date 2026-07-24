@@ -469,12 +469,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
       },
       {
-        signature: 'abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
       },
       {
-        signature: 'abstract list(): Promise<SessionHeader[]>',
-        jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @returns one header per materialized session.\n */',
+        signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
+        jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @param signal - optional cancellation for backend listing work.\n * @returns one header per materialized session.\n */',
       },
       {
         signature: 'abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>',
@@ -507,12 +507,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
       {
-        signature: 'async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>',
-        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
+        signature: 'async readTitle( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleSnapshot | undefined>',
+        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @param signal - optional cancellation for source resolution and title folding.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
       },
       {
-        signature: 'async readTitleSnapshot(sessionId: SessionId): Promise<SessionTitleObservation>',
-        jsDoc: '/**\n * Fold the latest title and return its source header from one corpus observation.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned source header and optional latest title snapshot.\n */',
+        signature: 'async readTitleSnapshot( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleObservation>',
+        jsDoc: '/**\n * Fold the latest title and return its source header from one corpus observation.\n * @param sessionId - live or persisted session id to read.\n * @param signal - optional cancellation for source resolution and title folding.\n * @returns cloned source header and optional latest title snapshot.\n */',
+      },
+      {
+        signature: 'async readTitleSnapshots( sessionIds: readonly SessionId[], signal?: AbortSignal, ): Promise<SessionTitleObservationResult[]>',
+        jsDoc: '/**\n * Fold titles for unique sessions from one cancellable corpus observation.\n *\n * Results preserve first-occurrence input order. Operational failures stay\n * isolated per session, while cancellation rejects the complete operation.\n * @param sessionIds - live or persisted session ids to observe.\n * @param signal - optional cancellation shared by all source reads.\n * @returns one fulfilled or rejected result per unique requested id.\n */',
       },
       {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
@@ -1896,6 +1900,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionTitleObservation',
     declaration: 'export interface SessionTitleObservation {\n    session: SessionHeader;\n    title?: SessionTitleSnapshot;\n}',
+  },
+  {
+    name: 'SessionTitleObservationResult',
+    declaration: 'export type SessionTitleObservationResult = {\n    sessionId: SessionId;\n    status: \'fulfilled\';\n    value: SessionTitleObservation;\n} | {\n    sessionId: SessionId;\n    status: \'rejected\';\n    reason: unknown;\n};',
   },
   {
     name: 'SessionTitleProvider',

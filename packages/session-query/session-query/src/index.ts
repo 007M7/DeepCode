@@ -28,6 +28,7 @@ import type {
   SessionSearchRequest,
   SessionSurfaceSnapshot,
   SessionTitleObservation,
+  SessionTitleObservationResult,
 } from './types.ts'
 import {
   SESSION_QUERY_READ_WINDOW_MAX,
@@ -148,24 +149,51 @@ export abstract class SessionQueryService extends Service {
   /**
    * Fold the latest log-backed title from one live-preferred logical session.
    * @param sessionId - live or persisted session id to read.
+   * @param signal - optional cancellation for source resolution and title folding.
    * @returns latest title snapshot, or `undefined` when the log has no title event.
    */
-  async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined> {
-    return (await this.readTitleSnapshot(sessionId)).title
+  async readTitle(
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SessionTitleSnapshot | undefined> {
+    return (await this.readTitleSnapshot(sessionId, signal)).title
   }
 
   /**
    * Fold the latest title and return its source header from one corpus observation.
    * @param sessionId - live or persisted session id to read.
+   * @param signal - optional cancellation for source resolution and title folding.
    * @returns cloned source header and optional latest title snapshot.
    */
-  async readTitleSnapshot(sessionId: SessionId): Promise<SessionTitleObservation> {
-    const loaded = await this._corpus.load(sessionId)
-    const title = foldSessionTitle(loaded.events)
-    return {
-      session: loaded.header,
-      ...title === undefined ? {} : { title },
-    }
+  async readTitleSnapshot(
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SessionTitleObservation> {
+    const result = (await this.readTitleSnapshots([sessionId], signal))[0] as SessionTitleObservationResult
+    if (result.status === 'rejected') throw result.reason
+    return result.value
+  }
+
+  /**
+   * Fold titles for unique sessions from one cancellable corpus observation.
+   *
+   * Results preserve first-occurrence input order. Operational failures stay
+   * isolated per session, while cancellation rejects the complete operation.
+   * @param sessionIds - live or persisted session ids to observe.
+   * @param signal - optional cancellation shared by all source reads.
+   * @returns one fulfilled or rejected result per unique requested id.
+   */
+  async readTitleSnapshots(
+    sessionIds: readonly SessionId[],
+    signal?: AbortSignal,
+  ): Promise<SessionTitleObservationResult[]> {
+    return this._corpus.projectMany(sessionIds, (source): SessionTitleObservation => {
+      const title = foldSessionTitle(source.events)
+      return {
+        session: structuredClone(source.header),
+        ...title === undefined ? {} : { title },
+      }
+    }, signal)
   }
 
   /**

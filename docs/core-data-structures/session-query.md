@@ -49,7 +49,7 @@ interface SessionSurfaceSnapshot {
 }
 ```
 
-`SessionTitleObservation` applies the same atomic-observation rule to title folding, so an authorization consumer can validate the source header that supplied the title.
+`SessionTitleObservation` applies the same atomic-observation rule to title folding, so an authorization consumer can validate the source header that supplied the title. Batch reads return one ordered `SessionTitleObservationResult` per unique requested id: operational failures remain local to that id, while cancellation rejects the complete operation.
 
 ```ts type-equiv
 /** Latest folded title bound to the same session-header observation. */
@@ -59,6 +59,27 @@ interface SessionTitleObservation {
   /** Latest title snapshot, absent when the observed log has no title. */
   title?: SessionTitleSnapshot
 }
+```
+
+```ts type-equiv
+/** One ordered result from a batch title observation. */
+type SessionTitleObservationResult =
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Successful atomic header/title observation. */
+    status: 'fulfilled'
+    /** Header and optional latest title from one logical source. */
+    value: SessionTitleObservation
+  }
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Operational failure isolated to this session. */
+    status: 'rejected'
+    /** Original failure from logical-source resolution or title folding. */
+    reason: unknown
+  }
 ```
 
 ```ts type-equiv

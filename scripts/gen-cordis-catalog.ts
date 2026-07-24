@@ -139,6 +139,7 @@ export const LINK_MAP: Record<string, string> = {
   SessionSearchPage: 'session-query.md',
   SessionSearchRequest: 'session-query.md',
   SessionTitleObservation: 'session-query.md',
+  SessionTitleObservationResult: 'session-query.md',
   SessionTitleProvider: 'session-title.md',
   SessionTitleSnapshot: 'session-title.md',
   SkillDefinition: 'skills.md',

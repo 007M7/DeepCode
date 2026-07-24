@@ -15,6 +15,22 @@ export interface LogicalSession {
   events: SessionEvent[]
 }
 
+/** Borrowed source visible only during one synchronous batch projection. */
+export interface LogicalSessionSource {
+  /** Header selected with `events`; callers must clone retained output. */
+  readonly header: SessionHeader
+  /** Raw events selected with `header`; valid only for the projection call. */
+  readonly events: readonly SessionEvent[]
+}
+
+/** One source-projection result in a batch logical-corpus observation. */
+export type LogicalProjectionResult<Value> =
+  | { sessionId: SessionId; status: 'fulfilled'; value: Value }
+  | { sessionId: SessionId; status: 'rejected'; reason: unknown }
+
+/** Bound persisted observation fan-out for public batch title reads. */
+const PERSISTED_INSPECT_CONCURRENCY = 4
+
 /** Resolves a live-preferred corpus against the persistence service mounted now. */
 export class SessionCorpus {
   private _persistence: SessionPersistence | undefined
@@ -72,16 +88,7 @@ export class SessionCorpus {
     if (persistence === undefined) throw notFound(sessionId)
     const listed = (await listPersisted(persistence)).find(header => header.id === sessionId)
     if (listed === undefined) throw notFound(sessionId)
-    let loaded: Awaited<ReturnType<SessionPersistence['inspect']>>
-    try {
-      loaded = await persistence.inspect(sessionId)
-    } catch (error: unknown) {
-      throw new SessionQueryError(
-        `failed to inspect session "${sessionId}": ${errorMessage(error)}`,
-        'SESSION_QUERY_PERSISTENCE_FAILED',
-        { cause: error },
-      )
-    }
+    const loaded = await inspectPersisted(persistence, sessionId)
     const attached = this._ctx.sessions.get(sessionId)
     if (attached !== undefined) return snapshotLive(attached)
     assertSessionHeadersCompatible(loaded.meta, listed)
@@ -90,14 +97,167 @@ export class SessionCorpus {
       events: loaded.events.map(event => structuredClone(event)),
     }
   }
+
+  /**
+   * Project unique logical sources immediately from one persistence listing.
+   *
+   * The synchronous projector runs before a persisted worker claims its next id.
+   * Full logs are borrowed only for that call and never retained by the batch.
+   * @param sessionIds - sessions to resolve in first-occurrence order.
+   * @param project - synchronous fold that owns/clones every retained value.
+   * @param signal - cancellation shared by listing and every persisted inspection.
+   * @returns one fulfilled or rejected projected result per unique requested id.
+   */
+  async projectMany<Value>(
+    sessionIds: readonly SessionId[],
+    project: (source: LogicalSessionSource) => Value,
+    signal?: AbortSignal,
+  ): Promise<LogicalProjectionResult<Value>[]> {
+    const ids = [...new Set(sessionIds)]
+    signal?.throwIfAborted()
+    const resolved = new Map<SessionId, LogicalProjectionResult<Value>>()
+    const unresolved: SessionId[] = []
+    for (const id of ids) {
+      const session = this._ctx.sessions.get(id)
+      if (session === undefined) {
+        unresolved.push(id)
+      } else {
+        resolved.set(id, projectSource(id, sourceLive(session), project, signal))
+      }
+    }
+    if (unresolved.length === 0) return orderedResults(ids, resolved)
+
+    const persistence = this._persistence
+    if (persistence === undefined) {
+      for (const sessionId of unresolved) {
+        resolved.set(sessionId, { sessionId, status: 'rejected', reason: notFound(sessionId) })
+      }
+      return orderedResults(ids, resolved)
+    }
+
+    let persisted: SessionHeader[]
+    try {
+      persisted = await listPersisted(persistence, signal)
+      signal?.throwIfAborted()
+    } catch (error: unknown) {
+      if (signal?.aborted) signal.throwIfAborted()
+      for (const sessionId of unresolved) {
+        resolved.set(sessionId, { sessionId, status: 'rejected', reason: error })
+      }
+      return orderedResults(ids, resolved)
+    }
+    const persistedById = new Map(persisted.map(header => [header.id, header]))
+    const resolvePersisted = async (sessionId: SessionId): Promise<void> => {
+      const listed = persistedById.get(sessionId)
+      if (listed === undefined) {
+        const attached = this._ctx.sessions.get(sessionId)
+        resolved.set(sessionId, attached === undefined
+          ? { sessionId, status: 'rejected', reason: notFound(sessionId) }
+          : projectSource(sessionId, sourceLive(attached), project, signal))
+        return
+      }
+      try {
+        signal?.throwIfAborted()
+        const loaded = await inspectPersisted(persistence, sessionId, signal)
+        signal?.throwIfAborted()
+        const attached = this._ctx.sessions.get(sessionId)
+        if (attached !== undefined) {
+          resolved.set(sessionId, projectSource(sessionId, sourceLive(attached), project, signal))
+          return
+        }
+        assertSessionHeadersCompatible(loaded.meta, listed)
+        resolved.set(sessionId, projectSource(sessionId, {
+          header: loaded.meta,
+          events: loaded.events,
+        }, project, signal))
+      } catch (error: unknown) {
+        if (signal?.aborted) signal.throwIfAborted()
+        resolved.set(sessionId, { sessionId, status: 'rejected', reason: error })
+      }
+    }
+    let cursor = 0
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        signal?.throwIfAborted()
+        const index = cursor
+        if (index >= unresolved.length) return
+        cursor += 1
+        await resolvePersisted(unresolved[index] as SessionId)
+      }
+    }
+    const workerCount = Math.min(PERSISTED_INSPECT_CONCURRENCY, unresolved.length)
+    const settlements = await Promise.allSettled(
+      Array.from({ length: workerCount }, () => worker()),
+    )
+    if (signal?.aborted) signal.throwIfAborted()
+    /* v8 ignore start -- per-id failures settle inside resolvePersisted; workers reject only on abort above */
+    for (const settlement of settlements) {
+      if (settlement.status === 'rejected') {
+        const reason: unknown = settlement.reason
+        throw reason
+      }
+    }
+    /* v8 ignore stop */
+    signal?.throwIfAborted()
+    return orderedResults(ids, resolved)
+  }
 }
 
-async function listPersisted(persistence: SessionPersistence): Promise<SessionHeader[]> {
+function projectSource<Value>(
+  sessionId: SessionId,
+  source: LogicalSessionSource,
+  project: (source: LogicalSessionSource) => Value,
+  signal?: AbortSignal,
+): LogicalProjectionResult<Value> {
   try {
-    return await persistence.list()
+    signal?.throwIfAborted()
+    const value = project(source)
+    signal?.throwIfAborted()
+    return { sessionId, status: 'fulfilled', value }
+  } catch (reason: unknown) {
+    /* v8 ignore next -- the synchronous projector has no external cancellation yield */
+    if (signal?.aborted) signal.throwIfAborted()
+    return { sessionId, status: 'rejected', reason }
+  }
+}
+
+function sourceLive(session: Session): LogicalSessionSource {
+  return { header: session.header, events: session.events }
+}
+
+function orderedResults<Value>(
+  ids: readonly SessionId[],
+  resolved: ReadonlyMap<SessionId, LogicalProjectionResult<Value>>,
+): LogicalProjectionResult<Value>[] {
+  return ids.map(sessionId => resolved.get(sessionId) as LogicalProjectionResult<Value>)
+}
+
+async function listPersisted(
+  persistence: SessionPersistence,
+  signal?: AbortSignal,
+): Promise<SessionHeader[]> {
+  try {
+    return await persistence.list(signal)
   } catch (error: unknown) {
     throw new SessionQueryError(
       `session persistence listing failed: ${errorMessage(error)}`,
+      'SESSION_QUERY_PERSISTENCE_FAILED',
+      { cause: error },
+    )
+  }
+}
+
+async function inspectPersisted(
+  persistence: SessionPersistence,
+  sessionId: SessionId,
+  signal?: AbortSignal,
+): Promise<Awaited<ReturnType<SessionPersistence['inspect']>>> {
+  try {
+    return await persistence.inspect(sessionId, signal)
+  } catch (error: unknown) {
+    if (signal?.aborted) signal.throwIfAborted()
+    throw new SessionQueryError(
+      `failed to inspect session "${sessionId}": ${errorMessage(error)}`,
       'SESSION_QUERY_PERSISTENCE_FAILED',
       { cause: error },
     )

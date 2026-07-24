@@ -741,8 +741,16 @@ async function readTitles(
   signal: AbortSignal,
 ): Promise<CompleteTitleMap> {
   const result = new Map<SessionIdValue, TitleView>()
-  for (const id of new Set(ids)) {
-    result.set(id, await readTitle(ctx, caller, id, signal))
+  signal.throwIfAborted()
+  const observations = await ctx.sessionQuery.readTitleSnapshots(ids, signal)
+  signal.throwIfAborted()
+  for (const observation of observations) {
+    if (observation.status === 'rejected') {
+      result.set(observation.sessionId, unavailableTitle(ctx, observation.sessionId, observation.reason))
+      continue
+    }
+    assertObservedTargetAuthorized(caller, observation.sessionId, observation.value.session)
+    result.set(observation.sessionId, { text: observation.value.title?.title ?? 'untitled' })
   }
   return result as CompleteTitleMap
 }
@@ -753,19 +761,18 @@ async function readTitle(
   id: SessionIdValue,
   signal: AbortSignal,
 ): Promise<TitleView> {
-  signal.throwIfAborted()
-  try {
-    const observation = await ctx.sessionQuery.readTitleSnapshot(id)
-    signal.throwIfAborted()
-    assertObservedTargetAuthorized(caller, id, observation.session)
-    return { text: observation.title?.title ?? 'untitled' }
-  } catch (error: unknown) {
-    if (signal.aborted) signal.throwIfAborted()
-    if (error instanceof HarnessError && error.code === 'SESSION_QUERY_TOOL_UNAUTHORIZED') throw error
-    const code = error instanceof HarnessError ? error.code : 'UNKNOWN'
-    ctx.logger.warn(`tool-session-query: title read failed for session "${id}": ${fullError(error)}`)
-    return { text: 'untitled', unavailableCode: code }
-  }
+  return (await readTitles(ctx, caller, [id], signal)).get(id)
+}
+
+function unavailableTitle(
+  ctx: Context,
+  id: SessionIdValue,
+  error: unknown,
+): TitleView {
+  if (error instanceof HarnessError && error.code === 'SESSION_QUERY_TOOL_UNAUTHORIZED') throw error
+  const code = error instanceof HarnessError ? error.code : 'UNKNOWN'
+  ctx.logger.warn(`tool-session-query: title read failed for session "${id}": ${fullError(error)}`)
+  return { text: 'untitled', unavailableCode: code }
 }
 
 function fullError(error: unknown): string {

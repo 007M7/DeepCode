@@ -21,6 +21,7 @@ import SessionQueryService, {
   type SessionSearchHit,
   type SessionSearchPage,
   type SessionSearchRequest,
+  type SessionTitleObservationResult,
 } from '@deepseek-ai/dsh-session-query'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -155,20 +156,31 @@ class FakeQuery extends SessionQueryService {
     return FakeQuery.eventSearch(request, exec)
   }
 
-  override async readTitleSnapshot(sessionId: SessionIdValue) {
-    const value = FakeQuery.titles.get(sessionId)
-    if (value instanceof Error) throw value
-    if (value === undefined) return super.readTitleSnapshot(sessionId)
-    return {
-      session: (await this.readSurface(sessionId)).session,
-      title: {
-        title: value,
-        messageSeqs: [],
-        source: { kind: 'fallback' as const },
-        eventSeq: 0,
-        updatedAt: 1,
-      },
-    }
+  override async readTitleSnapshots(
+    sessionIds: readonly SessionIdValue[],
+    signal?: AbortSignal,
+  ): Promise<SessionTitleObservationResult[]> {
+    const observations = await super.readTitleSnapshots(sessionIds, signal)
+    return observations.map((observation): SessionTitleObservationResult => {
+      const value = FakeQuery.titles.get(observation.sessionId)
+      if (value instanceof Error) {
+        return { sessionId: observation.sessionId, status: 'rejected', reason: value }
+      }
+      if (value === undefined || observation.status === 'rejected') return observation
+      return {
+        ...observation,
+        value: {
+          ...observation.value,
+          title: {
+            title: value,
+            messageSeqs: [],
+            source: { kind: 'fallback' },
+            eventSeq: 0,
+            updatedAt: 1,
+          },
+        },
+      }
+    })
   }
 }
 
@@ -494,9 +506,13 @@ describe('workspace authority and lineage redaction', () => {
       root: targetRecord,
     })
     const titleReads: SessionIdValue[] = []
-    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockImplementation((sessionId) => {
-      titleReads.push(sessionId)
-      return Promise.resolve({ session: header(sessionId, '/work') })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots').mockImplementation((sessionIds) => {
+      titleReads.push(...sessionIds)
+      return Promise.resolve([...new Set(sessionIds)].map(sessionId => ({
+        sessionId,
+        status: 'fulfilled' as const,
+        value: { session: header(sessionId, '/work') },
+      })))
     })
 
     const output = text(await mounted.call('session_trace', { session_id: target.id }))
@@ -596,16 +612,20 @@ describe('workspace authority and lineage redaction', () => {
     FakeQuery.sessionSearch = () => Promise.resolve({
       items: [sessionHit(target.id, '/work', 'safe hit')],
     })
-    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockResolvedValueOnce({
-      session: movedHeader,
-      title: {
-        title: 'secret moved title',
-        messageSeqs: [],
-        source: { kind: 'fallback' },
-        eventSeq: 0,
-        updatedAt: 1,
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots').mockResolvedValueOnce([{
+      sessionId: target.id,
+      status: 'fulfilled',
+      value: {
+        session: movedHeader,
+        title: {
+          title: 'secret moved title',
+          messageSeqs: [],
+          source: { kind: 'fallback' },
+          eventSeq: 0,
+          updatedAt: 1,
+        },
       },
-    })
+    }])
     const titled = await mounted.call('session_search', { query: 'safe' })
     expect(errorCode(titled)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
     expect(text(titled)).not.toContain('secret moved title')
@@ -828,9 +848,11 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const second = createSession(mounted.ctx, 'stackless-title', '/work')
     const stackless = new Error('stackless')
     Object.defineProperty(stackless, 'stack', { value: undefined })
-    const readTitle = vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot')
-      .mockRejectedValueOnce('string failure')
-      .mockRejectedValueOnce(stackless)
+    const readTitles = vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots')
+      .mockResolvedValueOnce([
+        { sessionId: first.id, status: 'rejected', reason: 'string failure' },
+        { sessionId: second.id, status: 'rejected', reason: stackless },
+      ])
     FakeQuery.sessionSearch = () => Promise.resolve({
       items: [
         sessionHit(first.id, '/work'),
@@ -840,7 +862,8 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
     const result = await mounted.call('session_search', { query: 'needle' })
     expect(text(result)).toContain('title unavailable: UNKNOWN')
-    expect(readTitle).toHaveBeenCalledTimes(2)
+    expect(readTitles).toHaveBeenCalledTimes(1)
+    expect(readTitles.mock.calls[0]?.[0]).toEqual([first.id, second.id])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('string failure'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Error: stackless'))
   })
@@ -849,13 +872,42 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const mounted = await mount()
     const hit = createSession(mounted.ctx, 'abort-title', '/work')
     const controller = new AbortController()
+    const cancellation = new Error('cancelled title batch')
     FakeQuery.sessionSearch = () => Promise.resolve({ items: [sessionHit(hit.id, '/work')] })
-    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockImplementation(() => {
-      controller.abort()
-      return Promise.reject(new Error('cancelled title'))
+    let started!: () => void
+    const batchStarted = new Promise<void>((resolve) => { started = resolve })
+    const readTitles = vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots').mockImplementation((_ids, signal) => {
+      started()
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(cancellation) }, { once: true })
+      })
     })
-    const result = await mounted.call('session_search', { query: 'needle' }, { signal: controller.signal })
+    const pending = mounted.call('session_search', { query: 'needle' }, { signal: controller.signal })
+    await batchStarted
+    controller.abort(cancellation)
+    const result = await pending
     expect(result.isError).toBe(true)
+    expect(text(result)).not.toContain('title unavailable')
+    expect(readTitles.mock.calls[0]?.[1]).toBe(controller.signal)
+  })
+
+  it('does not downgrade an authorization failure returned by title observation', async () => {
+    const mounted = await mount()
+    const hit = createSession(mounted.ctx, 'unauthorized-title-error', '/work')
+    const failure = new HarnessError(
+      'title observation became unauthorized',
+      'SESSION_QUERY_TOOL_UNAUTHORIZED',
+    )
+    FakeQuery.sessionSearch = () => Promise.resolve({ items: [sessionHit(hit.id, '/work')] })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots').mockResolvedValueOnce([{
+      sessionId: hit.id,
+      status: 'rejected',
+      reason: failure,
+    }])
+
+    const result = await mounted.call('session_search', { query: 'needle' })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
     expect(text(result)).not.toContain('title unavailable')
   })
 
@@ -907,9 +959,13 @@ describe('trace and exact read rendering', () => {
       complete: true,
       root: targetRecord,
     })
-    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockImplementation(sessionId => Promise.resolve({
-      session: header(sessionId, '/work'),
-    }))
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots').mockImplementation(sessionIds => Promise.resolve(
+      [...new Set(sessionIds)].map(sessionId => ({
+        sessionId,
+        status: 'fulfilled' as const,
+        value: { session: header(sessionId, '/work') },
+      })),
+    ))
 
     const output = text(await mounted.call('session_trace', { session_id: target.id }))
     expect(output).toContain('Descendants:\n- deep-1 —')

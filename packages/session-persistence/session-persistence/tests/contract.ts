@@ -222,6 +222,21 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('rejects pre-aborted observation reads with the exact cancellation reason', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const reason = new Error('persistence observation cancelled')
+        const controller = new AbortController()
+        controller.abort(reason)
+
+        await expect(persistence.list(controller.signal)).rejects.toBe(reason)
+        await expect(persistence.inspect(SessionId('cancelled-inspect'), controller.signal))
+          .rejects.toBe(reason)
+      } finally {
+        await dispose()
+      }
+    })
+
     it('lists stable lightweight revisions that change after an append', async () => {
       const { persistence, dispose } = await make()
       try {

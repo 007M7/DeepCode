@@ -157,6 +157,25 @@ export interface SessionTitleObservation {
   title?: SessionTitleSnapshot
 }
 
+/** One ordered result from a batch title observation. */
+export type SessionTitleObservationResult =
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Successful atomic header/title observation. */
+    status: 'fulfilled'
+    /** Header and optional latest title from one logical source. */
+    value: SessionTitleObservation
+  }
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Operational failure isolated to this session. */
+    status: 'rejected'
+    /** Original failure from logical-source resolution or title folding. */
+    reason: unknown
+  }
+
 /** Inclusive numeric interval used by time and sequence filters. */
 export interface SessionResultRange {
   /** Inclusive lower bound. */
