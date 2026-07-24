@@ -67,6 +67,7 @@ export class LinkWorkspace {
       try {
         manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')) as PackageManifest
       } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue
         throw new Error(`cannot read linked package at ${directory}: ${String(error)}`)
       }
       if (!manifest.name || typeof manifest.name !== 'string') continue

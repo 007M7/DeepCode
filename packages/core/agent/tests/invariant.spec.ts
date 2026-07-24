@@ -17,19 +17,14 @@ function mockAgent(id: string): Agent {
 }
 
 describe('agent status invariants', () => {
-  it('accepts lifecycle transitions through idle, running, and disposed', async () => {
+  it('accepts lifecycle transitions between idle and running', async () => {
     const ctx = await setup()
     const agent = mockAgent('a1')
     expect(() => {
       ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
       ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
       ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
-      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed')
     }).not.toThrow()
-
-    const running = mockAgent('a2')
-    ctx.emit(scopeTarget(running, running), 'agent/status', running, 'running')
-    expect(() => { ctx.emit(scopeTarget(running, running), 'agent/status', running, 'disposed') }).not.toThrow()
   })
 
   it('rejects a no-op transition', async () => {
@@ -38,14 +33,6 @@ describe('agent status invariants', () => {
     ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
     expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running') })
       .toThrow(/no-op transition/)
-  })
-
-  it('rejects leaving the terminal disposed state', async () => {
-    const ctx = await setup()
-    const agent = mockAgent('a4')
-    ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle') })
-      .toThrow(/left terminal state disposed/)
   })
 
   it('tracks agents independently', async () => {

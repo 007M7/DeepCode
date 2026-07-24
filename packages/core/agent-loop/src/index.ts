@@ -283,11 +283,16 @@ export class AgentLoop extends Service implements AgentFactory {
   ): Promise<void> {
     await this.waitForDrainingConfiguredIdentity(ownerCtx, sessionId)
     if (!this.ownership.isActive()) return
-    const exists = (await persistence.list()).some(header => header.id === sessionId)
-    if (!this.ownership.isActive()) return
-    if (exists) {
+    try {
       await this.resumeWith(ownerCtx, persistence, { resumeSessionId: sessionId, agentOptions })
       return
+    } catch (error: unknown) {
+      if (!this.ownership.isActive()) return
+      // A load is the per-id serialization barrier for eager write-behind and
+      // lifecycle retirement. Only a genuinely absent artifact falls back to
+      // first creation; corruption and backend failures stay loud.
+      const exists = (await persistence.list()).some(header => header.id === sessionId)
+      if (exists) throw error
     }
     this.create(sessionId, agentOptions, meta)
   }
@@ -350,10 +355,11 @@ export class AgentLoop extends Service implements AgentFactory {
     let detachSession: (() => void) | undefined
     let detachAgent: (() => void) | undefined
     let disposing: Promise<void> | undefined
+    const machineReady = Promise.withResolvers<void>()
     // Reverse teardown, memoized so every racing owner awaits one quiescence:
     // stop the machine, leave the registries, unwind the scope, release
     // bookkeeping.
-    const dispose = (): Promise<void> => (disposing ??= (async () => {
+    const dispose = (ownerTriggered = false): Promise<void> => (disposing ??= (async () => {
       abort.abort(new Error(`agent "${id}" lifecycle disposed`))
       callerSignal?.removeEventListener('abort', onCallerAbort)
       this.ownership.signal.removeEventListener('abort', onFactoryTeardown)
@@ -361,6 +367,7 @@ export class AgentLoop extends Service implements AgentFactory {
         // Disposal IS a disposed-cause cancel followed by quiescence. New work
         // sent after this point is the sender's bug — the registries are about
         // to drop the agent, so nothing should still hold it.
+        if (machine === undefined) await machineReady.promise
         if (machine !== undefined) {
           machine.cancel({ kind: 'disposed' })
           await Promise.allSettled([machine.done])
@@ -372,7 +379,7 @@ export class AgentLoop extends Service implements AgentFactory {
           detachSession?.()
         } finally {
           untrack()
-          void unfollowOwner()
+          if (!ownerTriggered) await unfollowOwner()
         }
       }
     })())
@@ -380,11 +387,11 @@ export class AgentLoop extends Service implements AgentFactory {
     let unfollowOwner: () => Promise<void> | void
     try {
       unfollowOwner = ownerCtx.effect(() => () => {
-        // Owner disposal starts teardown but must not await its own disposer.
-        if (disposing === undefined) {
-          abort.abort(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
-          void dispose()
-        }
+        // Owner disposal owns the same quiescence boundary. Its teardown skips
+        // unregistering this already-running owner effect from inside itself.
+        if (disposing !== undefined) return
+        abort.abort(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
+        return dispose(true)
       }, `agentLoop.lifecycle(${id})`)
     } catch (error: unknown) {
       untrack()
@@ -399,6 +406,7 @@ export class AgentLoop extends Service implements AgentFactory {
     }
     try {
       const agent = machine = new ReactLoopAgent(loopCtx, id, options, session)
+      machineReady.resolve()
       assertLive()
 
       return {
@@ -422,6 +430,7 @@ export class AgentLoop extends Service implements AgentFactory {
         dispose,
       }
     } catch (error: unknown) {
+      machineReady.resolve()
       void dispose()
       throw error
     }
@@ -497,11 +506,21 @@ export class AgentLoop extends Service implements AgentFactory {
       // The load may outlive its owner: race it against caller cancellation,
       // owner-fiber unload, and factory teardown so a never-settling backend
       // cannot pin the identity.
+      const ownerAbort = new AbortController()
+      const unfollowOwner = ownerCtx.effect(() => () => {
+        ownerAbort.abort(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
+      }, `agentLoop.resume-load(${id})`)
       const fused = AbortSignal.any([
         ...options.signal === undefined ? [] : [options.signal],
+        ownerAbort.signal,
         this.ownership.signal,
       ])
-      const loaded = await raceAbort(persistence.load(id), fused, id)
+      let loaded: Awaited<ReturnType<SessionPersistence['load']>>
+      try {
+        loaded = await raceAbort(persistence.load(id), fused, id)
+      } finally {
+        await unfollowOwner()
+      }
       ownerCtx.fiber.assertActive()
       if (!this.ownership.isActive()) throw new Error('agent loop is not active')
       const session = this.runtime.ctx.sessions.prepare(id, {

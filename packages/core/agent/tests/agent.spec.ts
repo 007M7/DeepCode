@@ -12,7 +12,6 @@ import AgentRegistry, {
 import type {
   AgentCancelCause,
   AgentFactory,
-  ContinuationStop,
   CreateAgentOptions,
   ResumeAgentOptions,
   SendOptions,
@@ -30,6 +29,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     ctx: new Context(),
     send: () => AgentMessageId('stub'),
     cancel() {},
+    retry() {},
     whenIdle() { return Promise.resolve() },
     ...overrides,
   })
@@ -58,14 +58,6 @@ describe('Agent delivery aliases', () => {
 })
 
 describe('AgentRegistry', () => {
-  it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {
-    type TurnStopListener = Events['agent/turn-stop']
-    type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>
-
-    expectTypeOf<AsyncTurnStopListener>().toExtend<TurnStopListener>()
-    expectTypeOf<Awaited<ReturnType<TurnStopListener>>>().toEqualTypeOf<ContinuationStop | undefined>()
-  })
-
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
@@ -219,7 +211,7 @@ describe('agentEvents()', () => {
 
 describe('explicit cancellation helpers', () => {
   it('exposes the closed typed cancellation cause at the Agent seam', () => {
-    expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause | undefined>()
+    expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause>()
     expectTypeOf<Parameters<Events['agent/cancel-requested']>[1]>().toEqualTypeOf<AgentCancelCause>()
   })
 

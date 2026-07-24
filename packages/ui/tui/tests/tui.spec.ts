@@ -1075,8 +1075,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
       beforeMount(session) {
         session.append('user/message', {
           content: renderGoalChange(change),
-          source: { kind: 'goal', goalId: change.goal.id, revision: change.goal.revision, round: 0 },
-          meta: change as unknown as JsonValue,
+          source: {
+            kind: 'goal',
+            goalId: change.goal.id,
+            revision: change.goal.revision,
+            round: 0,
+            change,
+          },
         }, { surfaceOp: 'append' })
       },
     })
@@ -1812,13 +1817,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await ctrlCExit.controller.dispose()
     await ctrlCExit.ctx.fiber.dispose()
 
-    const disposedAgent = await setup()
-    disposedAgent.agent.status = 'disposed'
-    disposedAgent.terminal.send('late input')
-    disposedAgent.terminal.send('\r')
-    await tick()
-    expect(disposedAgent.terminal.output).toContain('is disposed')
-    await dispose(disposedAgent)
   })
 
   it('combines session autocomplete with files and prepares send/steer references asynchronously', async () => {
@@ -2338,7 +2336,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(assembly.variables).toMatchObject({ provider: 'beta', model: 'b1' })
     const seed: LlmCallConfig = { provider: 'alpha', model: 'a1', temperature: 0.2 }
     const request = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/request', 1, 0, seed, new AbortController().signal, () => Promise.resolve(seed),
+      'agent/request', 1, 0, new AbortController().signal, () => Promise.resolve(seed),
     )
     expect(request).toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
     await dispose(result)
@@ -2391,7 +2389,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(assembly.variables).toEqual({})
     const seed: LlmCallConfig = { provider: 'fallback', model: 'fallback' }
     await expect(agentEvents(empty.ctx, empty.agent).waterfall(
-      'agent/request', 1, 0, seed, new AbortController().signal, () => Promise.resolve(seed),
+      'agent/request', 1, 0, new AbortController().signal, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
     await dispose(empty)
 
@@ -3272,7 +3270,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { color: false }, { terminal, exit: vi.fn() })
@@ -3296,7 +3294,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -3330,14 +3328,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -3367,7 +3365,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -3409,7 +3407,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

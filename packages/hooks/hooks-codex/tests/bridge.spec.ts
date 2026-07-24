@@ -47,12 +47,8 @@ async function harness(dir: string, adapter: MockAdapter): Promise<Context> {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
-      if (subject === agent && status === 'idle') { dispose(); resolve() }
-    })
-  })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 function events(agent: Agent): SessionEvent[] { return [...agent.session.events] }
 
@@ -125,9 +121,7 @@ describe('hooks-codex bridge', () => {
 
     expect(() => process.kill(pid, 0)).toThrow()
     expect(adapter.requests).toHaveLength(0)
-    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { reason: { kind: 'aborted' } },
-    })
+    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
     expect(events(agent).some(event => event.type === 'hook/result' && event.data.point === 'UserPromptSubmit')).toBe(true)
   })
 

@@ -19,13 +19,14 @@ import type {
   AgentStatus,
   IdleReason,
   PromptDecision,
+  RequestError,
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import {
   BlockAssembler, LlmError, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
 import type {
-  ContentBlock, GenerateOptions, LlmCallConfig, Message,
+  ContentBlock, GenerateOptions, LlmCallConfig, LlmFailure, Message,
 } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { Session, SessionId, TurnEndReason, TurnTrigger, UserMessageData } from '@deepseek-ai/dsh-session'
@@ -33,13 +34,15 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
-/** One message waiting in the queued or steering inbox. */
-interface PendingMessage extends AgentMessage {
-  wakeup: boolean
-}
 
-function withoutToolCalls(message: Message): Message {
-  return { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
+/** A final-adapter or terminal in-band failure eligible for request recovery. */
+class ModelRequestFailure extends Error {
+  constructor(
+    readonly requestError: RequestError,
+    readonly failure: LlmFailure,
+  ) {
+    super(requestError.message, { cause: requestError })
+  }
 }
 
 /**
@@ -48,14 +51,16 @@ function withoutToolCalls(message: Message): Message {
  */
 export class ReactLoopAgent extends Agent {
   /** Prompts awaiting individual turns. */
-  private queued: PendingMessage[] = []
+  private queued: { message: AgentMessage; wakeup: boolean }[] = []
   /** Input taken into the session log at step boundaries. */
-  private outbox: (UserMessageData | PendingMessage)[] = []
+  private outbox: (UserMessageData | AgentMessage)[] = []
 
   /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
   /** Abort owner for the current admission or turn. */
   private abort: AbortController | undefined
+  /** Coalesced retry capability scoped to the active request-error waterfall. */
+  private retryWindow: { requested: boolean } | undefined
   /** Resolves when the current admission and turn exit. */
   done: Promise<void> = Promise.resolve()
 
@@ -104,16 +109,15 @@ export class ReactLoopAgent extends Agent {
     }
 
     const steering = target === 'next-step' && this.turnOpen
-    const message: PendingMessage = {
+    const message: AgentMessage = {
       id,
       content,
       source,
-      wakeup,
     }
     if (steering) {
       this.outbox.push(message)
     } else {
-      this.queued.push(message)
+      this.queued.push({ message, wakeup })
     }
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message)
     if (!steering && wakeup) this.kick()
@@ -134,7 +138,7 @@ export class ReactLoopAgent extends Agent {
       if (cause.kind !== 'disposed') emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)
     }
     if (!options.keepInbox) {
-      const discarded: AgentMessage[] = [...this.queued]
+      const discarded = this.queued.map(item => item.message)
       for (const message of this.outbox) {
         if ('id' in message) discarded.push(message)
       }
@@ -143,18 +147,22 @@ export class ReactLoopAgent extends Agent {
       this.outbox.length = 0
       if (discarded.length > 0) emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', discarded)
     }
+    if (this.retryWindow !== undefined) this.retryWindow.requested = false
     const reason = Object.freeze({ kind: cause.kind })
     this.abort?.abort(reason)
   }
 
   /**
    * Re-open a turn on the current session log without a new prompt — the
-   * recovery verb after an error idle (naive `retry()`): repair the history
-   * (edit the log, wait out a rate limit), then run again, right now.
-   * @throws while a turn is running — there is nothing to retry yet.
+   * recovery verb. A request-error listener schedules the retry that follows
+   * its failed turn; an idle caller starts one immediately.
    */
   retry(): void {
-    if (this.abort !== undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
+    if (this.abort !== undefined) {
+      if (this.retryWindow === undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
+      if (!this.abort.signal.aborted) this.retryWindow.requested = true
+      return
+    }
     this.done = this.loopCtx.agents.withInitiator(this, () => this.run({ kind: 'retry' }))
   }
 
@@ -162,16 +170,17 @@ export class ReactLoopAgent extends Agent {
   async whenIdle(): Promise<void> {
     // `done` is replaced per activity, so re-reading it follows chained turns;
     // a run failure still counts as quiescence for the waiter.
-    while (this.abort !== undefined || this.queued.some(message => message.wakeup)) {
+    while (this.abort !== undefined || this.queued.some(item => item.wakeup)) {
       await this.done.catch(() => undefined)
     }
   }
 
   /** Claim and admit the next queued prompt, then start its turn. */
   private kick(): void {
-    if (this.abort !== undefined || !this.queued.some(message => message.wakeup)) return
-    const message = this.queued.shift()
-    if (message === undefined) return
+    if (this.abort !== undefined || !this.queued.some(item => item.wakeup)) return
+    const item = this.queued.shift()
+    if (item === undefined) return
+    const { message } = item
 
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
     const admission = new AbortController()
@@ -210,7 +219,7 @@ export class ReactLoopAgent extends Agent {
     })
   }
 
-  /** Own one complete turn over input already admitted by {@link kick}, or retry history as-is. */
+  /** Run one turn and any request-error retry over input already admitted by {@link kick}. */
   private async run(trigger: TurnTrigger): Promise<void> {
     if (this.abort !== undefined) throw new Error(`agent "${this.id}" is already running`)
     const controller = new AbortController()
@@ -224,6 +233,9 @@ export class ReactLoopAgent extends Agent {
     let step = 0
     let reason: TurnEndReason = { kind: 'completed' }
     let idle: IdleReason = { kind: 'completed' }
+    let retry = false
+    const cancelRetry = (): void => { retry = false }
+    signal.addEventListener('abort', cancelRetry, { once: true })
 
     try {
       signal.throwIfAborted()
@@ -242,8 +254,36 @@ export class ReactLoopAgent extends Agent {
         signal.throwIfAborted()
         if (!this.drainOutbox(turn)) break
       }
-    } catch (error: unknown) {
-      ({ reason, idle } = this.settle(turn, step, error, signal))
+    } catch (caught: unknown) {
+      const requestFailure = caught instanceof ModelRequestFailure ? caught : undefined
+      const error = requestFailure?.requestError ?? caught
+      if (this.stepOpen) {
+        this.stepOpen = false
+        this.session.append('step/end', { turn, step })
+      }
+      if (requestFailure !== undefined && agentInterruptReasonOf(signal) === undefined) {
+        const retryWindow = { requested: false }
+        this.retryWindow = retryWindow
+        let recoveryCompleted = false
+        try {
+          await this.loopCtx.waterfall(
+            agentCarrier(this), 'agent/request-error', this, turn, step, requestFailure.requestError,
+            requestFailure.failure, signal,
+            () => Promise.resolve(),
+          )
+          recoveryCompleted = true
+        } catch (recoveryError: unknown) {
+          this.loopCtx.logger.warn(
+            `agent "${this.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
+          )
+        } finally {
+          if (this.retryWindow === retryWindow) this.retryWindow = undefined
+        }
+        retry = recoveryCompleted
+          && agentInterruptReasonOf(signal) === undefined
+          && retryWindow.requested
+      }
+      ({ reason, idle } = this.settle(turn, step, error, signal, requestFailure?.failure))
     } finally {
       try {
         if (this.stepOpen) {
@@ -256,10 +296,18 @@ export class ReactLoopAgent extends Agent {
           this.session.append('turn/end', { turn, reason })
         }
       } catch (error: unknown) {
+        retry = false
         this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(error)}`)
         emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
       }
+      this.retryWindow = undefined
       if (this.abort === controller) this.abort = undefined
+      signal.removeEventListener('abort', cancelRetry)
+    }
+
+    if (retry) {
+      await this.run({ kind: 'retry' })
+    } else {
       emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
       this.continueOrIdle()
     }
@@ -311,11 +359,9 @@ export class ReactLoopAgent extends Agent {
         assembler.push(chunk)
       }
     } catch (error: unknown) {
-      // Normalize a final-adapter failure into the one model-error type; the
-      // foreign original stays on `cause` for the rendered chain.
       const facts = llmFailureOf(stream, error)
       if (facts !== undefined && error instanceof Error) {
-        throw new LlmError(facts.message, facts.code, { ...facts, cause: error })
+        throw new ModelRequestFailure(error, facts)
       }
       throw error
     }
@@ -324,20 +370,22 @@ export class ReactLoopAgent extends Agent {
     // Failure finish chunks take the same path as thrown stream errors.
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') {
-      throw new LlmError(finish.failure.message, finish.failure.code, finish.failure)
+      const error = new LlmError(finish.failure.message, finish.failure.code, finish.failure)
+      throw new ModelRequestFailure(error, finish.failure)
     }
 
     // Truncated (max-tokens) output cannot owe tool calls.
-    const assembled = assembler.finish.kind === 'max-tokens'
-      ? withoutToolCalls(assembler.message())
-      : assembler.message()
+    const assembled = assembler.message()
+    const content = finish.kind === 'max-tokens'
+      ? assembled.content.filter(block => block.type !== 'tool-call')
+      : assembled.content
 
     session.append(
       'assistant/message',
       {
         turn,
         step,
-        content: assembled.content,
+        content,
         provenance: {
           provider: request.provider,
           model: request.model,
@@ -348,7 +396,7 @@ export class ReactLoopAgent extends Agent {
       { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
     )
 
-    const toolCalls = assembled.content.filter(block => block.type === 'tool-call')
+    const toolCalls = content.filter(block => block.type === 'tool-call')
     let concluded = false
     if (toolCalls.length > 0) {
       ({ concluded } = await executeToolCalls(
@@ -448,20 +496,26 @@ export class ReactLoopAgent extends Agent {
    * The single settlement funnel: classify one turn failure (interruption
    * beats error) into the durable turn/end reason and the live idle report.
    */
-  private settle(turn: number, step: number, error: unknown, signal: AbortSignal): { reason: TurnEndReason; idle: IdleReason } {
+  private settle(
+    turn: number,
+    step: number,
+    error: unknown,
+    signal: AbortSignal,
+    failure?: LlmFailure,
+  ): { reason: TurnEndReason; idle: IdleReason } {
     const interrupt = agentInterruptReasonOf(signal)
     if (interrupt !== undefined) {
       return { reason: { kind: interrupt.kind === 'disposed' ? 'disposed' : 'aborted' }, idle: { kind: 'aborted' } }
     }
-    if (error instanceof LlmError) {
+    if (failure !== undefined) {
       emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
       // The durable record renders the full cause chain: turn/end is the one
       // durable trace of the failure, so a wrapper message alone would lose
       // the transport detail the log exists to keep.
       const rendered = errorChain(error)
       return {
-        reason: { kind: 'error', step, failure: { ...error.failure, ...rendered === '<unrenderable value>' ? {} : { message: rendered } } },
-        idle: { kind: 'error', error, failure: error.failure },
+        reason: { kind: 'error', step, failure: { ...failure, ...rendered === '<unrenderable value>' ? {} : { message: rendered } } },
+        idle: { kind: 'error', error, failure },
       }
     }
     emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
@@ -474,7 +528,7 @@ export class ReactLoopAgent extends Agent {
   /** Continue with a waking prompt, or publish the idle status. */
   private continueOrIdle(): void {
     if (this.abort !== undefined) return
-    if (this.queued.some(message => message.wakeup)) {
+    if (this.queued.some(item => item.wakeup)) {
       this.kick()
     } else if (this.busy) {
       this.busy = false

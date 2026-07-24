@@ -155,7 +155,7 @@ describe('dsh-subagent-fork', () => {
     // 1 from the seeded parent turn + 1 from the child's own completed turn.
     expect(seedTurnEnds.length).toBe(2)
 
-    parent.cancel()
+    parent.cancel({ kind: 'user' })
     await run.dispose()
   })
 

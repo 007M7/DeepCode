@@ -51,7 +51,7 @@ describe('acp bridge — turn outcomes', () => {
 
   it('rejects an ordinary plugin turn failure through the same ACP boundary', async () => {
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('must not run')] })
-    harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
+    harness.ctx.on('agent/step', () => { throw new Error('plugin pre-step failed') })
     const sessionId = await newSession(harness)
 
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))

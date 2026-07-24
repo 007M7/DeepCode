@@ -386,7 +386,7 @@ describe('package manager strategies', () => {
     temporary.push(unreadable)
     await mkdir(join(unreadable, 'vendor', 'bad'), { recursive: true })
     await mkdir(join(unreadable, 'packages'), { recursive: true })
-    await expect(LinkWorkspace.open(unreadable)).rejects.toThrow('cannot read linked package')
+    await expect(LinkWorkspace.open(unreadable)).rejects.toThrow('not a DeepSeek Harness repository root')
     const unnamed = await mkdtemp(join(tmpdir(), 'dsh-link-unnamed-'))
     temporary.push(unnamed)
     await mkdir(join(unnamed, 'vendor', 'unnamed'), { recursive: true })

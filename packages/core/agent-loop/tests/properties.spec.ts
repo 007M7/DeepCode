@@ -5,8 +5,8 @@
  * is a finding, not timing noise.
  *
  * Invariants: every sent message appears exactly once in the log (none lost);
- * turn numbers strictly increase; status transitions follow the legal machine
- * idle→running→idle (and →disposed at teardown).
+ * turn numbers strictly increase; status transitions follow
+ * idle→running→idle, while teardown is a registry lifecycle.
  */
 
 import { describe, expect, it } from 'vitest'

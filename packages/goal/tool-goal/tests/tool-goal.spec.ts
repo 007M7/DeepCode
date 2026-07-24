@@ -43,6 +43,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
       return AgentMessageId('stub')
     },
     cancel() {},
+    retry() {},
     whenIdle() { return Promise.resolve() },
   }
   return { agent, session, setStatus(value) { status = value } }
@@ -336,7 +337,6 @@ describe('goal tool state transitions', () => {
       goal_id: goal['id'], revision: goal['revision'], action: 'resume',
     }, root.agent))
     expect(goal).toMatchObject({ phase: 'active', revision: 4 })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1, testToolSignal)).toBeUndefined()
   })
 
   it('terminal-stops an autonomous completion but leaves a human pause interactive', async () => {
@@ -347,21 +347,20 @@ describe('goal tool state transitions', () => {
       goal_id: created.id, revision: created.revision, action: 'pause',
     }, root.agent)
     expect(resultGoal(paused)).toMatchObject({ phase: 'paused' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', humanTurn, testToolSignal)).toBeUndefined()
+    expect(paused.concludesTurn).toBeUndefined()
     const resumed = resultGoal(await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: 2, action: 'resume',
     }, root.agent))
     closeTurn(root, humanTurn)
 
-    const roundTurn = openTurn(root, {
+    openTurn(root, {
       kind: 'goal', goalId: created.id, revision: resumed['revision'] as number, round: 1,
     })
     const complete = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: resumed['revision'], action: 'complete',
     }, root.agent)
     expect(resultGoal(complete)).toMatchObject({ phase: 'complete' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn, testToolSignal)).toEqual({ action: 'stop' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn, testToolSignal)).toBeUndefined()
+    expect(complete.concludesTurn).toBe(true)
   })
 
   it('rearms a restored active goal only after a new direct human prompt', async () => {

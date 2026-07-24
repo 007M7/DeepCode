@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-core.md: 882352e7dc814443468195f57b9c3f7c9401b170
-core.zh.md: e686216530f827ad8b94b42a43e3fa66a2d3a36e
+2026-07-24-agent-loop-observable-state-machine.md: 7a3607c5bcf6edece07433acd766a6dece551d1c
+2026-07-24-agent-loop-observable-state-machine.zh.md: 7b53eb6087e99ce4c84caae7b94d275c0b6a10db

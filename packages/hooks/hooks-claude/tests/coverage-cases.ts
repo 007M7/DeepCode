@@ -46,8 +46,8 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 function events(agent: Agent): SessionEvent[] { return [...agent.session.events] }
 /** Poll until `predicate` holds or the deadline passes — robust to detached
@@ -316,8 +316,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
-      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
-      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'rejected' && turnEnd.data.reason.reason).toContain('blocked by UserPromptSubmit hook')
+      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
     })
 
     it('a PreToolUse ask with NO reason omits the reason (false arm)', async () => {
@@ -497,8 +496,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // recorded, and the (sole, fully-blocked) prompt closed the turn `rejected`
       expect(adapter.requests).toHaveLength(0)
       expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
-      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
-      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({ kind: 'rejected', reason: 'policy veto' })
+      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {

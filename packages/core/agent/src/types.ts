@@ -103,8 +103,8 @@ export interface CancelOptions {
 /**
  * An agent's lifecycle state, emitted on every transition as `agent/status`:
  * `idle` (parked, waiting for queued work), `running` (the driver is draining
- * work and may be closing or checkpointing a turn), `disposed` (terminal — no
- * transition leaves it, and `send`/`followup`/`steer`/`inject` throw).
+ * work and may be closing or checkpointing a turn). Disposal removes the
+ * agent from its registry; it is not a third observable status.
  */
 export type AgentStatus = 'idle' | 'running'
 
@@ -121,11 +121,13 @@ export type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: AdditionalContext[] }
   | { kind: 'block'; reason: string }
 
+/** Model-request failure with an optional machine-routable provider code. */
+export type RequestError = Error & { code?: string }
+
 /**
  * Why a turn ended, reported live on `agent/idle` right after the turn's
- * durable `turn/end` and flush. `error` carries the thrown value verbatim (and, for
- * model-request failures, the adapter-normalized facts) so a recovery
- * consumer can decide to repair and {@link Agent.retry}.
+ * durable `turn/end`. `error` carries the thrown value verbatim for observers;
+ * model-request recovery runs earlier through `agent/request-error`.
  */
 export type IdleReason =
   | { kind: 'completed' }
@@ -179,9 +181,8 @@ export abstract class Agent {
    * Clear queued and steering work — unless `keepInbox` — and abort the active
    * turn. An effective call first emits `agent/cancel-requested` with the
    * resolved typed cause. The first cause wins for the active turn, and
-   * `whenIdle()` resolves after cancellation reaches quiescence. Omitted cause
-   * means `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm
-   * later work. The active turn snapshots and freezes the cause.
+   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
+   * cancellation is a no-op and does not arm later work.
    * @param cause - the stable caller intent carried by the current turn signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
@@ -245,11 +246,10 @@ export abstract class Agent {
 
   /**
    * Re-open a turn on the current session log without a new prompt — the
-   * recovery verb. After an `agent/idle` error, a consumer repairs (edits the
-   * log, waits out a rate limit) and calls this; the machine immediately runs
-   * another turn over the repaired history. Calling it synchronously from an
-   * `agent/idle` listener is legal — the machine is already idle there.
-   * @throws while a turn is running because there is nothing to retry yet.
+   * explicit resummon verb. During `agent/request-error`, this schedules one
+   * retry turn after the failed turn closes; while idle, it starts one
+   * immediately. Repeated calls before the scheduled retry coalesce.
+   * @throws while other agent work is running.
    */
   abstract retry(): void
 }
@@ -270,7 +270,7 @@ declare module 'cordis' {
     'agent/created'(this: Scoped<Agent>, agent: Agent): void
     /**
      * An agent left the registry; AgentLoop emits this after driver quiescence
-     * but before session detachment and scoped-registration unwind. Custom
+     * and scoped-registration unwind, but before session detachment. Custom
      * registry users own their driver-ordering contract.
      * @param agent - the exact agent removed from the registry.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -278,8 +278,8 @@ declare module 'cordis' {
      */
     'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
     /**
-     * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does
-     * not enter `running` synchronously; drive lifecycle from this event.
+     * Agent status changed (`idle` ⇄ `running`). `send()` does not enter
+     * `running` synchronously; drive lifecycle from this event.
      * @param agent - the agent whose status flipped.
      * @param status - the status just entered (the transition's destination).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -321,7 +321,7 @@ declare module 'cordis' {
      * is cleared or the active turn is aborted. This observe-only notification
      * cannot veto cancellation; listener failures are contained.
      * @param agent - the agent whose current work is being cancelled.
-     * @param cause - resolved typed cancellation cause, including the default.
+     * @param cause - the explicit typed cancellation cause.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
@@ -377,8 +377,23 @@ declare module 'cordis' {
      * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
-     */
+    */
     'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    /**
+     * Handle a model-request failure after its failed step has closed but
+     * before the failed turn closes. A listener calls {@link Agent.retry} to
+     * schedule one retry turn, returns without `next()` when it owns the error,
+     * or calls `next()` to delegate. The default leaves the failure terminal.
+     * @param agent - the agent whose request failed.
+     * @param turn - the open turn number.
+     * @param step - the failed step number.
+     * @param error - the original model-request failure.
+     * @param failure - serializable facts normalized at the final adapter boundary.
+     * @param signal - the turn abort signal.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode waterfall
+     */
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<void>): Promise<void>
     /**
      * The turn is about to close: the model owes no response (no live tool
      * calls, no fresh steering). Awaited before the boundary commits — a
@@ -395,14 +410,13 @@ declare module 'cordis' {
      */
     'agent/stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
     /**
-     * One turn closed: its `turn/end` and durability flush are already
-     * committed. `reason` says why — recovery consumers observe an `error`
-     * reason, repair (edit the log, wait, resummon), and call
-     * {@link Agent.retry}; UI consumers key turn-done presentation off it.
-     * Emitted per turn, including cancelled and failed ones.
+     * One drain chain reached its terminal turn: that turn's `turn/end` is
+     * already committed. Automatically recovered failed turns do not emit this
+     * notification. `reason` says why; model-request recovery is exhausted when
+     * an error reaches it.
      * @param agent - the agent whose turn closed.
-     * @param turn - the closed turn number.
-     * @param reason - why the turn ended, with live error facts when it failed.
+     * @param turn - the terminal turn number.
+     * @param reason - why the terminal turn ended, with live error facts when it failed.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */

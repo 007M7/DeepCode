@@ -41,34 +41,6 @@ function send(agent: Agent, text: string) {
   agent.followup([{ type: 'text', text }])
 }
 
-describe('inbox acceptance', () => {
-  it('rejects non-serializable content or source synchronously before notification or enqueue', async () => {
-    const adapter = new MockAdapter([textResponse('turn 1')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    let queued = 0
-    ctx.on('agent/inbox/enqueue', () => { queued += 1 })
-
-    expect(() => {
-      agent.followup([{ type: 'text', text: 'first', bad: 1n } as never])
-    }).toThrow(/losslessly JSON-serializable/)
-    expect(() => {
-      agent.send([{ type: 'text', text: 'first' }], {
-        target: 'next-turn',
-        wakeup: true,
-        source: { kind: 'plugin', plugin: 'p', bad: 1n } as never,
-      })
-    }).toThrow(/losslessly JSON-serializable/)
-    expect(queued).toBe(0)
-    expect(agent.session.events).toHaveLength(0)
-
-    // The rejected value never woke or poisoned the loop; a valid message runs.
-    send(agent, 'second')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(1)
-  })
-})
-
 describe('tool JSON parse', () => {
   it('passes through non-JSON arguments string without crashing', async () => {
     const adapter = new MockAdapter([

@@ -37,7 +37,6 @@ describe('scoped-dispatch invariants', () => {
     const other = { id: 'a2' } as unknown as Agent
     const signal = new AbortController().signal
     const config = { provider: 'p', model: 'm' }
-    const message = { role: 'assistant' as const, content: [] }
     const agentRows = {
       'agent/created': [agent],
       'agent/disposed': [agent],
@@ -47,15 +46,20 @@ describe('scoped-dispatch invariants', () => {
       'agent/inbox/discard': [agent, []],
       'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
-      'agent/pre-step': [agent, 1, 1, signal],
-      'agent/post-step': [agent, 1, 1, signal],
+      'agent/step': [agent, 1, 1, signal],
       'agent/prompt-submit': [agent, [], { kind: 'user' }, signal, () => Promise.resolve({ kind: 'allow' })],
-      'agent/request': [agent, 1, 1, config, signal, () => Promise.resolve(config)],
-      'agent/request-error': [agent, 1, 1, new Error('request failed'), { message: 'request failed', code: 'UNKNOWN' }, [], signal, () => Promise.resolve({ action: 'fail' })],
-      'agent/session-prefix': [agent, [], signal, () => Promise.resolve([])],
-      'agent/step-result': [agent, 1, 1, message, signal, () => Promise.resolve(message)],
-      'agent/turn-continuation': [agent, 1, { action: 'stop' }, signal, () => Promise.resolve({ action: 'stop' })],
-      'agent/turn-stop': [agent, 1, signal],
+      'agent/request': [agent, 1, 1, signal, () => Promise.resolve(config)],
+      'agent/request-error': [
+        agent,
+        1,
+        1,
+        new Error('request'),
+        { message: 'request', code: 'UNKNOWN' },
+        signal,
+        () => Promise.resolve(),
+      ],
+      'agent/stopping': [agent, 1, signal],
+      'agent/idle': [agent, 1, { kind: 'completed' }],
       'agent/error': [agent, 1, 0, new Error('x')],
     } satisfies { [K in AgentEventName]: EventArgs<K> }
     const rows: Array<[string, unknown[]]> = [

@@ -261,10 +261,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       resumeSessionId: sessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    const transactionLabels = [
-      `agentLoop.owner(${sessionId})`,
-      `agentLoop.lifecycle(${sessionId})`,
-    ]
+    const transactionLabels = [`agentLoop.lifecycle(${sessionId})`]
 
     expect(ctx.fiber.getEffects().map(effect => effect.label)).toEqual(expect.arrayContaining(transactionLabels))
     await handle.dispose()

@@ -72,6 +72,7 @@ function stubAgentForSession(session: Session): StubAgent {
       return AgentMessageId('stub')
     },
     cancel() {},
+    retry() {},
     whenIdle() { return Promise.resolve() },
   }
   return {
@@ -276,11 +277,6 @@ describe('GoalService creation and replay', () => {
     }))
   })
 
-  it('rejects a disposed live object even before registry teardown', async () => {
-    const test = await harness()
-    test.setStatus('disposed')
-    expect(() => test.ctx.goals.get(test.agent)).toThrow(expect.objectContaining({ code: 'GOAL_AGENT_NOT_LIVE' }))
-  })
 })
 
 describe('GoalService mutations', () => {

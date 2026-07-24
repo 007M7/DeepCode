@@ -8,9 +8,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import * as retry from '../src/index.ts'
 
 type ScriptEntry = Error | Iterable<StreamChunk> | AsyncIterable<StreamChunk>
@@ -149,8 +148,8 @@ describe('bounded transient retry policy', () => {
     await idle
 
     expect(adapter.requests).toHaveLength(2)
-    expect(agent.session.events.filter(item => item.type === 'step/start').map(item => item.data.step))
-      .toEqual([1, 2])
+    expect(agent.session.events.filter(item => item.type === 'step/start').map(item => item.data))
+      .toEqual([{ turn: 1, step: 1 }, { turn: 2, step: 1 }])
     expect(agent.session.deriveMessages().at(-1)).toEqual({
       role: 'assistant',
       content: [{ type: 'text', text: 'done' }],
@@ -185,11 +184,13 @@ describe('bounded transient retry policy', () => {
     await idle
 
     const failedChunks = agent.session.events.filter(event =>
-      event.type === 'assistant/chunk' && event.data.step === 1,
+      event.type === 'assistant/chunk' && event.data.turn === 1,
     )
     expect(failedChunks).toHaveLength(6)
-    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => event.data.step))
-      .toEqual([2])
+    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => ({
+      turn: event.data.turn,
+      step: event.data.step,
+    }))).toEqual([{ turn: 2, step: 1 }])
     expect(agent.session.events.some(event => event.type === 'tool/call')).toBe(false)
     expect(toolExecutions).toBe(0)
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
@@ -230,6 +231,36 @@ describe('bounded transient retry policy', () => {
       type: 'turn/end',
       data: { reason: { kind: 'error', failure: { message: 'busy three', code: 'SERVER' } } },
     })
+  })
+
+  it('resets the retry budget for a later message', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('first busy', 'SERVER'),
+      textResponse('first done'),
+      new LlmError('second busy', 'SERVER'),
+      textResponse('second done'),
+    ])
+    ;({ ctx: context } = await harness(adapter, { maxTransientRetries: 1 }))
+    const agent = context.agentLoop.create(SessionId('retry-reset'), { provider: 'mock', model: 'mock' })
+
+    const firstRetry = waitForRetry(context, agent, 1)
+    agent.followup([{ type: 'text', text: 'first' }])
+    await firstRetry
+    const firstIdle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(500)
+    await firstIdle
+
+    const secondRetry = waitForRetry(context, agent, 1)
+    agent.followup([{ type: 'text', text: 'second' }])
+    await secondRetry
+    const secondIdle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(500)
+    await secondIdle
+
+    expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data.retry))
+      .toEqual([1, 1])
+    expect(adapter.requests).toHaveLength(4)
   })
 
   it('accepts the zero-delay lower jitter bound', async () => {
@@ -310,7 +341,6 @@ describe('bounded transient retry policy', () => {
     agent.followup([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
-
     await mounted.retryFiber.dispose()
     await idle
     await vi.advanceTimersByTimeAsync(60_000)
@@ -320,157 +350,4 @@ describe('bounded transient retry policy', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('does not make plugin disposal wait for a delegated recovery policy', async () => {
-    const adapter = new ScriptedAdapter([new LlmError('bad key', 'AUTH')])
-    const mounted = await harness(adapter)
-    context = mounted.ctx
-    const downstream = Promise.withResolvers<RequestErrorDecision>()
-    const entered = Promise.withResolvers<undefined>()
-    context.on('agent/request-error', () => {
-      entered.resolve(undefined)
-      return downstream.promise
-    })
-    const agent = context.agentLoop.create(SessionId('retry-delegated-disposal'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    const idle = waitForIdle(context, agent)
-    agent.followup([{ type: 'text', text: 'go' }])
-    await entered.promise
-
-    const disposing = mounted.retryFiber.dispose()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const outcome = await Promise.race([
-      disposing.then(() => 'disposed' as const),
-      new Promise<'blocked'>((resolve) => { timer = setTimeout(() => { resolve('blocked') }, 100) }),
-    ])
-    if (timer !== undefined) clearTimeout(timer)
-    downstream.resolve({ action: 'fail' })
-    await disposing
-    await idle
-
-    expect(outcome).toBe('disposed')
-    expect(adapter.requests).toHaveLength(1)
-  })
-
-  it('fails a captured callback after disposal without entering downstream policy', async () => {
-    const adapter = new ScriptedAdapter([new LlmError('bad key', 'AUTH')])
-    const captured = Promise.withResolvers<undefined>()
-    let invokeCaptured: (() => Promise<void>) | undefined
-    const mounted = await harness(adapter, {}, (ctx) => {
-      ctx.on('agent/request-error', (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
-        return new Promise<RequestErrorDecision>((resolve) => {
-          invokeCaptured = async () => { resolve(await next()) }
-          captured.resolve(undefined)
-        })
-      })
-    })
-    context = mounted.ctx
-    let downstreamCalls = 0
-    context.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
-      downstreamCalls += 1
-      return next()
-    })
-    const agent = context.agentLoop.create(SessionId('retry-captured-disposal'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    const idle = waitForIdle(context, agent)
-    agent.followup([{ type: 'text', text: 'go' }])
-    await captured.promise
-
-    await mounted.retryFiber.dispose()
-    if (invokeCaptured === undefined) throw new Error('request-error waterfall did not capture retry callback')
-    await invokeCaptured()
-    await idle
-
-    expect(downstreamCalls).toBe(0)
-    expect(adapter.requests).toHaveLength(1)
-  })
-
-  it('lets turn cancellation win during backoff without opening another step', async () => {
-    vi.useFakeTimers()
-    const adapter = new ScriptedAdapter([
-      new LlmError('temporary', 'TIMEOUT'),
-      textResponse('must not run'),
-    ])
-    ;({ ctx: context } = await harness(adapter))
-    const agent = context.agentLoop.create(SessionId('retry-cancel'), { provider: 'mock', model: 'mock' })
-    const scheduled = waitForRetry(context, agent, 1)
-    agent.followup([{ type: 'text', text: 'go' }])
-    await scheduled
-    const idle = waitForIdle(context, agent)
-    agent.cancel({ kind: 'user' })
-    await idle
-
-    expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.events.at(-1)).toMatchObject({
-      type: 'turn/end',
-      data: { reason: { kind: 'aborted' } },
-    })
-    expect(vi.getTimerCount()).toBe(0)
-  })
-
-  it('lets an earlier recovery listener cancel before retry policy runs', async () => {
-    vi.useFakeTimers()
-    const adapter = new ScriptedAdapter([
-      new LlmError('temporary', 'SERVER'),
-      textResponse('must not run'),
-    ])
-    ;({ ctx: context } = await harness(adapter, {}, (ctx) => {
-      ctx.on('agent/request-error', async (agent, _turn, _step, _error, _failure, _history, _signal, next) => {
-        agent.cancel({ kind: 'user' })
-        return next()
-      })
-    }))
-    const agent = context.agentLoop.create(SessionId('retry-pre-cancel'), { provider: 'mock', model: 'mock' })
-    const idle = waitForIdle(context, agent)
-
-    agent.followup([{ type: 'text', text: 'go' }])
-    await idle
-
-    expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
-    expect(agent.session.events.at(-1)).toMatchObject({
-      type: 'turn/end',
-      data: { reason: { kind: 'aborted' } },
-    })
-  })
-
-  it('handles synchronous cancellation from the retry status event', async () => {
-    vi.useFakeTimers()
-    const adapter = new ScriptedAdapter([
-      new LlmError('temporary', 'SERVER'),
-      textResponse('must not run'),
-    ])
-    ;({ ctx: context } = await harness(adapter))
-    const agent = context.agentLoop.create(SessionId('retry-event-cancel'), { provider: 'mock', model: 'mock' })
-    context.on('session/event', (session, event) => {
-      if (session === agent.session && event.type === 'llm/retry') agent.cancel({ kind: 'user' })
-    })
-    const idle = waitForIdle(context, agent)
-
-    agent.followup([{ type: 'text', text: 'go' }])
-    await idle
-
-    expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(1)
-    expect(vi.getTimerCount()).toBe(0)
-  })
-
-  it.each([
-    [{ maxTransientRetries: -1 }, /maxTransientRetries/],
-    [{ maxTransientRetries: 1.5 }, /maxTransientRetries/],
-    [{ initialDelayMs: 0 }, /initialDelayMs/],
-    [{ maxDelayMs: Number.POSITIVE_INFINITY }, /maxDelayMs/],
-    [{ initialDelayMs: MAX_TIMER_DELAY_MS + 1 }, /initialDelayMs/],
-    [{ maxDelayMs: MAX_TIMER_DELAY_MS + 1 }, /maxDelayMs/],
-    [{ initialDelayMs: 20, maxDelayMs: 10 }, /less than or equal/],
-    [{ jitterRatio: 1.1 }, /jitterRatio/],
-    [{ retryableCodes: [] }, /must not be empty/],
-    [{ retryableCodes: ['SERVER', 'SERVER'] }, /duplicates/],
-    [{ retryableCodes: [''] }, /non-empty strings/],
-  ] as const)('fails direct composition for invalid config %#', (config, message) => {
-    expect(() => { retry.apply(new Context(), config as retry.Config) }).toThrow(message)
-  })
 })

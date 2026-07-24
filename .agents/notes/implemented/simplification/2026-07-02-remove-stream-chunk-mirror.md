@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-The loop records every model token delta as a durable `assistant/chunk` session event AND emitted a parallel live `agent/stream-chunk` Cordis event carrying the identical data. In `packages/core/agent-loop/src/loop.ts` the two sat one line apart:
+The loop records every model token delta as a durable `assistant/chunk` session event AND emitted a parallel live `agent/stream-chunk` Cordis event carrying the identical data. In `packages/core/agent-loop/src/agent.ts` the two sat one line apart:
 
 ```ts ignore-check
 const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })

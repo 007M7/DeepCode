@@ -114,7 +114,7 @@ describe('bash tool through the agent loop', () => {
 
     const result = findEvent(events(agent), 'tool/result')
     expect(resultText(result)).toBe(`${dshHome}\n1\nsession-env-id\n${location?.path}\nunset\nabsent\n`)
-    expect(existsSync(location!.path)).toBe(true)
+    await expect.poll(() => existsSync(location!.path)).toBe(true)
     const header = JSON.parse(readFileSync(location!.path, 'utf8').split('\n')[0]!) as { type: string; id: string }
     expect(header).toMatchObject({ type: 'session', id: 'session-env-id' })
     await handle.dispose()

@@ -360,15 +360,6 @@ export function apply(ctx: Context): void {
             if (state.openTurn !== undefined) state.attempt.turn = state.openTurn
           }
           return
-        case 'prompt/blocked':
-          if (state.attempt !== undefined && state.attempt.phase === 'queued'
-          && isGoalRoundSource(event.data.source) && sameRound(event.data.source, state.attempt)) {
-          /* v8 ignore next -- this driver's rejected message always follows its observed turn/start */
-            if (state.openTurn !== undefined) state.attempt.turn = state.openTurn
-            state.attempt.rejectedReason = event.data.reason
-            if (event.data.reason === STALE_ROUND_REASON) state.attempt.stale = true
-          }
-          return
         case 'turn/end':
           if (state.attempt?.turn === event.data.turn) state.attempt.reason = event.data.reason
           /* v8 ignore next -- balanced live turns close the open turn just observed by this listener */
@@ -407,11 +398,27 @@ export function apply(ctx: Context): void {
       }
       if (!valid) {
         const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt)) attempt.stale = true
+        if (attempt !== undefined && sameRound(source, attempt)) {
+          attempt.stale = true
+          state.attempt = undefined
+        }
+        requestDrive(state)
         return { kind: 'block', reason: STALE_ROUND_REASON }
       }
       const decision = await next()
-      if (decision.kind === 'block') return decision
+      if (decision.kind === 'block') {
+        const attempt = state.attempt
+        if (attempt !== undefined && sameRound(source, attempt)) state.attempt = undefined
+        const goal = currentGoal(state)
+        if (goal !== undefined && goal.id === source.goalId && goal.revision === source.revision
+          && goal.phase === 'active' && goal.activation === 'armed') {
+          ctx.goals.block(agent, goalRef(goal), {
+            code: 'prompt-rejected',
+            message: decision.reason,
+          })
+        }
+        return decision
+      }
       try {
         valid = validReservation(state, content, source)
       } catch (error: unknown) {
@@ -421,7 +428,11 @@ export function apply(ctx: Context): void {
       }
       if (!valid) {
         const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt)) attempt.stale = true
+        if (attempt !== undefined && sameRound(source, attempt)) {
+          attempt.stale = true
+          state.attempt = undefined
+        }
+        requestDrive(state)
         return { kind: 'block', reason: STALE_ROUND_REASON }
       }
       return decision

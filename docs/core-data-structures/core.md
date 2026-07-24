@@ -454,13 +454,7 @@ type AgentCancelCause =
 `Agent` is an abstract class: concrete drivers implement the abstract members, while `followup`/`steer`/`inject` are shared concrete delegates to the single abstract `send` over the (`target` × `wakeup`) matrix.
 
 ```ts type-equiv
-/**
- * Public agent handle; its concrete implementation is internal to
- * `@deepseek-ai/dsh-agent-loop`. An abstract class rather than an interface so
- * the fixed-preset aliases ({@link Agent.followup}, {@link Agent.steer},
- * {@link Agent.inject}) are shared concrete delegates over the single abstract
- * {@link Agent.send} primitive; concrete drivers implement `send` once.
- */
+/** Public live-agent handle with aliases over the unified delivery primitive. */
 abstract class Agent {
   /** The single identity shared with {@link session}. */
   abstract readonly id: SessionId
@@ -475,7 +469,7 @@ abstract class Agent {
 
   /**
    * The unified delivery primitive over the (`target` × `wakeup`) matrix.
-   * Detaches, validates, and freezes one lossless-JSON item, then routes it:
+   * It routes the caller's typed content and source as follows:
    *
    * - `next-turn` queues an item that becomes the sole ordinary message of its
    *   own FIFO-ordered turn; `wakeup:true` wakes a
@@ -483,12 +477,9 @@ abstract class Agent {
    * - `next-step` with `wakeup:true` submits steering into the active turn
    *   (idle falls back to a woken `next-turn`).
    * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: an open turn joins at the current log position
-   *   (deferred behind an executing tool batch until it settles), and an idle
-   *   inject records a one-shot turn with its own durability checkpoint.
-   *
-   * Attached contexts share the same snapshot and ownership boundary. Invalid
-   * input throws synchronously before any notification, enqueue, or append.
+   *   without running the model: an open turn stages it for the next safe log
+   *   position, while an idle injection appends it immediately without opening
+   *   a turn.
    * @param content - the model-facing content blocks to deliver.
    * @param options - target queue, wakeup decision, and source.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
@@ -500,8 +491,7 @@ abstract class Agent {
    * turn. An effective call first emits `agent/cancel-requested` with the
    * resolved typed cause. The first cause wins for the active turn, and
    * `whenIdle()` resolves after cancellation reaches quiescence. Idle
-   * cancellation is a no-op and does not arm later work. The active turn
-   * snapshots and freezes the required cause.
+   * cancellation is a no-op and does not arm later work.
    * @param cause - the stable caller intent carried by the current turn signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
@@ -515,49 +505,68 @@ abstract class Agent {
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
    * @param content - the prompt content blocks.
-   * @param options - source and attached contexts.
+   * @param options - message source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
   followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, { ...options, target: 'next-turn', wakeup: true })
+    return this.send(content, {
+      target: 'next-turn',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+    })
   }
 
   /**
    * Submit steering into the running turn — the `next-step`/wakeup preset of
    * {@link send}. An open turn records it at the next steering checkpoint before
-   * a request or continuation decision; policy may stop before another step.
-   * After turn close and its checkpoint, any remainder is queued for a later
-   * turn; terminal `agent/turn-stop`, cancellation, or disposal may discard it.
-   * Idle steering falls back to a woken follow-up turn.
+   * a request or stop decision. If the turn fails before that boundary, the
+   * remainder stays staged without waking the agent; retry or a later prompt
+   * takes it. Idle steering falls back to a woken follow-up turn, while
+   * cancellation or disposal may discard pending steering.
    * @param content - the steering content blocks.
-   * @param options - source and attached contexts.
+   * @param options - message source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
   steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, { ...options, target: 'next-step', wakeup: true })
+    return this.send(content, {
+      target: 'next-step',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+    })
   }
 
   /**
-   * Append detached model-facing context without running the model — the
-   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection joins
-   * at the current log position unless the current tool batch is executing;
-   * then it waits FIFO until that batch settles and drains before turn close
-   * even when interrupted. Idle injection uses a one-shot turn and durability
-   * checkpoint. Disposal awaits idle checkpoints; flush failures report through
-   * `agent/error`. An omitted source defaults to `{ kind: 'plugin', plugin: '' }`.
+   * Append model-facing context without running the model — the
+   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
+   * at the next safe log position; an idle injection appends immediately
+   * without opening a turn. An omitted source defaults to
+   * `{ kind: 'plugin', plugin: '' }`.
    * @param content - the injected context content blocks.
-   * @param options - source and attached contexts.
+   * @param options - context source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
   inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, { ...options, target: 'next-step', wakeup: false })
+    return this.send(content, {
+      target: 'next-step',
+      wakeup: false,
+      source: options?.source ?? { kind: 'plugin', plugin: '' },
+    })
   }
+
+  /**
+   * Re-open a turn on the current session log without a new prompt — the
+   * explicit resummon verb. During `agent/request-error`, this schedules one
+   * retry turn after the failed turn closes; while idle, it starts one
+   * immediately. Repeated calls before the scheduled retry coalesce.
+   * @throws while other agent work is running.
+   */
+  abstract retry(): void
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `running` describes the driver-wide drain interval, which can span turn close, its durability checkpoint, and consecutive queued turns; it does not prove a turn is still open. `AgentOptions` is merge-extensible: core declares `provider?` and `model?` (dispatch requires both after `agent/request`). Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `AgentOptions` is merge-extensible: core declares `provider?` and `model?` (dispatch requires both after `agent/request`). Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
-The cause is a TypeScript-enforced same-process input. An active holder copies its discriminant into the runtime-only `AbortSignal.reason`; it is retired before `turn/end` publication. `agentInterruptReasonOf(signal)` recognizes `user`, `parent`, and lifecycle-only `disposed` without consulting ambient initiator state. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
+The cause is a required, TypeScript-enforced same-process input. An active holder copies its discriminant into the runtime-only `AbortSignal.reason`. `agentInterruptReasonOf(signal)` recognizes `user`, `parent`, and lifecycle-only `disposed` without consulting ambient initiator state. Durable `turn/end` uses `{ kind: 'aborted' }` for user or parent cancellation and `{ kind: 'disposed' }` for lifecycle teardown.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
@@ -567,7 +576,7 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share `AdditionalContext`, the same `UserMessageData` content/source shape used by durable user-role input. Each `additionalContexts` entry becomes a separate injected `user/message`, preserving its provenance. Continuation reasons are steering messages and use the same content/source base.
+Prompt and post-tool decisions share `AdditionalContext`, the same `UserMessageData` content/source shape used by durable user-role input. Each `additionalContexts` entry becomes a separate `user/message`, preserving its provenance. Hook bridges map their native decision fields onto these typed results.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -576,7 +585,7 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 type AdditionalContext = UserMessageData
 ```
 
-`agent/prompt-submit` returns a `PromptDecision` (allow the turn's claimed queued message — optionally rewriting its `content` or attaching `additionalContexts` — or record `prompt/blocked` and end that zero-step turn as `rejected`):
+`agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow may rewrite the claimed prompt or attach `additionalContexts`; block rejects admission without creating turn events:
 
 ```ts type-equiv
 /**
@@ -590,41 +599,14 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no attached contexts — the typed `/goal` pattern):
-
-```ts type-equiv
-/** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
-type ContinuationDecision =
-  | { action: 'stop' }
-  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
-```
-
-`agent/request-error` receives the exact original `RequestError` beside its immutable `LlmFailure`, an immutable list of failures that already authorized another request in the consecutive sequence, the turn signal, and `next()`. Recovery plugins route on `failure.code`, not the live error's message; each policy counts only its own codes, and a successful request clears the history:
+`agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener calls `agent.retry()` and returns without `next()`; repeated calls coalesce into one retry turn.
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` retains the structured failure on `turn/end`:
-
-```ts type-equiv
-/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
-type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
-```
-
-`agent/post-step` is awaited after assistant output, real or synthetic tool results, buffered context, and steering are durable but before `step/end`. A cancelled tool batch reaches it with an aborted signal after draining; its signature is `(agent, turn, step, signal)`, and replayable facts remain in the session log rather than a transient payload.
-
-`agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
-
-```ts type-equiv
-/**
- * The terminal subset of {@link ContinuationDecision}. A listener on
- * `agent/turn-stop` returns this to make the already-composed continuation
- * outcome terminal; `undefined` abstains.
- */
-type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
-```
+`agent/step` is the single serial boundary before request derivation. `agent/stopping` runs when a turn has no tool or steering continuation, before one final steering drain.
 
 `agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):
 
@@ -632,8 +614,6 @@ type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
-
-`agent/session-prefix` composes a `Message[]` once per loop instance. The deep-frozen result is recorded in the request header and prepended to every derived history, making it the home for session-stable openers. A resumed instance recomposes; mid-session changes use append-only context channels. The waterfall returns content directly because it contributes rather than decides.
 
 ## `ToolDefinition`
 

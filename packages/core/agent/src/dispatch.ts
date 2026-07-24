@@ -66,7 +66,11 @@ export interface AgentEventDispatch {
   waterfall<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Return<Events[K]>
 }
 
-/** Return the fused scope carrier for one agent subject. */
+/**
+ * Return the fused scope carrier for one agent subject.
+ * @param agent - the subject agent and scope key.
+ * @returns the carrier passed as the event dispatcher `this` value.
+ */
 export function agentCarrier(agent: Agent): Scoped<Agent> {
   return scopeTarget(agent, agent)
 }
@@ -116,7 +120,13 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
   }
 }
 
-/** Emit one contained agent notification without allocating a retained dispatcher. */
+/**
+ * Emit one contained agent notification without allocating a retained dispatcher.
+ * @param ctx - the context to dispatch through.
+ * @param agent - the subject agent and scope key.
+ * @param name - the agent-subject event to emit.
+ * @param rest - the event arguments after the injected agent.
+ */
 export function emitAgentEvent<K extends AgentSubjectEvent>(
   ctx: Context,
   agent: Agent,

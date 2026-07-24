@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { AdditionalContext, Agent, ContinuationDecision, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { AdditionalContext, Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -258,16 +258,16 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
 
-  // A blocking Stop hook forces continuation with its reason.
+  // A blocking Stop hook steers at the stopping boundary, which makes the
+  // machine observe pending input and run another step.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
-  ctx.on('agent/turn-continuation', async (agent, turn, _default, signal, next): Promise<ContinuationDecision> => {
+  ctx.on('agent/stopping', async (agent, turn, signal): Promise<void> => {
     const merged = await runPoint('Stop', '', stopPayload(ctx, agent), { agent, turn, signal })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.
       const text = merged.reason ?? 'continue: blocked by Stop hook'
-      return { action: 'continue', reason: { content: [{ type: 'text', text }], source: PLUGIN_SOURCE } }
+      agent.steer([{ type: 'text', text }], { source: PLUGIN_SOURCE })
     }
-    return next()
   })
 
   // SubagentStart may inject child context; SubagentStop only observes. Both

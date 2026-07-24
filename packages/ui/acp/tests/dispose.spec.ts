@@ -102,8 +102,8 @@ describe('acp bridge — disposal & HMR safety', () => {
     // agent's AgentHandle dispose to quiescence on its OWN (before any dispose()).
     await harness.closeClientTransport()
     await agent.whenIdle()
-    // The agent's loop has stopped: status `disposed`.
-    expect(agent.status).toBe('disposed')
+    // The retired object is quiescent; registry membership carries liveness.
+    expect(agent.status).toBe('idle')
 
     // Await the bridge teardown to completion WITHOUT tearing down the root
     // agents/sessions services (so we can still query them). acpFiber.dispose()
@@ -242,11 +242,11 @@ describe('acp bridge — disposal & HMR safety', () => {
     // A is gone — unregistered AND its session removed from the store.
     expect(harness.ctx.agents.get(SessionId('sib-a'))).toBeUndefined()
     expect(harness.ctx.sessions.get(SessionId('sib-a'))).toBeUndefined()
-    expect(handleA.agent.status).toBe('disposed')
+    expect(handleA.agent.status).toBe('idle')
     // B is wholly unaffected.
     expect(harness.ctx.agents.get(SessionId('sib-b'))).toBe(handleB.agent)
     expect(harness.ctx.sessions.get(SessionId('sib-b'))).toBeDefined()
-    expect(handleB.agent.status).not.toBe('disposed')
+    expect(handleB.agent.status).toBe('idle')
     await harness.dispose()
   })
 
@@ -291,27 +291,9 @@ describe('acp bridge — disposal & HMR safety', () => {
     handle.agent.followup([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(handle.agent.status).toBe('running')
-    let releaseFlush!: () => void
-    const flushGate = new Promise<void>((resolve) => { releaseFlush = resolve })
-    harness.ctx.on('session/flush', () => flushGate)
-
-    // First dispose enters teardown (aborts the hanging step) and blocks in the
-    // gated final flush.
+    // Both callers join the same teardown and observe registry removal.
     const first = handle.dispose()
-    let firstSettled = false
-    void first.then(() => { firstSettled = true })
-    await new Promise(r => setTimeout(r, 20))
-    expect(firstSettled).toBe(false)
-
-    // Second dispose MUST await the same in-flight teardown, not resolve early.
     const second = handle.dispose()
-    let secondSettled = false
-    void second.then(() => { secondSettled = true })
-    await new Promise(r => setTimeout(r, 20))
-    expect(secondSettled).toBe(false) // memoized: still pending with the first
-
-    // Release the flush; both resolve together and the session is gone.
-    releaseFlush()
     await Promise.all([first, second])
     expect(harness.ctx.agents.get(SessionId('conc-a'))).toBeUndefined()
     expect(harness.ctx.sessions.get(SessionId('conc-a'))).toBeUndefined()

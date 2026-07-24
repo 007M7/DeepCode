@@ -48,7 +48,6 @@ export const LINK_MAP: Record<string, string> = {
   MessageSource: 'core.md',
   PromptDecision: 'core.md',
   RequestError: 'core.md',
-  RequestErrorDecision: 'core.md',
   PreparedReferencedMessage: 'session-reference.md',
   SessionReferenceCandidate: 'session-reference.md',
   SessionReferenceInput: 'session-reference.md',

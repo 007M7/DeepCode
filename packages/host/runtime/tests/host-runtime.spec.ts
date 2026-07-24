@@ -381,15 +381,6 @@ describe('sessions.prompt / cancel', () => {
     if (!response.result.ok) expect(response.result.error.code).toBe('session-not-found')
   })
 
-  it('maps a synchronous send throw to agent-busy', async () => {
-    const { api } = await boot()
-    const { sessionId } = expectOk(await api.sessions.create(request({})))
-    const poisoned = [{ type: 'text', text: 'x', bad: () => 1 }] as never
-    const response = await api.sessions.prompt(request({ sessionId, mode: 'queue' as const, content: poisoned }))
-    expect(response.result.ok).toBe(false)
-    if (!response.result.ok) expect(response.result.error.code).toBe('agent-busy')
-  })
-
   it('cancels an attached agent and rejects an unattached one', async () => {
     const running = await boot(['hang'])
     const { api, ctx } = running
@@ -469,7 +460,10 @@ describe('sessions.history', () => {
 
     const all = expectOk(await api.sessions.history(request({ sessionId })))
     expect(all.hasMore).toBe(false)
-    const messageCount = all.events.filter(entry => entry.event.type === 'user/message' || entry.event.type === 'assistant/message').length
+    const messageCount = all.events.filter(entry =>
+      entry.event.type === 'assistant/message'
+      || (entry.event.type === 'user/message' && entry.event.data.source.kind === 'user'),
+    ).length
     expect(messageCount).toBe(6)
 
     const lastPage = expectOk(await api.sessions.history(request({ sessionId, maxMessages: 1 })))

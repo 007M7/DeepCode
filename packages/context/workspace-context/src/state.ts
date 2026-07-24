@@ -108,7 +108,9 @@ function filePathFromExecution(exec: ToolExecution): string | undefined {
   return filePath.length > 0 ? filePath : undefined
 }
 
-function isWorkspaceContextSource(source: unknown): source is WorkspaceInstructionSource {
+function isWorkspaceContextSource(
+  source: unknown,
+): source is { kind: 'workspace-instructions'; changes: unknown[] } {
   return typeof source === 'object' && source !== null
     && 'kind' in source && source.kind === 'workspace-instructions'
     && 'changes' in source && Array.isArray(source.changes)

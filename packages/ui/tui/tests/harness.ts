@@ -4,6 +4,7 @@ import AgentRegistry, {
   AgentMessageId,
   type Agent,
   type AgentCancelCause,
+  type AliasSendOptions,
   type AgentOptions,
   type AgentStatus,
   type SendOptions,
@@ -20,11 +21,11 @@ import { TestSessionQueryService } from './session-query.ts'
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
-  sentOptions: (SendOptions | undefined)[]
+  sentOptions: (SendOptions | AliasSendOptions | undefined)[]
   steered: ContentBlock[][]
-  steeredOptions: (SendOptions | undefined)[]
+  steeredOptions: (AliasSendOptions | undefined)[]
   injected: ContentBlock[][]
-  injectedOptions: (SendOptions | undefined)[]
+  injectedOptions: (AliasSendOptions | undefined)[]
   cancelled: AgentCancelCause[]
 }
 
@@ -160,10 +161,10 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
-  const sentOptions: (SendOptions | undefined)[] = []
-  const steeredOptions: (SendOptions | undefined)[] = []
+  const sentOptions: (SendOptions | AliasSendOptions | undefined)[] = []
+  const steeredOptions: (AliasSendOptions | undefined)[] = []
   const injected: ContentBlock[][] = []
-  const injectedOptions: (SendOptions | undefined)[] = []
+  const injectedOptions: (AliasSendOptions | undefined)[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
@@ -198,9 +199,10 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       injectedOptions.push(options)
       return AgentMessageId('stub')
     },
-    cancel(cause = { kind: 'user' }) {
+    cancel(cause) {
       cancelled.push(cause)
     },
+    retry() {},
     whenIdle() {
       return Promise.resolve()
     },

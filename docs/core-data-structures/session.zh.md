@@ -480,14 +480,12 @@ declare class Session {
  */
 interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
+  /** Recovery turn reopened over the repaired current session log. */
+  retry: { kind: 'retry' }
   /**
-   * An out-of-band context injection (`agent.inject()`) made while the agent
-   * was idle. The loop wraps the injected `user/message` (a non-`user` source,
-   * plugin by default) in a one-shot turn (`turn/start` → `user/message` →
-   * `turn/end`) so every event in the log stays turn-enclosed — the
-   * durability/replay boundary is the turn, and a bare event between turns would
-   * otherwise be indistinguishable from a crash tail on reload. The trigger's
-   * `source` mirrors that message's producer.
+   * An out-of-band producer explicitly enclosed injected context in a one-shot
+   * turn. `Agent.inject()` appends idle context directly and does not use this
+   * trigger; the source mirrors the producer of the enclosed `user/message`.
    */
   injection: { kind: 'injection'; source: MessageSource }
 }

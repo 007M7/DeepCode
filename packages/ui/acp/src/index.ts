@@ -732,12 +732,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
     presets.set(rec.agent.session, pending.preset)
   }
 
-  // Prompt-submit is inside the new turn but before prompt assembly. Promptless
-  // injection turns leave the switch pending because they execute no request.
-  ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
+  // The first step boundary is inside the admitted turn and before request
+  // assembly. Idle injections leave the switch pending because they run no step.
+  ctx.on('agent/step', (agent) => {
     const rec = ownedRecord(agent)
     if (rec !== undefined) flushPendingSwitches(rec)
-    return next()
   })
 
   const makeAgent = (connection: AgentSideConnection): AcpAgent => {

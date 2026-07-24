@@ -7,7 +7,17 @@
       "source": "packages/util/brand/src/index.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "Branded",
+      "source": "packages/util/brand/src/index.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContentBlockMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "ContentBlockMap",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -17,7 +27,17 @@
       "source": "packages/llm/llm/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "AssistantProvenance",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "Message",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "Message",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -27,7 +47,17 @@
       "source": "packages/llm/llm/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "MessageSourceMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "FinishReasonMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "FinishReasonMap",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -37,7 +67,17 @@
       "source": "packages/llm/llm/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "LlmProviderInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmModelInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "LlmModelInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -47,7 +87,17 @@
       "source": "packages/llm/llm/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "LlmModelContext",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "GenerateOptions",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "GenerateOptions",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -57,7 +107,17 @@
       "source": "packages/llm/llm/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "ToolSchema",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmCallConfig",
+      "source": "packages/llm/llm/src/call-config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "LlmCallConfig",
       "source": "packages/llm/llm/src/call-config.ts"
     },
@@ -67,7 +127,17 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "SessionEvent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "SendTarget",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "SendTarget",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -77,7 +147,17 @@
       "source": "packages/core/agent/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "SendOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AliasSendOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "AliasSendOptions",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -87,7 +167,17 @@
       "source": "packages/core/agent/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "AgentMessageId",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentMessage",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "AgentMessage",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -97,7 +187,17 @@
       "source": "packages/core/agent/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "CancelOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentCancelCause",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "AgentCancelCause",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -107,7 +207,17 @@
       "source": "packages/core/agent/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "Agent",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AdditionalContext",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "AdditionalContext",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -117,8 +227,8 @@
       "source": "packages/core/agent/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "ContinuationDecision",
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "PromptDecision",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -127,17 +237,17 @@
       "source": "packages/core/agent/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "RequestErrorDecision",
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "RequestError",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "ContinuationStop",
+      "symbol": "SessionStartSource",
       "source": "packages/core/agent/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/core.md",
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "SessionStartSource",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -314,7 +424,17 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "UserMessageData",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "SessionEventMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "SessionEventMap",
       "source": "packages/core/session/src/types.ts"
     },
@@ -324,7 +444,17 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "OutOfBandSessionEventMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "EpochHeader",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "EpochHeader",
       "source": "packages/core/session/src/types.ts"
     },
@@ -334,7 +464,17 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "TodoItem",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "SessionEvent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "SessionEvent",
       "source": "packages/core/session/src/types.ts"
     },
@@ -344,7 +484,17 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "TurnTriggerMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "TurnEndReasonMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "TurnEndReasonMap",
       "source": "packages/core/session/src/types.ts"
     },
@@ -354,7 +504,17 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceEventType",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "SurfaceOp",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "SurfaceOp",
       "source": "packages/core/session/src/types.ts"
     },
@@ -364,7 +524,17 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceIntent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "SessionSurface",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "SessionSurface",
       "source": "packages/core/session/src/surface.ts"
     },
@@ -374,12 +544,28 @@
       "source": "packages/core/session/src/surface.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceFoldReplacement",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
       "symbol": "SurfaceFoldResult",
       "source": "packages/core/session/src/surface.ts"
     },
     {
+      "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "SurfaceFoldResult",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "Session",
+      "source": "packages/core/session/src/index.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "Session",
       "source": "packages/core/session/src/index.ts",
       "projection": "public-api"

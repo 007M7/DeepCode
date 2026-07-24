@@ -28,11 +28,11 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     status: 'idle',
     ctx: scopeFiber.ctx,
     followup: () => AgentMessageId('stub'),
-    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject: () => AgentMessageId('stub'),
     send: () => AgentMessageId('stub'),
     cancel() {},
+    retry() {},
     whenIdle: () => Promise.resolve(),
   }
   agentScopeDisposers.set(agent, async () => { await scopeFiber.dispose() })

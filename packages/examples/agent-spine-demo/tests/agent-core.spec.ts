@@ -26,12 +26,9 @@ declare module '@deepseek-ai/dsh-tasks' {
 }
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
-  const agent = { session: { header: { cwd } } } as unknown as Agent
-  const empty: Message[] = []
-  return await agentEvents(ctx, agent).waterfall(
-    'agent/session-prefix', empty, new AbortController().signal,
-    () => Promise.resolve(empty),
-  )
+  const agent = ctx.agentLoop.create(SessionId('agent-spine-prefix'), {}, { cwd })
+  await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+  return agent.session.deriveMessages()
 }
 
 /**
@@ -99,15 +96,8 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function waitForIdle(ctx: Context, target: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (agent, status) => {
-      if (agent === target && status === 'idle') {
-        dispose()
-        resolve()
-      }
-    })
-  })
+function waitForIdle(_ctx: Context, target: Agent): Promise<void> {
+  return target.whenIdle()
 }
 
 function messageText(message: Message | undefined): string {
@@ -236,6 +226,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     })
 
     handle.agent.followup([{ type: 'text', text: 'recover' }])
+    await expect.poll(() => adapter.requests).toBe(2)
     await waitForIdle(ctx, handle.agent)
 
     expect(adapter.requests).toBe(2)
@@ -457,8 +448,8 @@ describe('dsh-agent-spine-demo bundle', () => {
       handle.agent.followup([{ type: 'text', text: 'hi' }])
       await waitForIdle(ctx, handle.agent)
 
-      expect(messageText(adapter.requests[0]?.messages[0])).toContain('workspace rule before skills')
-      expect(messageText(adapter.requests[0]?.messages[1])).toContain('prefix-order-skill')
+      expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')
+      expect(messageText(adapter.requests[0]?.messages[2])).toContain('prefix-order-skill')
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {

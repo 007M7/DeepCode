@@ -58,12 +58,8 @@ async function harnessWithFiber(configDir: string, adapter: MockAdapter): Promis
   return { ctx, hooks }
 }
 
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
-      if (subject === agent && status === 'idle') { dispose(); resolve() }
-    })
-  })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 
 function events(agent: Agent): SessionEvent[] {
@@ -85,7 +81,7 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-claude bridge — UserPromptSubmit', () => {
-  it('a UserPromptSubmit hook that exits 2 blocks the prompt (rejected turn)', async () => {
+  it('a UserPromptSubmit hook that exits 2 rejects admission without a turn', async () => {
     // The UserPromptSubmit hook exits 2 (blocking) with a reason on stderr.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
@@ -100,10 +96,9 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
     agent.followup([{ type: 'text', text: 'do something' }])
     await waitForIdle(ctx, agent)
 
-    // The prompt was blocked: model never called, turn ended rejected.
+    // The prompt was blocked before the model and before a turn opened.
     expect(adapter.requests).toHaveLength(0)
-    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('rejected')
+    expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
     // The hook ran and was recorded.
     expect(events(agent).some(e => e.type === 'hook/invoked' && e.data.point === 'UserPromptSubmit')).toBe(true)
     expect(events(agent).some(e => e.type === 'hook/result' && e.data.decision === 'block')).toBe(true)

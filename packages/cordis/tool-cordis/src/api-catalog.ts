@@ -861,7 +861,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/cancel-requested',
     mode: 'emit',
     signature: '\'agent/cancel-requested\'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void',
-    jsDoc: '/**\n * Effective broad cancellation was requested, before queued/outbox work\n * is cleared or the active turn is aborted. This observe-only notification\n * cannot veto cancellation; listener failures are contained.\n * @param agent - the agent whose current work is being cancelled.\n * @param cause - resolved typed cancellation cause, including the default.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * Effective broad cancellation was requested, before queued/outbox work\n * is cleared or the active turn is aborted. This observe-only notification\n * cannot veto cancellation; listener failures are contained.\n * @param agent - the agent whose current work is being cancelled.\n * @param cause - the explicit typed cancellation cause.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Effective broad cancellation was requested, before queued/outbox work is cleared or the active turn is aborted.',
   },
   {
@@ -875,8 +875,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/disposed',
     mode: 'emit',
     signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
-    jsDoc: '/**\n * An agent left the registry; AgentLoop emits this after driver quiescence\n * but before session detachment and scoped-registration unwind. Custom\n * registry users own their driver-ordering contract.\n * @param agent - the exact agent removed from the registry.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'An agent left the registry; AgentLoop emits this after driver quiescence but before session detachment and scoped-registration unwind.',
+    jsDoc: '/**\n * An agent left the registry; AgentLoop emits this after driver quiescence\n * and scoped-registration unwind, but before session detachment. Custom\n * registry users own their driver-ordering contract.\n * @param agent - the exact agent removed from the registry.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'An agent left the registry; AgentLoop emits this after driver quiescence and scoped-registration unwind, but before session detachment.',
   },
   {
     name: 'agent/error',
@@ -889,8 +889,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/idle',
     mode: 'emit',
     signature: '\'agent/idle\'(this: Scoped<Agent>, agent: Agent, turn: number, reason: IdleReason): void',
-    jsDoc: '/**\n * One turn closed: its `turn/end` and durability flush are already\n * committed. `reason` says why — recovery consumers observe an `error`\n * reason, repair (edit the log, wait, resummon), and call\n * {@link Agent.retry}; UI consumers key turn-done presentation off it.\n * Emitted per turn, including cancelled and failed ones.\n * @param agent - the agent whose turn closed.\n * @param turn - the closed turn number.\n * @param reason - why the turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'One turn closed: its `turn/end` and durability flush are already committed.',
+    jsDoc: '/**\n * One drain chain reached its terminal turn: that turn\'s `turn/end` is\n * already committed. Automatically recovered failed turns do not emit this\n * notification. `reason` says why; model-request recovery is exhausted when\n * an error reaches it.\n * @param agent - the agent whose turn closed.\n * @param turn - the terminal turn number.\n * @param reason - why the terminal turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One drain chain reached its terminal turn: that turn\'s `turn/end` is already committed.',
   },
   {
     name: 'agent/inbox/dequeue',
@@ -924,8 +924,15 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/request',
     mode: 'waterfall',
     signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
-    jsDoc: '/**\n * Replace the frozen call configuration. `await next()` yields the config\n * the machine would use (agent options on the first request, the logged\n * header afterwards); return a replacement to switch. Model-visible\n * content must use logged channels; this seam cannot mutate messages.\n * @param agent - the agent making the model call.\n * @param turn - the open turn number.\n * @param step - the step whose request this is.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Replace the frozen call configuration. `await next()` yields the config\n * the machine would use (agent options on the first request, the logged\n * header afterwards); return a replacement to switch. Model-visible\n * content must use logged channels; this seam cannot mutate messages.\n * @param agent - the agent making the model call.\n * @param turn - the open turn number.\n * @param step - the step whose request this is.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n*/',
     summary: 'Replace the frozen call configuration.',
+  },
+  {
+    name: 'agent/request-error',
+    mode: 'waterfall',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<void>): Promise<void>',
+    jsDoc: '/**\n * Handle a model-request failure after its failed step has closed but\n * before the failed turn closes. A listener calls {@link Agent.retry} to\n * schedule one retry turn, returns without `next()` when it owns the error,\n * or calls `next()` to delegate. The default leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Handle a model-request failure after its failed step has closed but before the failed turn closes.',
   },
   {
     name: 'agent/session-start',
@@ -938,8 +945,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
-    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does\n * not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Agent status changed (`idle` ⇄ `running`, or → `disposed`).',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). `send()` does not enter\n * `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Agent status changed (`idle` ⇄ `running`).',
   },
   {
     name: 'agent/step',

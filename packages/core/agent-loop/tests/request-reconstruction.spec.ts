@@ -114,7 +114,7 @@ describe('request stability across the loop', () => {
 
     // A pre-step listener compacts turn 1's history before turn 2's step —
     // the sanctioned surface rewrite, landing OUTSIDE the step.
-    const preStep = ctx.on('agent/pre-step', () => {
+    const preStep = ctx.on('agent/step', () => {
       preStep()
       const session = agent.session
       const nodes = session.surface.nodes
@@ -167,7 +167,7 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _config, _signal, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       if (!injected) {
         injected = true
         agent.inject([{ type: 'text', text: '[late context]' }], { source: { kind: 'plugin', plugin: 'test' } })
@@ -195,7 +195,9 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+      if (error instanceof Error) errors.push(error)
+    })
     ctx.on('llm/stream', (options, next) => {
       // The historical failure mode this design kills: a listener rewriting
       // request content in place. The freeze turns it into a loud error.
@@ -231,8 +233,7 @@ describe('request stability across the loop', () => {
     await waitForIdle(ctx2, agent2)
 
     const snapshots = agent2.session.events.filter(e => e.type === 'request/header')
-    expect(snapshots).toHaveLength(2)
-    expect(snapshots[1]?.type === 'request/header' && snapshots[1].data.reason).toBe('resume')
+    expect(snapshots).toHaveLength(1)
     // Identical header across the restart: byte-identical continuation.
     expect(adapter2.requests[0]!.system).toEqual(adapter.requests[0]!.system)
     expectPrefixExtension(adapter.requests[0]!, adapter2.requests[0]!)
@@ -243,7 +244,7 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _config, _signal, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       const config = await next()
       // next() resolves the SAME frozen seed — in-place shaping after
       // delegation is unrepresentable, so a "mutate what next() returned"
@@ -280,7 +281,9 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'now with guidance' })
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal, _next) => ({ ...config, temperature: 0.5, maxTokens: 99, stop: ['<END>'] }))
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+      ...await next(), temperature: 0.5, maxTokens: 99, stop: ['<END>'],
+    }))
     send(agent, 'again')
     await waitForIdle(ctx, agent)
 

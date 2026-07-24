@@ -110,23 +110,23 @@ idle inject:
   do not open a turn or run the model
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona, while the loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona, while the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Tool-time context—including active-turn `inject()` and post-tool `additionalContexts`—settles after results. Accepted steering drains from the same pending item at that boundary and requests another step. Idle `inject()` instead appends context immediately without changing turn numbering; persistence owns its eager drain.
+Tool-time context—including active-turn `inject()` and post-tool `additionalContexts`—settles after results. Steering drains at that boundary and requests another step. Idle `inject()` appends context immediately without changing turn numbering; persistence drains it eagerly.
 
-Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
+Pruning precedes summaries; overflow retries require durable progress. Recovery runs through `agent/request-error` between the failed step and turn closes. A handling policy calls `agent.retry()` to schedule one retry turn; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
 ### Failure Boundaries
 
-Adapter failures close the step before `agent/request-error` with exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
+Adapter failures close the step before `agent/request-error` receives the exact `Error`, normalized `LlmFailure`, and turn signal. A handling listener calls `agent.retry()`; the loop closes the failed turn and opens another from durable history without an idle notification. Exhaustion leaves the failed `turn/end` terminal. Failed chunks commit no message or tool call.
 
-Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The turn signal retires before `turn/end`. Effective `cancel()` emits its typed cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before clearing queues and aborting; observers cannot veto and idle calls emit nothing. Durability records `aborted` for user or parent cancellation and `disposed` for teardown, which awaits quiescence. The cause changes reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Turn and step execution events are turn-enclosed; an idle injected `user/message` may sit between turns. Reload closes an interrupted turn tail with a synthetic `interrupted` turn end. Post-close failures report only through `agent/error`; no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
+Turn and step events are turn-enclosed; idle injected `user/message` events may sit between turns. Reload closes an interrupted tail with a synthetic turn end. Post-close failures use only `agent/error`. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send(content, completeOptions)` when routing must be explicit, or the `followup()`, `steer()`, and `inject()` presets; `cancel()` and `whenIdle()` control lifecycle. The caller fiber, factory provider, and consumer handle co-own teardown through one awaited disposer.
+`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use complete `send()` options or the `followup()`, `steer()`, and `inject()` presets; `cancel()` and `whenIdle()` control lifecycle. One awaited disposer coordinates teardown ownership.
 
 ### Agent Scope
 
@@ -138,9 +138,9 @@ Each agent owns a scoped `agent.ctx`; shared storage overlays global tool, promp
 
 The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events remain for replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from the same stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, and headers by folding `request/header` — and the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: the log reconstructs every request from the messages at `step/start` and the folded `request/header`; the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
-Durability is a plugin concern. Backends buffer synchronous `session/event` notifications. The semantic checkpoint policy drains requests before adapter dispatch, recorded top-level calls before tool dispatch, and complete response/result batches at `agent/post-step`; the loop retains the final turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
+Durability is a plugin concern. Backends eagerly drain synchronous `session/event` notifications. The semantic checkpoint policy uses `session/flush` as an observation barrier before adapter dispatch, before top-level tool dispatch, and at `agent/step` before the next request. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
 `ctx.sessions.appendOutOfBand()` joins plugin-owned log-only events to an open turn or creates a balanced, flushed zero-step turn. `session/title` folds latest-wins with source seqs and provenance; its immediate fallback and sole optional async provider never delay the agent response. Forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
@@ -148,7 +148,7 @@ Durability is a plugin concern. Backends buffer synchronous `session/event` noti
 
 Messages use typed blocks from merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New blocks coordinate adapters, UI, compaction, token metering, and persistence; replay measurements live in [token-meter.md](core-data-structures/token-meter.md).
 
-Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report facts and `agent/request-error` owns recovery. The loop logs chunks and successful provenance/replay state. Remote adapters use per-read idle watchdogs. Replay state crosses routes only when they share an adapter instance ([contract](core-data-structures/llm-streaming.md)).
+Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts and a handling `agent/request-error` plugin calls `agent.retry()`. The loop logs chunks and successful provenance/replay state. Remote adapters use per-read idle watchdogs. Replay state crosses routes only when they share an adapter instance ([contract](core-data-structures/llm-streaming.md)).
 
 ## Extension And Composition
 
@@ -158,7 +158,7 @@ A swappable capability usually splits into **interface / implementation / consum
 
 Exceptions combine layers: LLM interface/consumer; filesystem policy; web registries; named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
 
-`dsh-workspace-context` composes baselines on `agent/session-prefix` and appends `ctx.fs`-discovered nested changes on `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
+`dsh-workspace-context` injects the baseline at the first `agent/step` and appends `ctx.fs`-discovered changes through `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
 
 ### Bundles And Apps
 

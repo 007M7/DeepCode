@@ -10,7 +10,7 @@
  * wins), so resume and fork restore it without a live mirror. User selections
  * are held as pending intent until a turn boundary because every session event
  * is turn-enclosed. The service flushes before the affected request assembly
- * on prompt submission, ordinary continuation, and request-recovery retry.
+ * on prompt submission and each request step (including retry turns).
  *
  * The exit tool remains registered while plan mode is inactive so crossing a
  * boundary changes only the prompt section, not the request tool catalog.
@@ -175,27 +175,13 @@ export class PlanModeService extends Service {
     }
     ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) =>
       flushAfter(agent, next), { prepend: true })
-    ctx.on('agent/turn-continuation', (agent, _turn, _decision, _signal, next) =>
-      flushAfter(agent, next), { prepend: true })
-    ctx.on('agent/request-error', async (
-      agent,
-      _turn,
-      _step,
-      _error,
-      _failure,
-      _priorFailures,
-      _signal,
-      next,
-    ) => {
-      const decision = await next()
-      // A waterfall can retain this wrapper after Cordis unregisters it.
-      if (disposed || decision.action !== 'retry') return decision
+    ctx.on('agent/step', (agent) => {
+      if (disposed) return
       try {
         this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
       }
-      return decision
     }, { prepend: true })
     ctx.effect(() => () => { disposed = true }, 'dsh-plan-mode: close boundary lifetime')
 

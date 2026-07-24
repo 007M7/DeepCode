@@ -371,7 +371,7 @@ describe('approval policy (the approval/policy fold)', () => {
   }
 
   const preStep = (ctx: Context, agent: Agent): Promise<void> =>
-    agentEvents(ctx, agent).serial('agent/pre-step', 1, 1, new AbortController().signal)
+    agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
 
   /** Append a `request/header` snapshot whose system text is exactly `system`. */
   function appendHeader(session: Session, system: string): void {

@@ -36,8 +36,8 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 function events(agent: Agent): SessionEvent[] { return [...agent.session.events] }
 /** Poll until `predicate` holds or the deadline passes — robust to detached
@@ -78,7 +78,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect((await capture()).payload.transcript_path).toBeNull()
     }, 15_000) // Two real agent/hook subprocess loops need process startup and teardown headroom.
 
-    it('UserPromptSubmit block (exit 2) → rejected turn; default reason on empty stderr', async () => {
+    it('UserPromptSubmit block (exit 2) rejects admission without a turn', async () => {
       const d = dir()
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'b.sh', '#!/usr/bin/env bash\nexit 2\n') }] }] })
       const adapter = new MockAdapter([textResponse('no')])
@@ -86,8 +86,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(0)
-      const te = events(agent).findLast(e => e.type === 'turn/end')
-      expect(te?.type === 'turn/end' && te.data.reason.kind).toBe('rejected')
+      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
     })
 
     it('UserPromptSubmit additionalContext is injected; a no-op hook proceeds', async () => {
@@ -112,8 +111,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       agent.followup([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(0)
       expect(events(agent).some(e => e.type === 'user/message')).toBe(false)
-      const te = events(agent).findLast(e => e.type === 'turn/end')
-      expect(te?.type === 'turn/end' && te.data.reason).toMatchObject({ kind: 'rejected', reason: 'policy veto' })
+      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {

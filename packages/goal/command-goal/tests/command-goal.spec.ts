@@ -52,6 +52,7 @@ function stubAgent(id: string): { agent: Agent; session: Session } {
     steer: () => AgentMessageId('stub'),
     inject(content, options) { appendInjection(session, content, options); return AgentMessageId('stub') },
     cancel() { status = 'idle' },
+    retry() {},
     whenIdle() { return Promise.resolve() },
   }
   return { agent, session }
