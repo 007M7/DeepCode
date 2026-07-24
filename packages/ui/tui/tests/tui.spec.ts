@@ -2249,22 +2249,27 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('advertised by multiple providers')
     expect(result.terminal.output).toContain('already alpha/a1')
 
+    const firstSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')
     result.terminal.send('/model')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select model')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(firstSelectorOutput)).toContain('Select model')
+    })
     result.terminal.send('\x1b')
     await tick()
 
     result.agent.status = 'running'
+    const runningSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select model')
-    expect(result.terminal.output).toContain('alpha/a1')
-    expect(result.terminal.output).toContain('Alpha One — Fast — current')
+    await vi.waitFor(() => {
+      const output = result.terminal.output.slice(runningSelectorOutput)
+      expect(output).toContain('Select model')
+      expect(output).toContain('alpha/a1')
+      expect(output).toContain('Alpha One — Fast — current')
+    })
     result.terminal.send('\x1b[B')
     result.terminal.send('\x1b[B')
     result.terminal.send('\r')
@@ -2276,9 +2281,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output).not.toContain('50% context  tools:collapsed')
 
+    const cancelledSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')
-    await tick()
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(cancelledSelectorOutput)).toContain('Select model')
+    })
     result.terminal.send('\x1b')
     await tick()
     expect(result.agent.cancelled).not.toContain('cancelled from terminal')
