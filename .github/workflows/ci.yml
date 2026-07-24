@@ -77,7 +77,9 @@ jobs:
 
   node-24-coverage:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
+    # Coverage does not gate merges, so it runs on the in-house pool
+    # (self-hosted, 64-core) instead of the metered enterprise pool.
+    runs-on: [self-hosted, linux, x64, vm-backup]
     name: node 24 / coverage
     env:
       DSH_COVERAGE_MAX_WORKERS: '24'
@@ -89,7 +91,8 @@ jobs:
 
       - uses: actions/cache/restore@v4
         with:
-          path: /home/runner/.local/share/pnpm/store/v11
+          # ~ resolves on both hosted (/home/runner) and self-hosted homes
+          path: ~/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
