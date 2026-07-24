@@ -47,6 +47,7 @@ class HarnessClient:
         self._notification_subscribers: dict[
             str, tuple[queue.Queue[Notification | BaseException], NotificationFilter | None]
         ] = {}
+        self._session_parents: dict[str, str] = {}
         self._requests: queue.Queue[IncomingRequest | BaseException] = queue.Queue()
         self._stderr_lines: deque[str] = deque(maxlen=400)
         self._reader_thread: threading.Thread | None = None
@@ -62,6 +63,8 @@ class HarnessClient:
     def start(self) -> None:
         if self._proc is not None:
             return
+        with self._lock:
+            self._session_parents.clear()
         args = list(self.config.launch_args_override or self._default_launch_args())
         env = os.environ.copy()
         if self.config.env:
@@ -143,7 +146,7 @@ class HarnessClient:
             payload,
             response_model=_SessionPromptResponse,
             on_notification=on_notification,
-            notification_filter=_notification_belongs_to_session(session_id),
+            notification_filter=self._notification_belongs_to_session_tree(session_id),
             notification_subscription=notification_subscription,
         )
 
@@ -193,7 +196,8 @@ class HarnessClient:
         return NotificationSubscription(self, subscription_id, notifications)
 
     def subscribe_session_notifications(self, session_id: str) -> "NotificationSubscription":
-        return self.subscribe_notifications(_notification_belongs_to_session(session_id))
+        """Subscribe to a session and descendants discovered from subagent lifecycle edges."""
+        return self.subscribe_notifications(self._notification_belongs_to_session_tree(session_id))
 
     def next_request(self) -> IncomingRequest:
         item = self._requests.get()
@@ -352,6 +356,7 @@ class HarnessClient:
             params = message.get("params")
             notification = Notification(method=method, payload=params if isinstance(params, dict) else {})
             with self._lock:
+                self._record_session_relationship_locked(notification)
                 subscribers = list(self._notification_subscribers.items())
             delivered = False
             for subscription_id, (subscriber, predicate) in subscribers:
@@ -439,6 +444,52 @@ class HarnessClient:
         with self._lock:
             self._notification_subscribers.pop(subscription_id, None)
 
+    def _record_session_relationship_locked(self, notification: Notification) -> None:
+        if notification.method != "subagent.started":
+            return
+        parent_id = notification.payload.get("parentSessionId")
+        child_id = notification.payload.get("childSessionId")
+        if (
+            isinstance(parent_id, str)
+            and parent_id
+            and isinstance(child_id, str)
+            and child_id
+            and parent_id != child_id
+        ):
+            self._session_parents[child_id] = parent_id
+
+    def _notification_belongs_to_session_tree(self, session_id: str) -> NotificationFilter:
+        def belongs(notification: Notification) -> bool:
+            payload = notification.payload
+            if notification.method in {"subagent.started", "subagent.finished"}:
+                parent_id = payload.get("parentSessionId")
+                if (
+                    isinstance(parent_id, str)
+                    and self._session_is_descendant_of(parent_id, session_id)
+                ):
+                    return True
+                return payload.get("childSessionId") == session_id
+            related_id = payload.get("sessionId")
+            return (
+                isinstance(related_id, str)
+                and self._session_is_descendant_of(related_id, session_id)
+            )
+
+        return belongs
+
+    def _session_is_descendant_of(self, session_id: str, root_session_id: str) -> bool:
+        current = session_id
+        visited: set[str] = set()
+        while current not in visited:
+            if current == root_session_id:
+                return True
+            visited.add(current)
+            parent = self._session_parents.get(current)
+            if parent is None:
+                return False
+            current = parent
+        return False
+
 
 class NotificationSubscription:
     def __init__(
@@ -491,15 +542,3 @@ class _ShutdownResponse(BaseModel):
 
 def _int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) else None
-
-
-def _notification_belongs_to_session(session_id: str) -> NotificationFilter:
-    def belongs(notification: Notification) -> bool:
-        payload = notification.payload
-        return (
-            payload.get("sessionId") == session_id
-            or payload.get("parentSessionId") == session_id
-            or payload.get("childSessionId") == session_id
-        )
-
-    return belongs
