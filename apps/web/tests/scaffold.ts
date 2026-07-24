@@ -1,4 +1,4 @@
-// Shared harness for the keyless browser e2e lane (Agent Note:
+// Shared scaffold for the keyless browser e2e lane (Agent Note:
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
 // Boots the REAL web assembly in-process from the exported production
 // functions — startHost (bootHost spine) + mountWebPlugins + registry +
@@ -78,9 +78,9 @@ function loadRootEnv(): void {
   }
 }
 
-/** A booted web harness: real assembly, mode-selected model backend, temp world. */
-export interface WebHarness {
-  /** The active snapshot mode this harness booted under. */
+/** A booted web scaffold: real assembly, mode-selected model backend, temp world. */
+export interface WebScaffold {
+  /** The active snapshot mode this scaffold booted under. */
   mode: WebSnapshotMode
   /** Browser-facing origin (http://127.0.0.1:<bound port>). */
   baseUrl: string
@@ -98,7 +98,7 @@ export interface WebHarness {
   close(): Promise<void>
 }
 
-/** Options for {@link launchWebHarness}. */
+/** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
   /**
    * Replay fixture (session.jsonl) served by dsh-llm-replay in replay/refresh
@@ -114,9 +114,9 @@ export interface LaunchOptions {
 /**
  * Boot the real web assembly under the current snapshot mode.
  * @param options - replay fixture selection and pacing.
- * @returns the running harness.
+ * @returns the running scaffold.
  */
-export async function launchWebHarness(options: LaunchOptions = {}): Promise<WebHarness> {
+export async function launchWebScaffold(options: LaunchOptions = {}): Promise<WebScaffold> {
   requireDist()
   const mode = webSnapshotMode()
   if (mode === 'record') {
@@ -221,7 +221,7 @@ export async function launchWebHarness(options: LaunchOptions = {}): Promise<Web
       await runningHost.dispose().catch((e: unknown) => failures.push(e))
       await rm(workspaceCwd, { recursive: true, force: true }).catch((e: unknown) => failures.push(e))
       await rm(persistenceRoot, { recursive: true, force: true }).catch((e: unknown) => failures.push(e))
-      if (failures.length > 0) throw new AggregateError(failures, 'web harness teardown failed')
+      if (failures.length > 0) throw new AggregateError(failures, 'web scaffold teardown failed')
     },
   }
 }
@@ -246,16 +246,16 @@ function rawSessionLog(session: Session): string {
  * work), tokenize the run-local session id and cwd ({{sessionId}}/{{cwd}},
  * the committed ACP fixture convention — re-records then diff only on real
  * content), and write the committed fixture.
- * @param harness - the record-mode harness.
+ * @param scaffold - the record-mode scaffold.
  * @param sessionId - the driven session.
  * @param fixturePath - the committed session.jsonl / seed.jsonl target.
  */
-export async function recordFixture(harness: WebHarness, sessionId: SessionId, fixturePath: string): Promise<void> {
-  const agent = harness.host.ctx.agents.get(sessionId)
+export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId, fixturePath: string): Promise<void> {
+  const agent = scaffold.host.ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`record harvest: no live agent for ${sessionId}`)
   const tokenized = scrubRequestHeaders(rawSessionLog(agent.session))
     .split(sessionId).join('{{sessionId}}')
-    .split(harness.workspaceCwd).join('{{cwd}}')
+    .split(scaffold.workspaceCwd).join('{{cwd}}')
   await writeFile(fixturePath, tokenized)
 }
 
@@ -274,27 +274,27 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
 }
 
 /**
- * Seed a recorded session fixture into the harness's persistence root through
+ * Seed a recorded session fixture into the scaffold's persistence root through
  * the REAL backend API (throwaway Context + SessionStore + JSONL plugin — the
  * semantic-checkpoint precedent), never raw file writes: no knowledge of
  * bucket hashing, filename encoding, or compression, and malformed shapes
  * fail loud at seed time. The fixture's recorded cwd is rewritten to the
- * harness workspace so header/path identity and event payload paths agree.
- * @param harness - the target harness.
+ * scaffold workspace so header/path identity and event payload paths agree.
+ * @param scaffold - the target scaffold.
  * @param fixtureText - raw recorded session.jsonl contents.
  * @param id - the seeded session id (stable for deterministic goldens).
  * @returns the seeded id.
  */
-export async function seedSession(harness: WebHarness, fixtureText: string, id: string): Promise<SessionId> {
+export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
   // Committed fixtures tokenize run-local identity ({{sessionId}}/{{cwd}},
   // written by recordFixture); realize both for this world before parsing.
   const realized = fixtureText
     .split('{{sessionId}}').join(id)
-    .split('{{cwd}}').join(harness.workspaceCwd)
+    .split('{{cwd}}').join(scaffold.workspaceCwd)
   const fixtureCwd = (JSON.parse(realized.split('\n', 1)[0]!) as { cwd?: string }).cwd
   const rewritten = fixtureCwd === undefined
     ? realized
-    : realized.split(fixtureCwd).join(harness.workspaceCwd)
+    : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
   const events = parseSessionLog(rewritten)
   if (events.length === 0) throw new Error('seed fixture has no events')
   const last = events[events.length - 1]!
@@ -305,7 +305,7 @@ export async function seedSession(harness: WebHarness, fixtureText: string, id: 
     version: SESSION_FORMAT_VERSION,
     id: SessionId(id),
     createdAt: Date.now() - 60_000,
-    cwd: harness.workspaceCwd,
+    cwd: scaffold.workspaceCwd,
     delegationDepth: 0,
   }
   const ctx = new Context()
@@ -313,7 +313,7 @@ export async function seedSession(harness: WebHarness, fixtureText: string, id: 
     await ctx.plugin(SessionStore)
     // Same root as the host with the plugin's own default compression, so the
     // host's directory-scan list() sees one consistent encoding.
-    await ctx.plugin(SessionPersistenceJsonl, { root: harness.persistenceRoot })
+    await ctx.plugin(SessionPersistenceJsonl, { root: scaffold.persistenceRoot })
     await ctx.sessionPersistence.create(meta)
     await ctx.sessionPersistence.append(meta.id, events)
     // Deterministic sidebar order: cold summaries take updatedAt from mtime.

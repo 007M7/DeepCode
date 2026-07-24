@@ -16,8 +16,8 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebHarness, recordFixture, watchConsole, webSnapshotMode, type WebHarness,
-} from './harness.ts'
+  launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
+} from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/fresh-round-trip', import.meta.url))
@@ -31,27 +31,27 @@ const MODE = webSnapshotMode()
 const PROMPT = 'Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop.'
 
 describe('web e2e: fresh round trip through the real assembly', () => {
-  let harness: WebHarness
+  let scaffold: WebScaffold
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    harness = await launchWebHarness({
+    scaffold = await launchWebScaffold({
       ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 }),
     })
-    harness.host.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
+    scaffold.host.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
     tripwire = watchConsole(page)
-    await page.goto(harness.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
 
   afterAll(async () => {
     await browser?.close()
-    await harness?.close()
+    await scaffold?.close()
   })
 
   it('drives the recorded prompt to a settled turn (all modes)', async () => {
@@ -63,12 +63,12 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     // Arm the host-side settled barrier BEFORE the send click.
-    const settled = harness.whenTurnSettled()
+    const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
     await input.press('Enter')
     const sessionId = await settled
     if (MODE === 'record') {
-      await recordFixture(harness, sessionId, FIXTURE)
+      await recordFixture(scaffold, sessionId, FIXTURE)
     }
   }, 200_000)
 
@@ -96,14 +96,28 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     // while the whole-region golden churns.
     await expect(page.getByRole('textbox').first().isVisible()).resolves.toBe(true)
     expect(await page.getByText('WEB_E2E_OK', { exact: false }).count()).toBeGreaterThanOrEqual(1)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', harness.workspaceCwd)
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+  })
+
+  it.skipIf(MODE === 'record')('expands and collapses the reasoning fold from its click target', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-round-trip-think'))
+    // Interaction over the REAL wire-delivered transcript (the fixture-client
+    // tier pins the same gesture against FixtureApiClient; this one runs on
+    // mux-frame-fed state). Runs after the golden capture so the committed
+    // aria surface stays the untouched settled state.
+    const think = page.getByRole('button', { name: /^Think/ }).first()
+    expect(await think.getAttribute('aria-expanded')).toBe('false')
+    await think.click()
+    await expect.poll(() => think.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
+    await think.click()
+    await expect.poll(() => think.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
   })
 
   it.skipIf(MODE === 'record')('stayed clean: no pageerrors, no reconnect self-healing, no server errors', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    expect(harness.serverErrors).toEqual([])
+    expect(scaffold.serverErrors).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md'])
   })
 })

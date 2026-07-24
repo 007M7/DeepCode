@@ -15,8 +15,8 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { join } from 'node:path'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebHarness, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebHarness,
-} from './harness.ts'
+  launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
+} from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/seeded-history', import.meta.url))
@@ -28,44 +28,44 @@ const SEED_ID = 'seeded-history-web-e2e'
 const PROMPT = 'Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop.'
 
 describe('web e2e: seeded history renders through cold resume', () => {
-  let harness: WebHarness
+  let scaffold: WebScaffold
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
 
   beforeAll(async () => {
-    harness = await launchWebHarness({})
+    scaffold = await launchWebScaffold({})
     // The read-tool targets exist in both modes: record needs them for the
     // live turn; replay's seeded log carries their recorded contents but the
-    // workspace stays consistent for any user poking the harness.
-    await writeFile(join(harness.workspaceCwd, 'a.txt'), 'alpha\n')
-    await writeFile(join(harness.workspaceCwd, 'b.txt'), 'beta\n')
+    // workspace stays consistent for any user poking the scaffold.
+    await writeFile(join(scaffold.workspaceCwd, 'a.txt'), 'alpha\n')
+    await writeFile(join(scaffold.workspaceCwd, 'b.txt'), 'beta\n')
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
-      await seedSession(harness, raw, SEED_ID)
+      await seedSession(scaffold, raw, SEED_ID)
     }
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
     tripwire = watchConsole(page)
-    await page.goto(harness.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
 
   afterAll(async () => {
     await browser?.close()
-    await harness?.close()
+    await scaffold?.close()
   })
 
   it.skipIf(MODE !== 'record')('records the seed turn live through the composer', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-record'))
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
-    const settled = harness.whenTurnSettled()
+    const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
     await input.press('Enter')
     const sessionId = await settled
-    await recordFixture(harness, sessionId, SEED)
+    await recordFixture(scaffold, sessionId, SEED)
   }, 200_000)
 
   it.skipIf(MODE === 'record')('lists the seeded session cold and renders its history from the log', async () => {
@@ -89,9 +89,26 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-aria'))
-    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', harness.workspaceCwd))
+    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+  })
+
+  it.skipIf(MODE === 'record')('expands and collapses a tool row rebuilt from the cold log', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-toolrow'))
+    // Interaction over cold-resumed history: read rows are expand-in-place
+    // rows (rowExpands routes the click to toggleExpand, not openDetails), so
+    // the gesture under test is the inline fold over log-rebuilt content.
+    // Runs after the golden capture; still zero model calls.
+    const row = page.locator('[data-variant] [data-clickable][role="button"]').first()
+    await row.waitFor({ timeout: 10_000 })
+    expect(await row.getAttribute('aria-expanded')).toBe('false')
+    await row.click()
+    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
+    // The expanded body renders the recorded tool result (a.txt's contents).
+    await expect.poll(() => page.getByText('alpha', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
+    await row.click()
+    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
   })
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
@@ -99,7 +116,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // stream would have failed the turn loudly. Cleanliness pins the wire.
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    expect(harness.serverErrors).toEqual([])
+    expect(scaffold.serverErrors).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['seed.jsonl', 'ui.expected.md'])
   })
 })

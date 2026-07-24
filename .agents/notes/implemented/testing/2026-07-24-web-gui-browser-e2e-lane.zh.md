@@ -12,11 +12,11 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 `pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组装回放，断言规范化后的会话区 aria 预期输出加进程内世界状态。不新增包（package）；产品侧增量只有 `BootHostOptions.llm` seam 和 `dsh-llm-replay` 的两处增量接口。
 
-### Harness：`apps/web/tests/harness.ts`
+### Scaffold：`apps/web/tests/scaffold.ts`
 
 一个普通的共享 fixture 模块（[测试政策认可的形态](../../../../docs/testing.md)），不是包：值得门禁把守的逻辑——回放推导、会话解析、日志脱敏、持久化——都在已受门禁的包 `dsh-llm-replay`、`dsh-acp-snapshot`、`dsh-session-persistence-jsonl` 中；剩下的只是启动接线和浏览器胶水，而驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100% 覆盖率。
 
-`launchWebHarness()` 用导出的生产函数在进程内启动真实 web 组装——`startHost({ boot: { …, llm: false } })`、`installLlmReplay(host.ctx, { file, providers, paceMs })`、`mountWebPlugins(host.ctx, roster, anchor)`、`createHostWebPluginRegistry`、`startWebServer({ port: 0, … })`。这是 TUI 套件进程内挂载生产 bundle 的 web 对应物（[TUI 快照](2026-07-18-tui-terminal-state-snapshots.md)）：真实入口边界（`dsh web` bin 的参数解析、dist 解析）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守，且 web 表面没有可绕过的 `cordis.yml`——按[GUI 分层决策](../architecture/2026-07-19-gui-layering-and-rpc-protocol.md)，组装写在应用里；本车道的设计评审明确重申了这一裁定（Loader 化 `dsh web` 被否决；那需要自己的提案）。与 `dsh web` shell 的两处刻意组装差异已注明在 harness 头部：`workspaceContext: false`（录制的 fixture 不得嵌入本仓库的 AGENTS.md），以及 `sessionTitleLlm` 保持 bootHost 的禁用默认值（其发后不管的标题调用会与循环自身的调用不确定地共享会话的回放游标）。
+`launchWebScaffold()` 用导出的生产函数在进程内启动真实 web 组装——`startHost({ boot: { …, llm: false } })`、`installLlmReplay(host.ctx, { file, providers, paceMs })`、`mountWebPlugins(host.ctx, roster, anchor)`、`createHostWebPluginRegistry`、`startWebServer({ port: 0, … })`。这是 TUI 套件进程内挂载生产 bundle 的 web 对应物（[TUI 快照](2026-07-18-tui-terminal-state-snapshots.md)）：真实入口边界（`dsh web` bin 的参数解析、dist 解析）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守，且 web 表面没有可绕过的 `cordis.yml`——按[GUI 分层决策](../architecture/2026-07-19-gui-layering-and-rpc-protocol.md)，组装写在应用里；本车道的设计评审明确重申了这一裁定（Loader 化 `dsh web` 被否决；那需要自己的提案）。与 `dsh web` shell 的两处刻意组装差异已注明在 scaffold 头部：`workspaceContext: false`（录制的 fixture 不得嵌入本仓库的 AGENTS.md），以及 `sessionTitleLlm` 保持 bootHost 的禁用默认值（其发后不管的标题调用会与循环自身的调用不确定地共享会话的回放游标）。
 
 `llm: false` seam 是无密钥启动问题经评审后的定论：`BootHostOptions` 上的 `'deepseek' | false`，与 `workspaceContext: Config | false` 形态一致，且 `RunningHost.ctx` 的 JSDoc 把「填充刻意开放的能力 seam」列为其第三种认可用法。回放必须以提供方目录（providers-catalog）模式运行并发布 `contextWindow`（TUI 的 `PROVIDERS` 形态），绝不用 catch-all：没有注册适配器时，catch-all 会让 `resolveModelContext` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置。
 
@@ -28,13 +28,13 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 不做单次瞬态 DOM 断言：从回放产出到 React 提交的每一跳都可能合并分片，采样 `[data-streaming]` 天然就是竞态。流式输出的增量性由持久化的 `assistant/chunk` 事件断言（模型可见 ⟺ 已记录，使日志成为权威证据）。`dsh-llm-replay` 的可选 `paceMs`（默认缺省 = 突发）只是让浏览器观察到真正增量 SSE 的真实感旋钮；正确性绝不依赖它，且节奏等待期间中止会即时取消。
 
-每个场景都会因任何 pageerror 或客户端的连接丢失/间隙修复控制台警告而失败：否则重连机制加历史重同步会把一条死掉的 SSE 通路自愈掉，套件反而认证了坏 wire。Harness 的 `close()` 调用 `ReplayHandle.assertConsumed()` 收尾检查（每个已录脚本都被绑定、每个游标都耗尽），把静默的少放与错绑变成清晰诊断。车道不设 vitest 重试；每文件一个 chromium、每场景一个新 context、每场景一个 host；视口固定；选择器只锚定 role、`data-*` 属性和可见文本。
+每个场景都会因任何 pageerror 或客户端的连接丢失/间隙修复控制台警告而失败：否则重连机制加历史重同步会把一条死掉的 SSE 通路自愈掉，套件反而认证了坏 wire。Scaffold 的 `close()` 调用 `ReplayHandle.assertConsumed()` 收尾检查（每个已录脚本都被绑定、每个游标都耗尽），把静默的少放与错绑变成清晰诊断。车道不设 vitest 重试；每文件一个 chromium、每场景一个新 context、每场景一个 host；视口固定；选择器只锚定 role、`data-*` 属性和可见文本。
 
 ### 预期输出
 
 每场景一份提交的预期输出：会话区规范化 `ariaSnapshot()`（`ui.expected.md`）——uuid/cwd/工作区目录名/时长归一为稳定 token，在安定里程碑处轮询至两次相等再采集——外加几条 role/文本锚断言，让保语义的组件重写在预期输出可评审地变动时仍保持绿色锚点。aria 树是 client 规则「断言用户所见，绝不断言类名」的机械化。世界状态断言内联在 `host.ctx` 会话事件上（哪些工具运行了、`turn/end` 完成）而不是第二份提交的日志预期输出：持久化日志表面已由 ACP/headless/TUI 套件经同一循环和持久化钉住，在此重复钉住会违背分层纪律、翻倍刷新成本。`refresh` 是预期输出的唯一写入者——回放模式下预期输出缺失会连同修复命令一起报错，而不是静默自举。
 
-类型检查平面切分是结构性的：`apps/web/tests/{harness,support,replay-round-trip.e2e,seeded-history.e2e}.ts` 是 host 平面程序（它们启动 host 主干），因此被排除出注册在 client 侧的 `apps/web` 工程，逐文件纳入 `tsconfig.host.json`——一个程序不能同时持有 cordis `Context` 合并的两侧。
+类型检查平面切分是结构性的：`apps/web/tests/{scaffold,support,replay-round-trip.e2e,seeded-history.e2e}.ts` 是 host 平面程序（它们启动 host 主干），因此被排除出注册在 client 侧的 `apps/web` 工程，逐文件纳入 `tsconfig.host.json`——一个程序不能同时持有 cordis `Context` 合并的两侧。
 
 ### 模式与 fixture
 
@@ -81,7 +81,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 暂缓
 
-- **Web 头类别钉住**：web fixture 处处 token 化 `{{system}}`/`{{tools}}`，没有场景钉住 bootHost 组装的提示词/工具 schema（`TODO(web-header-pin)`——harness 的 `recordFixture` JSDoc 有标记）。沿用 TUI 处处脱敏先例；当 web 组装的请求头与其镜像的 repl 组合进一步分叉时重审。
+- **Web 头类别钉住**：web fixture 处处 token 化 `{{system}}`/`{{tools}}`，没有场景钉住 bootHost 组装的提示词/工具 schema（`TODO(web-header-pin)`——scaffold 的 `recordFixture` JSDoc 有标记）。沿用 TUI 处处脱敏先例；当 web 组装的请求头与其镜像的 repl 组合进一步分叉时重审。
 - **CI 浏览器供给**：推翻 CI 无浏览器裁定，分阶段标准见上（`TODO(ci-browser)`）。
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
 

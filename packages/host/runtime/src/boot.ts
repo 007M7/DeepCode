@@ -69,7 +69,7 @@ export interface BootHostOptions {
    * LLM adapter selection: `'deepseek'` (default) mounts the DeepSeek adapter
    * (requires an API key at load), `false` mounts no adapter and leaves the
    * `llm` capability seam open for the embedder to fill on the returned ctx
-   * (e.g. the keyless web e2e harness installing a replay backend). With
+   * (e.g. the keyless web e2e scaffold installing a replay backend). With
    * `false` and nothing filled, the first stream fails loud with NO_ADAPTER —
    * the earliest resolvable point for an open capability seam.
    */

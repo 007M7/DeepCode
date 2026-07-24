@@ -2,7 +2,7 @@
 
 Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence and immediate fallback titles, optional first-message model summaries, system prompt, tools, agents, agent loop, workspace instructions, local bash, and the provider-neutral user-interaction service), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
 
-Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly three sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`), headless session-event subscription, and filling a capability seam the boot options deliberately left open (`llm: false` → the embedder installs its own LLM backend, e.g. the keyless web e2e harness's replay); consuming clients must not bypass `api` through it.
+Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly three sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`), headless session-event subscription, and filling a capability seam the boot options deliberately left open (`llm: false` → the embedder installs its own LLM backend, e.g. the keyless web e2e scaffold's replay); consuming clients must not bypass `api` through it.
 
 ## Configuration
 
