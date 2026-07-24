@@ -1019,6 +1019,8 @@ export interface Config extends SessionQueryConfig {
   maxLimit?: number
   /** Maximum snippet length in Unicode code points. Defaults to 240. */
   snippetChars?: number
+  /** Maximum concurrent persisted-log inspections in one inherited batch read. Defaults to 4. */
+  persistedInspectConcurrency?: number
 }
 
 /** Supported SQLite journal modes. */
@@ -1027,7 +1029,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:75`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:76`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-reference`
 

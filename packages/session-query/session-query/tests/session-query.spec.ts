@@ -4,6 +4,7 @@ import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/ds
 import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   type SessionEventSurface,
   type SessionQueryErrorCode,
 } from '@deepseek-ai/dsh-session-query'
@@ -372,7 +373,7 @@ describe('session-query exact reads', () => {
 
     const results = await ctx.sessionQuery.readTitleSnapshots(entries.map(entry => entry.meta.id))
 
-    expect(maximum).toBe(4)
+    expect(maximum).toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
     expect(TestPersistence.listCalls).toBe(1)
     expect(TestPersistence.inspectCalls).toEqual(entries.map(entry => entry.meta.id))
     expect(results.map(result => result.sessionId)).toEqual(entries.map(entry => entry.meta.id))
@@ -466,7 +467,8 @@ describe('session-query exact reads', () => {
       events: eventLog(`queued-${index}`),
     }))
     TestPersistence.reset(entries)
-    const ctx = await liveContext()
+    const persistedInspectConcurrency = 2
+    const ctx = await liveContext({ persistedInspectConcurrency })
     await ctx.plugin(TestPersistence)
     const controller = new AbortController()
     const reason = new Error('cancel queued title batch')
@@ -490,17 +492,21 @@ describe('session-query exact reads', () => {
       () => { batchSettled = true },
       () => { batchSettled = true },
     )
-    await vi.waitFor(() => { expect(TestPersistence.inspectCalls).toHaveLength(4) })
+    await vi.waitFor(() => {
+      expect(TestPersistence.inspectCalls).toHaveLength(persistedInspectConcurrency)
+    })
     controller.abort(reason)
-    await vi.waitFor(() => { expect(abortsObserved).toBe(4) })
+    await vi.waitFor(() => { expect(abortsObserved).toBe(persistedInspectConcurrency) })
 
     expect(batchSettled).toBe(false)
-    expect(TestPersistence.inspectCalls).toEqual(entries.slice(0, 4).map(entry => entry.meta.id))
+    expect(TestPersistence.inspectCalls)
+      .toEqual(entries.slice(0, persistedInspectConcurrency).map(entry => entry.meta.id))
     for (const release of releases) release()
 
     await expect(pending).rejects.toBe(reason)
-    expect(inspectionsSettled).toBe(4)
-    expect(TestPersistence.inspectCalls).toEqual(entries.slice(0, 4).map(entry => entry.meta.id))
+    expect(inspectionsSettled).toBe(persistedInspectConcurrency)
+    expect(TestPersistence.inspectCalls)
+      .toEqual(entries.slice(0, persistedInspectConcurrency).map(entry => entry.meta.id))
   })
 
   it('passes cancellation into a stalled persisted title listing and rejects with its reason', async () => {
@@ -907,10 +913,16 @@ describe('session-query exact reads', () => {
     const direct = new Context()
     await direct.plugin(SessionStore)
     expect(new TestSessionQueryService(direct)).toBeInstanceOf(SessionQueryService)
-    const invalid = new Context()
-    await invalid.plugin(SessionStore)
-    expect(() => new TestSessionQueryService(invalid, { readWindowMax: -1 }))
-      .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
+    for (const config of [
+      { readWindowMax: -1 },
+      { persistedInspectConcurrency: 0 },
+      { persistedInspectConcurrency: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      const invalid = new Context()
+      await invalid.plugin(SessionStore)
+      expect(() => new TestSessionQueryService(invalid, config))
+        .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
+    }
   })
 
   it('leaves the optional persistence dependency optional', async () => {

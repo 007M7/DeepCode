@@ -15,7 +15,7 @@
 - `traceSession(sessionId)` reads the corpus once and returns immediate-to-outward ancestors plus deterministic recursive descendant trees. `complete: false` identifies the first missing parent; a target-connected cycle fails with `SESSION_QUERY_INVALID_LINEAGE`.
 - `traceEvent(request)` loads the logical log once and returns its cloned source header with direct positional replacements and direct logged provenance. `replacementChain` follows positional replacers to the final replacement; provenance links remain non-transitive.
 
-Persistence is optional and may mount or unmount dynamically. Cross-corpus listing and lineage tracing fail with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A title, event read, or trace targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory state unreadable. Persisted title and event operations list before loading and reject a metadata mismatch rather than combining inconsistent observations. A batch title observation performs one metadata listing, inspects its unique persisted ids with at most four workers, and preserves each title's own observed header for downstream authorization. Cancellation starts no queued inspections and rejects only after already-started workers settle. `listSessions()` remains lightweight and does not load logs or index titles.
+Persistence is optional and may mount or unmount dynamically. Cross-corpus listing and lineage tracing fail with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A title, event read, or trace targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory state unreadable. Persisted title and event operations list before loading and reject a metadata mismatch rather than combining inconsistent observations. A batch title observation performs one metadata listing, inspects its unique persisted ids with at most `persistedInspectConcurrency` workers, and preserves each title's own observed header for downstream authorization. Cancellation starts no queued inspections and rejects only after already-started workers settle. `listSessions()` remains lightweight and does not load logs or index titles.
 
 ## Filtering and extraction
 
@@ -38,6 +38,7 @@ The package has no provider coordinator, fallback implementation, or standalone 
 | Key | Default | Contract |
 |---|---:|---|
 | `readWindowMax` | `50` | Maximum `before` or `after` raw-event count. |
+| `persistedInspectConcurrency` | `4` | Maximum concurrent persisted-log inspections in one batch read; must be a positive safe integer. |
 
 ## Model Experience
 

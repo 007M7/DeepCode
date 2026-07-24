@@ -13,6 +13,7 @@ import SessionQuerySqlite, {
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
 import {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   SessionQueryError,
   SessionSearchCursor,
   type SessionAvailability,
@@ -167,6 +168,29 @@ async function liveContext(config: ConstructorParameters<typeof SessionQuerySqli
 }
 
 describe('SQLite session search', () => {
+  it('defaults and validates persisted inspection concurrency through its Cordis config', async () => {
+    const defaultCtx = await liveContext()
+    expect((defaultCtx.sessionQuery as SessionQuerySqlite).config.persistedInspectConcurrency)
+      .toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
+
+    const configuredValue = 2
+    const configured = new SessionQuerySqlite.Config({
+      path: ':memory:',
+      persistedInspectConcurrency: configuredValue,
+    })
+    expect(configured.persistedInspectConcurrency).toBe(configuredValue)
+    const configuredCtx = await liveContext(configured)
+    expect((configuredCtx.sessionQuery as SessionQuerySqlite).config.persistedInspectConcurrency)
+      .toBe(configuredValue)
+
+    for (const persistedInspectConcurrency of [0, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => new SessionQuerySqlite.Config({
+        path: ':memory:',
+        persistedInspectConcurrency,
+      })).toThrow()
+    }
+  })
+
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
     const session = ctx.sessions.create(SessionId('live'), {
@@ -486,6 +510,8 @@ describe('SQLite session search', () => {
       { path: ':memory:', maxLimit: 1e100 },
       { path: ':memory:', snippetChars: 0 },
       { path: ':memory:', readWindowMax: -1 },
+      { path: ':memory:', persistedInspectConcurrency: 0 },
+      { path: ':memory:', persistedInspectConcurrency: Number.MAX_SAFE_INTEGER + 1 },
       { path: ':memory:', defaultLimit: 3, maxLimit: 2 },
       { path: ':memory:', journalMode: 'memory' },
     ]) {

@@ -248,15 +248,13 @@ describe('registration and schemas', () => {
     expect(sessionSchema?.parameters).not.toHaveProperty('properties.cwd')
     expect(mounted.ctx.tools.get('session_search')?.timeoutMs).toBe(1234)
     expect(mounted.ctx.tools.get('session_trace')?.timeoutMs).toBeUndefined()
-    const safeArgs: Record<string, unknown> = {
-      session_search: { query: 'q' },
-      session_event_search: { query: 'q' },
+    const parallelArgs: Record<string, unknown> = {
       session_trace: {},
       session_event_trace: { seq: 0 },
       session_event_read: { seq: 0 },
     }
-    for (const name of names) {
-      expect(mounted.ctx.tools.get(name)?.isConcurrencySafe?.(safeArgs[name])).toBe(true)
+    for (const [name, args] of Object.entries(parallelArgs)) {
+      expect(mounted.ctx.tools.get(name)?.isConcurrencySafe?.(args)).toBe(true)
     }
     expect(mounted.ctx.tools.get('session_search')?.output.render({}, 'rendered'))
       .toEqual([{ type: 'text', text: 'rendered' }])
@@ -285,6 +283,27 @@ describe('registration and schemas', () => {
     expect(mounted.ctx.tools.schemas().map(schema => schema.name)).toEqual([])
     expect((await mounted.ctx.systemPrompt.assemble()).sections.map(section => section.name))
       .not.toContain('tool:session-query')
+  })
+
+  it('keeps generation-bound searches exclusive while exact observations remain parallel', async () => {
+    const mounted = await mount()
+    const classifications = [
+      ['session_search', { query: 'q' }, 'exclusive'],
+      ['session_event_search', { query: 'q' }, 'exclusive'],
+      ['session_trace', {}, 'parallel'],
+      ['session_event_trace', { seq: 0 }, 'parallel'],
+      ['session_event_read', { seq: 0 }, 'parallel'],
+    ] as const
+
+    for (const [name, args, kind] of classifications) {
+      expect(mounted.ctx.tools.executionMode({
+        name,
+        arguments: args,
+        callId: CallId(`mode-${name}`),
+        signal: new AbortController().signal,
+        agent: fakeAgent(mounted.caller),
+      })).toEqual({ kind })
+    }
   })
 
   it('fails invalid direct config before registering anything', async () => {

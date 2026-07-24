@@ -28,6 +28,7 @@ The database is disposable but reset is guarded: every recognized schema version
 | `maxLimit` | `100` | Largest accepted request page size; at most `Number.MAX_SAFE_INTEGER - 1`. |
 | `snippetChars` | `240` | Maximum snippet length in Unicode code points. |
 | `readWindowMax` | `50` | Maximum `before` or `after` raw-event count for inherited `readEvent()`. |
+| `persistedInspectConcurrency` | `4` | Maximum concurrent persisted-log inspections for inherited batch reads; must be a positive safe integer. |
 
 ## Tokenizer and limits
 

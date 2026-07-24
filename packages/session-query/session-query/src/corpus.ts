@@ -28,15 +28,15 @@ export type LogicalProjectionResult<Value> =
   | { sessionId: SessionId; status: 'fulfilled'; value: Value }
   | { sessionId: SessionId; status: 'rejected'; reason: unknown }
 
-/** Bound persisted observation fan-out for public batch title reads. */
-const PERSISTED_INSPECT_CONCURRENCY = 4
-
 /** Resolves a live-preferred corpus against the persistence service mounted now. */
 export class SessionCorpus {
   private _persistence: SessionPersistence | undefined
   private readonly _optionalPersistenceFiber: Fiber
 
-  constructor(private readonly _ctx: Context) {
+  constructor(
+    private readonly _ctx: Context,
+    private readonly _persistedInspectConcurrency: number,
+  ) {
     this._optionalPersistenceFiber = _ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
       this._persistence = service
@@ -188,7 +188,7 @@ export class SessionCorpus {
         await resolvePersisted(unresolved[index] as SessionId)
       }
     }
-    const workerCount = Math.min(PERSISTED_INSPECT_CONCURRENCY, unresolved.length)
+    const workerCount = Math.min(this._persistedInspectConcurrency, unresolved.length)
     const settlements = await Promise.allSettled(
       Array.from({ length: workerCount }, () => worker()),
     )

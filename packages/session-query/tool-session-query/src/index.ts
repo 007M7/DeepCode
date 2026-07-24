@@ -211,7 +211,6 @@ export function apply(ctx: Context, config: Config): void {
     parameters: SESSION_SEARCH_PARAMETERS,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
-    isConcurrencySafe: () => true,
     execute: (args, exec) => executeSessionSearch(ctx, args, exec, resolved.maxSearchResults),
     presentCall: presentSessionSearchCall,
   }))
@@ -222,7 +221,6 @@ export function apply(ctx: Context, config: Config): void {
     parameters: EVENT_SEARCH_PARAMETERS,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
-    isConcurrencySafe: () => true,
     execute: (args, exec) => executeEventSearch(ctx, args, exec, resolved.maxSearchResults),
     presentCall: presentEventSearchCall,
   }))

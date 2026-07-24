@@ -9,7 +9,7 @@ Workspace-authorized model tools over `ctx.sessionQuery`. The package depends on
 | `maxSearchResults` | `100` | Maximum authorized non-self hits collected across internal provider pages |
 | `searchTimeoutMs` | `30000` | Cooperative deadline attached to both full-text search tools |
 
-The caller comes exclusively from `ToolExecution.exec.agent`. Cross-session access requires exact equality between the target and caller session `cwd` values; a caller without `cwd` can inspect only itself. Search never exposes provider cursors, offsets, page sizes, or a model-controlled limit. Timestamps at the tool boundary require an explicit `Z` or numeric offset and become inclusive epoch-millisecond filters.
+The caller comes exclusively from `ToolExecution.exec.agent`. Cross-session access requires exact equality between the target and caller session `cwd` values; a caller without `cwd` can inspect only itself. Search never exposes provider cursors, offsets, page sizes, or a model-controlled limit. Because one search consumes generation-bound provider cursors internally, both search tools execute exclusively with sibling tool calls; the three exact trace/read tools opt into parallel execution. Timestamps at the tool boundary require an explicit `Z` or numeric offset and become inclusive epoch-millisecond filters.
 
 `session_search` always omits the caller session. A current-session `session_event_search` stops immediately before the step that invoked it, so the active assistant output and logged tool call cannot match themselves. Direct targets are authorized before trace, event, or title reads. Lineage output replaces unauthorized ancestor and descendant boundaries with markers that contain no hidden session id.
 

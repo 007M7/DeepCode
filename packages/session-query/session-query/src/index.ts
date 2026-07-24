@@ -31,6 +31,7 @@ import type {
   SessionTitleObservationResult,
 } from './types.ts'
 import {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   SESSION_QUERY_READ_WINDOW_MAX,
   SessionQueryError,
   type Config,
@@ -48,7 +49,11 @@ import * as tracing from './tracing.ts'
 export type * from './types.ts'
 export { SessionSearchCursor } from './cursor.ts'
 export type { Config, SessionQueryErrorCode } from './config.ts'
-export { SESSION_QUERY_READ_WINDOW_MAX, SessionQueryError } from './config.ts'
+export {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
+  SESSION_QUERY_READ_WINDOW_MAX,
+  SessionQueryError,
+} from './config.ts'
 export { extractSessionEventText } from './extraction.ts'
 export { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
 export {
@@ -88,7 +93,15 @@ export abstract class SessionQueryService extends Service {
         'SESSION_QUERY_INVALID_CONFIG',
       )
     }
-    this._corpus = new SessionCorpus(ctx)
+    const persistedInspectConcurrency = config.persistedInspectConcurrency
+      ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY
+    if (!Number.isSafeInteger(persistedInspectConcurrency) || persistedInspectConcurrency < 1) {
+      throw new SessionQueryError(
+        'session-query: persistedInspectConcurrency must be a positive safe integer',
+        'SESSION_QUERY_INVALID_CONFIG',
+      )
+    }
+    this._corpus = new SessionCorpus(ctx, persistedInspectConcurrency)
   }
 
   /**

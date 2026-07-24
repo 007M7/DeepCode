@@ -15,6 +15,7 @@ import type {
   SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   SESSION_QUERY_READ_WINDOW_MAX,
   SessionQueryError,
   SessionSearchCursor,
@@ -87,6 +88,8 @@ export interface Config extends SessionQueryConfig {
   maxLimit?: number
   /** Maximum snippet length in Unicode code points. Defaults to 240. */
   snippetChars?: number
+  /** Maximum concurrent persisted-log inspections in one inherited batch read. Defaults to 4. */
+  persistedInspectConcurrency?: number
 }
 
 interface ResolvedConfig {
@@ -96,6 +99,7 @@ interface ResolvedConfig {
   maxLimit: number
   snippetChars: number
   readWindowMax: number
+  persistedInspectConcurrency: number
 }
 
 interface ObservedSession {
@@ -176,6 +180,11 @@ export class SessionQuerySqlite extends SessionQueryService {
     maxLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
     snippetChars: z.number().step(1).min(1).default(SESSION_QUERY_SQLITE_SNIPPET_CHARS),
     readWindowMax: z.number().step(1).min(0).default(SESSION_QUERY_READ_WINDOW_MAX),
+    persistedInspectConcurrency: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -937,6 +946,8 @@ function resolveConfig(config: Config): ResolvedConfig {
     maxLimit: config.maxLimit ?? SESSION_QUERY_SQLITE_MAX_LIMIT,
     snippetChars: config.snippetChars ?? SESSION_QUERY_SQLITE_SNIPPET_CHARS,
     readWindowMax: config.readWindowMax ?? SESSION_QUERY_READ_WINDOW_MAX,
+    persistedInspectConcurrency: config.persistedInspectConcurrency
+      ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   }
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
@@ -946,6 +957,12 @@ function resolveConfig(config: Config): ResolvedConfig {
   assertPositiveInteger('snippetChars', resolved.snippetChars)
   if (!Number.isInteger(resolved.readWindowMax) || resolved.readWindowMax < 0) {
     throw invalidConfig('readWindowMax must be a non-negative integer')
+  }
+  if (
+    !Number.isSafeInteger(resolved.persistedInspectConcurrency)
+    || resolved.persistedInspectConcurrency < 1
+  ) {
+    throw invalidConfig('persistedInspectConcurrency must be a positive safe integer')
   }
   if (resolved.defaultLimit > resolved.maxLimit) {
     throw invalidConfig('defaultLimit must be less than or equal to maxLimit')
