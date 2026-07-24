@@ -363,6 +363,7 @@ describe('input validation and translation', () => {
 
   it('normalizes the query and compiles inclusive session/event filters with one parent OR clause', async () => {
     const mounted = await mount()
+    createSession(mounted.ctx, 'parent', '/work')
     await mounted.call('session_search', {
       query: '  alpha   beta ',
       session_ids: ['a', 'b'],
@@ -388,8 +389,8 @@ describe('input validation and translation', () => {
           from: Date.parse('2026-07-24T00:00:00+08:00'),
           to: Date.parse('2026-07-24T01:00:00+08:00'),
         },
-        { kind: 'parent', values: ['parent', null] },
         { kind: 'availability', values: ['live'] },
+        { kind: 'parent', values: ['parent', null] },
         { kind: 'cwd', values: ['/work'] },
       ],
       eventFilters: [
@@ -538,6 +539,7 @@ describe('input validation and translation', () => {
 
   it('compiles one-sided timestamps and independent root/parent clauses', async () => {
     const mounted = await mount()
+    createSession(mounted.ctx, 'parent', '/work')
     await mounted.call('session_search', {
       query: 'q',
       created_at_from: '2024-02-29T00:00Z',
@@ -596,6 +598,191 @@ describe('workspace authority and lineage redaction', () => {
       .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
   })
 
+  it('makes hidden and nonexistent parent guesses indistinguishable without calling search', async () => {
+    const mounted = await mount()
+    const hiddenParent = createSession(mounted.ctx, 'guessed-hidden-parent-secret', '/outside')
+    const visibleChild = createSession(
+      mounted.ctx,
+      'visible-child-of-hidden-parent',
+      '/work',
+      20,
+      hiddenParent.id,
+    )
+    FakeQuery.sessionSearch = () => Promise.resolve({
+      items: [sessionHit(visibleChild.id, '/work', 'must not be discoverable', hiddenParent.id)],
+    })
+
+    const hidden = await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: [hiddenParent.id],
+    })
+    const missing = await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: ['guessed-missing-parent'],
+    })
+
+    expect(hidden).toEqual(missing)
+    expect(text(hidden)).toBe('No prior session matches found.')
+    expect(JSON.stringify(hidden)).not.toContain(visibleChild.id)
+    expect(FakeQuery.sessionRequests).toEqual([])
+  })
+
+  it('deduplicates parent guesses and sends only authorized parents plus the root marker', async () => {
+    const mounted = await mount()
+    const visible = createSession(mounted.ctx, 'visible-parent', '/work')
+    const hidden = createSession(mounted.ctx, 'hidden-parent-filter-secret', '/outside')
+
+    await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: [visible.id, hidden.id, visible.id, 'missing-parent'],
+      include_root_sessions: true,
+    })
+    await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: [hidden.id],
+      include_root_sessions: true,
+    })
+    await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: ['missing-parent'],
+      include_root_sessions: true,
+    })
+
+    const parentValues = FakeQuery.sessionRequests.map(request =>
+      request.sessionFilters?.find(filter => filter.kind === 'parent'))
+    expect(parentValues).toEqual([
+      { kind: 'parent', values: [visible.id, null] },
+      { kind: 'parent', values: [null] },
+      { kind: 'parent', values: [null] },
+    ])
+  })
+
+  it('rejects unrequested or unauthorized records returned during parent preauthorization', async () => {
+    const mounted = await mount()
+    const requested = SessionId('requested-parent')
+    vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions').mockResolvedValueOnce([
+      { header: header('unrequested-parent', '/work'), live: true, persisted: false },
+      { header: header(requested, '/outside'), live: true, persisted: false },
+    ])
+
+    const result = await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: [requested],
+    })
+
+    expect(text(result)).toBe('No prior session matches found.')
+    expect(FakeQuery.sessionRequests).toEqual([])
+  })
+
+  it('validates every other search filter before parent preauthorization', async () => {
+    const mounted = await mount()
+    const filterSessions = vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions')
+
+    const result = await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: ['guessed-parent'],
+      event_seq_from: -1,
+    })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_FILTER')
+    expect(filterSessions).not.toHaveBeenCalled()
+    expect(FakeQuery.sessionRequests).toEqual([])
+  })
+
+  it('sanitizes parent preauthorization failures without calling search', async () => {
+    const mounted = await mount()
+    const secret = 'conflict at hidden-parent-preauthorization-secret'
+    vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions').mockRejectedValueOnce(
+      new SessionQueryError(secret, 'SESSION_QUERY_SOURCE_CONFLICT'),
+    )
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: ['guessed-parent'],
+    })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_FAILED')
+    expect(text(result)).toBe('Error: session query operation failed')
+    expect(JSON.stringify(result)).not.toContain(secret)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(secret))
+    expect(FakeQuery.sessionRequests).toEqual([])
+  })
+
+  it('sanitizes direct-target authorization failures before event search', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'authorization-failure-target', '/work')
+    const secret = 'conflict with hidden-authorization-session-secret'
+    vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions').mockRejectedValueOnce(
+      new SessionQueryError(secret, 'SESSION_QUERY_SOURCE_CONFLICT'),
+    )
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call('session_event_search', {
+      session_id: target.id,
+      query: 'needle',
+    })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_FAILED')
+    expect(text(result)).toBe('Error: session query operation failed')
+    expect(JSON.stringify(result)).not.toContain(secret)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(secret))
+    expect(FakeQuery.eventRequests).toEqual([])
+  })
+
+  it('preserves parent-preauthorization cancellation and waits for cleanup without logging it', async () => {
+    const mounted = await mount()
+    const controller = new AbortController()
+    const cancellation = new SessionQueryError(
+      'parent preauthorization cancelled',
+      'SESSION_QUERY_ABORTED',
+    )
+    const started = Promise.withResolvers<undefined>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const cleanup = Promise.withResolvers<undefined>()
+    let active = false
+    vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions')
+      .mockImplementation(async (_filters, signal) => {
+        if (signal === undefined) throw new Error('expected parent-authorization signal')
+        active = true
+        const aborted = new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+        started.resolve(undefined)
+        await aborted
+        abortObserved.resolve(undefined)
+        await cleanup.promise
+        active = false
+        signal.throwIfAborted()
+        return []
+      })
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const pending = mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: ['guessed-parent'],
+    }, { signal: controller.signal })
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await started.promise
+    controller.abort(cancellation)
+    await abortObserved.promise
+
+    expect(settled).toBe(false)
+    expect(active).toBe(true)
+    expect(FakeQuery.sessionRequests).toEqual([])
+
+    cleanup.resolve(undefined)
+    const result = await pending
+    expect(active).toBe(false)
+    expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
+    expect(text(result)).toBe('Error: parent preauthorization cancelled')
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('redacts an unauthorized ancestor and prunes unauthorized descendant subtrees without hidden ids', async () => {
     const mounted = await mount()
     const hiddenParent = createSession(mounted.ctx, 'hidden-parent-secret', '/outside')
@@ -636,29 +823,72 @@ describe('workspace authority and lineage redaction', () => {
 
   it.each([
     {
+      name: 'sensitive source conflict',
+      makeError: () => new SessionQueryError(
+        'conflict with hidden-lineage-session-secret',
+        'SESSION_QUERY_SOURCE_CONFLICT',
+      ),
+      code: 'SESSION_QUERY_TOOL_FAILED',
+      message: 'session query operation failed',
+      secret: 'hidden-lineage-session-secret',
+    },
+    {
       name: 'typed query error',
       makeError: () => new SessionQueryError(
         'unrelated persistence failure',
         'SESSION_QUERY_PERSISTENCE_FAILED',
       ),
       code: 'SESSION_QUERY_PERSISTENCE_FAILED',
-      message: 'unrelated persistence failure',
+      message: 'session history storage is unavailable',
+      secret: 'unrelated persistence failure',
     },
     {
       name: 'plain error',
       makeError: () => new Error('unrelated plain trace failure'),
-      code: undefined,
-      message: 'unrelated plain trace failure',
+      code: 'SESSION_QUERY_TOOL_FAILED',
+      message: 'session query operation failed',
+      secret: 'unrelated plain trace failure',
     },
-  ])('preserves an unrelated $name from lineage tracing', async ({ makeError, code, message }) => {
+  ])('sanitizes an unrelated $name from lineage tracing', async ({ makeError, code, message, secret }) => {
     const mounted = await mount()
     const target = createSession(mounted.ctx, 'trace-failure-target', '/work')
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
     vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockRejectedValueOnce(makeError())
 
     const result = await mounted.call('session_trace', { session_id: target.id })
 
     expect(errorCode(result)).toBe(code)
     expect(text(result)).toBe(`Error: ${message}`)
+    expect(JSON.stringify(result)).not.toContain(secret)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(secret))
+  })
+
+  it.each([
+    'session_event_trace',
+    'session_event_read',
+  ] as const)('sanitizes typed service diagnostics from %s', async (toolName) => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, `${toolName}-failure-target`, '/work')
+    target.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'event' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    const secret = `event missing beside hidden-${toolName}-secret`
+    const failure = new SessionQueryError(secret, 'SESSION_QUERY_EVENT_NOT_FOUND')
+    if (toolName === 'session_event_trace') {
+      vi.spyOn(mounted.ctx.sessionQuery, 'traceEvent').mockRejectedValueOnce(failure)
+    } else {
+      vi.spyOn(mounted.ctx.sessionQuery, 'readEvent').mockRejectedValueOnce(failure)
+    }
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call(toolName, { session_id: target.id, seq: 0 })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_EVENT_NOT_FOUND')
+    expect(text(result)).toBe('Error: session event was not found')
+    expect(JSON.stringify(result)).not.toContain(secret)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(secret))
   })
 
   it.each([
@@ -681,6 +911,7 @@ describe('workspace authority and lineage redaction', () => {
     const started = Promise.withResolvers<undefined>()
     const abortObserved = Promise.withResolvers<undefined>()
     const cleanup = Promise.withResolvers<undefined>()
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
     let observedSignal: AbortSignal | undefined
     let active = false
     const holdExactRead = async (signal?: AbortSignal): Promise<never> => {
@@ -731,6 +962,7 @@ describe('workspace authority and lineage redaction', () => {
     expect(active).toBe(false)
     expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
     expect(text(result)).toBe(`Error: ${toolName} cancelled`)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('preserves caller cancellation while a lineage trace is pending', async () => {
@@ -1052,6 +1284,239 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     expect(output).not.toContain('Result cap reached')
   })
 
+  it.each([
+    {
+      toolName: 'session_search',
+      args: { query: 'needle' },
+      secrets: [
+        'session source conflict at hidden-search-session-secret',
+        'hidden-search-cause-secret',
+      ],
+      failure: () => new SessionQueryError(
+        'session source conflict at hidden-search-session-secret',
+        'SESSION_QUERY_SOURCE_CONFLICT',
+        { cause: new Error('hidden-search-cause-secret') },
+      ),
+    },
+    {
+      toolName: 'session_event_search',
+      args: { query: 'needle' },
+      secrets: [
+        'plain event provider failure at hidden-event-session-secret',
+        'hidden-event-cause-secret',
+      ],
+      failure: () => new Error(
+        'plain event provider failure at hidden-event-session-secret',
+        { cause: 'hidden-event-cause-secret' },
+      ),
+    },
+  ] as const)('sanitizes $toolName provider diagnostics', async ({ toolName, args, secrets, failure }) => {
+    const mounted = await mount()
+    if (toolName === 'session_search') {
+      FakeQuery.sessionSearch = () => Promise.reject(failure())
+    } else {
+      FakeQuery.eventSearch = () => Promise.reject(failure())
+    }
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call(toolName, args)
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_FAILED')
+    expect(text(result)).toBe('Error: session query operation failed')
+    for (const secret of secrets) {
+      expect(JSON.stringify(result)).not.toContain(secret)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(secret))
+    }
+  })
+
+  it.each([
+    {
+      name: 'a hostile prototype trap',
+      secrets: ['proxy payload secret', 'getPrototypeOf secondary secret'],
+      diagnostic: '[unprintable session query failure]',
+      failure: (): unknown => new Proxy(
+        { payload: 'proxy payload secret' },
+        {
+          getPrototypeOf() {
+            throw new Error('getPrototypeOf secondary secret')
+          },
+        },
+      ),
+    },
+    {
+      name: 'a throwing stack getter',
+      secrets: ['stack primary secret', 'stack getter secondary secret'],
+      diagnostic: '[unprintable session query failure]',
+      failure: (): unknown => {
+        const error = new Error('stack primary secret')
+        Object.defineProperty(error, 'stack', {
+          get() {
+            throw new Error('stack getter secondary secret')
+          },
+        })
+        return error
+      },
+    },
+    {
+      name: 'a throwing cause getter',
+      secrets: ['cause primary secret', 'cause getter secondary secret'],
+      diagnostic: '[unprintable session query failure]',
+      failure: (): unknown => {
+        const error = new Error('cause primary secret')
+        Object.defineProperty(error, 'cause', {
+          get() {
+            throw new Error('cause getter secondary secret')
+          },
+        })
+        return error
+      },
+    },
+    {
+      name: 'throwing string coercion',
+      secrets: ['string payload secret', 'string coercion secondary secret'],
+      diagnostic: '[unprintable session query failure]',
+      failure: (): unknown => ({
+        payload: 'string payload secret',
+        [Symbol.toPrimitive]() {
+          throw new Error('string coercion secondary secret')
+        },
+      }),
+    },
+    {
+      name: 'a throwing code getter',
+      secrets: ['code primary secret', 'code getter secondary secret'],
+      diagnostic: 'code primary secret',
+      failure: (): unknown => {
+        const error = new SessionQueryError(
+          'code primary secret',
+          'SESSION_QUERY_PERSISTENCE_FAILED',
+        )
+        Object.defineProperty(error, 'code', {
+          get() {
+            throw new Error('code getter secondary secret')
+          },
+        })
+        return error
+      },
+    },
+    {
+      name: 'an unknown string code',
+      secrets: ['unknown code primary secret', '__proto__'],
+      diagnostic: 'unknown code primary secret',
+      failure: (): unknown => {
+        const error = new SessionQueryError(
+          'unknown code primary secret',
+          'SESSION_QUERY_PERSISTENCE_FAILED',
+        )
+        Object.defineProperty(error, 'code', { value: '__proto__' })
+        return error
+      },
+    },
+    {
+      name: 'a non-string code',
+      secrets: ['non-string code primary secret', 'non-string code secondary secret'],
+      diagnostic: 'non-string code primary secret',
+      failure: (): unknown => {
+        const error = new SessionQueryError(
+          'non-string code primary secret',
+          'SESSION_QUERY_PERSISTENCE_FAILED',
+        )
+        Object.defineProperty(error, 'code', {
+          value: {
+            toString() {
+              throw new Error('non-string code secondary secret')
+            },
+          },
+        })
+        return error
+      },
+    },
+  ])('fails generic when inspecting $name is unsafe', async ({ secrets, diagnostic, failure }) => {
+    const mounted = await mount()
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- hostile unknown rejection is the scenario
+    FakeQuery.sessionSearch = () => Promise.reject(failure())
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call('session_search', { query: 'needle' })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_FAILED')
+    expect(text(result)).toBe('Error: session query operation failed')
+    for (const secret of secrets) expect(JSON.stringify(result)).not.toContain(secret)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(diagnostic))
+  })
+
+  it('retains a fixed safe typed failure when only its nested diagnostic is unprintable', async () => {
+    const mounted = await mount()
+    const primary = 'typed outer diagnostic secret'
+    const nested = 'nested prototype secondary secret'
+    const cause = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error(nested)
+        },
+      },
+    )
+    FakeQuery.sessionSearch = () => Promise.reject(
+      new SessionQueryError(
+        primary,
+        'SESSION_QUERY_PERSISTENCE_FAILED',
+        { cause },
+      ),
+    )
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call('session_search', { query: 'needle' })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_PERSISTENCE_FAILED')
+    expect(text(result)).toBe('Error: session history storage is unavailable')
+    expect(JSON.stringify(result)).not.toContain(primary)
+    expect(JSON.stringify(result)).not.toContain(nested)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[unprintable session query failure]'))
+  })
+
+  it('logs an inspectable cyclic cause chain without exposing it', async () => {
+    const mounted = await mount()
+    const outer = new Error('cyclic outer secret')
+    const inner = new Error('cyclic inner secret')
+    Object.defineProperty(outer, 'cause', { value: inner })
+    Object.defineProperty(inner, 'cause', { value: outer })
+    FakeQuery.sessionSearch = () => Promise.reject(outer)
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call('session_search', { query: 'needle' })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_FAILED')
+    expect(text(result)).toBe('Error: session query operation failed')
+    expect(JSON.stringify(result)).not.toContain('cyclic outer secret')
+    expect(JSON.stringify(result)).not.toContain('cyclic inner secret')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cyclic outer secret'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cyclic inner secret'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[circular error cause]'))
+  })
+
+  it('fails generic when internal warning logging throws', async () => {
+    const mounted = await mount()
+    const primary = 'typed persistence primary secret'
+    const secondary = 'logger warning secondary secret'
+    FakeQuery.sessionSearch = () => Promise.reject(
+      new SessionQueryError(primary, 'SESSION_QUERY_PERSISTENCE_FAILED'),
+    )
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn')
+      .mockImplementation(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error(secondary)
+      })
+
+    const result = await mounted.call('session_search', { query: 'needle' })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_FAILED')
+    expect(text(result)).toBe('Error: session query operation failed')
+    expect(JSON.stringify(result)).not.toContain(primary)
+    expect(JSON.stringify(result)).not.toContain(secondary)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
   it('preserves stale-cursor diagnostics without transparently restarting', async () => {
     const mounted = await mount({ maxSearchResults: 2 })
     const cursor = SessionSearchCursor('stale-next')
@@ -1070,6 +1535,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     FakeQuery.sessionSearch = () => Promise.resolve({ items: [], nextCursor: cursor })
     const result = await mounted.call('session_search', { query: 'needle' })
     expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_CURSOR')
+    expect(text(result)).toBe('Error: session-search provider repeated a continuation cursor')
     expect(FakeQuery.sessionRequests).toHaveLength(2)
   })
 
@@ -1166,7 +1632,8 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
     const result = await mounted.call('session_search', { query: 'needle' })
     expect(result.isError).toBe(false)
-    expect(text(result)).toContain('untitled (title unavailable: TITLE_BACKEND)')
+    expect(text(result)).toContain('untitled (title unavailable: SESSION_QUERY_TOOL_FAILED)')
+    expect(JSON.stringify(result)).not.toContain('title backend failed')
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('title backend failed'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('HarnessError'))
   })
@@ -1174,7 +1641,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
   it('reports unknown title failures and preserves an Error without a stack', async () => {
     const mounted = await mount()
     const first = createSession(mounted.ctx, 'unknown-title', '/work')
-    const second = createSession(mounted.ctx, 'stackless-title', '/work')
+    const second = createSession(mounted.ctx, 'second-title-failure', '/work')
     const stackless = new Error('stackless')
     Object.defineProperty(stackless, 'stack', { value: undefined })
     const readTitles = vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots')
@@ -1190,11 +1657,60 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     })
     const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
     const result = await mounted.call('session_search', { query: 'needle' })
-    expect(text(result)).toContain('title unavailable: UNKNOWN')
+    expect(text(result)).toContain('title unavailable: SESSION_QUERY_TOOL_FAILED')
+    expect(JSON.stringify(result)).not.toContain('string failure')
+    expect(JSON.stringify(result)).not.toContain('stackless')
     expect(readTitles).toHaveBeenCalledTimes(1)
     expect(readTitles.mock.calls[0]?.[0]).toEqual([first.id, second.id])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('string failure'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Error: stackless'))
+  })
+
+  it('isolates an unprintable per-title failure behind the generic unavailable marker', async () => {
+    const mounted = await mount()
+    const hit = createSession(mounted.ctx, 'hostile-title-failure', '/work')
+    const primary = 'per-title proxy payload secret'
+    const secondary = 'per-title prototype secondary secret'
+    const reason = new Proxy(
+      { payload: primary },
+      {
+        getPrototypeOf() {
+          throw new Error(secondary)
+        },
+      },
+    )
+    FakeQuery.sessionSearch = () => Promise.resolve({ items: [sessionHit(hit.id, '/work')] })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots').mockResolvedValueOnce([{
+      sessionId: hit.id,
+      status: 'rejected',
+      reason,
+    }])
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call('session_search', { query: 'needle' })
+
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('untitled (title unavailable: SESSION_QUERY_TOOL_FAILED)')
+    expect(JSON.stringify(result)).not.toContain(primary)
+    expect(JSON.stringify(result)).not.toContain(secondary)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[unprintable session query failure]'))
+  })
+
+  it('sanitizes a thrown batch-title service failure instead of rendering its diagnostic', async () => {
+    const mounted = await mount()
+    const hit = createSession(mounted.ctx, 'thrown-title-failure', '/work')
+    const secret = 'title batch failed beside hidden-title-session-secret'
+    FakeQuery.sessionSearch = () => Promise.resolve({ items: [sessionHit(hit.id, '/work')] })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshots')
+      .mockRejectedValueOnce(new Error(secret))
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const result = await mounted.call('session_search', { query: 'needle' })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_FAILED')
+    expect(text(result)).toBe('Error: session query operation failed')
+    expect(JSON.stringify(result)).not.toContain(secret)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(secret))
   })
 
   it('does not downgrade cancellation during title enrichment', async () => {
@@ -1237,6 +1753,8 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const result = await mounted.call('session_search', { query: 'needle' })
 
     expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+    expect(text(result)).toBe('Error: session target is outside the caller workspace')
+    expect(JSON.stringify(result)).not.toContain('title observation became unauthorized')
     expect(text(result)).not.toContain('title unavailable')
   })
 
@@ -1360,6 +1878,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
   it('passes the exact execution signal to every FTS page and stops on cancellation', async () => {
     const mounted = await mount()
     const controller = new AbortController()
+    const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
     let started!: () => void
     const bodyStarted = new Promise<void>((resolve) => { started = resolve })
     FakeQuery.sessionSearch = (_request, exec) => new Promise((_resolve, reject) => {
@@ -1368,13 +1887,15 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
         reject(new SessionQueryError('aborted', 'SESSION_QUERY_ABORTED'))
       }, { once: true })
     })
+    const cancellation = new SessionQueryError('aborted', 'SESSION_QUERY_ABORTED')
     const pending = mounted.call('session_search', { query: 'needle' }, { signal: controller.signal })
     await bodyStarted
-    controller.abort()
+    controller.abort(cancellation)
     const result = await pending
     expect(result.isError).toBe(true)
     expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
     expect(FakeQuery.searchSignals).toEqual([controller.signal])
+    expect(warn).not.toHaveBeenCalled()
   })
 })
 

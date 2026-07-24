@@ -29,6 +29,7 @@ import {
   type SessionLineageTrace,
   type SessionRecord,
   type SessionResultFilter,
+  type SessionQueryErrorCode,
   type SessionSearchCursor,
   type SessionSearchHit,
 } from '@deepseek-ai/dsh-session-query'
@@ -196,6 +197,76 @@ const PROMPT_TEXT =
   + 'events in one session. Search results are cursor-free and workspace-scoped. Follow a useful hit with '
   + 'session_trace, session_event_trace, or session_event_read when you need lineage, relationships, or exact data.'
 
+interface ModelSafeServiceFailure {
+  readonly code: SessionQueryErrorCode | 'SESSION_QUERY_TOOL_FAILED'
+  readonly message: string
+}
+
+const UNPRINTABLE_SERVICE_ERROR = '[unprintable session query failure]'
+
+const SAFE_SESSION_QUERY_FAILURES = {
+  SESSION_QUERY_ABORTED: {
+    code: 'SESSION_QUERY_ABORTED',
+    message: 'session query was cancelled',
+  },
+  SESSION_QUERY_EVENT_NOT_FOUND: {
+    code: 'SESSION_QUERY_EVENT_NOT_FOUND',
+    message: 'session event was not found',
+  },
+  SESSION_QUERY_INDEX_FAILED: {
+    code: 'SESSION_QUERY_INDEX_FAILED',
+    message: 'session search index is unavailable',
+  },
+  SESSION_QUERY_INVALID_CONFIG: {
+    code: 'SESSION_QUERY_TOOL_FAILED',
+    message: 'session query operation failed',
+  },
+  SESSION_QUERY_INVALID_CURSOR: {
+    code: 'SESSION_QUERY_INVALID_CURSOR',
+    message: 'session search continuation is invalid',
+  },
+  SESSION_QUERY_INVALID_FILTER: {
+    code: 'SESSION_QUERY_INVALID_FILTER',
+    message: 'session query filters were rejected',
+  },
+  SESSION_QUERY_INVALID_LIMIT: {
+    code: 'SESSION_QUERY_INVALID_LIMIT',
+    message: 'session query result limit was rejected',
+  },
+  SESSION_QUERY_INVALID_QUERY: {
+    code: 'SESSION_QUERY_INVALID_QUERY',
+    message: 'session query was rejected',
+  },
+  SESSION_QUERY_INVALID_LINEAGE: {
+    code: 'SESSION_QUERY_INVALID_LINEAGE',
+    message: 'session lineage is invalid',
+  },
+  SESSION_QUERY_INVALID_SURFACE: {
+    code: 'SESSION_QUERY_INVALID_SURFACE',
+    message: 'session event history is invalid',
+  },
+  SESSION_QUERY_INVALID_WINDOW: {
+    code: 'SESSION_QUERY_INVALID_WINDOW',
+    message: 'session event window is invalid',
+  },
+  SESSION_QUERY_PERSISTENCE_FAILED: {
+    code: 'SESSION_QUERY_PERSISTENCE_FAILED',
+    message: 'session history storage is unavailable',
+  },
+  SESSION_QUERY_SESSION_NOT_FOUND: {
+    code: 'SESSION_QUERY_SESSION_NOT_FOUND',
+    message: 'session was not found',
+  },
+  SESSION_QUERY_STALE_CURSOR: {
+    code: 'SESSION_QUERY_STALE_CURSOR',
+    message: 'session history changed while paging; retry the complete search call',
+  },
+  SESSION_QUERY_SOURCE_CONFLICT: {
+    code: 'SESSION_QUERY_TOOL_FAILED',
+    message: 'session query operation failed',
+  },
+} satisfies Record<SessionQueryErrorCode, ModelSafeServiceFailure>
+
 /** Register all five tools and their shared model guidance. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
@@ -306,12 +377,11 @@ async function authorizeTarget(
   if (target === caller.id) return
   const cwd = caller.header.cwd
   if (cwd === undefined) throw unauthorizedTarget()
-  signal.throwIfAborted()
-  const records = await ctx.sessionQuery.filterSessions([
-    { kind: 'id', values: [target] },
-    { kind: 'cwd', values: [cwd] },
-  ], signal)
-  signal.throwIfAborted()
+  const records = await sessionQueryCall(ctx, signal, 'target authorization', () =>
+    ctx.sessionQuery.filterSessions([
+      { kind: 'id', values: [target] },
+      { kind: 'cwd', values: [cwd] },
+    ], signal))
   if (records.length !== 1) throw unauthorizedTarget()
 }
 
@@ -319,6 +389,57 @@ function unauthorizedTarget(): HarnessError {
   return new HarnessError(
     'session target is outside the caller workspace',
     'SESSION_QUERY_TOOL_UNAUTHORIZED',
+  )
+}
+
+async function sessionQueryCall<Value>(
+  ctx: Context,
+  signal: AbortSignal,
+  operation: string,
+  call: () => Promise<Value>,
+): Promise<Value> {
+  signal.throwIfAborted()
+  try {
+    const value = await call()
+    signal.throwIfAborted()
+    return value
+  } catch (error: unknown) {
+    signal.throwIfAborted()
+    throw sanitizeSessionQueryError(ctx, operation, error)
+  }
+}
+
+function sanitizeSessionQueryError(
+  ctx: Context,
+  operation: string,
+  error: unknown,
+): HarnessError {
+  const generic = genericSessionQueryFailure()
+  const diagnostic = fullError(error)
+  try {
+    ctx.logger.warn(`tool-session-query: ${operation} failed: ${diagnostic}`)
+    if (error instanceof SessionQueryError) {
+      const code: unknown = error.code
+      const failure = typeof code === 'string' && Object.hasOwn(SAFE_SESSION_QUERY_FAILURES, code)
+        ? SAFE_SESSION_QUERY_FAILURES[code as SessionQueryErrorCode]
+        : undefined
+      if (failure !== undefined && failure.code !== 'SESSION_QUERY_TOOL_FAILED') {
+        return new SessionQueryError(failure.message, failure.code)
+      }
+    }
+    if (error instanceof HarnessError && error.code === 'SESSION_QUERY_TOOL_UNAUTHORIZED') {
+      return unauthorizedTarget()
+    }
+  } catch {
+    return generic
+  }
+  return generic
+}
+
+function genericSessionQueryFailure(): HarnessError {
+  return new HarnessError(
+    'session query operation failed',
+    'SESSION_QUERY_TOOL_FAILED',
   )
 }
 
@@ -338,7 +459,6 @@ async function executeSessionSearch(
   }
   const query = normalizeQuery(args.query)
   const sessionFilters = buildSessionFilters(args)
-  sessionFilters.push({ kind: 'cwd', values: [cwd] })
   const eventFilters = buildEventFilters({
     seqFrom: args.event_seq_from,
     seqTo: args.event_seq_to,
@@ -347,15 +467,28 @@ async function executeSessionSearch(
     eventTypes: args.event_types,
     surfaces: args.event_surfaces,
   })
+  const requestedParentIds = materializeParentSessionIds(args.parent_session_ids)
+  if (requestedParentIds !== undefined || args.include_root_sessions === true) {
+    const authorizedParentIds = requestedParentIds === undefined
+      ? new Set<SessionIdValue>()
+      : await authorizeSessionIds(ctx, caller, requestedParentIds, exec.signal)
+    const parentValues: Array<SessionIdValue | null> = requestedParentIds
+      ?.filter(id => authorizedParentIds.has(id)) ?? []
+    if (args.include_root_sessions === true) parentValues.push(null)
+    if (parentValues.length === 0) return formatEmptySessionSearch()
+    sessionFilters.push({ kind: 'parent', values: parentValues })
+  }
+  sessionFilters.push({ kind: 'cwd', values: [cwd] })
   const collected = await collectPages(
     maxResults,
     exec.signal,
-    cursor => ctx.sessionQuery.searchSessions({
-      query,
-      sessionFilters,
-      eventFilters,
-      ...cursor === undefined ? {} : { cursor },
-    }, { signal: exec.signal }),
+    cursor => sessionQueryCall(ctx, exec.signal, 'session search', () =>
+      ctx.sessionQuery.searchSessions({
+        query,
+        sessionFilters,
+        eventFilters,
+        ...cursor === undefined ? {} : { cursor },
+      }, { signal: exec.signal })),
     hit => hit.header.id !== caller.id && recordAuthorized(hit, caller),
   )
 
@@ -404,12 +537,13 @@ async function executeEventSearch(
     maxResults,
     exec.signal,
     async (cursor): Promise<SessionEventSearchPage> => {
-      const page = await ctx.sessionQuery.searchEvents({
-        sessionId,
-        query,
-        filters,
-        ...cursor === undefined ? {} : { cursor },
-      }, { signal: exec.signal })
+      const page = await sessionQueryCall(ctx, exec.signal, 'event search', () =>
+        ctx.sessionQuery.searchEvents({
+          sessionId,
+          query,
+          filters,
+          ...cursor === undefined ? {} : { cursor },
+        }, { signal: exec.signal }))
       assertObservedTargetAuthorized(caller, sessionId, page.session)
       return page
     },
@@ -426,20 +560,8 @@ async function executeSessionTrace(
   const caller = callerOf(exec)
   const sessionId = targetId(args, caller)
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
-  let trace: SessionLineageTrace
-  try {
-    trace = await ctx.sessionQuery.traceSession(sessionId, exec.signal)
-  } catch (error: unknown) {
-    exec.signal.throwIfAborted()
-    if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_INVALID_LINEAGE') {
-      throw new SessionQueryError(
-        'session lineage is invalid',
-        'SESSION_QUERY_INVALID_LINEAGE',
-      )
-    }
-    throw error
-  }
-  exec.signal.throwIfAborted()
+  const trace = await sessionQueryCall(ctx, exec.signal, 'session lineage trace', () =>
+    ctx.sessionQuery.traceSession(sessionId, exec.signal))
   assertObservedTargetAuthorized(caller, sessionId, trace.target.header)
 
   const ancestors: SessionRecord[] = []
@@ -471,8 +593,8 @@ async function executeEventTrace(
   const caller = callerOf(exec)
   const sessionId = targetId(args, caller)
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
-  const trace = await ctx.sessionQuery.traceEvent({ sessionId, seq: args.seq }, exec.signal)
-  exec.signal.throwIfAborted()
+  const trace = await sessionQueryCall(ctx, exec.signal, 'event trace', () =>
+    ctx.sessionQuery.traceEvent({ sessionId, seq: args.seq }, exec.signal))
   assertObservedTargetAuthorized(caller, sessionId, trace.session)
   const title = await readTitle(ctx, caller, sessionId, exec.signal)
   return formatEventTrace(sessionId, title, trace)
@@ -489,13 +611,13 @@ async function executeEventRead(
   const caller = callerOf(exec)
   const sessionId = targetId(args, caller)
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
-  const window = await ctx.sessionQuery.readEvent({
-    sessionId,
-    seq: args.seq,
-    ...args.before === undefined ? {} : { before: args.before },
-    ...args.after === undefined ? {} : { after: args.after },
-  }, exec.signal)
-  exec.signal.throwIfAborted()
+  const window = await sessionQueryCall(ctx, exec.signal, 'event read', () =>
+    ctx.sessionQuery.readEvent({
+      sessionId,
+      seq: args.seq,
+      ...args.before === undefined ? {} : { before: args.before },
+      ...args.after === undefined ? {} : { after: args.after },
+    }, exec.signal))
   assertObservedTargetAuthorized(caller, sessionId, window.session)
   const title = await readTitle(ctx, caller, sessionId, exec.signal)
   return formatEventRead(sessionId, title, window)
@@ -509,20 +631,17 @@ function buildSessionFilters(args: SessionSearchArgs): SessionResultFilter[] {
   }
   const created = timestampRange('created_at', args.created_at_from, args.created_at_to)
   if (created !== undefined) filters.push({ kind: 'created-at', ...created })
-  if (args.parent_session_ids !== undefined || args.include_root_sessions === true) {
-    const values: Array<SessionIdValue | null> = []
-    if (args.parent_session_ids !== undefined) {
-      assertNonEmptyArray('parent_session_ids', args.parent_session_ids)
-      values.push(...args.parent_session_ids.map(SessionId))
-    }
-    if (args.include_root_sessions === true) values.push(null)
-    filters.push({ kind: 'parent', values })
-  }
   if (args.availability !== undefined) {
     assertNonEmptyArray('availability', args.availability)
     filters.push({ kind: 'availability', values: args.availability })
   }
   return filters
+}
+
+function materializeParentSessionIds(values: readonly string[] | undefined): SessionIdValue[] | undefined {
+  if (values === undefined) return undefined
+  assertNonEmptyArray('parent_session_ids', values)
+  return [...new Set(values.map(SessionId))]
 }
 
 interface EventFilterInput {
@@ -737,19 +856,7 @@ async function collectPages<T>(
   let cursor: SessionSearchCursor | undefined
   while (true) {
     signal.throwIfAborted()
-    let page: Awaited<ReturnType<typeof request>>
-    try {
-      page = await request(cursor)
-    } catch (error: unknown) {
-      if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_STALE_CURSOR') {
-        throw new SessionQueryError(
-          'session history changed while paging; retry the complete search call',
-          'SESSION_QUERY_STALE_CURSOR',
-          { cause: error },
-        )
-      }
-      throw error
-    }
+    const page = await request(cursor)
     signal.throwIfAborted()
     for (const item of page.items) {
       if (!accept(item)) continue
@@ -799,13 +906,17 @@ async function authorizeSessionIds(
   const cwd = caller.header.cwd
   const other = unique.filter(id => id !== caller.id)
   if (cwd === undefined || other.length === 0) return authorized
-  signal.throwIfAborted()
-  const records = await ctx.sessionQuery.filterSessions([
-    { kind: 'id', values: other },
-    { kind: 'cwd', values: [cwd] },
-  ], signal)
-  signal.throwIfAborted()
-  for (const record of records) authorized.add(record.header.id)
+  const records = await sessionQueryCall(ctx, signal, 'session-id authorization', () =>
+    ctx.sessionQuery.filterSessions([
+      { kind: 'id', values: other },
+      { kind: 'cwd', values: [cwd] },
+    ], signal))
+  const requested = new Set(other)
+  for (const record of records) {
+    if (requested.has(record.header.id) && recordAuthorized(record, caller)) {
+      authorized.add(record.header.id)
+    }
+  }
   return authorized
 }
 
@@ -816,12 +927,11 @@ async function readTitles(
   signal: AbortSignal,
 ): Promise<CompleteTitleMap> {
   const result = new Map<SessionIdValue, TitleView>()
-  signal.throwIfAborted()
-  const observations = await ctx.sessionQuery.readTitleSnapshots(ids, signal)
-  signal.throwIfAborted()
+  const observations = await sessionQueryCall(ctx, signal, 'title observation', () =>
+    ctx.sessionQuery.readTitleSnapshots(ids, signal))
   for (const observation of observations) {
     if (observation.status === 'rejected') {
-      result.set(observation.sessionId, unavailableTitle(ctx, observation.sessionId, observation.reason))
+      result.set(observation.sessionId, unavailableTitle(ctx, observation.reason))
       continue
     }
     assertObservedTargetAuthorized(caller, observation.sessionId, observation.value.session)
@@ -841,17 +951,35 @@ async function readTitle(
 
 function unavailableTitle(
   ctx: Context,
-  id: SessionIdValue,
   error: unknown,
 ): TitleView {
-  if (error instanceof HarnessError && error.code === 'SESSION_QUERY_TOOL_UNAUTHORIZED') throw error
-  const code = error instanceof HarnessError ? error.code : 'UNKNOWN'
-  ctx.logger.warn(`tool-session-query: title read failed for session "${id}": ${fullError(error)}`)
-  return { text: 'untitled', unavailableCode: code }
+  const sanitized = sanitizeSessionQueryError(ctx, 'title observation item', error)
+  if (sanitized.code === 'SESSION_QUERY_TOOL_UNAUTHORIZED') throw sanitized
+  return { text: 'untitled', unavailableCode: sanitized.code }
 }
 
 function fullError(error: unknown): string {
-  return error instanceof Error ? error.stack ?? String(error) : String(error)
+  try {
+    return renderFullError(error)
+  } catch {
+    return UNPRINTABLE_SERVICE_ERROR
+  }
+}
+
+function renderFullError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const diagnostics: string[] = []
+  const seen = new Set<Error>()
+  let current: unknown = error
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current)
+    diagnostics.push(current.stack ?? String(current))
+    current = current.cause
+  }
+  /* v8 ignore next -- defensive containment for a cyclic Error.cause graph */
+  if (current instanceof Error) diagnostics.push('[circular error cause]')
+  else if (current !== undefined) diagnostics.push(renderFullError(current))
+  return diagnostics.join('\nCaused by: ')
 }
 
 function authorizeDescendants(
@@ -927,7 +1055,7 @@ function formatSessionSearch(
   titles: CompleteTitleMap,
   authorizedParents: ReadonlySet<SessionIdValue>,
 ): string {
-  if (collected.items.length === 0) return 'No prior session matches found.'
+  if (collected.items.length === 0) return formatEmptySessionSearch()
   const lines = [`Session search results (${collected.items.length}):`]
   for (const [index, hit] of collected.items.entries()) {
     const parent = hit.header.parentSession === undefined
@@ -953,6 +1081,10 @@ function formatSessionSearch(
     lines.push('', 'Result cap reached. Narrow the query or add filters to find additional matches.')
   }
   return lines.join('\n')
+}
+
+function formatEmptySessionSearch(): string {
+  return 'No prior session matches found.'
 }
 
 function formatEventSearch(
