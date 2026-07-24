@@ -813,31 +813,43 @@ describe('pi-tui chat lifecycle and transcript', () => {
         appendAssistant(session, [{ type: 'text', text: 'home' }], { inputTokens: 25_000, outputTokens: 10_000 })
       },
     })
-    expect(homeResult.terminal.output).toContain('~  ↑25k ↓10k')
+    await vi.waitFor(() => {
+      expect(homeResult.terminal.output).toContain('~  ↑25k ↓10k')
+    })
     await dispose(homeResult)
 
     const childResult = await setup({ cwd: join(home, 'projects', 'dsh-tui') })
-    expect(childResult.terminal.output).toContain(join('~', 'projects', 'dsh-tui'))
+    await vi.waitFor(() => {
+      expect(childResult.terminal.output).toContain(join('~', 'projects', 'dsh-tui'))
+    })
     await dispose(childResult)
 
     const unsetResult = await setup({ cwd: null })
-    expect(unsetResult.terminal.output).toContain('cwd unset')
+    await vi.waitFor(() => {
+      expect(unsetResult.terminal.output).toContain('cwd unset')
+    })
     await dispose(unsetResult)
 
     const homeParent = resolve(home, '..')
     const parentResult = await setup({ cwd: homeParent })
-    expect(parentResult.terminal.output).toContain(homeParent)
+    await vi.waitFor(() => {
+      expect(parentResult.terminal.output).toContain(homeParent)
+    })
     await dispose(parentResult)
 
     const outsideResult = await setup({ cwd: '/opt' })
-    expect(outsideResult.terminal.output).toContain('/opt')
+    await vi.waitFor(() => {
+      expect(outsideResult.terminal.output).toContain('/opt')
+    })
     await dispose(outsideResult)
 
     const logicalResult = await setup({
       cwd: '/w',
       formatCwd: cwd => `logical:${cwd}\x1b`,
     })
-    expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
+    await vi.waitFor(() => {
+      expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
+    })
     await dispose(logicalResult)
   })
 
