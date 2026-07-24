@@ -123,7 +123,7 @@ Additional instructions from: nested\AGENTS.md`,
     expect(out).not.toContain('2026-07-20T17:03:13.689Z')
   })
 
-  it('stabilizes a pretty-printed event timestamp embedded in tool-result text', () => {
+  it('stabilizes only the top-level event timestamp and spill byte count in event-read text', () => {
     const raw = JSON.stringify({
       jsonrpc: '2.0',
       method: 'session/update',
@@ -134,7 +134,7 @@ Additional instructions from: nested\AGENTS.md`,
             type: 'content',
             content: {
               type: 'text',
-              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {}\n}\n```\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
+              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {\n    "time": 31337,\n    "note": "model-visible"\n  }\n}\n```\n\nAfter:\n  "time": 424242,\n  neighbor semantic text\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
             },
           }],
         },
@@ -142,6 +142,8 @@ Additional instructions from: nested\AGENTS.md`,
     })
     const out = normalizeStdout(raw, ctx)
     expect(out).toContain('\\"time\\": {{eventTime}}')
+    expect(out).toContain('\\"time\\": 31337')
+    expect(out).toContain('\\"time\\": 424242')
     expect(out).toContain('Omitted {{eventOmittedBytes}} bytes')
     expect(out).not.toContain('1784876275593')
     expect(out).not.toContain('39387')

@@ -19,10 +19,10 @@ const EVENT_OMITTED_BYTES = '{{eventOmittedBytes}}'
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
 const PATH_TAG_RE = /(<path>)([^<]*)(<\/path>)/g
 const ADDITIONAL_INSTRUCTIONS_PATH_RE = /(Additional instructions from: )([^\r\n]+)/g
-const EMBEDDED_EVENT_TIME_RE = /("time": )\d+(?=,\r?\n)/g
+const EMBEDDED_EVENT_TIME_RE = /^(  "time": )\d+(?=,\r?$)/gm
 const EVENT_READ_OMITTED_BYTES_RE = /(\r?\n\r?\n\(Omitted )\d+( bytes\.)/g
-const EVENT_READ_RESULT_RE
-  = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n/
+const EVENT_READ_TARGET_REGION_RE
+  = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n[\s\S]*?(?=\r?\n```(?:\r?\n|$)|\r?\n\r?\n\(Omitted )/
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -78,11 +78,14 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   }
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
-  // Exact event-read results render pretty JSON inside a distinctive text
-  // envelope. Restrict time scrubbing to that envelope so JSON printed by
-  // models, bash, or unrelated tools remains regression-visible.
-  if (EVENT_READ_RESULT_RE.test(out)) {
-    out = out.replace(EMBEDDED_EVENT_TIME_RE, `$1${EVENT_TIME}`)
+  // Exact event-read results render the target as pretty JSON inside a
+  // distinctive envelope. Restrict time scrubbing to that fenced target so
+  // neighbor, model, bash, and unrelated tool text remains regression-visible.
+  if (EVENT_READ_TARGET_REGION_RE.test(out)) {
+    out = out.replace(
+      EVENT_READ_TARGET_REGION_RE,
+      target => target.replace(EMBEDDED_EVENT_TIME_RE, `$1${EVENT_TIME}`),
+    )
     out = out.replace(EVENT_READ_OMITTED_BYTES_RE, `$1${EVENT_OMITTED_BYTES}$2`)
   }
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
