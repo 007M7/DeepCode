@@ -25,6 +25,8 @@ Raw mode uses `session.jsonl`, and sessions without a cwd use `_no-cwd`. Filesys
 
 The project key intentionally has no hash suffix. This follows the common human-readable convention used by coding agents and keeps the normalized project path as the complete directory name. The normalization is lossy: paths such as `/a/b-c` and `/a-b/c`, or long paths with the same retained prefix, share one project directory. Their distinct session ids still select separate session directories; reuse of the same session id remains a storage collision and is rejected.
 
+Case-insensitive filesystems can also make differently cased project keys refer to one physical directory. Identity validation accepts such an alternate spelling only when filesystem canonicalization resolves the discovered and expected paths to the same transcript. A different canonical path remains corruption, so case aliases do not weaken the same-id collision check on case-sensitive stores.
+
 The configured root remains a deployment choice. The layout neither selects a global root nor requires projects to share one. When a deployment does centralize storage, project paths remain recognizable; a project-local root uses the same deterministic structure.
 
 The encoded session id names an ownership directory rather than the transcript itself. `SessionPersistence.locate()` continues to return the fixed transcript path, preserving hook `transcript_path` and `DSH_SESSION_JSONL` semantics. Discovery ignores other entries inside the session directory so the backend can add session-owned artifacts without another layout change.

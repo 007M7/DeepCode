@@ -9,7 +9,7 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { readdirSync } from 'node:fs'
-import { open, mkdir, readFile, readdir, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
@@ -168,7 +168,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
           : {},
       }
     }
-    this.assertStoredIdentity(path, prefix.meta, expectedId)
+    await this.assertStoredIdentity(path, prefix.meta, expectedId)
     return prefix
   }
 
@@ -291,7 +291,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
-        this.assertStoredIdentity(path, meta)
+        await this.assertStoredIdentity(path, meta)
         if (ids.has(meta.id)) {
           throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple project directories`)
         }
@@ -578,7 +578,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** Reject metadata that does not identify the selected physical log. */
-  private assertStoredIdentity(path: string, meta: SessionHeader, expectedId?: SessionId): void {
+  private async assertStoredIdentity(path: string, meta: SessionHeader, expectedId?: SessionId): Promise<void> {
     if (expectedId !== undefined && meta.id !== expectedId) {
       throw new Error(`corrupt session log "${path}": requested id "${expectedId}" does not match header id "${meta.id}"`)
     }
@@ -588,8 +588,25 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     } catch (error) {
       throw new Error(`corrupt session log "${path}": header id cannot name a storage path`, { cause: error })
     }
-    if (path !== expectedPath) {
+    if (path !== expectedPath && !await this.sameFile(path, expectedPath)) {
       throw new Error(`corrupt session log "${path}": header id "${meta.id}" and cwd identify "${expectedPath}"`)
+    }
+  }
+
+  /**
+   * Whether two path spellings resolve to the same physical file. This admits
+   * case aliases on case-insensitive filesystems without weakening identity
+   * checks on case-sensitive stores.
+   */
+  private async sameFile(path: string, expectedPath: string): Promise<boolean> {
+    try {
+      const [actual, expected] = await Promise.all([realpath(path), realpath(expectedPath)])
+      return actual === expected
+    } catch (error) {
+      /* v8 ignore else -- non-ENOENT realpath failures require an external permission or I/O fault */
+      if (isENOENT(error)) return false
+      /* v8 ignore next -- non-ENOENT realpath failures are external I/O faults, propagated unchanged */
+      throw error
     }
   }
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -911,6 +911,23 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await rewriteHeader(rawLogPath(root, m.cwd, m.id), (header) => { header.cwd = '/elsewhere' })
 
     await expect(ctx.sessionPersistence.list()).rejects.toThrow(/and cwd identify/)
+  })
+
+  it('accepts an alternate project path only when it identifies the same physical log', async () => {
+    const m = meta('physical-alias', '/stored')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const path = rawLogPath(root, m.cwd, m.id)
+    const aliasCwd = '/alias'
+    await symlink(
+      projectDir(root, m.cwd),
+      projectDir(root, aliasCwd),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
+    await rewriteHeader(path, (header) => { header.cwd = aliasCwd })
+
+    expect((await ctx.sessionPersistence.load(m.id)).meta.cwd).toBe(aliasCwd)
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toContain(m.id)
   })
 
   it('list rejects a session header whose id cannot name a storage path', async () => {
