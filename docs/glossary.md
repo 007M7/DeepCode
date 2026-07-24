@@ -21,7 +21,7 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 ## goal
 
 - **goal** — one durable completion objective attached to an existing session, with a revisioned `active` / `paused` / `blocked` / `complete` phase and a goal-round cap; `blocked` retains a policy code and explanation. A goal is state, not a scheduler or a separate conversation; the session log remains its source of truth.
-- **goal round** — one continuation cycle admitted for the current goal. The same-session driver materializes a goal round as one goal-sourced [turn](#turn), which can contain multiple steps; unrelated human turns in the same session do not consume the goal-round cap. <a id="goal-round"></a>
+- **goal round** — one continuation cycle admitted for the current goal. The same-session driver materializes a goal round as one goal-sourced [turn](#turn), which can contain zero or more steps; unrelated human turns in the same session do not consume the goal-round cap. <a id="goal-round"></a>
 - **goal activation** — process-local permission for a continuation consumer to admit another goal round. Activation is either `armed` or `disarmed`; it is deliberately absent from durable replay, so resume and fork require a later human-authorized resume mutation through `/goal` or the model tool before automatic work.
 
 ## human command
