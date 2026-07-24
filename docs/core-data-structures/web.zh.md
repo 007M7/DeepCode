@@ -50,7 +50,7 @@ interface WebSearchResult {
 }
 ```
 
-`content` 是提供方可选生成的回答文本（Exa 和 DeepSeek 不返回；Perplexity 返回生成式回答）。`sources[]` 是可移植的引用表面。一个 source 必有 `url`；`title`/`snippet`/`publishedAt` 可选，因为并非每个提供方都返回它们——Perplexity 的引用可能只有 URL，强迫适配器编造其余字段会让 seam 说谎。`dsh-tool-web` 渲染时使用 `title ?? hostname(url)`。
+`content` 是提供方可选生成的回答文本（Exa 和 DeepSeek 不返回；Perplexity 返回生成式回答）。`sources[]` 是一套可跨提供方使用的引用数据结构。一个 source 必有 `url`；`title`/`snippet`/`publishedAt` 可选，因为并非每个提供方都返回它们——Perplexity 的引用可能只有 URL，强迫适配器编造其余字段会让 seam 说谎。`dsh-tool-web` 渲染时使用 `title ?? hostname(url)`。
 
 ```ts type-equiv
 /**
