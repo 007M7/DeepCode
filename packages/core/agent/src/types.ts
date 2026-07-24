@@ -40,8 +40,8 @@ export type SendTarget = 'next-turn' | 'next-step'
  * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
  * {@link Agent.inject} (`next-step`/no-wakeup).
  *
- * Omitting the whole options object selects the ordinary user-message preset.
- * A supplied object is complete so its routing and provenance are explicit.
+ * The object is complete so routing and provenance are explicit; callers that
+ * want the ordinary user-message preset use {@link Agent.followup}.
  */
 export interface SendOptions {
   /** Queue the item joins. */
@@ -160,8 +160,8 @@ export abstract class Agent {
    * The unified delivery primitive over the (`target` × `wakeup`) matrix.
    * It routes the caller's typed content and source as follows:
    *
-   * - `next-turn` (default) queues an item that becomes the sole ordinary
-   *   message of its own FIFO-ordered turn; `wakeup` (default `true`) wakes a
+   * - `next-turn` queues an item that becomes the sole ordinary message of its
+   *   own FIFO-ordered turn; `wakeup:true` wakes a
    *   parked driver, while `wakeup:false` queues without waking.
    * - `next-step` with `wakeup:true` submits steering into the active turn
    *   (idle falls back to a woken `next-turn`).
@@ -173,7 +173,7 @@ export abstract class Agent {
    * @param options - target queue, wakeup decision, and source.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  abstract send(content: ContentBlock[], options?: SendOptions): AgentMessageId
+  abstract send(content: ContentBlock[], options: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active

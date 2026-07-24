@@ -33,7 +33,7 @@ async function harness(adapter: MockAdapter) {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 /** Resolve on the agent's next idle transition (event-based, not status poll). */
@@ -63,7 +63,7 @@ describe('Agent.cancel()', () => {
     ctx.on('agent/cancel-requested', (subject, cause) => {
       if (subject !== agent) return
       seen.push(`first:${cause.kind}`)
-      subject.send([{ type: 'text', text: 'queued by cancel observer' }])
+      subject.followup([{ type: 'text', text: 'queued by cancel observer' }])
       throw new Error('observer failed')
     })
     ctx.on('agent/cancel-requested', (subject, cause) => {

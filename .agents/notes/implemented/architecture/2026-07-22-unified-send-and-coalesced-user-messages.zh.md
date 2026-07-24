@@ -12,7 +12,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 ## 决策
 
-**一个原语，三个预设别名。** `Agent` 现在是一个抽象类，其唯一的抽象方法 `send(content, { target, wakeup, source })` 覆盖 (`target` × `wakeup`) 矩阵。`followup`（`next-turn`/wakeup）、`steer`（`next-step`/wakeup）和 `inject`（`next-step`/no-wakeup）是基类上的具体委托方法，因此具体驱动器只需实现一次 `send`，就能继承这些好用的预设。`wakeup` 意为“让模型运行”：为一个 `next-turn` 队列项唤醒处于停泊状态的驱动器，或为一个运行中的 `next-step` 队列项强制继续执行。`send` 默认使用 `{ target: 'next-turn', wakeup: true }`，因此此前每一次裸调用 `agent.send(content)` 都保持完全相同的行为。`next-turn`/no-wakeup（入队但不唤醒）现在可以表达，只是没有别名，也没有当前调用方。
+**一个原语，三个预设别名。** `Agent` 现在是一个抽象类，其唯一的抽象方法 `send(content, { target, wakeup, source })` 覆盖 (`target` × `wakeup`) 矩阵。完整的选项对象为必填，因此路由和 provenance 保持显式。`followup`（`next-turn`/wakeup）、`steer`（`next-step`/wakeup）和 `inject`（`next-step`/no-wakeup）是基类上的具体委托方法，因此具体驱动器只需实现一次 `send`，调用方则使用 `followup(content)` 作为普通用户消息预设。`wakeup` 意为“让模型运行”：为一个 `next-turn` 队列项唤醒处于停泊状态的驱动器，或为一个运行中的 `next-step` 队列项强制继续执行。`next-turn`/no-wakeup（入队但不唤醒）可以表达，只是没有别名，也没有当前调用方。
 
 **inject 保留其机制。** `next-step`/no-wakeup 路径正是旧的 `inject`：持久的面向模型上下文会追加到当前日志位置；轮次打开时，它会延迟到执行中的工具批处理之后，空闲时则直接追加在两个轮次之间。它完全绕过 FIFO 队列，并把来源默认设为 `{ kind: 'plugin', plugin: '' }`，绝不是 `{ kind: 'user' }`。
 

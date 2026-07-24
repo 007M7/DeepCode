@@ -378,27 +378,22 @@ type SendTarget = 'next-turn' | 'next-step'
  * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
  * {@link Agent.inject} (`next-step`/no-wakeup).
  *
- * An omitted source attests direct human input as `{ kind: 'user' }` and may
- * authorize policy consumers, so non-human producers must label their content.
+ * The object is complete so routing and provenance are explicit; callers that
+ * want the ordinary user-message preset use {@link Agent.followup}.
  */
 interface SendOptions {
-  /** Queue the item joins; defaults to `next-turn`. */
-  target?: SendTarget
+  /** Queue the item joins. */
+  target: SendTarget
   /**
    * Whether this item makes the model run: wake a parked driver (`next-turn`)
-   * or force a continuation step (`next-step` while running). Defaults to
-   * `true`. A `false` `next-turn` item queues without waking; a `false`
+   * or force a continuation step (`next-step` while running). A `false`
+   * `next-turn` item queues without waking; a `false`
    * `next-step` item attaches durable context without forcing another step
    * (the injection preset).
    */
-  wakeup?: boolean
-  source?: MessageSource
-  /**
-   * Model-facing contexts captured with this inbox item. A queued prompt exposes
-   * them through the default `agent/prompt-submit` allow decision, while steering
-   * records them directly at its next checkpoint.
-   */
-  contexts?: HookContext[]
+  wakeup: boolean
+  /** Producer provenance; direct human input uses `{ kind: 'user' }`. */
+  source: MessageSource
 }
 ```
 
@@ -406,7 +401,10 @@ The fixed-preset aliases own `target` and `wakeup`, so they accept only the rema
 
 ```ts type-equiv
 /** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
-type AliasSendOptions = Omit<SendOptions, 'target' | 'wakeup'>
+interface AliasSendOptions {
+  /** Producer provenance; each alias supplies its documented default when omitted. */
+  source?: MessageSource
+}
 ```
 
 `send` returns the accepted message's opaque `AgentMessageId`, stable across that message's `agent/inbox/*` events:
@@ -479,8 +477,8 @@ abstract class Agent {
    * The unified delivery primitive over the (`target` × `wakeup`) matrix.
    * Detaches, validates, and freezes one lossless-JSON item, then routes it:
    *
-   * - `next-turn` (default) queues an item that becomes the sole ordinary
-   *   message of its own FIFO-ordered turn; `wakeup` (default `true`) wakes a
+   * - `next-turn` queues an item that becomes the sole ordinary message of its
+   *   own FIFO-ordered turn; `wakeup:true` wakes a
    *   parked driver, while `wakeup:false` queues without waking.
    * - `next-step` with `wakeup:true` submits steering into the active turn
    *   (idle falls back to a woken `next-turn`).
@@ -492,10 +490,10 @@ abstract class Agent {
    * Attached contexts share the same snapshot and ownership boundary. Invalid
    * input throws synchronously before any notification, enqueue, or append.
    * @param content - the model-facing content blocks to deliver.
-   * @param options - target queue, wakeup decision, source, and contexts.
+   * @param options - target queue, wakeup decision, and source.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  abstract send(content: ContentBlock[], options?: SendOptions): AgentMessageId
+  abstract send(content: ContentBlock[], options: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active

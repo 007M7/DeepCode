@@ -48,7 +48,7 @@ function waitForStatus(ctx: Context, agent: Agent, expected: Agent['status']): P
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('Agent', () => {
@@ -275,7 +275,7 @@ describe('Agent', () => {
     prepared.markPublished()
     prepared.start()
     const dispose = prepared.dispose
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 

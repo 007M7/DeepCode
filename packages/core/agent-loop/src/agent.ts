@@ -90,10 +90,10 @@ export class ReactLoopAgent extends Agent {
   /** Accept and route one unified send item. */
   send(
     content: ContentBlock[],
-    options: SendOptions = { target: 'next-turn', wakeup: true, source: { kind: 'user' } },
+    options: SendOptions,
   ): AgentMessageId {
-    const id = AgentMessageId(randomUUID())
     const { target, wakeup, source } = options
+    const id = AgentMessageId(randomUUID())
     if (target === 'next-step' && !wakeup) {
       if (this.turnOpen) {
         this.outbox.push({ content, source })

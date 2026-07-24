@@ -126,7 +126,7 @@ idle inject:
 
 ### Agent 句柄
 
-`ctx.agents` 拥有活跃 agent，并返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`、`steer()`、`inject()`、`cancel()` 和 `whenIdle()`。调用方 fiber、工厂提供方和消费方句柄通过同一个需等待完成的 disposer 共同拥有拆卸过程。
+`ctx.agents` 拥有活跃 agent，并返回 `AgentHandle { agent, dispose() }`。插件需要显式路由时使用 `send(content, completeOptions)`，否则使用 `followup()`、`steer()` 和 `inject()` 预设；`cancel()` 与 `whenIdle()` 控制生命周期。调用方 fiber、工厂提供方和消费方句柄通过同一个需等待完成的 disposer 共同拥有拆卸过程。
 
 ### Agent 作用域
 

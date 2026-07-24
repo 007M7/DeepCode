@@ -126,7 +126,7 @@ Turn and step execution events are turn-enclosed; an idle injected `user/message
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send()`, `steer()`, `inject()`, `cancel()`, and `whenIdle()`. The caller fiber, factory provider, and consumer handle co-own teardown through one awaited disposer.
+`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send(content, completeOptions)` when routing must be explicit, or the `followup()`, `steer()`, and `inject()` presets; `cancel()` and `whenIdle()` control lifecycle. The caller fiber, factory provider, and consumer handle co-own teardown through one awaited disposer.
 
 ### Agent Scope
 

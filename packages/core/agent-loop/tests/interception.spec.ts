@@ -42,7 +42,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 function events(agent: Agent): SessionEvent[] {
@@ -151,7 +151,7 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    agent.send([{ type: 'text', text: 'do something' }])
+    agent.followup([{ type: 'text', text: 'do something' }])
     await waitForIdle(ctx, agent)
 
     // the model was never called
