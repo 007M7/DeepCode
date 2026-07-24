@@ -273,6 +273,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:*
         version: link:../packages/llm/llm-deepseek
+      '@deepseek-ai/dsh-llm-pi-ai':
+        specifier: workspace:*
+        version: link:../packages/llm/llm-pi-ai
       '@deepseek-ai/dsh-llm-replay':
         specifier: workspace:*
         version: link:../packages/support/llm-replay
