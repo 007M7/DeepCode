@@ -36,7 +36,7 @@ interface SessionReferenceCandidate {
 
 ## Prepared messages
 
-Preparation preserves readable current-message content and returns at most one aggregated context. The host binds `contexts` to that exact `send()` or `steer()` call.
+Preparation preserves readable current-message content and returns at most one aggregated context. The host binds `contexts` to that exact `followup()` or `steer()` call.
 
 ```ts type-equiv
 /** Message payload and the zero-or-one durable snapshot contexts bound to it. */

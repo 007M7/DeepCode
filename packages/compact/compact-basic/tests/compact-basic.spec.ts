@@ -564,7 +564,10 @@ describe('pressure measurement and retention', () => {
     const result = await compactIfNeeded(compact, session)
     expect(result).not.toBeNull()
     expect(prefix).toHaveLength(1)
-    expect(session.events.some(event => event.type === 'context/message')).toBe(false)
+    // The routed request prefix must not reach the surface as its own message
+    // (the compaction summary itself is an expected plugin-sourced checkpoint).
+    expect(session.events.some(event => event.type === 'user/message'
+      && event.data.content.some(block => block.type === 'text' && block.text.includes('p'.repeat(600))))).toBe(false)
   })
 
   it('uses the latest logged request envelope without an AgentOptions override', async () => {
@@ -960,7 +963,7 @@ describe('compaction region transaction', () => {
     const compact = service()
     const session = conversation(2)
     compact.mutateDuringSummary = () => {
-      session.append('context/message', {
+      session.append('user/message', {
         content: [{ type: 'text', text: 'concurrent surface mutation' }],
         source: { kind: 'plugin', plugin: 'test' },
       }, { surfaceOp: 'append' })

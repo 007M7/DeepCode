@@ -444,9 +444,9 @@ describe('deriveMessages with surface', () => {
     expect(messages[0]!.content[0]).toMatchObject({ type: 'text', text: 'compacted' })
   })
 
-  it('context/message and steering/message appear on surface', () => {
+  it('injected-context and steering/message appear on surface', () => {
     const s = new Session(SessionId('ctx'))
-    s.append('context/message', { content: [{ type: 'text', text: 'file changed' }], source: { kind: 'plugin', plugin: 'watcher' } }, { surfaceOp: 'append' })
+    s.append('user/message', { content: [{ type: 'text', text: 'file changed' }], source: { kind: 'plugin', plugin: 'watcher' } }, { surfaceOp: 'append' })
     s.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'focus' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const messages = s.deriveMessages()
     expect(messages).toHaveLength(2)
@@ -524,7 +524,6 @@ describe('surface type guards', () => {
     expect(isSurfaceEligibleType('user/message')).toBe(true)
     expect(isSurfaceEligibleType('assistant/message')).toBe(true)
     expect(isSurfaceEligibleType('tool/result')).toBe(true)
-    expect(isSurfaceEligibleType('context/message')).toBe(true)
     expect(isSurfaceEligibleType('steering/message')).toBe(true)
     expect(isSurfaceEligibleType('turn/start')).toBe(false)
     expect(isSurfaceEligibleType('assistant/chunk')).toBe(false)
@@ -568,7 +567,7 @@ describe('SurfaceManager.replaceGeneration', () => {
     expect(s.surface.replaceGeneration).toBe(0)
 
     const nodes = s.surface.nodes
-    s.append('context/message', {
+    s.append('user/message', {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
     }, { surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! }, sourceEventSeqs: [nodes[0]!, nodes[1]!] })
     expect(s.surface.replaceGeneration).toBe(1)

@@ -538,7 +538,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           const durable = await durablePromptContent(ctx, content)
           if (mode === 'steer') agent.steer(durable, { source })
-          else agent.send(durable, { source })
+          else agent.followup(durable, { source })
         } catch (error: unknown) {
           if (error instanceof AttachmentError) {
             return err(request, {
