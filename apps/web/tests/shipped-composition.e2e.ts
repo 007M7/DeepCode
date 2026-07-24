@@ -145,7 +145,7 @@ it('lets a preset producer reach the background-task registry', async () => {
       content: [{ type: 'text', text: 'started background task bash-1' }],
     })
 
-    // The control surface reads what the producer started: same registry, one
+    // The controller reads what the producer started: same registry, one
     // owner. A per-preset registry would list nothing here even on success.
     const listed = await ctx.tools.execute({
       signal,

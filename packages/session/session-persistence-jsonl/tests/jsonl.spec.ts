@@ -1465,7 +1465,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await expect(ctx.sessionPersistence.list()).rejects.toThrow(/ENOTDIR/)
   })
 
-  it('per-id lookup surfaces non-ENOENT storage errors', async () => {
+  it('per-id lookup APIs non-ENOENT storage errors', async () => {
     const blocker = join(root, 'not-a-directory')
     await writeFile(blocker, 'x')
     const backend = ctx.sessionPersistence as unknown as { exists(path: string): Promise<boolean> }

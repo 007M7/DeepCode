@@ -30,7 +30,7 @@ Directories layer as follows:
     - **Static-arrival entry packages** (`connection`, `runtime`, `ui-theme`, `i18n`, `hmr`): no `dsh.client` key and no browser bundle — the shell bundles their `src/client/` half and registers it with `ctx.modules`; they are governed as entries of the host-authored graph like everything else.
     - **Fetch-arrival plugin packages** (`ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dsh.client` declaration); the implementation lives under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle). Cross-plugin consumption of `/client` is type-only; value cooperation goes through cordis services.
 - `apps/` holds the externally exported applications, assembled from Client / Host mixtures.
-    - `apps/web` (`dsh-frontend`) is the vite application: a thin `main.ts` over the shell surface exported by `dsh-client-web`.
+    - `apps/web` (`dsh-frontend`) is the vite application: a thin `main.ts` over the shell API exported by `dsh-client-web`.
     - `apps/cli` (`@deepseek-ai/dsh`) dispatches commands: `dsh web` = Host + webserver + the built `dsh-frontend` dist; `dsh --profile headless` = [a direct core Agent/Session entry point](2026-08-09-headless-direct-core-entry-point.md), with zero Host, HTTP, or browser layer.
     - A future Electron application reuses the same web client packages over an IPC fetch carrier.
 
@@ -116,7 +116,7 @@ Domain interface signatures perceive only the narrow forms: `RpcRequest<P> = { r
 
 ### RpcReceipt: the carrier receipt
 
-The HTTP response body of a `ClientResponse` is `RpcReceipt = { accepted: true } | { accepted: false; reason: 'not-pending' | 'bad-response' }` — a carrier-layer receipt, **not** an RpcMessage (a response has no response); late/duplicate answers get `not-pending`, and the logical convergence surface is the `*/resolved` frames.
+The HTTP response body of a `ClientResponse` is `RpcReceipt = { accepted: true } | { accepted: false; reason: 'not-pending' | 'bad-response' }` — a carrier-layer receipt, **not** an RpcMessage (a response has no response); late/duplicate answers get `not-pending`, and the logical convergence point is the `*/resolved` frames.
 
 ## The type system: signatures are the source of truth
 

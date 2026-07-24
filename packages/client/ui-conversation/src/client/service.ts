@@ -122,7 +122,7 @@ export class ConversationService extends Service implements IConversation {
 
   /**
    * Send a prompt into the scoped session. Business failures also land in the
-   * session snapshot's promptError (object-layer surface); the rejection here
+   * session snapshot's promptError (object-layer state); the rejection here
    * exists for caller choreography (the composer restores the draft on it).
    * @param text - prompt text, sent verbatim as one text block.
    */

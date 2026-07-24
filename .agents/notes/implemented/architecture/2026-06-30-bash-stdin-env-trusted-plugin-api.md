@@ -2,7 +2,7 @@
 
 Status: implemented
 
-English | [中文](2026-06-30-bash-stdin-env-trusted-plugin-surface.zh.md)
+English | [中文](2026-06-30-bash-stdin-env-trusted-plugin-api.zh.md)
 
 ## Problem
 
@@ -30,4 +30,4 @@ Three deliberate choices:
 
 ## Consequences
 
-Hook bridges pass JSON payloads and hook-specific variables through the existing bash seam, retaining its process-group, truncation, and spill behavior. The model surface remains unchanged, and the bash tool remains the sole owner of model-call request construction. The vocabulary lives in [the bash data-structure reference](../../../../docs/subsystems/bash.md).
+Hook bridges pass JSON payloads and hook-specific variables through the existing bash seam, retaining its process-group, truncation, and spill behavior. The model-facing behavior remains unchanged, and the bash tool remains the sole owner of model-call request construction. The vocabulary lives in [the bash data-structure reference](../../../../docs/subsystems/bash.md).

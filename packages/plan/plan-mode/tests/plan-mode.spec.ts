@@ -486,7 +486,7 @@ describe('the soft layer', () => {
     registerNamedTools(ctx, ['read', 'write'])
     const agent = await agentWithSession(ctx, 'agent-1', { active: true })
     const assembly = await assembleFor(ctx, agent)
-    // The stable registry contribution reaches both surfaces: the exit tool
+    // The stable registry contribution reaches both model interfaces: the exit tool
     // is present on the wire AND in the SDK alongside the untouched toolset.
     expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code', 'write'])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
@@ -992,7 +992,7 @@ describe('exit_plan_mode', () => {
     expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
-  it('a throwing provider surfaces as the corrective isError and the mode stays plan', async () => {
+  it('a throwing provider APIs as the corrective isError and the mode stays plan', async () => {
     const { ctx, agent } = await setupWithReview()
     ctx.userInteraction.registerProvider({ ask: () => { throw new Error('review aborted') } })
     const result = await callExit(ctx, agent)

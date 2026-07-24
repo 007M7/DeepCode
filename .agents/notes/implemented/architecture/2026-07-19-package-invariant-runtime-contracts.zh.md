@@ -73,6 +73,6 @@ Vitest 为每个包测试拓扑使用 `{ enabled: true }` 挂载 `InvariantServi
 
 - 每个包都有可见的所有权与发布 wiring，但只有具备合理运行时关系的包才会增加 listener 或 trace 状态。
 - 空 companion 是带包专属说明、可评审的决策；删除说明后门禁会失败。
-- 类型声明、Cordis 可加载性、插件 metadata、服务方法形状和纯代数继续由所属的编译、加载、单元或集成门禁覆盖。
+- 类型声明、Cordis 可加载性、插件 metadata、服务方法 API 和纯代数继续由所属的编译、加载、单元或集成门禁覆盖。
 - 运行时失败会标明所属 npm 包，并指出不一致的观测，而不是复述必要的 API 形状。
 - 原有 selection、blocklist 优先级、重复所有权、回滚、dispose 和 HMR（热模块替换）服务约定保持不变。

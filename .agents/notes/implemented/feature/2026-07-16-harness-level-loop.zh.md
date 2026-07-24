@@ -64,7 +64,7 @@ Goal Round 驱动器为每个特定的实时 agent 至多拥有一个待定预�
 
 普通 Turn 完成后，只有目标仍活跃、已激活且低于上限时才会安排另一个 Round。取消会暂停。速率限制或配额耗尽以代码 `usage-limited` 阻塞；上限耗尽使用 `round-limit`；队列失败使用 `queue-failed`；Turn 错误、max-token 停止、策略拒绝与未知终止结果使用各自对应的阻塞代码。独立组合的请求恢复插件可以在同一个 Turn 内重试暂时性 provider 失败；目标驱动器绝不会在异常终止结果后凭空发起另一个 Round。人类随后可以通过普通语言或 `/goal resume` 授权恢复。
 
-### 人类与模型表面
+### 人类与模型交互
 
 人类 UX 遵循 [OpenAI Codex 在提交 `678157a` 时的公开 TUI 分发器](https://github.com/openai/codex/blob/678157acaa819d5510adfe359abb5d0392cfe461/codex-rs/tui/src/chatwidget/slash_dispatch.rs#L750-L805)中的紧凑形态：`/goal` 显示状态，`/goal <objective>` 创建目标，而 `edit`、`pause`、`resume` 或 `clear` 执行直接生命周期操作。该提交永久链接让研究所得语法在 Codex 演进时仍可验证。状态包含持久阶段、已接纳/上限 Round 数以及实时已激活/未激活状态。直接状态与命令输出不会进入模型历史；已接受领域变更仍可重建，因为目标服务会记录它们。
 
@@ -114,7 +114,7 @@ Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天�
 - 人类获得小型 Codex 形态 UX；模型获得一组紧凑工具，其中的修改操作要求当前实时根 agent Turn 中有一条人类直接发送的消息；部署可以独立移除任一能力。
 - Ralph 展示了非平凡固定策略可以完全作为现有 workflow 与 subagent 原语之上的插件实现。
 - Round 上限默认宽裕，但仍由部署控制。它限制迭代次数，不限制 token、价格、耗时或外部副作用。
-- 原始提案中的评估器、预算、反思器、后台任务、CLI 与通用 loop-session 架构有意不进入已实现公开表面。
+- 原始提案中的评估器、预算、反思器、后台任务、CLI 与通用 loop-session 架构有意不进入已实现的公开 API。
 
 ## 已知限制与暂缓事项
 

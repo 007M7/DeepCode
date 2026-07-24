@@ -1,11 +1,11 @@
-/** Shared surface-only post-policy selection for search result spill. @module dsh-tool-fs-search/surface */
+/** Shared top-level-call post-policy selection for search result spill. @module dsh-tool-fs-search/direct-call */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { JsonValue, PostToolDecision, ToolDefinition, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
 /**
  * Return the accepted canonical value only when this tool still owns a direct
- * successful surface call and no downstream policy replaced either projection.
+ * successful top-level call and no downstream policy replaced either projection.
  * @param ctx - the tool plugin context used to resolve the live scoped owner.
  * @param tool - the exact registered definition whose value may be projected.
  * @param exec - the completed execution identity.
@@ -13,7 +13,7 @@ import type { JsonValue, PostToolDecision, ToolDefinition, ToolExecution, ToolEx
  * @param decision - the composed downstream post-policy decision.
  * @returns the canonical value to project, or `undefined` when spill must defer.
  */
-export function acceptedSurfaceValue(
+export function acceptedDirectCallValue(
   ctx: Context,
   tool: ToolDefinition,
   exec: ToolExecution,

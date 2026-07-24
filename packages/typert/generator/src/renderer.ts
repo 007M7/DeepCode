@@ -234,7 +234,7 @@ export class TypeGraphRenderer {
 
   /**
    * Find the transitive declaration closure referenced by members.
-   * @param memberIds - business-surface member ids.
+   * @param memberIds - business-API member ids.
    * @returns declarations in graph order, excluding no roots implicitly.
    */
   declarationClosureForMembers(memberIds: readonly string[]): TypeDeclarationModel[] {
