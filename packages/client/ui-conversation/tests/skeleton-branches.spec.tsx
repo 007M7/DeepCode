@@ -3,7 +3,7 @@
 // acceptance flows), four-share props form: breadcrumb ancestry derivation +
 // error strip in ConversationRoot, DetailsPanel non-JSON args / non-text
 // result blocks / error-only results over the shared store, EmptyState
-// failure surface and custom-directory swap with in-component cwd derivation.
+// failure surface and path-modal confirm with in-component cwd derivation.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -271,7 +271,7 @@ describe('EmptyState branches', () => {
     await waitFor(() => expect(view.getByText(/发送失败：plain-string/)).toBeTruthy())
   })
 
-  it('cwd derivation skips blank cwds; menu picks, swaps to free-form, submits the typed path', async () => {
+  it('cwd derivation skips blank cwds; menu picks, path modal confirms, submits the typed path', async () => {
     const startSession = vi.fn(() => Promise.resolve())
     const view = render(
       <EmptyState
@@ -291,8 +291,9 @@ describe('EmptyState branches', () => {
     fireEvent.click(view.getByRole('button', { name: '项目目录' }))
     fireEvent.mouseEnter(view.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
     fireEvent.click(view.getByRole('menuitem', { name: 'Use a existing folder' }))
-    const custom = view.container.querySelector('input')!
+    const custom = view.getByLabelText('Folder path')
     fireEvent.change(custom, { target: { value: '/typed/dir' } })
+    fireEvent.click(view.getByRole('button', { name: 'Open Folder' }))
     const textarea = view.container.querySelector('textarea')!
     fireEvent.change(textarea, { target: { value: 'task' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
