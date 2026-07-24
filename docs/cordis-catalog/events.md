@@ -91,7 +91,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void
+'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)

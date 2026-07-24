@@ -22,10 +22,10 @@ import type {
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import {
-  BlockAssembler, HarnessError, LlmError, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest,
+  BlockAssembler, LlmError, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
 import type {
-  ContentBlock, GenerateOptions, LlmCallConfig, LlmFailure, Message, MessageSource,
+  ContentBlock, GenerateOptions, LlmCallConfig, Message, MessageSource,
 } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { PromptMessageData, Session, SessionId, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
@@ -45,16 +45,6 @@ interface PendingMessage {
 interface OutboxItem extends PromptMessageData {
   /** Present only when this input is a live inbox item. */
   steering?: PendingMessage
-}
-
-/** Normalize thrown values while preserving an existing error code. */
-function toError(error: unknown): Error & { code?: string } {
-  return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
-}
-
-/** Rebuild the live {@link LlmError} for serializable provider facts; `cause` keeps the foreign original. */
-function llmError(facts: LlmFailure, cause?: Error): LlmError {
-  return new LlmError(facts.message, facts.code, { ...facts, cause })
 }
 
 function withoutToolCalls(message: Message): Message {
@@ -216,8 +206,7 @@ export class ReactLoopAgent extends Agent {
         }
       } catch (error: unknown) {
         if (agentInterruptReasonOf(signal) === undefined) {
-          const failure = toError(error)
-          this.loopCtx.logger.warn(`agent "${this.id}": prompt admission failed: ${errorChain(failure)}`)
+          this.loopCtx.logger.warn(`agent "${this.id}": prompt admission failed: ${errorChain(error)}`)
         }
       }
 
@@ -276,9 +265,8 @@ export class ReactLoopAgent extends Agent {
           this.session.append('turn/end', { turn, reason })
         }
       } catch (error: unknown) {
-        const err = toError(error)
-        this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(err)}`)
-        emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, err)
+        this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(error)}`)
+        emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
       }
       if (this.abort === controller) this.abort = undefined
       emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
@@ -335,14 +323,18 @@ export class ReactLoopAgent extends Agent {
       // Normalize a final-adapter failure into the one model-error type; the
       // foreign original stays on `cause` for the rendered chain.
       const facts = llmFailureOf(stream, error)
-      if (facts !== undefined && error instanceof Error) throw llmError(facts, error)
+      if (facts !== undefined && error instanceof Error) {
+        throw new LlmError(facts.message, facts.code, { ...facts, cause: error })
+      }
       throw error
     }
     signal.throwIfAborted()
 
     // Failure finish chunks take the same path as thrown stream errors.
     const finish = assembler.finish
-    if (finish.kind === 'error' || finish.kind === 'aborted') throw llmError(finish.failure)
+    if (finish.kind === 'error' || finish.kind === 'aborted') {
+      throw new LlmError(finish.failure.message, finish.failure.code, finish.failure)
+    }
 
     // Truncated (max-tokens) output cannot owe tool calls.
     const assembled = assembler.finish.kind === 'max-tokens'
@@ -478,11 +470,10 @@ export class ReactLoopAgent extends Agent {
         idle: { kind: 'error', error, failure: error.failure },
       }
     }
-    const err = toError(error)
-    emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, err)
+    emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
     return {
-      reason: { kind: 'error', step, message: errorChain(err), ...typeof err.code === 'string' ? { code: err.code } : {} },
-      idle: { kind: 'error', error: err },
+      reason: { kind: 'error', step, message: errorChain(error), ...isHarnessError(error) ? { code: error.code } : {} },
+      idle: { kind: 'error', error },
     }
   }
 

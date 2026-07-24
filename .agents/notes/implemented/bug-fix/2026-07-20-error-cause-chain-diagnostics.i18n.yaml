@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-20-error-cause-chain-diagnostics.md: 391e35997bb1bb050dd2ca620920961d77bb1c46
-2026-07-20-error-cause-chain-diagnostics.zh.md: 90d6559a9410e8a4e5475db9560a2a177ba7a1a7
+2026-07-20-error-cause-chain-diagnostics.md: 700c36c45ae8c939b6d9161ab90ab5dfe2c92686
+2026-07-20-error-cause-chain-diagnostics.zh.md: b358ec606b7c92641f3e6138fe23d832431bd5ce

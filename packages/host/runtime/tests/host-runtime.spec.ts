@@ -583,9 +583,9 @@ describe('events streams', () => {
 
     // Raw ctx.emit lacks the scope carrier the mounted invariants plugin now
     // enforces; dispatch the way the loop does.
-    agentEvents(ctx, agent).emit('agent/error', 1, 1, new Error('boom'))
+    agentEvents(ctx, agent).emit('agent/error', 1, 1, 'boom')
     const errorFrame = await stream.next()
-    expect((errorFrame.value as RpcRequest<HostFrame>).payload).toMatchObject({ type: 'host/agent-error', message: 'Error: boom' })
+    expect((errorFrame.value as RpcRequest<HostFrame>).payload).toMatchObject({ type: 'host/agent-error', message: 'boom' })
 
     ac.abort()
     // Push-after-done: an event landing between abort and generator wind-down

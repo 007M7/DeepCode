@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, LlmError, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, LlmError, StreamChunk, errorChain } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -131,8 +131,8 @@ describe('tool JSON parse', () => {
   })
 })
 
-describe('toError normalization', () => {
-  it('normalizes non-Error throws from pre-commit dispatch validation via the runLoop backstop', async () => {
+describe('thrown-value propagation', () => {
+  it('preserves non-Error throws from pre-commit dispatch validation', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -143,57 +143,56 @@ describe('toError normalization', () => {
       const event = args[1] as SessionEvent
       if (event.type === 'turn/start' && !threwOnce) {
         threwOnce = true
-        throw 'naked string error' // non-Error throw, normalized via toError
+        throw 'naked string error'
       }
     })
 
-    const errors: Error[] = []
+    const errors: unknown[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
     send(agent, 'fails before turn start')
     send(agent, 'survives as the next item')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
-    expect(errors[0]).toMatchObject({ message: 'naked string error', code: 'UNKNOWN' })
+    expect(errors[0]).toBe('naked string error')
     expect(adapter.requests).toHaveLength(1)
     const starts = agent.session.events.filter(event => event.type === 'turn/start')
     const ends = agent.session.events.filter(event => event.type === 'turn/end')
     const messages = agent.session.events.filter(event => event.type === 'user/message')
     expect(starts).toHaveLength(1)
-    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(1)
+    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(2)
     expect(ends).toHaveLength(1)
-    expect(messages).toHaveLength(1)
-    expect(messages[0]?.type === 'user/message' && messages[0].data.content).toEqual([
+    expect(messages).toHaveLength(2)
+    expect(messages[1]?.type === 'user/message' && messages[1].data.content).toEqual([
       { type: 'text', text: 'survives as the next item' },
     ])
   })
 
-  it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {
+  it('preserves non-Error throws from the agent/request waterfall', async () => {
     const adapter = new MockAdapter([textResponse('irrelevant')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _options, _signal, _next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       if (!threwOnce) {
         threwOnce = true
-        throw { code: 500 } // non-Error throw, goes through runStep catch
+        throw { code: 500 }
       }
-      return _next()
+      return next()
     })
 
-    const errors: Error[] = []
+    const errors: unknown[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
-    // String() of { code: 500 } is '[object Object]'
-    expect(errors[0]!.message).toBe('[object Object]')
+    expect(errors[0]).toEqual({ code: 500 })
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
       && ('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code))
-      .toBe('UNKNOWN')
+      .toBeUndefined()
   })
 })
 
@@ -204,7 +203,7 @@ describe('coded error data emission', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _options, _signal, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       if (!threwOnce) {
         threwOnce = true
         throw new LlmError('server overloaded', 'RATE_LIMIT')
@@ -212,13 +211,13 @@ describe('coded error data emission', () => {
       return next()
     })
 
-    const errors: Error[] = []
+    const errors: unknown[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toBe('server overloaded')
+    expect(errorChain(errors[0])).toBe('server overloaded')
 
     // turn-end error reason includes the code
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')

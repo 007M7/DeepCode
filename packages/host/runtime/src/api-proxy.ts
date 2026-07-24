@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -544,8 +545,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
-          ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: Error) => {
-            queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: String(error) }))
+          ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: unknown) => {
+            queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: errorChain(error) }))
           }),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })

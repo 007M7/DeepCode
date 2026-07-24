@@ -111,7 +111,8 @@ export interface TurnEndReasonMap {
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
    * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other turn failures retain their live Error message/code.
+   * as one `failure`; other thrown values retain their rendered message and a
+   * real `HarnessError` code when present.
    */
   error: { kind: 'error'; step: number } & (
     | { failure: LlmFailure; message?: never; code?: never }

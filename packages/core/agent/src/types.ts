@@ -128,14 +128,14 @@ export type PromptDecision =
 
 /**
  * Why a turn ended, reported live on `agent/idle` right after the turn's
- * durable `turn/end` and flush. `error` carries the live Error (and, for
+ * durable `turn/end` and flush. `error` carries the thrown value verbatim (and, for
  * model-request failures, the adapter-normalized facts) so a recovery
  * consumer can decide to repair and {@link Agent.retry}.
  */
 export type IdleReason =
   | { kind: 'completed' }
   | { kind: 'aborted' }
-  | { kind: 'error'; error: Error; failure?: LlmFailure }
+  | { kind: 'error'; error: unknown; failure?: LlmFailure }
 
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
@@ -426,6 +426,6 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void
+    'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void
   }
 }

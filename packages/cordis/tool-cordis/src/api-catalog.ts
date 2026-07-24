@@ -877,7 +877,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/error',
     mode: 'emit',
-    signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void',
+    signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void',
     jsDoc: '/**\n * A step or turn errored. The machine reports a failure here (plus the\n * logger) even when the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A step or turn errored.',
   },
