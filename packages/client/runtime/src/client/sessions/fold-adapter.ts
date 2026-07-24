@@ -18,6 +18,8 @@ export interface CallIndexEntry {
   argsRaw: string
   turn: number
   step: number
+  /** Unix epoch ms of the tool/call event. */
+  time: number
   /** Wire view riding the tool/call (envelope-level; never inside the event). */
   callView: ToolCallView | null
 }
@@ -38,24 +40,34 @@ function materializeNode(
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
-      return { kind: 'user', seq: event.seq, content: event.data.content, source: event.data.source }
+      return {
+        kind: 'user', seq: event.seq, time: event.time,
+        content: event.data.content, source: event.data.source,
+      }
     case 'assistant/message':
       return {
-        kind: 'assistant', seq: event.seq, turn: event.data.turn, step: event.data.step,
+        kind: 'assistant', seq: event.seq, time: event.time,
+        turn: event.data.turn, step: event.data.step,
         blocks: toAssistantBlocks(event.data.content), usage: event.data.usage,
       }
     case 'steering/message':
-      return { kind: 'steering', seq: event.seq, turn: event.data.turn, content: event.data.content, source: event.data.source }
+      return {
+        kind: 'steering', seq: event.seq, time: event.time, turn: event.data.turn,
+        content: event.data.content, source: event.data.source,
+      }
     case 'context/message':
       return {
-        kind: 'context', seq: event.seq, content: event.data.content, source: event.data.source,
+        kind: 'context', seq: event.seq, time: event.time,
+        content: event.data.content, source: event.data.source,
         meta: event.data.meta,
       }
     case 'tool/result': {
       const call = callIndex.get(String(event.data.callId))
       return {
-        kind: 'tool-result', seq: event.seq, callId: String(event.data.callId),
+        kind: 'tool-result', seq: event.seq, time: event.time,
+        callId: String(event.data.callId),
         call: call ? { name: call.name, argsRaw: call.argsRaw } : null,
+        callTime: call?.time ?? null,
         content: event.data.content, isError: event.data.isError,
         ...(event.data.error !== undefined ? { error: event.data.error } : {}),
         meta: event.data.meta,
@@ -67,7 +79,10 @@ function materializeNode(
     surface-eligible types, and each has a case above; reachable only if core
     adds an eligible type. */
     default:
-      return { kind: 'unknown', seq: event.seq, type: event.type, data: (event as { data?: unknown }).data }
+      return {
+        kind: 'unknown', seq: event.seq, time: event.time,
+        type: event.type, data: (event as { data?: unknown }).data,
+      }
   }
 }
 
@@ -186,6 +201,7 @@ export class FoldAdapter {
     if (event.type !== 'tool/call') return
     this.callIdx.set(String(event.data.callId), {
       name: event.data.name, argsRaw: event.data.arguments, turn: event.data.turn, step: event.data.step,
+      time: event.time,
       callView: view?.for === 'call' ? view.view : null,
     })
     // No backfill into already-materialized tool-result nodes for this callId
