@@ -384,6 +384,100 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'send', error: { code: 'agent-busy' } })
   })
 
+  it('waits for the current selector target and admits it with the prompt', async () => {
+    const { api, session } = makeSession()
+    api.onPlanMode = () => Promise.resolve(ok({ active: false }))
+    await session.open()
+    const selected = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    api.onSetPlanMode = () => selected.promise
+
+    const selecting = session.setPlanMode(true)
+    const prompting = session.prompt([{ type: 'text', text: 'plan this' }], 'queue')
+    await Promise.resolve()
+    expect(api.callsOf('session.prompt')).toEqual([])
+
+    selected.resolve(ok({ active: false, pending: true }))
+    await selecting
+    expect((await prompting).ok).toBe(true)
+    expect(api.callsOf('session.prompt')).toEqual([{
+      sessionId: SID,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'plan this' }],
+      planMode: true,
+    }])
+  })
+
+  it('does not admit a prompt when the selector request fails', async () => {
+    const { api, session } = makeSession()
+    api.onPlanMode = () => Promise.resolve(ok({ active: false }))
+    await session.open()
+    const selected = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    api.onSetPlanMode = () => selected.promise
+
+    const selecting = session.setPlanMode(true)
+    const prompting = session.prompt([{ type: 'text', text: 'do not send' }], 'queue')
+    selected.resolve(err({ code: 'internal', message: 'selection failed', details: {} }))
+    await selecting
+
+    expect((await prompting).ok).toBe(false)
+    expect(api.callsOf('session.prompt')).toEqual([])
+    expect(session.getSnapshot().promptError).toMatchObject({
+      op: 'send',
+      error: { code: 'internal', message: 'selection failed' },
+    })
+  })
+
+  it('ignores a superseded selector failure and admits the latest successful target', async () => {
+    const { api, session } = makeSession()
+    api.onPlanMode = () => Promise.resolve(ok({ active: false }))
+    await session.open()
+    const older = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    const newer = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    let call = 0
+    api.onSetPlanMode = () => ++call === 1 ? older.promise : newer.promise
+
+    const selectPlan = session.setPlanMode(true)
+    const prompting = session.prompt([{ type: 'text', text: 'use latest' }], 'queue')
+    const selectDefault = session.setPlanMode(false)
+    newer.resolve(ok({ active: false }))
+    await selectDefault
+    older.resolve(err({ code: 'internal', message: 'stale failure', details: {} }))
+    await selectPlan
+
+    expect((await prompting).ok).toBe(true)
+    expect(api.callsOf('session.prompt')).toEqual([{
+      sessionId: SID,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'use latest' }],
+      planMode: false,
+    }])
+  })
+
+  it('retains the latest selector failure until prompt admission observes it', async () => {
+    const { api, session } = makeSession()
+    api.onPlanMode = () => Promise.resolve(ok({ active: false }))
+    await session.open()
+    const older = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    const newer = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    let call = 0
+    api.onSetPlanMode = () => ++call === 1 ? older.promise : newer.promise
+
+    const selectPlan = session.setPlanMode(true)
+    const prompting = session.prompt([{ type: 'text', text: 'must stay local' }], 'queue')
+    const selectDefault = session.setPlanMode(false)
+    newer.resolve(err({ code: 'internal', message: 'latest failure', details: {} }))
+    await selectDefault
+    older.resolve(ok({ active: false, pending: true }))
+    await selectPlan
+
+    expect((await prompting).ok).toBe(false)
+    expect(api.callsOf('session.prompt')).toEqual([])
+    expect(session.getSnapshot().promptError).toMatchObject({
+      op: 'send',
+      error: { code: 'internal', message: 'latest failure' },
+    })
+  })
+
   it('lands cancel failures in promptError with op=stop', async () => {
     const { api, session } = makeSession()
     api.onCancel = () => Promise.reject(new Error('cancel transport down'))

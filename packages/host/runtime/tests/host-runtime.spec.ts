@@ -273,6 +273,72 @@ describe('sessions.planMode / setPlanMode', () => {
 })
 
 describe('sessions.prompt / cancel', () => {
+  it('admits a prompt and its plan target through one host operation', async () => {
+    const running = await boot([textResponse('planned')])
+    await running.ctx.plugin(PlanModeService, { section: 'Plan before acting.' })
+    const { sessionId } = expectOk(await running.api.sessions.create(request({})))
+    const agent = running.ctx.agents.get(sessionId) as Agent
+    const idle = waitForIdle(running.ctx, agent)
+
+    expectOk(await running.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'plan this' }],
+      planMode: true,
+    })))
+    await idle
+
+    const planEvent = agent.session.events.find(event => event.type === 'plan/mode')
+    const userEvent = agent.session.events.find(event => event.type === 'user/message')
+    const header = agent.session.events.find(event => event.type === 'request/header')
+    expect(planEvent?.type === 'plan/mode' && planEvent.data.active).toBe(true)
+    expect(planEvent?.seq).toBeLessThan(userEvent?.seq ?? Number.POSITIVE_INFINITY)
+    expect(header?.type === 'request/header' && header.data.header.system).toContain('Plan before acting.')
+  })
+
+  it('rolls back the plan target when prompt admission is rejected', async () => {
+    const running = await boot()
+    await running.ctx.plugin(PlanModeService, { section: 'Plan before acting.' })
+    const { sessionId } = expectOk(await running.api.sessions.create(request({})))
+    const agent = running.ctx.agents.get(sessionId) as Agent
+    const send = vi.spyOn(agent, 'send').mockImplementation(() => {
+      throw new Error('closed for admission')
+    })
+    try {
+      const response = await running.api.sessions.prompt(request({
+        sessionId,
+        mode: 'queue' as const,
+        content: [{ type: 'text' as const, text: 'plan this' }],
+        planMode: true,
+      }))
+      expect(response.result).toMatchObject({
+        ok: false,
+        error: { code: 'agent-busy', details: { reason: 'Error: closed for admission' } },
+      })
+      expect(expectOk(await running.api.sessions.planMode(request({ sessionId })))).toEqual({
+        active: false,
+      })
+    } finally {
+      send.mockRestore()
+    }
+  })
+
+  it('fails closed when a prompt targets unavailable plan mode', async () => {
+    const running = await boot()
+    const { sessionId } = expectOk(await running.api.sessions.create(request({})))
+    const response = await running.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'must not run ambiguously' }],
+      planMode: true,
+    }))
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: 'prompt requested plan mode, but this host does not provide it' },
+    })
+    expect((running.ctx.agents.get(sessionId) as Agent).session.events).toEqual([])
+  })
+
   it.each([
     { name: 'host default', config: true, target: '5 words', maxTokens: 64 },
     {

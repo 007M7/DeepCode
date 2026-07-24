@@ -443,16 +443,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async prompt(request) {
-        const { sessionId, mode, content } = request.payload
+        const { sessionId, mode, content, planMode: planTarget } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const agent = found.agent
+        const planMode = ctx.get('planMode')
+        if (planTarget !== undefined && planMode === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'prompt requested plan mode, but this host does not provide it',
+            details: {},
+          })
+        }
+        // No await separates selection from admission: another unary request
+        // cannot interleave a different target between these two operations.
+        const priorPlanState = planTarget === undefined ? undefined : planMode?.get(agent)
+        const priorPlanTarget = priorPlanState?.pending ?? priorPlanState?.active
+        if (planTarget !== undefined) planMode?.set(agent, planTarget)
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
           if (mode === 'steer') agent.steer(content, { source })
           else agent.send(content, { source })
         } catch (error: unknown) {
+          if (priorPlanTarget !== undefined) planMode?.set(agent, priorPlanTarget)
           // A synchronous throw from send/steer means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
         }
