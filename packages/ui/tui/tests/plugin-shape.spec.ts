@@ -14,6 +14,7 @@ describe('dsh-tui plugin export shape', () => {
     expect(unwrapped.name).toBe('ui-tui')
     expect(unwrapped.inject).toEqual([
       'agents',
+      'sessions',
       'commands',
       'userInteraction',
       'tools',

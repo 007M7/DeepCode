@@ -189,6 +189,10 @@ export function apply(ctx: Context): void {
         releaseDraftImage: (id) => { conversation().releaseDraftImage(id) },
         releaseDraftImages: (attachments) => { conversation().releaseDraftImages(attachments) },
         startSession: opts => conversation().startSession(opts),
+        createWorkspaceSession: async (name) => {
+          const id = await sessions.createWorkspace(name)
+          sessions.open(id)
+        },
       }
     },
   }, EmptyState)

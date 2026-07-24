@@ -194,6 +194,11 @@ export interface EmptyStateInjected {
     images?: readonly File[]
     mode: 'queue' | 'steer'
   }): Promise<void>
+  /**
+   * Create a workspace folder under the host cwd, mint a session there, and
+   * open it (Create-new modal success path).
+   */
+  createWorkspaceSession(name: string): Promise<void>
 }
 
 /** Full empty-state component props (root slot: no store; cwd options derive from useSessions in-component). */

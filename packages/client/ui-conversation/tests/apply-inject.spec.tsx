@@ -80,6 +80,7 @@ async function bench() {
     scopeOf,
     hostDescription: () => undefined,
     create: vi.fn(() => Promise.resolve(ROOT)),
+    createWorkspace: vi.fn(() => Promise.resolve(ROOT)),
     open: vi.fn(),
   }
   ctx.provide('sessions', sessionsFake)
@@ -241,13 +242,14 @@ describe('details and empty inject surfaces', () => {
     expect(details).toBe(conv)
   })
 
-  it('empty injects draft-image lifecycle and the startSession chain without a store', async () => {
+  it('empty injects draft-image lifecycle, startSession, and createWorkspaceSession without a store', async () => {
     const b = await bench()
     const entry = b.entryOf('conversation.empty')
     expect(entry.store).toBeUndefined()
     const injected = (entry.inject as unknown as () => EmptyStateInjected)()
-    expect(Object.keys(injected)).toEqual([
+    expect(Object.keys(injected).sort()).toEqual([
       'createDraftImages',
+      'createWorkspaceSession',
       'releaseDraftImage',
       'releaseDraftImages',
       'startSession',
@@ -256,6 +258,10 @@ describe('details and empty inject surfaces', () => {
     expect(b.sessionsFake.create).toHaveBeenCalled()
     expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
     expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'go' }], 'queue')
+    b.sessionsFake.open.mockClear()
+    await injected.createWorkspaceSession('Fresh')
+    expect(b.sessionsFake.createWorkspace).toHaveBeenCalledWith('Fresh')
+    expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
   })
 
   it('startSession fails loud on a torn boot (conversation service fiber gone)', async () => {

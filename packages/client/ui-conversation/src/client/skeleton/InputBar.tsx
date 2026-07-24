@@ -4,10 +4,14 @@
 // position move of this component, never a swap (layout ruling). Running
 // LOCKS the input: textarea disabled with the draft visible, stop is the only
 // action; the turn ending re-enables and refocuses.
+//
+// Bottom chrome (attach / Plan / Read-only / model) is visual-only for now —
+// local native <select> state, no host wiring.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ClipboardEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
+import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ComposerAttachment } from '../contract/slots.ts'
 import { ImageLightbox } from './ImageLightbox.tsx'
 import css from './InputBar.module.css'
@@ -27,7 +31,7 @@ export interface InputBarProps {
   /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
   placeholder?: string
-  /** Optional leading accessory row content (the empty state mounts its cwd picker here). */
+  /** Optional leading accessory row above the textarea (kept for callers; empty state no longer uses it). */
   accessory?: ReactNode
   onDraftChange: (text: string) => void
   onAddImages?: (files: readonly File[]) => string | null
@@ -35,6 +39,26 @@ export interface InputBarProps {
   onSend: (mode: 'queue' | 'steer') => void
   onStop: () => void
 }
+
+interface SelectOption {
+  id: string
+  label: string
+}
+
+const PLAN_OPTIONS: readonly SelectOption[] = [
+  { id: 'plan', label: 'Plan' },
+  { id: 'agent', label: 'Agent' },
+]
+
+const READONLY_OPTIONS: readonly SelectOption[] = [
+  { id: 'readonly', label: 'Read-only' },
+  { id: 'readwrite', label: 'Read-write' },
+]
+
+const MODEL_OPTIONS: readonly SelectOption[] = [
+  { id: 'v4-pro-high', label: 'DeepSeek-V4-Pro High' },
+  { id: 'v4-pro', label: 'DeepSeek-V4-Pro' },
+]
 
 export function InputBar({
   draft, attachments = [], running, disabled, error, variant, placeholder, accessory,
@@ -57,6 +81,11 @@ export function InputBar({
       composingRef.current = false
     }, 10)
   }
+
+  // Placeholder chrome: selection is local until plan/mode/model seams land.
+  const [planId, setPlanId] = useState('plan')
+  const [readonlyId, setReadonlyId] = useState('readonly')
+  const [modelId, setModelId] = useState('v4-pro-high')
 
   // Locked while running: the browser drops keystrokes AND focus on a disabled
   // textarea — no sending mid-turn, stop or wait.
@@ -142,6 +171,25 @@ export function InputBar({
     if (!empty && !disabled) onSend('queue')
   }
 
+  const renderSelect = (
+    aria: string,
+    value: string,
+    options: readonly SelectOption[],
+    onPick: (id: string) => void,
+  ): ReactNode => (
+    <select
+      className={css.select}
+      aria-label={aria}
+      value={value}
+      disabled={locked}
+      onChange={(e: ChangeEvent<HTMLSelectElement>) => { onPick(e.target.value) }}
+    >
+      {options.map(opt => (
+        <option key={opt.id} value={opt.id}>{opt.label}</option>
+      ))}
+    </select>
+  )
+
   return (
     <div className={clsx(css.root, variant === 'hero' && css.hero)}>
       {error !== null && (
@@ -207,25 +255,44 @@ export function InputBar({
           <div aria-hidden className={css.mirror}>{`${draft}\n`}</div>
         </div>
         <div className={css.row}>
-          <button
-            type="button"
-            className={clsx(css.primary, running && css.stopping)}
-            aria-label={primaryLabel}
-            title={running ? '停止本轮' : '发送（Enter）'}
-            disabled={!running && (empty || disabled)}
-            onMouseDown={keepFocus}
-            onClick={onPrimary}
-          >
-            {running ? (
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
-                <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
-                <path d="M8 13V3.8M8 3.8L3.8 8M8 3.8L12.2 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-              </svg>
-            )}
-          </button>
+          <div className={css.tools}>
+            <button
+              type="button"
+              className={css.add}
+              aria-label="添加"
+              title="添加"
+              disabled={locked}
+              onMouseDown={keepFocus}
+            >
+              <IconPlusOutline16 size={14} />
+            </button>
+            <div className={css.modes}>
+              {renderSelect('Plan mode', planId, PLAN_OPTIONS, setPlanId)}
+              {renderSelect('Access mode', readonlyId, READONLY_OPTIONS, setReadonlyId)}
+            </div>
+          </div>
+          <div className={css.trailing}>
+            {renderSelect('Model', modelId, MODEL_OPTIONS, setModelId)}
+            <button
+              type="button"
+              className={clsx(css.primary, running && css.stopping)}
+              aria-label={primaryLabel}
+              title={running ? '停止本轮' : '发送（Enter）'}
+              disabled={!running && (empty || disabled)}
+              onMouseDown={keepFocus}
+              onClick={onPrimary}
+            >
+              {running ? (
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                  <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                  <path d="M8 13V3.8M8 3.8L3.8 8M8 3.8L12.2 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </div>
       {preview !== null && <ImageLightbox src={preview.previewUrl} alt={preview.file.name || '原图'} onClose={closePreview} />}
