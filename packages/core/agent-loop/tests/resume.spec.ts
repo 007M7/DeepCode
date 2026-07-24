@@ -391,6 +391,51 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx.fiber.dispose()
   })
 
+  it('owner unload during live-lease acquisition releases a late claim', async () => {
+    const sessionId = SessionId('resume-claim-owner-unload')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    const claiming = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.claimLive>>>()
+    const claimStarted = Promise.withResolvers<undefined>()
+    const originalClaim = ctx.sessionPersistence.claimLive.bind(ctx.sessionPersistence)
+    ctx.sessionPersistence.claimLive = (id) => {
+      expect(id).toBe(sessionId)
+      claimStarted.resolve(undefined)
+      return claiming.promise
+    }
+
+    let resuming!: ReturnType<typeof ctx.agents.resume>
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      resuming = inner.agents.resume({ resumeSessionId: sessionId })
+    }, { inject: ['agents'] }))
+    await claimStarted.promise
+    const rejection = expect(promptly(resuming)).rejects.toThrow(/owner disposed during setup/)
+    await promptly(owner.dispose())
+    await rejection
+
+    let releases = 0
+    claiming.resolve({ release: () => { releases += 1; return Promise.resolve() } })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(releases).toBe(1)
+    ctx.sessionPersistence.claimLive = originalClaim
+    await ctx.fiber.dispose()
+  })
+
+  it('propagates a rejected live-lease claim without loading or publishing', async () => {
+    const sessionId = SessionId('resume-claim-rejected')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    let loads = 0
+    ctx.sessionPersistence.claimLive = () => Promise.reject(new Error('occupied elsewhere'))
+    ctx.sessionPersistence.load = () => { loads += 1; return Promise.reject(new Error('must not load')) }
+    await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
+      .rejects.toThrow('occupied elsewhere')
+    expect(loads).toBe(0)
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('AgentLoop unload aborts persistence load and awaits wrapper settlement', async () => {
     const sessionId = SessionId('resume-load-factory-unload')
     const root = await persistSession(sessionId)

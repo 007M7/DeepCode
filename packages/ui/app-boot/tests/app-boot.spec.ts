@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   addHarnessSourceSection, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
-  installFailLoud, loadEnv, parseResumeArg, resolveConfigPath, type FailLoudProcess,
+  installFailLoud, loadEnv, parseResumeArg, replaceResumeArg, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -52,6 +52,15 @@ describe('parseResumeArg', () => {
   it('rejects resume syntax used as the flag value instead of resuming a session named like the flag', () => {
     expect(() => parseResumeArg(['--resume', '--resume', 'sess'])).toThrow('--resume requires a session id')
     expect(() => parseResumeArg(['--resume', '--resume=sess'])).toThrow('--resume requires a session id')
+  })
+})
+
+describe('replaceResumeArg', () => {
+  it('keeps positional arguments and replaces either existing flag form', () => {
+    expect(replaceResumeArg(['app.yml'], 'next')).toEqual(['app.yml', '--resume', 'next'])
+    expect(replaceResumeArg(['--resume', 'old', 'app.yml'], 'next')).toEqual(['app.yml', '--resume', 'next'])
+    expect(replaceResumeArg(['app.yml', '--resume=old'], 'next')).toEqual(['app.yml', '--resume', 'next'])
+    expect(() => replaceResumeArg([], '')).toThrow('non-empty session id')
   })
 })
 
@@ -191,6 +200,19 @@ describe('boot', () => {
     try {
       const entries = [...ctx.loader.entries()]
       expect(entries.some(entry => entry.options.name === './noop.mjs' && entry.fiber !== undefined)).toBe(true)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('runs host preparation before the Loader tree mounts', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'noop.mjs'), 'export const name = "noop"\nexport function apply() {}\n')
+    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
+    const prepared: Context[] = []
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, (hostCtx) => { prepared.push(hostCtx) })
+    try {
+      expect(prepared).toEqual([ctx])
     } finally {
       await ctx.fiber.dispose()
     }

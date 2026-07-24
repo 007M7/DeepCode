@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
+import { sessionLiveOwner } from '@deepseek-ai/dsh-session-persistence'
 import { openDatabase, rowToEvent, scanRows, type EventRow } from '../src/schema.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
@@ -442,7 +443,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(8)
+    expect(SCHEMA_VERSION).toBe(9)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {
@@ -458,6 +459,38 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('claims, rejects, reclaims, inspects, and releases SQLite live leases', async () => {
+    const path = await freshDbPath()
+    const b = await backend(path)
+    await b.ctx.sessionPersistence.list()
+    const concrete = b.ctx.sessionPersistence as SessionPersistenceSqlite
+    const owner = sessionLiveOwner()
+    const db = openDatabase(path, 'wal')
+    const insert = db.prepare('INSERT INTO live_session_leases (session_id, pid, nonce) VALUES (?, ?, ?)')
+    insert.run('occupied-lease', process.pid, 'another-owner')
+    insert.run('stale-claim', 2_147_483_647, 'dead-owner')
+    insert.run('stale-inspect', 2_147_483_647, 'dead-owner')
+    insert.run('owned-inspect', owner.pid, owner.nonce)
+    db.close()
+
+    await expect(concrete.acquireLive(SessionId('occupied-lease'), owner))
+      .rejects.toThrow('occupied by another live process')
+    const claim = await concrete.acquireLive(SessionId('stale-claim'), owner)
+    expect(await concrete.inspectLive(SessionId('owned-inspect'), owner)).toBe(true)
+    expect(await concrete.inspectLive(SessionId('stale-inspect'), owner)).toBe(false)
+    expect(await concrete.inspectLive(SessionId('missing-inspect'), owner)).toBe(false)
+    await claim()
+    await b.dispose()
+
+    const memory = new Context()
+    await memory.plugin(SessionStore)
+    await memory.plugin(SessionPersistenceSqlite, { path: ':memory:' })
+    const memoryClaim = await memory.sessionPersistence.claimLive(SessionId('memory-live'))
+    expect(await memory.sessionPersistence.isLive(SessionId('memory-live'))).toBe(true)
+    await memoryClaim.release()
+    await memory.fiber.dispose()
+  })
+
   it('rejects and closes a current-schema database with an invalid store identity', async () => {
     const path = await freshDbPath()
     const db = openDatabase(path, 'wal')

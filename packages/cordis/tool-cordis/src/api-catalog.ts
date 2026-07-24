@@ -480,6 +480,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>',
         jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
       },
+      {
+        signature: 'claimLive(id: SessionId): Promise<SessionLiveLease>',
+        jsDoc: '/**\n * Atomically acquire this process\'s live ownership of a session id.\n * Reentrant claims share one backend lease. First-party backends override\n * this process-local fallback to reject another live process and reclaim a\n * dead owner.\n * @param id - session identity that is about to become live.\n * @returns a single-release reference owned by the caller.\n */',
+      },
+      {
+        signature: 'isLive(id: SessionId): Promise<boolean>',
+        jsDoc: '/**\n * Check whether any process currently owns a live lease for this session.\n * The base implementation reports only claims on this service instance.\n * @param id - persisted or prospective session identity.\n * @returns true while a non-stale lease exists, including this process\'s lease.\n */',
+      },
     ],
   },
   {
@@ -497,6 +505,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'listSessions(): Promise<SessionRecord[]>',
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
+      },
+      {
+        signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
+        jsDoc: '/**\n * Read and replay-validate one complete logical session log without making it live.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned header and complete raw event log from one observation.\n * @throws when persistence, header compatibility, or replay validation fails.\n */',
       },
       {
         signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
@@ -1806,8 +1818,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionLineageTrace = {\n    target: SessionRecord;\n    ancestors: SessionRecord[];\n    descendants: SessionLineageNode[];\n} & ({\n    complete: true;\n    root: SessionRecord;\n} | {\n    complete: false;\n    unresolvedParentId: SessionId;\n});',
   },
   {
+    name: 'SessionLiveLease',
+    declaration: 'export interface SessionLiveLease {\n    release(): Promise<void>;\n}',
+  },
+  {
     name: 'SessionLocation',
     declaration: 'export interface SessionLocation {\n    readonly kind: string;\n    readonly path: string;\n}',
+  },
+  {
+    name: 'SessionLogSnapshot',
+    declaration: 'export interface SessionLogSnapshot {\n    session: SessionHeader;\n    events: SessionEvent[];\n}',
   },
   {
     name: 'SessionPersistenceRevision',

@@ -6,8 +6,10 @@ import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import { type LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type JsonValue, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
 import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -152,10 +154,13 @@ describe('TUI config', () => {
       maxToolOutputLines: 6,
       maxQuestionOptions: 8,
       maxModelOptions: 8,
+      maxResumeOptions: 8,
       questionDialogWidth: 200,
       questionDialogMaxHeight: 20,
       modelDialogWidth: 72,
       modelDialogMaxHeight: 20,
+      resumeDialogWidth: 88,
+      resumeDialogMaxHeight: 24,
       fileSearchMaxResults: 20,
       fileSearchMaxEntries: 10_000,
       fileSearchExcludedDirectories: ['.git', 'node_modules'],
@@ -169,10 +174,13 @@ describe('TUI config', () => {
       maxToolOutputLines: 2,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
+      maxResumeOptions: 5,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      resumeDialogWidth: 84,
+      resumeDialogMaxHeight: 22,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -185,10 +193,13 @@ describe('TUI config', () => {
       maxToolOutputLines: 2,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
+      maxResumeOptions: 5,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      resumeDialogWidth: 84,
+      resumeDialogMaxHeight: 22,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -204,6 +215,21 @@ describe('resume command and /resume', () => {
   const RESUME = 'RESUME_SESSION_ID={session} dsh'
   const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
     ({ version: 0, id: SessionId(id), createdAt, cwd })
+  const resumeEvents = (
+    title: string,
+    provider = 'deepseek',
+    time = 100,
+    reason: TurnEndReason = { kind: 'completed' },
+  ): SessionEvent[] => [
+    { type: 'turn/start', seq: 0, time, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'user/message', seq: 1, time: time + 1, data: { content: [{ type: 'text', text: 'resume me' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'step/start', seq: 2, time: time + 2, data: { turn: 1, step: 1 } },
+    { type: 'request/header', seq: 3, time: time + 3, data: { header: { config: { provider, model: 'model-1' } }, reason: 'initial' } },
+    { type: 'assistant/message', seq: 4, time: time + 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'done' }], provenance: { provider, model: 'model-1' } }, surfaceOp: 'append' },
+    { type: 'step/end', seq: 5, time: time + 5, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
+    { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
+  ]
 
   it('prints the resume command on exit once the session is persisted', async () => {
     const result = await setup({
@@ -243,73 +269,589 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('lists this workspace\'s sessions newest-first and marks the current one', async () => {
+  it('opens a newest-active-first searchable selector and Esc cancels without side effects', async () => {
+    const older = header('older-session', 500, '/workspace')
+    const newer = header('newer-session', 2000, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
     const result = await setup({
       cwd: '/workspace',
       config: { resumeCommand: RESUME },
+      handoffResume: handoff,
       sessionPersistence: {
-        list: async () => [
-          header('main-session', 1000, '/workspace'),
-          header('older-session', 500, '/workspace'),
-          header('newer-session', 2000, '/workspace'),
-          header('foreign-session', 3000, '/elsewhere'),
-        ],
+        list: async () => [older, newer, header('foreign-session', 3000, '/elsewhere')],
+        load: async id => id === newer.id
+          ? { meta: newer, events: resumeEvents('Newer product work', 'deepseek', 300) }
+          : { meta: older, events: resumeEvents('Older investigation', 'deepseek', 100) },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    const output = result.terminal.output
+    expect(output).toContain('Resume session')
+    expect(output).toContain('Newer product work')
+    expect(output).toContain('Older investigation')
+    expect(output).toContain('current · live')
+    expect(output.indexOf('Newer product work')).toBeLessThan(output.indexOf('Older investigation'))
+    expect(output).not.toContain('foreign-session')
+    result.terminal.send('Older')
+    await tick()
+    expect(result.terminal.output).toContain('Search: Older')
+    result.terminal.send('\x1b')
+    await tick()
+    expect(handoff).not.toHaveBeenCalled()
+    await dispose(result)
+  })
+
+  it('handles selector navigation, empty matches, and backspace search edits', async () => {
+    const target = header('keyboard-target', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Keyboard target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[A')
+    result.terminal.send('\t')
+    result.terminal.send('zz')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('No session matches this search')
+    result.terminal.send('\x7f')
+    result.terminal.send('\x7f')
+    await tick()
+    expect(result.terminal.output).toContain('Search: title or session id')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('current session')
+    result.terminal.send('\x1b')
+    await dispose(result)
+  })
+
+  it('clips candidate count through the configured visible-session limit', async () => {
+    const targets = [header('limited-a', 10, '/workspace'), header('limited-b', 20, '/workspace')]
+    const result = await setup({
+      cwd: '/workspace',
+      config: { maxResumeOptions: 1 },
+      sessionPersistence: {
+        list: async () => targets,
+        load: async id => ({
+          meta: targets.find(target => target.id === id)!,
+          events: resumeEvents(`Limited ${id}`),
+        }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('1/3')
+    await dispose(result)
+  })
+
+  it.each([
+    [{ kind: 'aborted' }, 'cancelled'],
+    [{ kind: 'error', step: 1, message: 'failed' }, 'error'],
+    [{ kind: 'disposed' }, 'disposed'],
+    [{ kind: 'max-tokens' }, 'max tokens'],
+    [{ kind: 'rejected', reason: 'policy' }, 'rejected'],
+    [{ kind: 'interrupted' }, 'interrupted'],
+    [{ kind: 'future-result' } as unknown as TurnEndReason, 'unknown result'],
+  ] as const)('renders the last turn result %s', async (reason, label) => {
+    const target = header(`turn-${label}`, 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents(`Turn ${label}`, 'deepseek', 100, reason) }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain(`turn 1: ${label}`)
+    await dispose(result)
+  })
+
+  it('refuses while running instead of cancelling or switching', async () => {
+    const result = await setup({ cwd: '/workspace', status: 'running' })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('finish or be cancelled first')
+    expect(result.agent.cancelled).toEqual([])
+    await dispose(result)
+  })
+
+  it('warns when the optional session-query service is absent', async () => {
+    const result = await setup({ cwd: '/workspace', mountSessionQuery: false })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session query is not mounted')
+    await dispose(result)
+  })
+
+  it('keeps persisted query records readable when live-lease inspection is unavailable', async () => {
+    const target = header('query-only-persisted', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{
+            header: target,
+            live: false,
+            persisted: true,
+          }]),
+          readSession: () => Promise.resolve({
+            session: target,
+            events: resumeEvents('Query-only persisted session'),
+          }),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Query-only persisted session')
+    expect(result.terminal.output).toContain('persisted')
+    expect(result.terminal.output).not.toContain('session cannot be loaded')
+    await dispose(result)
+  })
+
+  it('contains a session-query scan failure in the current TUI', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.reject(new Error('index unavailable')),
+        } as never)
       },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick()
-    const output = result.terminal.output
-    expect(output).toContain('Resumable sessions')
-    expect(output).toContain('RESUME_SESSION_ID=main-session dsh')
-    expect(output).toContain('(current)')
-    expect(output).toContain('RESUME_SESSION_ID=newer-session dsh')
-    expect(output).not.toContain('foreign-session')
-    // Newest-first: the newer session's command precedes the current session's.
-    // Match the full resume command, not the bare id: the banner detail line
-    // echoes the current session id (`main-session`) above the listing.
-    expect(output.indexOf('RESUME_SESSION_ID=newer-session')).toBeLessThan(
-      output.indexOf('RESUME_SESSION_ID=main-session'),
-    )
-    expect(output.indexOf('RESUME_SESSION_ID=main-session')).toBeLessThan(
-      output.indexOf('RESUME_SESSION_ID=older-session'),
-    )
+    expect(result.terminal.output).toContain('Resume session scan failed: index unavailable')
+    expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })
 
-  it('warns from /resume when resume is not configured', async () => {
-    const result = await setup({ cwd: '/workspace' })
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Resume is not configured')
-    await dispose(result)
-  })
-
-  it('warns from /resume when no persistence backend is mounted', async () => {
-    const result = await setup({ cwd: '/workspace', config: { resumeCommand: RESUME } })
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('no persistence backend is mounted')
-    await dispose(result)
-  })
-
-  it('notes from /resume when no workspace sessions are persisted yet', async () => {
+  it('supersedes a slower prior selector scan', async () => {
+    const first = Promise.withResolvers<SessionRecord[]>()
+    let calls = 0
     const result = await setup({
-      cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: { list: async () => [header('foreign-session', 10, '/elsewhere')] },
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => ++calls === 1 ? first.promise : Promise.resolve([]),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    first.reject(new Error('superseded scan failed'))
+    await tick()
+    expect(calls).toBe(2)
+    expect(result.terminal.output).toContain('No matching sessions')
+    expect(result.terminal.output).not.toContain('superseded scan failed')
+    result.terminal.send('\x1b[A')
+    result.terminal.send('\x1b[B')
+    await dispose(result)
+  })
+
+  it('drops a selector scan that resolves after TUI disposal', async () => {
+    const listing = Promise.withResolvers<SessionRecord[]>()
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', { listSessions: () => listing.promise } as never)
+      },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output).toContain('No resumable sessions found')
+    await dispose(result)
+    listing.resolve([])
+    await tick()
+    expect(result.terminal.stopped).toBeGreaterThan(0)
+  })
+
+  it('drops loaded selector summaries when the TUI disposed during log reads', async () => {
+    const target = header('dispose-during-load', 10, '/workspace')
+    const loading = Promise.withResolvers<{ meta: SessionHeader; events: SessionEvent[] }>()
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: () => loading.promise,
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    await dispose(result)
+    loading.resolve({ meta: target, events: resumeEvents('Disposed load') })
+    await tick()
+    expect(result.terminal.stopped).toBeGreaterThan(0)
+  })
+
+  it('preflights route availability and occupied or corrupt sessions without losing the current TUI', async () => {
+    const missing = header('missing-route', 10, '/workspace')
+    const occupied = header('occupied', 20, '/workspace')
+    const corrupt = header('corrupt', 30, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: {
+        list: async () => [missing, occupied, corrupt],
+        isLive: async id => id === occupied.id,
+        load: async (id) => {
+          if (id === corrupt.id) throw new Error('checksum mismatch')
+          return {
+            meta: id === missing.id ? missing : occupied,
+            events: resumeEvents(id === missing.id ? 'Missing adapter' : 'Busy session', id === missing.id ? 'absent-provider' : 'deepseek'),
+          }
+        },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Missing adapter')
+    expect(result.terminal.output).toContain('absent-provider/model-1')
+    expect(result.terminal.output).toContain('Busy session')
+    expect(result.terminal.output).toContain('Unreadable session')
+    result.terminal.send('Missing adapter')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('route is currently unavailable')
+    expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
+  })
+
+  it('falls back to assistant provenance and header creation time for sparse logs', async () => {
+    const assistantOnly = header('assistant-route', 20, '/workspace')
+    const empty = header('empty-log', 10, '/workspace')
+    const events = resumeEvents('Assistant route', 'deepseek')
+      .filter(event => event.type !== 'request/header')
+      .map((event, seq) => ({ ...event, seq })) as SessionEvent[]
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [assistantOnly, empty],
+        load: async id => id === assistantOnly.id
+          ? { meta: assistantOnly, events }
+          : { meta: empty, events: [] },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('deepseek/model-1')
+    expect(result.terminal.output).toContain(new Date(empty.createdAt).toISOString())
+    await dispose(result)
+  })
+
+  it('flushes, releases the terminal, and invokes one host handoff for the same SessionId', async () => {
+    const target = header('target-session', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(() => Promise.reject(new Error('test host retained process')))
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Target session') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Target session')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(handoff).toHaveBeenCalledTimes(1)
+    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(result.terminal.stopped).toBeGreaterThan(0)
+    expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
+    await dispose(result)
+  })
+
+  it('restores the UI when a host returns instead of replacing the process', async () => {
+    const target = header('returning-host', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: async () => undefined as never,
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Returning host') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Returning host')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('resume host returned without replacing the process')
+    await dispose(result)
+  })
+
+  it('keeps the current TUI when the selected log fails its second preflight load', async () => {
+    const target = header('racing-corruption', 10, '/workspace')
+    let loads = 0
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => {
+          if (++loads > 1) throw new Error('log changed during selection')
+          return { meta: target, events: resumeEvents('Racing corruption') }
+        },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Racing corruption')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Resume failed: session cannot be loaded: failed to inspect session')
+    expect(result.terminal.output).toContain('log changed during selection')
+    expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
+  })
+
+  it('rejects a candidate whose cwd changes between listing and preflight', async () => {
+    const target = header('moving-workspace', 10, '/workspace')
+    let listings = 0
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [++listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere')],
+        load: async () => ({
+          meta: listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere'),
+          events: resumeEvents('Moving workspace'),
+        }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Moving workspace')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('different workspace')
+    await dispose(result)
+  })
+
+  it('admits only one handoff while the selected preflight is pending', async () => {
+    const target = header('single-handoff', 10, '/workspace')
+    const preflight = Promise.withResolvers<{ meta: SessionHeader; events: SessionEvent[] }>()
+    let loads = 0
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: () => ++loads === 1
+          ? Promise.resolve({ meta: target, events: resumeEvents('Single handoff') })
+          : preflight.promise,
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Single handoff')
+    result.terminal.send('\r')
+    result.terminal.send('\r')
+    await tick()
+    preflight.resolve({ meta: target, events: resumeEvents('Single handoff') })
+    await tick(); await tick()
+    expect(loads).toBe(2)
+    await dispose(result)
+  })
+
+  it('rechecks running state and candidate existence before loading the selected log', async () => {
+    const target = header('preflight-races', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Preflight races') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.agent.status = 'running'
+    result.terminal.send('Preflight races')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Resume requires an idle agent (status: running)')
+    result.agent.status = 'idle'
+    await dispose(result)
+
+    let disappearingLists = 0
+    const disappearing = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => ++disappearingLists <= 2 ? [target] : [],
+        load: async () => ({ meta: target, events: resumeEvents('Disappearing target') }),
+      },
+    })
+    disappearing.terminal.send('/resume')
+    disappearing.terminal.send('\r')
+    await tick(); await tick()
+    disappearing.terminal.send('Disappearing target')
+    disappearing.terminal.send('\r')
+    await tick()
+    expect(disappearing.terminal.output).toContain('is no longer available')
+    await dispose(disappearing)
+  })
+
+  it('rechecks idleness after the selected log finishes loading', async () => {
+    const target = header('load-turns-running', 10, '/workspace')
+    let loads = 0
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => {
+          loads += 1
+          if (loads === 2) result.agent.status = 'running'
+          return { meta: target, events: resumeEvents('Load turns running') }
+        },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Load turns running')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Resume requires an idle agent (status: running)')
+    result.agent.status = 'idle'
+    await dispose(result)
+  })
+
+  it('keeps resumeCommand as a displayed fallback when the host cannot hand off', async () => {
+    const target = header('fallback-session', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Fallback target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Fallback target')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
+    expect(result.terminal.output).toContain('RESUME_SESSION_ID=fallback-session')
+    expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
+  })
+
+  it('keeps the selector independent from an absent command fallback', async () => {
+    const target = header('no-fallback-session', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('No fallback target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('No fallback target')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
+    await dispose(result)
+  })
+
+  it('rechecks idleness after the current-session flush', async () => {
+    const target = header('post-flush-running', 10, '/workspace')
+    const control: { setRunning?: () => void } = {}
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.on('session/flush', () => { control.setRunning?.() })
+      },
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Post-flush running') }),
+      },
+    })
+    control.setRunning = () => { result.agent.status = 'running' }
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Post-flush running')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Resume requires an idle agent (status: running)')
+    expect(handoff).not.toHaveBeenCalled()
+    result.agent.status = 'idle'
     await dispose(result)
   })
 })
 
 describe('pi-tui chat lifecycle and transcript', () => {
+  it('restores durable goal phase without implying automatic continuation', async () => {
+    const change: GoalSnapshotChangeMeta = {
+      kind: 'goal/change',
+      version: GOAL_CHANGE_VERSION,
+      operation: 'create',
+      goal: {
+        id: GoalId('restored-goal'),
+        revision: 1,
+        objective: 'Resume only with human confirmation',
+        phase: 'active',
+        maxGoalRounds: 4,
+      },
+      roundsStarted: 0,
+      createdAt: 10,
+      updatedAt: 10,
+    }
+    const result = await setup({
+      beforeMount(session) {
+        session.append('context/message', {
+          content: renderGoalChange(change),
+          source: { kind: 'goal', goalId: change.goal.id, revision: change.goal.revision, round: 0 },
+          meta: change as unknown as JsonValue,
+        }, { surfaceOp: 'append' })
+      },
+    })
+    expect(result.terminal.output).toContain('Goal restored (active) with automatic continuation disarmed')
+    expect(result.terminal.output).toContain('/goal resume')
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('goal active')
+    await dispose(result)
+  })
+
   it('uses the latest log-backed title for the header subtitle and terminal window', async () => {
     const result = await setup({
       // A fixed short cwd keeps the footer's token counters inside the 88-column

@@ -113,7 +113,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:378`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -957,7 +957,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:39`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:40`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -996,7 +996,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:58`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:59`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query-sqlite`
 
@@ -1571,7 +1571,7 @@ Source: [`packages/core/tools/src/index.ts:529`](../packages/core/tools/src/inde
 
 ## `@deepseek-ai/dsh-tui`
 
-Requires: `agents` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter`
+Requires: `agents` · `sessions` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter`
 
 ```ts config-catalog
 /** Serializable plugin configuration. */
@@ -1581,11 +1581,10 @@ export interface Config extends TuiConfig {
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
   /**
-   * Shell command template shown for resuming this session: printed on exit and
-   * listed by `/resume`, with every `{session}` occurrence replaced by the live
-   * session id. Absent disables both surfaces. Deployments set it only when a
-   * persistence backend makes the session resumable (e.g.
-   * `RESUME_SESSION_ID={session} dsh`).
+   * Shell command fallback printed on exit or after selecting a session when
+   * the host cannot hand off in place. Every `{session}` becomes the selected
+   * id; the TUI never executes this text. Absent disables only the fallback,
+   * not the interactive selector.
    */
   resumeCommand?: string
 }
@@ -1600,6 +1599,8 @@ export interface TuiConfig {
   maxQuestionOptions?: number
   /** Maximum models visible at once in the model selector. */
   maxModelOptions?: number
+  /** Maximum sessions visible at once in the resume selector. */
+  maxResumeOptions?: number
   /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
   /** User-question panel maximum height in terminal rows. */
@@ -1608,6 +1609,10 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Resume-selector width in terminal columns. */
+  resumeDialogWidth?: number
+  /** Resume-selector maximum height in terminal rows. */
+  resumeDialogMaxHeight?: number
   /** Maximum fuzzy file candidates displayed for one `@` query. */
   fileSearchMaxResults?: number
   /** Maximum paths retained in one `@` workspace index. */
@@ -1630,7 +1635,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:248`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:278`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 

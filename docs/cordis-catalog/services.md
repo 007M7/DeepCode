@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:398`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:416`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -961,11 +961,29 @@ abstract list(): Promise<SessionHeader[]>
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
 abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
+
+/**
+ * Atomically acquire this process's live ownership of a session id.
+ * Reentrant claims share one backend lease. First-party backends override
+ * this process-local fallback to reject another live process and reclaim a
+ * dead owner.
+ * @param id - session identity that is about to become live.
+ * @returns a single-release reference owned by the caller.
+ */
+claimLive(id: SessionId): Promise<SessionLiveLease>
+
+/**
+ * Check whether any process currently owns a live lease for this session.
+ * The base implementation reports only claims on this service instance.
+ * @param id - persisted or prospective session identity.
+ * @returns true while a non-stale lease exists, including this process's lease.
+ */
+isLive(id: SessionId): Promise<boolean>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
+Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLiveLease](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:55`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
@@ -995,6 +1013,14 @@ abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchE
  * @returns deterministic newest-first cloned session records.
  */
 listSessions(): Promise<SessionRecord[]>
+
+/**
+ * Read and replay-validate one complete logical session log without making it live.
+ * @param sessionId - live or persisted session id to read.
+ * @returns cloned header and complete raw event log from one observation.
+ * @throws when persistence, header compatibility, or replay validation fails.
+ */
+async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>
 
 /**
  * Filter the complete logical corpus with provider-independent predicates.
@@ -1057,9 +1083,9 @@ async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchHit](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchHit](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:73`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:74`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessionReferences` — `SessionReferenceService`
 
@@ -1701,7 +1727,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:132`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:150`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

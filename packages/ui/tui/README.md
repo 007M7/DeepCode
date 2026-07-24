@@ -30,7 +30,9 @@ The footer sums the session's reported usage as `↑<uncached input> ↓<output>
 
 `/status` adds a point-in-time diagnostics card to the transcript and remains available while the agent runs. It reports the session id, title, working directory, selected provider/model, reasoning-block visibility, agent state, event/turn/step/tool-call counts, exact input/output/cache token buckets, KV-cache hit rate, token-meter context use and capacity, creation time, and latest event time. Missing titles, models, cache input, or context capacity are labeled instead of inferred. The card is terminal-only and does not duplicate the compact footer.
 
-When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiting prints the resume command for the current session (once it has been persisted, so an abandoned session yields no hint), and `/resume` lists this workspace's persisted sessions newest-first, each with its resume command and a marker on the current one. `{session}` in the template expands to the session id; the TUI only prints commands to copy and never resumes in place.
+`/resume` opens a keyboard selector over the current workspace. Candidates are sorted by last logged activity and searchable by log-backed title or session id; each row reports current/live/persisted state, last turn outcome, recent provider/model, and durable goal phase when present. The current session, another live owner's session, an unreadable log, a mismatched cwd, or a session whose logged provider has no current adapter remains visible but disabled. Selection repeats those checks, requires the current agent to be idle, flushes it, stops the terminal UI, and calls the optional host-owned `TuiRuntime.handoffResume`; where `process.execve` is available, the shipped `dsh` host disposes the app and atomically replaces its process, so two runtimes never own the terminal together. Resume restores the same `SessionId`, transcript, title, todos, and durable goal; goal activation remains disarmed and the TUI asks for human confirmation or `/goal resume`.
+
+`resumeCommand` remains the deployment-owned fallback: exiting prints it only after the current session is durable, and a host without in-place handoff shows the selected session's command. `{session}` expands to the session id. TUI code never executes the template or arbitrary shell text.
 
 ## Config
 
@@ -42,17 +44,20 @@ When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiti
 | `maxToolOutputLines` | `6` | Output lines retained across a collapsed tool card's head/tail preview |
 | `maxQuestionOptions` | `8` | Visible options in a question panel |
 | `maxModelOptions` | `8` | Visible models in the model selector |
+| `maxResumeOptions` | `8` | Visible sessions in the resume selector |
 | `questionDialogWidth` | `200` | Question-panel width in columns, clamped to the terminal |
 | `questionDialogMaxHeight` | `20` | Question-panel maximum rows |
 | `modelDialogWidth` | `72` | Model-selector width in columns |
 | `modelDialogMaxHeight` | `20` | Model-selector maximum rows |
+| `resumeDialogWidth` | `88` | Resume-selector width in columns |
+| `resumeDialogMaxHeight` | `24` | Resume-selector maximum rows |
 | `fileSearchMaxResults` | `20` | Maximum file and directory candidates shown for one `@` query |
 | `fileSearchMaxEntries` | `10000` | Maximum paths retained in the bounded workspace index used by bare fuzzy queries |
 | `fileSearchExcludedDirectories` | `['.git', 'node_modules']` | Directory basenames omitted from traversal and direct completion |
 | `showHardwareCursor` | `false` | Show the hardware cursor at pi-tui's IME marker |
 | `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
 | `title` | `DeepSeek Harness` | Product suffix for the terminal window title. |
-| `resumeCommand` | — | Shell command template for the exit hint and `/resume`, with `{session}` expanded to the session id; unset disables both. Needs a `sessionPersistence` backend |
+| `resumeCommand` | — | Shell command template for the exit hint and hosts without in-place handoff, with `{session}` expanded to the session id |
 
 ```yaml
 - id: terminal

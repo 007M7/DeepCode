@@ -8,6 +8,8 @@
 import { Context } from 'cordis'
 import { interruptedTurnClosers, SESSION_FORMAT_VERSION, snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import { sessionLiveOwner } from './lease.ts'
+import type { SessionLiveLease, SessionLiveOwner } from './lease.ts'
 
 /**
  * A stored session's header, valid contiguous event prefix, and optional opaque
@@ -63,6 +65,12 @@ export interface PersistenceBackend<TornMarker = unknown> {
   /** List all stored (materialized) sessions' metadata. */
   list(): Promise<SessionHeader[]>
 
+  /** Optionally acquire a backend-owned cross-process live-session lease. */
+  acquireLive?(id: SessionId, owner: SessionLiveOwner): Promise<() => Promise<void>>
+
+  /** Optionally inspect and reclaim a backend-owned live-session lease. */
+  inspectLive?(id: SessionId, owner: SessionLiveOwner): Promise<boolean>
+
   /**
    * Optional lifecycle teardown (e.g. close a database handle). Awaited by the
    * coordinator's dispose effect AFTER the quiescence drain. A stateless file
@@ -96,6 +104,7 @@ interface LiveSessionState {
   pending: SessionEvent[]
   init: Promise<void>
   flush: Promise<void> | undefined
+  lease?: SessionLiveLease
 }
 
 /** Collect the rejection reasons from a set of promises (none-throwing). */
@@ -161,6 +170,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * same id, so writes for one session never interleave. Keyed by session id.
    */
   private chains = new Map<SessionId, Promise<unknown>>()
+  /** One backend lease with process-local reference counting per session id. */
+  private liveClaims = new Map<SessionId, {
+    refs: number
+    releaseBackend: () => Promise<void>
+  }>()
+  private readonly liveOwner = sessionLiveOwner()
 
   constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
     this.installWritePath()
@@ -273,6 +288,61 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     return this.serialize(id, () => this.inspectCore(id))
   }
 
+  /**
+   * Acquire one process-local reference to the backend's cross-process lease.
+   * @param id - session identity about to become live.
+   * @returns one idempotent release capability.
+   */
+  async claimLive(id: SessionId): Promise<SessionLiveLease> {
+    const acquireLive = this.backend.acquireLive?.bind(this.backend)
+    if (acquireLive === undefined) return { release: () => Promise.resolve() }
+    await this.serialize(id, async () => {
+      const existing = this.liveClaims.get(id)
+      if (existing !== undefined) {
+        existing.refs += 1
+        return
+      }
+      const releaseBackend = await acquireLive(id, this.liveOwner)
+      this.liveClaims.set(id, { refs: 1, releaseBackend })
+    })
+    let releaseTask: Promise<void> | undefined
+    return {
+      release: () => {
+        if (releaseTask !== undefined) return releaseTask
+        const task = this.serialize(id, async () => {
+          const claim = this.liveClaims.get(id)
+          /* v8 ignore next -- this capability is returned only after its claim enters the serialized map */
+          if (claim === undefined) return
+          claim.refs -= 1
+          if (claim.refs > 0) return
+          try {
+            await claim.releaseBackend()
+          } catch (error) {
+            claim.refs += 1
+            throw error
+          }
+          this.liveClaims.delete(id)
+        })
+        const wrapped = task.catch((error: unknown) => {
+          releaseTask = undefined
+          throw error
+        })
+        releaseTask = wrapped
+        return wrapped
+      },
+    }
+  }
+
+  /**
+   * Check the backend's current cross-process lease state.
+   * @param id - session identity to inspect.
+   * @returns whether this or another live process owns the session.
+   */
+  isLive(id: SessionId): Promise<boolean> {
+    if (this.liveClaims.has(id)) return Promise.resolve(true)
+    return this.backend.inspectLive?.(id, this.liveOwner) ?? Promise.resolve(false)
+  }
+
   private async inspectCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     const stored = await this.backend.loadStored(id)
     if (stored === undefined) throw new Error(`session "${id}" not found`)
@@ -382,6 +452,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       let disposeError: unknown
       try {
         const errors = await settledErrors([...this.live.keys()].map(session => this.flush(session)))
+        errors.push(...await settledErrors(
+          [...this.live.values()].flatMap(live => live.lease === undefined ? [] : [live.lease.release()]),
+        ))
         while (this.chains.size > 0) await Promise.allSettled([...this.chains.values()])
         if (errors.length > 0) {
           throw new AggregateError(errors, `${this.backend.name} dispose failed`)
@@ -441,6 +514,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async retireCore(session: Session): Promise<void> {
     await this.flush(session)
     const id = session.header.id
+    const live = this.live.get(session)
+    await live?.lease?.release()
     await this.serialize(id, () => {
       this.live.delete(session)
       if (this.states.get(id)?.owner === session) this.states.delete(id)
@@ -454,7 +529,16 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const seed = session.events.map(e => structuredClone(e))
     const live: LiveSessionState = { pending: [], init: Promise.resolve(), flush: undefined }
     this.live.set(session, live)
-    live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
+    live.init = this.claimLive(session.id).then(async (lease) => {
+      live.lease = lease
+      try {
+        await this.serialize(session.header.id, () => this.onCreated(session, seed))
+      } catch (error) {
+        delete live.lease
+        await lease.release()
+        throw error
+      }
+    })
     live.init.catch(() => { /* observed by flush/dispose through the controller */ })
     return live
   }

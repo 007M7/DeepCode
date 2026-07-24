@@ -14,8 +14,9 @@ import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
-  type StoredPrefix,
+  sessionLeaseProcessIsLive, shareSessionLiveLease,
+  type PersistenceBackend, type SessionLiveLease, type SessionLiveOwner,
+  type SessionLocation, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -62,6 +63,11 @@ export interface Config {
 interface JsonlTornMarker {
   truncateTo: number
   recoveredEvents: SessionEvent[]
+}
+
+interface JsonlLiveLeaseRecord {
+  pid: number
+  nonce: string
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
@@ -133,6 +139,14 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.inspect(id)
+  }
+
+  override claimLive(id: SessionId): Promise<SessionLiveLease> {
+    return this.coordinator.claimLive(id)
+  }
+
+  override isLive(id: SessionId): Promise<boolean> {
+    return this.coordinator.isLive(id)
   }
 
   // One method serves both public `list` and the backend hook; delegating it to
@@ -272,6 +286,110 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       }
     }
     return snapshots
+  }
+
+  /** Atomically publish one process lease, reclaiming a crashed owner's record. */
+  async acquireLive(id: SessionId, owner: SessionLiveOwner): Promise<() => Promise<void>> {
+    const path = this.liveLeasePath(id)
+    return shareSessionLiveLease(`jsonl:${path}`, () => this.acquireLiveFile(path, id, owner))
+  }
+
+  private async acquireLiveFile(
+    path: string,
+    id: SessionId,
+    owner: SessionLiveOwner,
+  ): Promise<() => Promise<void>> {
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+    for (;;) {
+      try {
+        const handle = await open(path, 'wx', 0o600)
+        try {
+          await handle.writeFile(`${JSON.stringify(owner)}\n`, 'utf8')
+          await handle.sync()
+        } finally {
+          await handle.close()
+        }
+        break
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        const current = await this.readLiveLease(path)
+        if (current !== undefined && current.pid === owner.pid && current.nonce === owner.nonce) break
+        if (current === undefined || sessionLeaseProcessIsLive(current.pid)) {
+          throw new Error(`session "${id}" is occupied by another live process`)
+        }
+        const reclaimPath = `${path}.reclaim`
+        let reclaim: Awaited<ReturnType<typeof open>>
+        try {
+          reclaim = await open(reclaimPath, 'wx', 0o600)
+        } catch (reclaimError) {
+          /* v8 ignore else -- non-contention filesystem failures are propagated verbatim and are not portable to induce */
+          if ((reclaimError as NodeJS.ErrnoException).code === 'EEXIST') {
+            throw new Error(`session "${id}" live-lease reclamation is already in progress`)
+          }
+          /* v8 ignore next -- non-contention filesystem failures are propagated verbatim and are not portable to induce */
+          throw reclaimError
+        }
+        try {
+          /* v8 ignore start -- cross-process revalidation is covered by the two-process race test */
+          const latest = await this.readLiveLease(path)
+          if (latest === undefined) {
+            if (await this.exists(path)) throw new Error(`session "${id}" has an unreadable live-process lease`)
+          } else if (latest.pid !== owner.pid || latest.nonce !== owner.nonce) {
+            if (sessionLeaseProcessIsLive(latest.pid)) {
+              throw new Error(`session "${id}" is occupied by another live process`)
+            }
+            await rm(path, { force: true })
+          }
+          /* v8 ignore stop */
+        } finally {
+          try {
+            await reclaim.close()
+          } finally {
+            await rm(reclaimPath, { force: true })
+          }
+        }
+      }
+    }
+    return async () => {
+      const current = await this.readLiveLease(path)
+      if (current?.pid === owner.pid && current.nonce === owner.nonce) await rm(path, { force: true })
+    }
+  }
+
+  /** Report one non-stale process lease and clean up a crashed owner's record. */
+  async inspectLive(id: SessionId, owner: SessionLiveOwner): Promise<boolean> {
+    const path = this.liveLeasePath(id)
+    const current = await this.readLiveLease(path)
+    if (current === undefined) return await this.exists(path)
+    if (current.pid === owner.pid && current.nonce === owner.nonce) return true
+    if (sessionLeaseProcessIsLive(current.pid)) return true
+    return false
+  }
+
+  private liveLeasePath(id: SessionId): string {
+    return join(this.root, '.live', `${encodeSegment(id)}.lock`)
+  }
+
+  private async readLiveLease(path: string): Promise<JsonlLiveLeaseRecord | undefined> {
+    let text: string
+    try {
+      text = await readFile(path, 'utf8')
+    } catch (error) {
+      if (isENOENT(error)) return undefined
+      throw error
+    }
+    let value: unknown
+    try {
+      value = JSON.parse(text)
+    } catch {
+      return undefined
+    }
+    if (typeof value !== 'object' || value === null
+      || !Number.isSafeInteger((value as { pid?: unknown }).pid)
+      || (value as { pid: number }).pid <= 0
+      || typeof (value as { nonce?: unknown }).nonce !== 'string'
+      || (value as { nonce: string }).nonce.length === 0) return undefined
+    return value as JsonlLiveLeaseRecord
   }
 
   private async listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>> {

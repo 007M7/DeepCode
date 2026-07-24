@@ -15,6 +15,10 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 | `inspect(id): Promise<{ meta; events }>` | Return a detached valid stored prefix without truncating a torn tail, synthesizing recovery closers, or publishing coordinator state. Serialized with same-id writes; intended for read models and other observers that must never recover a log. |
 | `list(): Promise<SessionHeader[]>` | Lightweight listing from metadata, no full-log parse. A zero-event lazily-materialized session is absent from `list`. |
 | `listSnapshots(): Promise<SessionPersistenceSnapshot[]>` | Lightweight metadata plus an opaque branded per-log revision, without loading event logs. A revision stays equal while that log and its backing store are unchanged, changes after append or mutating load repair, and cannot collide solely because two stores use the same local counter. |
+| `claimLive(id): Promise<SessionLiveLease>` | Atomically claim live ownership. First-party backends reject another live process and reclaim a dead owner; release follows quiescence. |
+| `isLive(id): Promise<boolean>` | Report a current non-stale live lease, including one owned by this process. |
+
+The abstract base supplies a process-local fallback for lightweight third-party implementations. A backend that needs multi-process safety overrides both live-lease methods.
 
 ## Invariants every backend must honor
 
@@ -31,7 +35,7 @@ Each `session/event` copies its event into the session controller and starts an 
 
 Crash repair is cold-only. For a live id, `load(id)` snapshots the authoritative in-memory log, waits for that snapshot to become durable, and returns it with the coordinator's stored header only when balanced; an open live turn rejects instead of receiving synthetic interruption closers. A cold load reserves its id across backend reads and repair writes, so concurrent publication of a same-id live `Session` rejects and rolls back. HMR adoption reads through `loadStored`, applies the coordinator's cwd check, and never closes the active turn.
 
-When a live session emits `session/disposed`, the coordinator waits for its controller, serializes a final drain, then releases state owned by that exact `Session` object. Failed retirement leaves the controller in the live-session map, so backend teardown can retry it. Backend teardown stops event admission first, flushes every remaining controller, awaits per-id operations, and only then closes the storage handle.
+When a live session emits `session/disposed`, the coordinator waits for its controller, serializes a final drain, then releases state and the backend-owned live lease for that exact `Session` object. Failed retirement leaves the controller in the live-session map, so backend teardown can retry it. Backend teardown stops event admission first, flushes every remaining controller, releases their leases, awaits per-id operations, and only then closes the storage handle.
 
 The side-effect-free `locate` and lightweight `listSnapshots` queries remain backend-owned because they describe storage topology and revision identity rather than write orchestration.
 
@@ -44,6 +48,8 @@ The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinato
 | `appendBatch(meta, events, isMaterialized)` | Durably append a contiguous batch, lazily materializing ATOMICALLY when not yet materialized. |
 | `commitRepair(meta, tornMarker, closers)` | Make a crash repair durable: truncate the torn tail (iff `tornMarker !== undefined` — a marker may be falsy, e.g. seq/offset `0`) and append `closers`. NOT required to be atomic. Used by load (truncate + closers) and live-adoption (truncate only). |
 | `list()` | List all stored metadata. |
+| `acquireLive?(id, owner)` | Atomically acquire a backend-owned cross-process lease and return its physical release. |
+| `inspectLive?(id, owner)` | Report or reclaim a backend-owned lease without acquiring it. |
 | `close?()` | Optional lifecycle teardown (e.g. close a db handle), awaited after the dispose drain. |
 
 The coordinator asserts the stored id and compares stored/live cwd before repair or live adoption. Its `inspect()` path validates and clones the prefix without calling `commitRepair` or publishing write state. The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). A third-party backend MAY implement the abstract service directly without the coordinator, but it must provide the same non-mutating inspection and trustworthy lightweight snapshot revisions. See [the write-coordinator Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
