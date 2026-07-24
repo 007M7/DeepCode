@@ -25,7 +25,17 @@ interface SessionRecord {
 }
 ```
 
-`SessionSurfaceSnapshot` is one exact-read observation rather than a retained subscription. Its raw-log boundary and folded events come from the same live-preferred load.
+`SessionLogSnapshot` is the complete detached, replay-validated raw log used by resume preflight. `SessionSurfaceSnapshot` is one exact-read surface observation rather than a retained subscription.
+
+```ts type-equiv
+/** One validated detached observation of a logical session's complete raw log. */
+interface SessionLogSnapshot {
+  /** Cloned session header selected from the same observation as `events`. */
+  session: SessionHeader
+  /** Cloned contiguous raw events after persistence repair and replay validation. */
+  events: SessionEvent[]
+}
+```
 
 ```ts type-equiv
 /** One atomic live-preferred observation of a session's current model surface. */

@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { stat } from 'node:fs/promises'
+import { mkdir, stat } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -407,8 +407,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const sessionId = `session-${randomUUID()}` as SessionId
         // A session's cwd is its project path. When the creator does not choose
         // one, the default project is the host-level default (the host process
-        // working directory unless boot overrides it).
+        // working directory unless boot overrides it). Ensure the directory
+        // exists so Create-workspace and typed paths land on a real folder.
         const cwd = request.payload.cwd ?? defaults.cwd
+        try {
+          await mkdir(cwd, { recursive: true })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to ensure project directory "${cwd}": ${String(error)}`,
+            details: {},
+          })
+        }
         const handle = await ctx.agents.create({ sessionId, agentOptions, meta: { cwd } })
         return ok(request, { sessionId: handle.agent.id })
       },
@@ -437,7 +447,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
           if (mode === 'steer') agent.steer(content, { source })
-          else agent.send(content, { source })
+          else agent.followup(content, { source })
         } catch (error: unknown) {
           // A synchronous throw from send/steer means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })

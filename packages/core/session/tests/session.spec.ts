@@ -62,7 +62,7 @@ describe('Session', () => {
       turn: 1,
       trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'before' } },
     })
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'before' }],
       source: { kind: 'plugin', plugin: 'before' },
     }, { surfaceOp: 'append' })
@@ -82,7 +82,7 @@ describe('Session', () => {
       turn: 3,
       trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'after' } },
     })
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'after' }],
       source: { kind: 'plugin', plugin: 'after' },
     }, { surfaceOp: 'append' })
@@ -117,9 +117,9 @@ describe('Session', () => {
       .toThrow('seed turn/end at index 1 uses unsupported reason-bearing aborted format')
   })
 
-  it('renders context and steering messages as plain user content', () => {
+  it('renders injected-context and steering messages as plain user content', () => {
     const session = new Session(SessionId('s2'))
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'file changed: a.ts' }],
       source: { kind: 'plugin', plugin: 'watcher' },
     }, { surfaceOp: 'append' })
@@ -172,7 +172,7 @@ describe('Session', () => {
       version: 1,
       changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
     }
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-context' },
       meta,
@@ -183,7 +183,7 @@ describe('Session', () => {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
     }])
     const event = session.events[0]
-    expect(event?.type === 'context/message' && event.data.meta).toEqual(meta)
+    expect(event?.type === 'user/message' && event.data.meta).toEqual(meta)
   })
 
   it('replays identically from a seeded event log', () => {

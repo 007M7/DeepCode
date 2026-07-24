@@ -41,10 +41,11 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `sessionReferences` | service defaults | Cross-session candidate and snapshot limits routed to `dsh-session-reference` |
 | `welcome` | `ready.` | TUI subtitle |
+| `resumeCommand` | — | Exit and no-host fallback command template; the selector itself uses session query and host handoff |
 | `ui` | owner defaults | TUI presentation settings such as reasoning, color, and card height |
 | `resumeSessionId` | — | Exact persisted session to resume |
 
-Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI and configured agent. Resumed runs bind both components to `resumeSessionId`. The TUI mounts before the spine so it can render a matching config-start failure instead of leaving a blank terminal.
+Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI and configured agent. Resumed runs bind both components to `resumeSessionId`. The TUI mounts before the spine so it can render a matching config-start failure instead of leaving a blank terminal. The app composes persistence and session query for `/resume`; an embedding host may additionally provide `tuiResumeHost` for in-place process handoff.
 
 ## The bin
 

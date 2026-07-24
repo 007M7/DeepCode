@@ -434,7 +434,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       case 'tool/call': {
         this.openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
-          turn: event.data.turn, step: event.data.step,
+          turn: event.data.turn, step: event.data.step, time: event.time,
           callView: view?.for === 'call' ? view.view : null,
         })
         this.callsRev++
@@ -455,7 +455,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
             this.frozenNodes.push({
-              kind: 'assistant', seq: event.seq - 0.9, turn: this.partial.turn, step: this.partial.step,
+              kind: 'assistant', seq: event.seq - 0.9, time: event.time,
+              turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
             this.frozenRev++
@@ -469,8 +470,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
           this.frozenNodes.push({
-            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, callId,
+            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
+            callId,
             call: { name: call.name, argsRaw: call.argsRaw },
+            callTime: call.time,
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })

@@ -81,6 +81,18 @@ export function parseResumeArg(
 }
 
 /**
+ * Replace any existing resume flag with one canonical trailing `--resume <id>` pair.
+ * @param argv - current arguments after command dispatch.
+ * @param sessionId - selected session id.
+ * @returns flag-normalized arguments for a process replacement.
+ */
+export function replaceResumeArg(argv: readonly string[], sessionId: string): string[] {
+  if (sessionId.length === 0) throw new Error(`${RESUME_FLAG} requires a non-empty session id`)
+  const { rest } = parseResumeArg(argv)
+  return [...rest, RESUME_FLAG, sessionId]
+}
+
+/**
  * Load the optional gitignored `.env` from `dir`. Missing files fall back to the
  * ambient environment; other read failures are reported through `warn`.
  * @param binName - the diagnostic prefix on the warn line.
@@ -216,12 +228,17 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
  * (see {@link resolveConfigPath}).
  * @param patches - optional overlay patches applied over the included tree
  * (see {@link loadPersonalPatches}); an empty list mounts none.
+ * @param prepare - optional host setup run against the root context before any Loader entry mounts.
  * @returns the root context once every entry has started.
  */
 export async function boot(
-  binName: string, absoluteConfigPath: string, patches?: PatchOptions[],
+  binName: string,
+  absoluteConfigPath: string,
+  patches?: PatchOptions[],
+  prepare?: (ctx: Context) => Promise<void> | void,
 ): Promise<Context> {
   const ctx = new Context()
+  await prepare?.(ctx)
   ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
