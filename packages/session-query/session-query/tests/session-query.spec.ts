@@ -130,6 +130,98 @@ function rejectUnknown<T>(reason: unknown): Promise<T> {
   })
 }
 
+const cancellableSessionListings = [
+  {
+    name: 'listSessions',
+    run: (ctx: Context, signal: AbortSignal) => ctx.sessionQuery.listSessions(signal),
+  },
+  {
+    name: 'filterSessions',
+    run: (ctx: Context, signal: AbortSignal) => ctx.sessionQuery.filterSessions([], signal),
+  },
+] as const
+
+describe.each(cancellableSessionListings)('$name cancellation', ({ run }) => {
+  it('preserves an exact pre-abort reason without entering persistence', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const controller = new AbortController()
+    const reason = new Error('session listing cancelled before start')
+    controller.abort(reason)
+
+    await expect(run(ctx, controller.signal)).rejects.toBe(reason)
+    expect(TestPersistence.listCalls).toBe(0)
+    expect(TestPersistence.listSignals).toEqual([])
+  })
+
+  it('forwards in-flight cancellation and waits for persistence cleanup before rejecting', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const controller = new AbortController()
+    const reason = new Error('session listing cancelled in flight')
+    const started = Promise.withResolvers<undefined>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const cleanup = Promise.withResolvers<undefined>()
+    let active = false
+    TestPersistence.listOverride = async (signal) => {
+      if (signal === undefined) throw new Error('expected persistence listing signal')
+      active = true
+      const aborted = new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+      started.resolve(undefined)
+      await aborted
+      abortObserved.resolve(undefined)
+      await cleanup.promise
+      active = false
+      signal.throwIfAborted()
+      return []
+    }
+
+    const pending = run(ctx, controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await started.promise
+    controller.abort(reason)
+    await abortObserved.promise
+
+    expect(settled).toBe(false)
+    expect(active).toBe(true)
+    expect(TestPersistence.listSignals).toEqual([controller.signal])
+
+    cleanup.resolve(undefined)
+    await expect(pending).rejects.toBe(reason)
+    expect(active).toBe(false)
+  })
+
+  it('preserves cancellation after a persistence implementation ignores the signal', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const controller = new AbortController()
+    const reason = new Error('session listing cancelled before persistence returned')
+    const started = Promise.withResolvers<undefined>()
+    const listing = Promise.withResolvers<SessionHeader[]>()
+    TestPersistence.listOverride = (_signal) => {
+      started.resolve(undefined)
+      return listing.promise
+    }
+
+    const pending = run(ctx, controller.signal)
+    await started.promise
+    controller.abort(reason)
+    listing.resolve([])
+
+    await expect(pending).rejects.toBe(reason)
+    expect(TestPersistence.listSignals).toEqual([controller.signal])
+  })
+})
+
 describe('session-query exact reads', () => {
   it('returns a detached replay-valid full log and rejects a corrupt persisted seed', async () => {
     const valid = header('valid-log', 2)

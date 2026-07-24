@@ -312,7 +312,7 @@ async function authorizeTarget(
   const records = await ctx.sessionQuery.filterSessions([
     { kind: 'id', values: [target] },
     { kind: 'cwd', values: [cwd] },
-  ])
+  ], signal)
   signal.throwIfAborted()
   if (records.length !== 1) throw unauthorizedTarget()
 }
@@ -805,7 +805,7 @@ async function authorizeSessionIds(
   const records = await ctx.sessionQuery.filterSessions([
     { kind: 'id', values: other },
     { kind: 'cwd', values: [cwd] },
-  ])
+  ], signal)
   signal.throwIfAborted()
   for (const record of records) authorized.add(record.header.id)
   return authorized

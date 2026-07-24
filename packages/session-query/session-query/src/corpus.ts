@@ -52,11 +52,14 @@ export class SessionCorpus {
 
   /**
    * List the complete logical corpus with live precedence and cloned headers.
+   * @param signal - optional cancellation for persistence listing.
    * @returns records in deterministic newest-first order.
    */
-  async listSessions(): Promise<SessionRecord[]> {
+  async listSessions(signal?: AbortSignal): Promise<SessionRecord[]> {
+    signal?.throwIfAborted()
     const persistence = this._persistence
-    const persisted = persistence === undefined ? [] : await listPersisted(persistence)
+    const persisted = persistence === undefined ? [] : await listPersisted(persistence, signal)
+    signal?.throwIfAborted()
     const records = new Map<SessionId, SessionRecord>()
     for (const header of persisted) {
       records.set(header.id, { header: structuredClone(header), live: false, persisted: true })
@@ -239,6 +242,7 @@ async function listPersisted(
   try {
     return await persistence.list(signal)
   } catch (error: unknown) {
+    if (signal?.aborted) signal.throwIfAborted()
     throw new SessionQueryError(
       `session persistence listing failed: ${errorMessage(error)}`,
       'SESSION_QUERY_PERSISTENCE_FAILED',

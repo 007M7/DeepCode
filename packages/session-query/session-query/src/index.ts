@@ -115,10 +115,11 @@ export abstract class SessionQueryService extends Service {
 
   /**
    * List the complete logical corpus using live-preferred records.
+   * @param signal - optional cancellation for persistence listing.
    * @returns deterministic newest-first cloned session records.
    */
-  listSessions(): Promise<SessionRecord[]> {
-    return this._corpus.listSessions()
+  listSessions(signal?: AbortSignal): Promise<SessionRecord[]> {
+    return this._corpus.listSessions(signal)
   }
 
   /**
@@ -139,11 +140,15 @@ export abstract class SessionQueryService extends Service {
   /**
    * Filter the complete logical corpus with provider-independent predicates.
    * @param filters - ANDed session metadata and availability clauses.
+   * @param signal - optional cancellation for persistence listing.
    * @returns matching cloned records in deterministic newest-first order.
    */
-  async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]> {
+  async filterSessions(
+    filters: readonly SessionResultFilter[],
+    signal?: AbortSignal,
+  ): Promise<SessionRecord[]> {
     const ownedFilters = materializeSessionResultFilters(filters)
-    return this._filterSessions(ownedFilters)
+    return this._filterSessions(ownedFilters, signal)
   }
 
   /**
@@ -220,8 +225,11 @@ export abstract class SessionQueryService extends Service {
     return this._filterEvents(sessionId, ownedFilters)
   }
 
-  private async _filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]> {
-    return filterSessionResults(await this._corpus.listSessions(), filters)
+  private async _filterSessions(
+    filters: readonly SessionResultFilter[],
+    signal?: AbortSignal,
+  ): Promise<SessionRecord[]> {
+    return filterSessionResults(await this._corpus.listSessions(signal), filters)
   }
 
   private async _filterEvents(

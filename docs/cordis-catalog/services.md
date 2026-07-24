@@ -994,9 +994,10 @@ abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchE
 
 /**
  * List the complete logical corpus using live-preferred records.
+ * @param signal - optional cancellation for persistence listing.
  * @returns deterministic newest-first cloned session records.
  */
-listSessions(): Promise<SessionRecord[]>
+listSessions(signal?: AbortSignal): Promise<SessionRecord[]>
 
 /**
  * Read and replay-validate one complete logical session log without making it live.
@@ -1009,9 +1010,10 @@ async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>
 /**
  * Filter the complete logical corpus with provider-independent predicates.
  * @param filters - ANDed session metadata and availability clauses.
+ * @param signal - optional cancellation for persistence listing.
  * @returns matching cloned records in deterministic newest-first order.
  */
-async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>
+async filterSessions( filters: readonly SessionResultFilter[], signal?: AbortSignal, ): Promise<SessionRecord[]>
 
 /**
  * Fold the latest log-backed title from one live-preferred logical session.

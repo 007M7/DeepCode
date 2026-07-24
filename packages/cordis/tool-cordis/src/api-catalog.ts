@@ -495,16 +495,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits and their target header from one indexed generation.\n */',
       },
       {
-        signature: 'listSessions(): Promise<SessionRecord[]>',
-        jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
+        signature: 'listSessions(signal?: AbortSignal): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @param signal - optional cancellation for persistence listing.\n * @returns deterministic newest-first cloned session records.\n */',
       },
       {
         signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
         jsDoc: '/**\n * Read and replay-validate one complete logical session log without making it live.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned header and complete raw event log from one observation.\n * @throws when persistence, header compatibility, or replay validation fails.\n */',
       },
       {
-        signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
-        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
+        signature: 'async filterSessions( filters: readonly SessionResultFilter[], signal?: AbortSignal, ): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @param signal - optional cancellation for persistence listing.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
       {
         signature: 'async readTitle( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleSnapshot | undefined>',

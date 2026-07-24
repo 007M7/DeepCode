@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { MAX_TIMER_DELAY_MS, TimeoutReason } from '@deepseek-ai/dsh-timeout'
+import * as TimeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
@@ -30,6 +31,7 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 const activeContexts: Context[] = []
 
 afterEach(async () => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   for (const ctx of activeContexts.splice(0)) await ctx.fiber.dispose()
   FakeQuery.reset()
@@ -194,12 +196,14 @@ interface Mounted {
 async function mount(
   config: ToolSessionQuery.Config = {},
   callerCwd: string | null = '/work',
+  enforceTimeout = false,
 ): Promise<Mounted> {
   const ctx = new Context()
   activeContexts.push(ctx)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
+  if (enforceTimeout) await ctx.plugin(TimeoutPolicy)
   await ctx.plugin(FakeQuery)
   const fiber = await ctx.plugin(ToolSessionQuery, config)
   const caller = createSession(ctx, 'caller', callerCwd ?? undefined, 10)
@@ -1143,6 +1147,123 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
 
     expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
     expect(text(result)).not.toContain('title unavailable')
+  })
+
+  it('forwards caller cancellation into direct-target authorization and waits for cleanup', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'stalled-direct-authorization', '/work')
+    const controller = new AbortController()
+    const cancellation = new SessionQueryError(
+      'direct-target authorization cancelled',
+      'SESSION_QUERY_ABORTED',
+    )
+    const started = Promise.withResolvers<undefined>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const cleanup = Promise.withResolvers<undefined>()
+    let active = false
+    const filterSessions = vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions')
+      .mockImplementation(async (_filters, signal) => {
+        if (signal === undefined) throw new Error('expected authorization signal')
+        active = true
+        const aborted = new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+        started.resolve(undefined)
+        await aborted
+        abortObserved.resolve(undefined)
+        await cleanup.promise
+        active = false
+        signal.throwIfAborted()
+        return []
+      })
+
+    const pending = mounted.call(
+      'session_event_search',
+      { session_id: target.id, query: 'needle' },
+      { signal: controller.signal },
+    )
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await started.promise
+    controller.abort(cancellation)
+    await abortObserved.promise
+
+    expect(settled).toBe(false)
+    expect(active).toBe(true)
+    expect(filterSessions.mock.calls[0]?.[1]).toBe(controller.signal)
+    expect(controller.signal.reason).toBe(cancellation)
+    expect(FakeQuery.eventRequests).toEqual([])
+
+    cleanup.resolve(undefined)
+    const result = await pending
+    expect(active).toBe(false)
+    expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
+    expect(text(result)).toBe('Error: direct-target authorization cancelled')
+    expect(FakeQuery.eventRequests).toEqual([])
+  })
+
+  it('forwards the search deadline into parent authorization and times out only after cleanup', async () => {
+    vi.useFakeTimers()
+    const timeoutMs = 1_234
+    const mounted = await mount({ searchTimeoutMs: timeoutMs }, '/work', true)
+    const parent = createSession(mounted.ctx, 'stalled-parent-authorization', '/work')
+    FakeQuery.sessionSearch = () => Promise.resolve({
+      items: [sessionHit('authorized-child', '/work', 'needle', parent.id)],
+    })
+    const upstream = new AbortController()
+    const started = Promise.withResolvers<undefined>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const cleanup = Promise.withResolvers<undefined>()
+    let active = false
+    let deadlineSignal: AbortSignal | undefined
+    const filterSessions = vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions')
+      .mockImplementation(async (_filters, signal) => {
+        if (signal === undefined) throw new Error('expected authorization signal')
+        deadlineSignal = signal
+        active = true
+        const aborted = new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+        started.resolve(undefined)
+        await aborted
+        abortObserved.resolve(undefined)
+        await cleanup.promise
+        active = false
+        signal.throwIfAborted()
+        return []
+      })
+
+    const pending = mounted.call(
+      'session_search',
+      { query: 'needle' },
+      { signal: upstream.signal },
+    )
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await started.promise
+    await vi.advanceTimersByTimeAsync(timeoutMs)
+    await abortObserved.promise
+
+    expect(settled).toBe(false)
+    expect(active).toBe(true)
+    expect(deadlineSignal).toBeDefined()
+    expect(deadlineSignal).not.toBe(upstream.signal)
+    expect(filterSessions.mock.calls[0]?.[1]).toBe(deadlineSignal)
+    expect(FakeQuery.searchSignals).toEqual([deadlineSignal])
+    expect(deadlineSignal?.reason).toBeInstanceOf(TimeoutReason)
+    expect(deadlineSignal?.reason).toMatchObject({ code: 'TOOL_TIMEOUT', timeoutMs })
+
+    cleanup.resolve(undefined)
+    const result = await pending
+    expect(active).toBe(false)
+    expect(errorCode(result)).toBe('TOOL_TIMEOUT')
+    expect(text(result)).toBe(`Error: tool call timed out after ${timeoutMs}ms`)
   })
 
   it('passes the exact execution signal to every FTS page and stops on cancellation', async () => {

@@ -4,9 +4,9 @@
 
 ## Reads
 
-- `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
+- `listSessions(signal?)` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
 - `readSession(sessionId)` returns one complete detached raw log after the same core replay validation used by resume; it never enters the session into the live store.
-- `filterSessions(filters)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
+- `filterSessions(filters, signal?)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
 - `filterEvents(sessionId, filters)` extracts first-party semantic documents and applies provider-independent metadata and literal-text predicates in ascending seq order.
 - `readTitleSnapshots(sessionIds, signal?)` resolves unique ids from one live-preferred corpus observation, passes cancellation through persisted listing and inspection, and returns ordered per-session settlements so one missing or malformed title source does not discard its peers. Each live source is folded directly, and each persisted worker folds to a detached header/title result and releases the full log before dequeuing another id. Cancellation rejects the whole batch. `readTitleSnapshot(sessionId, signal?)` is the one-observation view; `readTitle(sessionId, signal?)` returns only its optional folded `session/title`.
 - `listEvents(sessionId)` loads the live-preferred raw log and classifies each event as `current`, `shadowed`, or `log-only` with the shared `dsh-session` surface fold.
