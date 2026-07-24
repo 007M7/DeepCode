@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -230,6 +230,29 @@ describe('sessions.create / list', () => {
     expect(first?.cwd).toBe('/tmp')
     expect(first?.running).toBe(false)
     expect(first?.parentSessionId).toBeUndefined()
+  })
+
+  it('ensures a missing project directory before minting the session', async () => {
+    const { api } = await boot()
+    const root = mkdtempSync(join(tmpdir(), 'dsh-host-create-cwd-'))
+    const cwd = join(root, 'nested', 'workspace')
+    expect(existsSync(cwd)).toBe(false)
+    const { sessionId } = expectOk(await api.sessions.create(request({ cwd })))
+    expect(existsSync(cwd)).toBe(true)
+    const { items } = expectOk(await api.sessions.list(request({})))
+    expect(items.find(item => item.sessionId === sessionId)?.cwd).toBe(cwd)
+  })
+
+  it('fails loud when the project directory cannot be created', async () => {
+    const { api } = await boot()
+    const root = mkdtempSync(join(tmpdir(), 'dsh-host-create-cwd-fail-'))
+    const blocker = join(root, 'file-not-dir')
+    writeFileSync(blocker, 'x')
+    const response = await api.sessions.create(request({ cwd: join(blocker, 'child') }))
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('expected mkdir failure')
+    expect(response.result.error.code).toBe('internal')
+    expect(response.result.error.message).toMatch(/failed to ensure project directory/)
   })
 })
 

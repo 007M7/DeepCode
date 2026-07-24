@@ -54,18 +54,19 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 }
 
 const user = (seq: number, text: string): UserMessageNode => ({
-  kind: 'user', seq, content: [{ type: 'text', text }] as never, source: null,
+  kind: 'user', seq, time: seq * 1_000, content: [{ type: 'text', text }] as never, source: null,
 })
 const assistant = (seq: number, text: string): AssistantMessageNode => ({
-  kind: 'assistant', seq, turn: 1, step: 1, blocks: [{ kind: 'text', text }],
+  kind: 'assistant', seq, time: seq * 1_000, turn: 1, step: 1, blocks: [{ kind: 'text', text }],
 })
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
-  kind: 'tool-result', seq, callId,
+  kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
+  callTime: seq * 1_000 - 500,
   content: [], isError: false, callView: null, resultView: null,
 })
 const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
-  callId, name, argsRaw: `{"command":"cmd-${callId}"}`, turn: 2, step: 1, callView: null,
+  callId, name, argsRaw: `{"command":"cmd-${callId}"}`, turn: 2, step: 1, time: 1_000, callView: null,
 })
 
 /** Empty sessions-list hook stub (the global standard-kit seat; engines carry no hook since the store migration — bind here). */
