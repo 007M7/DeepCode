@@ -107,7 +107,7 @@ describe('automation-only ACP bridge', () => {
     })).resolves.toHaveProperty('sessionId')
   })
 
-  it('rejects empty and non-text prompts before a turn starts', async () => {
+  it('rejects empty and beyond-baseline prompts before a turn starts', async () => {
     harness = await makeBridgeHarness()
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -116,9 +116,26 @@ describe('automation-only ACP bridge', () => {
       .rejects.toThrow(/empty prompt/)
     await expect(harness.client.prompt({
       sessionId,
-      prompt: [{ type: 'resource_link', name: 'file', uri: 'file:///tmp/a' }],
-    })).rejects.toThrow(/only text/)
+      prompt: [{ type: 'image', data: '', mimeType: 'image/png' }],
+    })).rejects.toThrow(/only text and resource_link/)
     expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events.some(event => event.type === 'turn/start')).toBe(false)
+  })
+
+  it('renders baseline resource links as textual references in the user message', async () => {
+    harness = await makeBridgeHarness({ script: [textResponse('done')] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await harness.client.prompt({
+      sessionId,
+      prompt: [
+        { type: 'text', text: 'summarize' },
+        { type: 'resource_link', name: 'notes.txt', uri: 'file:///tmp/notes.txt' },
+      ],
+    })
+    expect(harness.adapter.requests[0]?.messages.at(-1)?.content).toEqual([{
+      type: 'text',
+      text: 'summarize\n[resource_link name="notes.txt" uri="file:///tmp/notes.txt"]\n',
+    }])
   })
 
   it('rejects prompts for unknown sessions and ignores unknown cancellation', async () => {

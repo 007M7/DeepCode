@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> Written when ACP was an editor bridge, motivated by Zed's multi-session client model. [ACP as an automation-only protocol](../simplification/2026-07-23-acp-automation-only-protocol.md) removed the editor surfaces; the multiplexing decision itself is unchanged and this note now states it against the automation contract.
+
 ## Problem
 
 An ACP automation client can keep several conversations alive over one agent subprocess. A single-active-session bridge would force extra processes and prevent one parent controller from driving independent children over one connection. Multiplexing introduces isolation risks: committed answers, prompt completion, cancellation, permission requests, and predictable background-task ids must never cross session boundaries.
@@ -14,7 +16,7 @@ Every `session/event` callback resolves the owning record before sending or sett
 
 Permission ownership uses the same exact-agent check against the forward map. The ACP `approval/request` answerer sends a one-shot machine-policy request only for the session that owns the requesting agent and delegates foreign or call-less requests. The bridge has no elicitation, config-selection, or other human-interaction state.
 
-Background bash tasks carry an opaque owner token equal to the owning session id. `bash_output` and `bash_kill` compare the caller's token with the executor's task ownership before reading or killing; a predictable task id alone grants no access. Ownership is stored with the executor task, so a tool plugin reload does not erase it.
+Background bash tasks carry an opaque owner token equal to the owning session id. `task_output` and `task_kill` compare the caller's token with the executor's task ownership before reading or killing; a predictable task id alone grants no access. Ownership is stored with the executor task, so a tool plugin reload does not erase it.
 
 Connection teardown clears the live map, settles each pending prompt as cancelled, and disposes all `AgentHandle`s in parallel. Each handle stops and awaits its loop, flushes the session while attached, unregisters the agent, and removes the session. Teardown is memoized and shared by client disconnect and plugin disposal.
 
@@ -42,4 +44,4 @@ The bridge exposes no protocol method to close one live session independently. R
 
 ## Verification
 
-The multi-session suite drives concurrent sessions through routed committed answers, independent in-flight prompts, targeted cancellation, permission routing, exact-agent rejection, and shared teardown. Tool-bash tests prove one session cannot read or kill another session's background task.
+The multi-session suite drives concurrent sessions through routed committed answers, independent in-flight prompts, targeted cancellation, and shared teardown; the approval and output-boundary suites cover permission routing and exact-agent rejection. Tool-bash tests prove one session cannot read or kill another session's background task.

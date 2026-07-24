@@ -20,10 +20,19 @@ describe('ACP automation codec', () => {
     expect(turnEndToStopReason({ kind: 'future' } as unknown as TurnEndReason)).toBe('end_turn')
   })
 
-  it('concatenates text and rejects every non-text block', () => {
+  it('flattens baseline blocks and rejects everything richer', () => {
     expect(acpPromptToText([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toBe('ab')
-    expect(acpPromptToText([{ type: 'resource_link', name: 'x', uri: 'file:///x' }])).toBe('')
-    expect(promptHasUnsupportedContent([{ type: 'text', text: 'ok' }])).toBe(false)
-    expect(promptHasUnsupportedContent([{ type: 'resource_link', name: 'x', uri: 'file:///x' }])).toBe(true)
+    expect(acpPromptToText([
+      { type: 'text', text: 'see' },
+      { type: 'resource_link', name: 'x', uri: 'file:///x' },
+    ])).toBe('see\n[resource_link name="x" uri="file:///x"]\n')
+    expect(acpPromptToText([{ type: 'image', data: '', mimeType: 'image/png' }])).toBe('')
+    expect(promptHasUnsupportedContent([
+      { type: 'text', text: 'ok' },
+      { type: 'resource_link', name: 'x', uri: 'file:///x' },
+    ])).toBe(false)
+    expect(promptHasUnsupportedContent([
+      { type: 'image', data: '', mimeType: 'image/png' },
+    ])).toBe(true)
   })
 })

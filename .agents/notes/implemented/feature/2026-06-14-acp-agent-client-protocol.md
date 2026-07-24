@@ -12,7 +12,7 @@ The bridge must preserve the harness's existing ownership boundaries. It cannot 
 
 ## Decision
 
-`@deepseek-ai/dsh-acp` was a UI/client-driver plugin in the former UI package group. It uses `@agentclientprotocol/sdk`'s `AgentSideConnection` over stdin/stdout and programs only interface services: the agent create/resume factory, session persistence, tool registry, user interaction, and optional approval/bash capabilities. It does not change the agent loop and is not a capability-seam implementation.
+`@deepseek-ai/dsh-acp` was a UI/client-driver plugin in the `ui` package group (it now lives in `acp`). It used `@agentclientprotocol/sdk`'s `AgentSideConnection` over stdin/stdout and programmed only interface services: the agent create/resume factory, session persistence, tool registry, user interaction, and optional approval/bash capabilities. It did not change the agent loop and was not a capability-seam implementation.
 
 The bridge implements the following stable session path:
 

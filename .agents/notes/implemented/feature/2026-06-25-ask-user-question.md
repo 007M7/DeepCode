@@ -26,7 +26,7 @@ The Web composer shows one question at a time while retaining every request in t
 
 `dsh-tui` renders each question as a keyboard overlay, shows option descriptions, supports single- and multi-select choices plus free-form custom answers, and rejects pending questions on abort, provider disposal, or terminal shutdown. Batched and simultaneous requests are queued so one overlay owns keyboard focus at a time.
 
-The Web host exposes the same seam through its selected question provider. Stable request ids, whole-request cancellation, owner abort, per-item skips, and structured batch settlement keep browser interaction behind the provider-neutral service.
+An ACP elicitation mapping existed while the bridge was an editor UI; [ACP as an automation-only protocol](../simplification/2026-07-23-acp-automation-only-protocol.md) removed that third mapping.
 
 ## Alternatives considered
 

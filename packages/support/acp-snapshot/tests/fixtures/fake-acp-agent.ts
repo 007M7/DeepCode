@@ -149,6 +149,8 @@ async function handlePrompt(id: number | string): Promise<void> {
       override: process.env.DSH_SNAPSHOT_OVERRIDE ?? null,
       childFiles: process.env.DSH_SNAPSHOT_CHILD_FILES ?? null,
       spillRoot: process.env.DSH_SNAPSHOT_SPILL_ROOT ?? null,
+      // Scenario-supplied deployment env (the `Scenario.env` layering seam).
+      permissionMode: process.env.DSH_PERMISSION_MODE ?? null,
     })}`)
   }
   if (behavior.echoWorkspace === true) {

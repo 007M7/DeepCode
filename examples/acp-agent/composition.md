@@ -3,7 +3,7 @@
 
 # ACP Automation App Composition
 
-The ACP demo exposes fresh text-only agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.
+The ACP demo exposes fresh baseline-prompt agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.
 
 ```mermaid
 flowchart LR

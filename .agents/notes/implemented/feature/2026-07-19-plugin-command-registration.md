@@ -55,6 +55,7 @@ TUI tests exercise all migrated built-ins, live plugin discovery, help/autocompl
 - **Attach adapter masks to each definition** — rejected because support is a composition fact, not command-domain state. Every composed adapter exposes a registered command; an incompatible plugin omits registration in that deployment.
 - **Send unknown slash input to the model** — rejected because typoed or unavailable direct actions must fail predictably rather than change execution planes.
 - **Persist generic command input and output** — rejected because adapter notices are not model-visible state. A handler that changes durable behavior calls the owning domain API, which records its own events.
+
 ## Consequences
 
 - Command producers are ordinary removable plugins, and TUI consumes their validated catalog and dispatch contract.

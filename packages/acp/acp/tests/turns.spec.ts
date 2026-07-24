@@ -109,6 +109,19 @@ describe('ACP prompt lifecycle', () => {
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
   })
 
+  it('frees the prompt slot when the agent rejects the send synchronously', async () => {
+    harness = await makeBridgeHarness({ script: [] })
+    const sessionId = await newSession(harness)
+    // Reload the loop out from under the bridge: its agents dispose while the
+    // bridge record survives, so the next send() throws synchronously.
+    await harness.loopFiber.dispose()
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'one' }] }))
+      .rejects.toThrow(/prompt was not queued/)
+    // The failed prompt must not wedge the session's single prompt slot.
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'two' }] }))
+      .rejects.toThrow(/prompt was not queued/)
+  })
+
   it('permits only one in-flight prompt per session', async () => {
     harness = await makeBridgeHarness({ script: ['hang'] })
     const sessionId = await newSession(harness)

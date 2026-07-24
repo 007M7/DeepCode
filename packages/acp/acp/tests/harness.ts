@@ -101,6 +101,8 @@ export interface BridgeHarness {
   closeClientTransport: () => Promise<void>
   abortClientTransport: () => Promise<void>
   acpFiber: Awaited<ReturnType<Context['plugin']>>
+  /** The AgentLoop fiber, so a test can reload the loop out from under the bridge. */
+  loopFiber: Awaited<ReturnType<Context['plugin']>>
   dispose: () => Promise<void>
 }
 
@@ -115,7 +117,7 @@ export async function makeBridgeHarness(options: {
   const adapter = new MockAdapter(options.script ?? [])
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, { systemPrompt: { persona: options.persona ?? '' } })
-  await ctx.plugin(AgentLoop, { agents: [] })
+  const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
 
   const agentToClient = new TransformStream<Uint8Array, Uint8Array>()
@@ -140,6 +142,7 @@ export async function makeBridgeHarness(options: {
     onSessionUpdateError: undefined,
     client: undefined as unknown as ClientSideConnection,
     acpFiber: undefined as unknown as BridgeHarness['acpFiber'],
+    loopFiber,
     closeClientTransport: async () => { await clientToAgentWriter.close() },
     abortClientTransport: async () => { await clientToAgentWriter.abort(new Error('client transport failed')) },
     dispose: async () => { await ctx.fiber.dispose() },
