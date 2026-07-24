@@ -36,10 +36,10 @@ export async function openJsonUnit(
   const state: UnitState =
     text === undefined
       ? {
-          version: descriptor.version,
-          global: null,
-          tables: new Map(descriptor.tables.map((table) => [table, new Map()])),
-        }
+        version: descriptor.version,
+        global: null,
+        tables: new Map(descriptor.tables.map(table => [table, new Map<string, unknown>()])),
+      }
       : parse(text, descriptor)
   return new JsonKvUnit(descriptor, path, state, onClose)
 }
@@ -56,13 +56,13 @@ class JsonKvUnit implements KvUnit {
     private readonly onClose: () => void,
   ) {}
 
-  async loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown | null }> {
+  loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown }> {
     this.assertOpen()
     const tables: Record<string, Record<string, unknown>> = {}
     for (const [table, records] of this.state.tables) {
       tables[table] = Object.fromEntries(records)
     }
-    return { tables, global: this.state.global }
+    return Promise.resolve({ tables, global: this.state.global })
   }
 
   async putRecord(table: string, key: string, value: unknown): Promise<void> {
@@ -73,7 +73,7 @@ class JsonKvUnit implements KvUnit {
     records.set(key, value)
     // Roll back on a failed publish: memory is authoritative, so a rejected
     // write must not survive in memory (or ride along with the next publish).
-    await this.publish().catch(async (error) => {
+    await this.publish().catch((error: unknown) => {
       if (hadKey) records.set(key, previous)
       else records.delete(key)
       throw error
@@ -86,7 +86,7 @@ class JsonKvUnit implements KvUnit {
     if (!records.has(key)) return
     const previous = records.get(key)
     records.delete(key)
-    await this.publish().catch(async (error) => {
+    await this.publish().catch((error: unknown) => {
       records.set(key, previous)
       throw error
     })
@@ -99,7 +99,7 @@ class JsonKvUnit implements KvUnit {
     }
     const previous = this.state.global
     this.state.global = value
-    await this.publish().catch(async (error) => {
+    await this.publish().catch((error: unknown) => {
       this.state.global = previous
       throw error
     })

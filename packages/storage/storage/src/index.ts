@@ -76,7 +76,7 @@ export class Storage extends Service {
 
   /** Domain data form; present once the domain layer plugin is loaded. */
   get domain(): StorageForms extends { domain: infer D } ? D : never {
-    return this.form('domain' as keyof StorageForms) as StorageForms extends { domain: infer D } ? D : never
+    return this.form('domain' as keyof StorageForms)
   }
 }
 

@@ -8,10 +8,10 @@
 import { StorageError } from '@deepseek-ai/dsh-storage'
 import type { KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
 
-/** In-memory authoritative state of one unit; the file is its projection. */
+/** In-memory authoritative state of one unit; the file is its projection. `global` is `null` until first written. */
 export interface UnitState {
   version: number
-  global: unknown | null
+  global: unknown
   tables: Map<string, Map<string, unknown>>
 }
 

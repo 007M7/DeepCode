@@ -69,7 +69,7 @@ expect.extend({
       received()
     } catch (error) {
       const pass = Object.entries(expected).every(
-        (entry) => (error as Record<string, unknown>)[entry[0]] === entry[1],
+        entry => (error as Record<string, unknown>)[entry[0]] === entry[1],
       )
       return { pass, message: () => `expected thrown error to match ${JSON.stringify(expected)}, got ${String(error)}` }
     }

@@ -29,7 +29,7 @@ async function setup() {
   return { ctx, facility }
 }
 
-const invariantViolation = expect.objectContaining<Partial<InvariantError>>({
+const invariantViolation: unknown = expect.objectContaining<Partial<InvariantError>>({
   code: 'INVARIANT',
   packageName: '@deepseek-ai/dsh-domain',
 })
@@ -40,42 +40,42 @@ describe('domain change-event invariants', () => {
     const domain = await facility.open(spec)
     const rows = domain.table('rows')
     await rows.put('a', { n: 1 })
-    await rows.update('a', (current) => ({ n: current.n + 1 }))
+    await rows.update('a', current => ({ n: current.n + 1 }))
     await expect(rows.delete('a')).resolves.toBe(true)
     await domain.global.set({ n: 5 })
   })
 
   it('rejects an event for a domain that is not open', async () => {
     const { ctx } = await setup()
-    expect(() => ctx.emit('domain/changed', {
+    expect(() => { ctx.emit('domain/changed', {
       domain: 'ghost', table: 'rows', key: 'a', operation: 'put', value: { n: 1 },
-    })).toThrow(invariantViolation)
+    }) }).toThrow(invariantViolation)
   })
 
   it('rejects a put event whose value is not the in-memory record', async () => {
     const { ctx, facility } = await setup()
     const domain = await facility.open(spec)
     await domain.table('rows').put('a', { n: 1 })
-    expect(() => ctx.emit('domain/changed', {
+    expect(() => { ctx.emit('domain/changed', {
       domain: 'inv', table: 'rows', key: 'a', operation: 'put', value: { n: 999 },
-    })).toThrow(invariantViolation)
+    }) }).toThrow(invariantViolation)
   })
 
   it('rejects a deletion event while the record is still in memory', async () => {
     const { ctx, facility } = await setup()
     const domain = await facility.open(spec)
     await domain.table('rows').put('a', { n: 1 })
-    expect(() => ctx.emit('domain/changed', {
+    expect(() => { ctx.emit('domain/changed', {
       domain: 'inv', table: 'rows', key: 'a', operation: 'deleted',
-    })).toThrow(invariantViolation)
+    }) }).toThrow(invariantViolation)
   })
 
   it('rejects a global event whose value is not the in-memory global', async () => {
     const { ctx, facility } = await setup()
     await facility.open(spec)
-    expect(() => ctx.emit('domain/changed', {
+    expect(() => { ctx.emit('domain/changed', {
       domain: 'inv', table: '', key: '', operation: 'put', value: { n: 42 },
-    })).toThrow(invariantViolation)
+    }) }).toThrow(invariantViolation)
   })
 
   it('tolerates operations outside the closed union without failing falsely', async () => {
@@ -84,8 +84,8 @@ describe('domain change-event invariants', () => {
     await domain.table('rows').put('a', { n: 1 })
     // Merge-hostile input: the closed union's satisfies-never default arm is
     // unreachable in typed code; an untyped emit must not crash the check.
-    expect(() => ctx.emit('domain/changed', {
+    expect(() => { ctx.emit('domain/changed', {
       domain: 'inv', table: 'rows', key: 'a', operation: 'exotic',
-    } as unknown as DomainChanged)).not.toThrow()
+    } as unknown as DomainChanged) }).not.toThrow()
   })
 })

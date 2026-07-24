@@ -164,9 +164,9 @@ export class DomainImpl {
     const host: TableHost = {
       domainName: spec.name,
       unit,
-      enqueue: (job) => this.enqueue(job),
-      assertReadable: () => this.assertReadable(),
-      emitChanged: (change) => this.ctx.emit('domain/changed', change),
+      enqueue: job => this.enqueue(job),
+      assertReadable: () => { this.assertReadable() },
+      emitChanged: (change) => { this.ctx.emit('domain/changed', change) },
     }
     for (const [table, tableRecords] of records) {
       this.tables.set(table, new KvTableImpl(host, table, tableRecords))
@@ -178,7 +178,7 @@ export class DomainImpl {
           this.assertReadable()
           return this.globalValue
         },
-        set: (value) => this.enqueue(async () => {
+        set: value => this.enqueue(async () => {
           await this.unit.setGlobal(value)
           this.globalValue = value
           host.emitChanged({ domain: this.name, table: '', key: '', operation: 'put', value })

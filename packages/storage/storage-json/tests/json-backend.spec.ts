@@ -78,7 +78,7 @@ describe('json backend specifics', () => {
     const root = await freshRoot()
     const backend = new JsonStorageBackend(root)
     await backend.kv.open(descriptor)
-    await expect(backend.kv.open(descriptor)).rejects.toThrowError(/already open/)
+    await expect(backend.kv.open(descriptor)).rejects.toThrow(/already open/)
     await backend.close()
   })
 
@@ -208,13 +208,15 @@ describe('json backend specifics', () => {
     const bigWrite = unit.putRecord('t', 'big', { blob: 'x'.repeat(4 * 1024 * 1024) })
     await unit.close()
     await expect(bigWrite).resolves.toBeUndefined()
-    const onDisk = JSON.parse(await readFile(join(root, 'shape.json'), 'utf8'))
-    expect(onDisk.tables.t.big).toBeDefined()
+    const onDisk = JSON.parse(await readFile(join(root, 'shape.json'), 'utf8')) as {
+      tables: Record<string, Record<string, unknown>>
+    }
+    expect(onDisk.tables['t']?.['big']).toBeDefined()
 
     const backend2 = new JsonStorageBackend(root)
     const opening = backend2.kv.open(descriptor)
     const closing = backend2.close()
-    await expect(opening.then((u) => u.putRecord('t', 'x', {}))).rejects.toMatchObject({ code: 'closed' })
+    await expect(opening.then(u => u.putRecord('t', 'x', {}))).rejects.toMatchObject({ code: 'closed' })
     await closing
   })
 })

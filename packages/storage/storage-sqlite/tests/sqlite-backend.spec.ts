@@ -171,6 +171,17 @@ describe('sqlite backend specifics', () => {
     await reopened.close()
   })
 
+  it('wraps a non-Error toJSON throw into an Error rejection', async () => {
+    const backend = backendAt(':memory:')
+    const unit = await backend.kv.open(DESCRIPTOR)
+    // JSON.stringify propagates a value's own toJSON throw verbatim; the unit
+    // must still reject with an Error instance.
+    const hostile = { toJSON: () => { throw 'not an error' } }
+    await expect(unit.putRecord('records', 'k', hostile)).rejects.toThrow('not an error')
+    await expect(unit.putRecord('records', 'k', hostile)).rejects.toBeInstanceOf(Error)
+    await backend.close()
+  })
+
   it('rejects setGlobal on a unit without a global slot and writes to undeclared tables', async () => {
     const backend = backendAt(':memory:')
     const unit = await backend.kv.open({ ...DESCRIPTOR, hasGlobal: false })

@@ -69,7 +69,7 @@ export interface KvUnit {
    * @returns every table's records keyed by table name, plus the global
    * singleton (`null` when never written or not declared).
    */
-  loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown | null }>
+  loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown }>
 
   /**
    * Upsert one record durably. Overwrite semantics: an existing key is replaced.

@@ -174,14 +174,14 @@ describe('KvTable writes', () => {
     const table = (await facility.open(spec)).table('items')
     await table.put('counter', { label: 'c', count: 0 })
     await Promise.all(Array.from({ length: 50 }, () =>
-      table.update('counter', (current) => ({ ...current, count: current.count + 1 }))))
+      table.update('counter', current => ({ ...current, count: current.count + 1 }))))
     expect(table.get('counter')).toEqual({ label: 'c', count: 50 })
   })
 
   it('update rejects a missing key; delete reports prior existence', async () => {
     const { facility } = await harness()
     const table = (await facility.open(spec)).table('items')
-    await expect(table.update('ghost', (v) => v)).rejects.toMatchObject({ code: 'missing-key' })
+    await expect(table.update('ghost', v => v)).rejects.toMatchObject({ code: 'missing-key' })
     await table.put('a', { label: 'x', count: 1 })
     await expect(table.delete('a')).resolves.toBe(true)
     await expect(table.delete('a')).resolves.toBe(false)
@@ -192,7 +192,7 @@ describe('KvTable writes', () => {
     const domain = await facility.open(spec)
     const table = domain.table('items')
     await table.put('a', { label: 'x', count: 1 })
-    await table.update('a', (current) => ({ ...current, count: 2 }))
+    await table.update('a', current => ({ ...current, count: 2 }))
     await table.delete('a')
     await table.delete('a') // no event: already absent
     await domain.global.set({ theme: 'dark' })
@@ -216,7 +216,7 @@ describe('durability failure', () => {
 
     pool.failNextWrites = 3
     await expect(table.put('a', { label: 'x', count: 99 })).rejects.toThrow(/injected/)
-    await expect(table.update('a', (c) => ({ ...c, count: c.count + 1 }))).rejects.toThrow(/injected/)
+    await expect(table.update('a', c => ({ ...c, count: c.count + 1 }))).rejects.toThrow(/injected/)
     await expect(table.delete('a')).rejects.toThrow(/injected/)
 
     // Reads still serve the pre-failure record; no events leaked.
@@ -225,7 +225,7 @@ describe('durability failure', () => {
     expect(changes).toHaveLength(seen)
 
     // The chain survives rejections: the next write lands cleanly with no residue.
-    await table.update('a', (c) => ({ ...c, count: c.count + 1 }))
+    await table.update('a', c => ({ ...c, count: c.count + 1 }))
     expect(table.get('a')).toEqual({ label: 'x', count: 2 })
   })
 

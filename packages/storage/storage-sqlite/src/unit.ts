@@ -62,24 +62,25 @@ export class SqliteKvUnit implements KvUnit {
       : undefined
   }
 
-  async loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown | null }> {
-    this.ensureOpen()
-    const tables: Record<string, Record<string, unknown>> = {}
-    for (const [name, statements] of this.tables) {
-      // Null prototype: record keys are arbitrary strings, so '__proto__'
-      // must land as an own property instead of mutating the prototype.
-      const records: Record<string, unknown> = Object.create(null) as Record<string, unknown>
-      for (const row of statements.selectAll.all() as unknown as Array<{ key: string; value: string }>) {
-        records[row.key] = this.parseValue(row.value, `table '${name}' key '${row.key}'`)
+  loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown }> {
+    return this.settle(() => {
+      const tables: Record<string, Record<string, unknown>> = {}
+      for (const [name, statements] of this.tables) {
+        // Null prototype: record keys are arbitrary strings, so '__proto__'
+        // must land as an own property instead of mutating the prototype.
+        const records: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+        for (const row of statements.selectAll.all() as unknown as Array<{ key: string; value: string }>) {
+          records[row.key] = this.parseValue(row.value, `table '${name}' key '${row.key}'`)
+        }
+        tables[name] = records
       }
-      tables[name] = records
-    }
-    let global: unknown = null
-    if (this.globalSelect !== undefined) {
-      const row = this.globalSelect.get(this.descriptor.name) as { value: string } | undefined
-      if (row !== undefined) global = this.parseValue(row.value, 'global slot')
-    }
-    return { tables, global }
+      let global: unknown = null
+      if (this.globalSelect !== undefined) {
+        const row = this.globalSelect.get(this.descriptor.name) as { value: string } | undefined
+        if (row !== undefined) global = this.parseValue(row.value, 'global slot')
+      }
+      return { tables, global }
+    })
   }
 
   /** Parse one stored value column, mapping bad JSON to `malformed-medium`. */
@@ -95,28 +96,48 @@ export class SqliteKvUnit implements KvUnit {
     }
   }
 
-  async putRecord(table: string, key: string, value: unknown): Promise<void> {
-    this.ensureOpen()
-    this.statementsFor(table).upsert.run(key, JSON.stringify(value))
+  putRecord(table: string, key: string, value: unknown): Promise<void> {
+    return this.settle(() => {
+      this.statementsFor(table).upsert.run(key, JSON.stringify(value))
+    })
   }
 
-  async deleteRecord(table: string, key: string): Promise<void> {
-    this.ensureOpen()
-    this.statementsFor(table).remove.run(key)
+  deleteRecord(table: string, key: string): Promise<void> {
+    return this.settle(() => {
+      this.statementsFor(table).remove.run(key)
+    })
   }
 
-  async setGlobal(value: unknown): Promise<void> {
-    this.ensureOpen()
-    if (this.globalUpsert === undefined) {
-      throw new Error(`kv unit '${this.descriptor.name}' declared no global slot`)
+  setGlobal(value: unknown): Promise<void> {
+    return this.settle(() => {
+      if (this.globalUpsert === undefined) {
+        throw new Error(`kv unit '${this.descriptor.name}' declared no global slot`)
+      }
+      this.globalUpsert.run(this.descriptor.name, JSON.stringify(value))
+    })
+  }
+
+  close(): Promise<void> {
+    if (!this.closed) {
+      this.closed = true
+      this.onClose()
     }
-    this.globalUpsert.run(this.descriptor.name, JSON.stringify(value))
+    return Promise.resolve()
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return
-    this.closed = true
-    this.onClose()
+  /**
+   * Run one synchronous primitive behind the closed guard, mapping a throw to
+   * a rejection so the Promise-returning contract never throws synchronously.
+   */
+  private settle<T>(operation: () => T): Promise<T> {
+    try {
+      this.ensureOpen()
+      return Promise.resolve(operation())
+    } catch (error) {
+      // Non-Error throws can only enter through JSON.stringify propagating a
+      // value's own toJSON throw; wrap those, preserve every real Error.
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+    }
   }
 
   private ensureOpen(): void {

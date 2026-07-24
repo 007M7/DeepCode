@@ -45,7 +45,7 @@ export interface DomainSpec {
 
 /** Key type of one declared table, recovered from its phantom carrier. */
 export type TableKeyOf<S extends DomainSpec, N extends keyof S['tables']> =
-  S['tables'][N] extends DomainTableSpec<infer K, unknown> ? K : never
+  S['tables'][N] extends DomainTableSpec<infer K> ? K : never
 
 /** Value type of one declared table. */
 export type TableValueOf<S extends DomainSpec, N extends keyof S['tables']> =

@@ -18,10 +18,10 @@
 import { StorageError } from '@deepseek-ai/dsh-storage'
 import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
 
-/** One unit's medium: tables of records plus the global slot. */
+/** One unit's medium: tables of records plus the global slot (`null` = never written). */
 export interface MemoryMedium {
   tables: Map<string, Map<string, unknown>>
-  global: unknown | null
+  global: unknown
 }
 
 /**
@@ -70,7 +70,7 @@ class MemoryKvUnit implements KvUnit {
     }
   }
 
-  async loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown | null }> {
+  async loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown }> {
     this.assertOpen()
     const tables: Record<string, Record<string, unknown>> = {}
     for (const table of this.descriptor.tables) {

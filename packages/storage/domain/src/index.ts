@@ -113,11 +113,12 @@ export class DomainFacility {
         }
         // A null stored global means "never written": serve `initial` without
         // materializing it — the first `set` writes.
-        const globalValue = spec.global === undefined
+        const globalSpec = spec.global
+        const globalValue = globalSpec === undefined
           ? undefined
           : snapshot.global === null
-            ? spec.global.initial
-            : parseRecord(spec.name, '', '', () => spec.global!.schema.parse(snapshot.global))
+            ? globalSpec.initial
+            : parseRecord(spec.name, '', '', () => globalSpec.schema.parse(snapshot.global))
         const domain = new DomainImpl(this.ctx, spec, unit, tables, globalValue)
         // The open-domain table entry is itself the effect: registration and
         // the drain-then-unlist teardown live in one closure.
