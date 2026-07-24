@@ -251,17 +251,15 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
   })
 
   it('surfaces non-ENOENT snapshot stat failures after discovery', async () => {
-    const blocker = join(root, 'snapshot-not-a-directory')
-    await writeFile(blocker, 'x')
     const persistence = ctx.sessionPersistence as unknown as {
       listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>>
     }
     const discovery = vi.spyOn(persistence, 'listArtifacts').mockResolvedValue([{
       header: meta('snapshot-stat-failure'),
-      path: join(blocker, 'session.jsonl'),
+      path: `${root}\0snapshot-stat-failure`,
     }])
 
-    await expect(ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/ENOTDIR/)
+    await expect(ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/null bytes/)
     discovery.mockRestore()
   })
 

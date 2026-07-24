@@ -17,7 +17,7 @@
  */
 
 import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, delimiter } from 'node:path'
@@ -141,6 +141,8 @@ export interface RunResult {
   sessionId?: string
   /** The generated cwd the session ran in (the bash workspace). */
   cwd: string
+  /** Filesystem-resolved spellings of {@link cwd} that child processes may report. */
+  cwdAliases: string[]
   /**
    * Every persisted session log harvested after the run, ordered primary-first:
    * the top-level (parent) session — the one with no `parentSession` — then each
@@ -222,6 +224,7 @@ export function snapshotSpillRoot(
  */
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
   const cwd = await mkdtemp(join(opts.workspaceParent ?? tmpdir(), 'acp-snap-cwd-'))
+  const cwdAliases = [...new Set([realpathSync(cwd), realpathSync.native(cwd)])]
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
@@ -329,6 +332,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       rawStdout: launched.rawStdout(),
       stderr: launched.stderr(),
       cwd,
+      cwdAliases,
       ...sessionId !== undefined ? { sessionId } : {},
       sessionLogs,
     }

@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -729,13 +729,13 @@ describe('sandbox escalation surface (write/edit)', () => {
   it('a plain write stamps the default mode with the calling session root', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
-    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: '/session-project' }])
+    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a standing session override folds onto the stamp', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
-    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: '/session-project' }])
+    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
@@ -768,7 +768,7 @@ describe('sandbox escalation surface (write/edit)', () => {
       agent: escalationAgent() as never,
       signal: new AbortController().signal,
     })
-    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: '/session-project' }])
+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a rejected escalation fails closed with its own text and never mutates', async () => {
