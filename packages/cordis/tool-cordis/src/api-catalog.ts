@@ -462,11 +462,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
-        jsDoc: '/**\n * Durably persist a batch of events (called from the write-behind drain at\n * the `session/flush` checkpoint). Honors the append-only and contiguous-seq\n * contracts: the first event\'s `seq` MUST equal the stored next-seq (after\n * `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
+        jsDoc: '/**\n * Durably persist a batch of events. Honors the append-only and contiguous-\n * seq contracts: the first event\'s `seq` MUST equal the stored next-seq\n * (after `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
       },
       {
         signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
       },
       {
         signature: 'abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',

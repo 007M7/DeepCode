@@ -24,12 +24,38 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
+/* Two-line row: the leading slot (folder/chevron), title, and trailing
+   actions all top-align on the 20px first text line (figma cell) — content
+   is 42px (20 + 2 + 20), so 6px vertical padding centers the block. */
 .projectRow {
   height: 54px;
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  box-sizing: border-box;
 }
 
+.projectRow .rowActions {
+  height: 20px;
+}
+
+/* Session cell (figma): pad 8, adjacent 16px twist + status slots, then a 4px
+   gap to the title — the slots butt together, so the row gap is zeroed and
+   the title carries its own margins. */
 .sessionRow {
   height: 34px;
+  gap: 0;
+  /* Mount fade: session rows appear by unfolding a group (or the tree
+     mounting). Stable row keys keep already-visible rows from replaying it. */
+  animation: row-in 150ms var(--ds-ease-in-out);
+}
+
+.sessionRow .title {
+  margin: 0 6px 0 4px;
+}
+
+@keyframes row-in {
+  from { opacity: 0; }
 }
 
 .slot {
@@ -47,10 +73,19 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
-/* Project leading slot: folder by default, chevron on row hover. */
+/* Project leading slot: folder by default, expand arrow on row hover. */
 .projectRow .chevron { display: none; }
 .projectRow:hover .chevron { display: inline-flex; }
 .projectRow:hover .folder { display: none; }
+
+/* Expand arrow (filled triangle): points right closed, rotates to point down open. */
+.arrow {
+  transition: transform 150ms var(--ds-ease-in-out);
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
+}
 
 .projectText {
   flex: 1;
@@ -131,22 +166,25 @@
 }
 
 /* Session expand twist occupies the leading 16px slot; keep a spacer when absent
-   so titles align across sibling rows. */
+   so titles align across sibling rows. Duplicates the .iconButton reset instead
+   of `composes:` — the tsdown CSS-modules pipeline drops composes mappings, which
+   left the raw UA button box showing. */
 .twist {
-  composes: iconButton;
-  width: 16px;
-  height: 20px;
-}
-
-/* "L" connector slot (figma arrow 14:3071): 16x16, glyph right-aligned. */
-.cornerSlot {
   flex: none;
-  width: 16px;
-  height: 16px;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  color: var(--dsw-alias-label-caption);
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.twist:hover {
+  color: var(--dsw-alias-label-primary);
 }
 
 /* Chevrons and tree twists ride the caption grey (#ADB2B8); the folder glyph
@@ -155,4 +193,12 @@
 .chevron,
 .twist {
   color: var(--dsw-alias-label-caption);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sessionRow,
+  .arrow {
+    animation: none;
+    transition: none;
+  }
 }

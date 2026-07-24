@@ -73,10 +73,9 @@ export abstract class SessionPersistence extends Service {
   abstract create(meta: SessionHeader): Promise<void>
 
   /**
-   * Durably persist a batch of events (called from the write-behind drain at
-   * the `session/flush` checkpoint). Honors the append-only and contiguous-seq
-   * contracts: the first event's `seq` MUST equal the stored next-seq (after
-   * `load` has durably closed any interrupted turn). Rejects non-JSON-
+   * Durably persist a batch of events. Honors the append-only and contiguous-
+   * seq contracts: the first event's `seq` MUST equal the stored next-seq
+   * (after `load` has durably closed any interrupted turn). Rejects non-JSON-
    * serializable `event.data` with an error naming the offending event type.
    * @param id - the session the batch belongs to.
    * @param events - the contiguous batch to persist, in seq order.
@@ -85,9 +84,14 @@ export abstract class SessionPersistence extends Service {
 
   /**
    * Load a header and balanced contiguous log. A complete interrupted final
- * turn is preserved and durably closed with missing tool errors plus any open
- * step and turn boundaries; only a torn final record is discarded. Unknown
- * versions and corruption in the committed prefix reject.
+   * turn is preserved and durably closed with missing tool errors plus any open
+   * step and turn boundaries; only a torn final record is discarded. Unknown
+   * versions and corruption in the committed prefix reject. Implementations
+   * MUST NOT crash-repair an identity still bound to a live Session: a balanced
+   * live log may return with its stored header as a durable snapshot, while an
+   * open live turn rejects.
+   * A coordinator-backed cold load reserves the identity across storage awaits,
+   * so concurrent publication of a same-id live Session rejects.
    * @param id - the persisted session to reload.
    * @returns the header and a log ending on a balanced `turn/end`.
    */

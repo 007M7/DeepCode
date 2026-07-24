@@ -39,7 +39,7 @@ The shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis
 
 ## Bin
 
-`dsh-acp-demo [--config path-to-cordis.yml]` (short form `-c`; default `./cordis.yml`) loads the gitignored `.env`, except in replay mode; `DSH_SNAPSHOT=replay` selects the sibling `cordis.snapshot.yml`; stdin EOF disposes the context and flushes sessions before exit. Run built output under `node --expose-internals` (or Loader's `node-addon-require-builtin` fallback) so bare plugin specifiers resolve. Diagnostics use stderr because stdout is the ACP wire.
+`dsh-acp-demo [--config path-to-cordis.yml]` (short form `-c`; default `./cordis.yml`) loads the gitignored `.env`, except in replay mode; `DSH_SNAPSHOT=replay` selects the sibling `cordis.snapshot.yml`; stdin EOF disposes the context and flushes sessions before exit. Loader's installed optional `node-addon-require-builtin` peer resolves bare plugin specifiers for the built bin under plain Node. Diagnostics use stderr because stdout is the ACP wire.
 
 ## Model Experience
 

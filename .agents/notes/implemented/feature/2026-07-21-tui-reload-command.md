@@ -6,7 +6,7 @@ English | [中文](2026-07-21-tui-reload-command.zh.md)
 
 ## Problem
 
-HMR's file watcher only reacts to in-place `change` events under its configured roots (the config leaf's directory in the shipped demos). Editors that replace files by rename (BSD `sed -i`, `git checkout`) produce no event, and runtimes without the HMR entry (or without `--expose-internals`) have no config reload path at all. During development that means restarting the TUI to apply a config edit the watcher missed. Widening the watch roots to the whole repo was considered and rejected in discussion: dense package sharing makes module-level HMR a remount-most-of-the-tree operation with unpredictable externals boundaries.
+HMR's file watcher only reacts to in-place `change` events under its configured roots (the config leaf's directory in the shipped demos). Editors that replace files by rename (BSD `sed -i`, `git checkout`) produce no event, and runtimes without the HMR entry have no config reload path at all. During development that means restarting the TUI to apply a config edit the watcher missed. Widening the watch roots to the whole repo was considered and rejected in discussion: dense package sharing makes module-level HMR a remount-most-of-the-tree operation with unpredictable externals boundaries.
 
 ## Decision
 
