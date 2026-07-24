@@ -13,7 +13,6 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
   AgentMessage,
-  AgentMessageId as AgentMessageIdType,
   CancelOptions,
   AgentInterruptReason,
   AgentOptions,
@@ -92,7 +91,7 @@ export class ReactLoopAgent extends Agent {
   send(
     content: ContentBlock[],
     options: SendOptions = { target: 'next-turn', wakeup: true, source: { kind: 'user' } },
-  ): AgentMessageIdType {
+  ): AgentMessageId {
     const id = AgentMessageId(randomUUID())
     const { target, wakeup, source } = options
     if (target === 'next-step' && !wakeup) {
@@ -135,10 +134,10 @@ export class ReactLoopAgent extends Agent {
       if (cause.kind !== 'disposed') emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)
     }
     if (!options.keepInbox) {
-      const discarded = [
-        ...this.queued,
-        ...this.outbox.filter((item): item is PendingMessage => 'id' in item),
-      ]
+      const discarded: AgentMessage[] = [...this.queued]
+      for (const message of this.outbox) {
+        if ('id' in message) discarded.push(message)
+      }
       // Clear before abort observers run: replacement work belongs to the next turn.
       this.queued.length = 0
       this.outbox.length = 0
@@ -429,18 +428,18 @@ export class ReactLoopAgent extends Agent {
   /** Commit the outbox and report whether it contained steering. */
   private drainOutbox(turn: number): boolean {
     let steered = false
-    for (const item of this.outbox.splice(0)) {
-      if (!('id' in item)) {
-        this.session.append('user/message', item, { surfaceOp: 'append' })
-        continue
+    for (const message of this.outbox.splice(0)) {
+      if ('id' in message) {
+        steered = true
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
+        this.session.append(
+          'steering/message',
+          { turn, content: message.content, source: message.source },
+          { surfaceOp: 'append' },
+        )
+      } else {
+        this.session.append('user/message', message, { surfaceOp: 'append' })
       }
-      steered = true
-      emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item)
-      this.session.append(
-        'steering/message',
-        { turn, content: item.content, source: item.source },
-        { surfaceOp: 'append' },
-      )
     }
     return steered
   }

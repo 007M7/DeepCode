@@ -158,7 +158,7 @@ export abstract class Agent {
 
   /**
    * The unified delivery primitive over the (`target` × `wakeup`) matrix.
-   * Detaches, validates, and freezes one lossless-JSON item, then routes it:
+   * It routes the caller's typed content and source as follows:
    *
    * - `next-turn` (default) queues an item that becomes the sole ordinary
    *   message of its own FIFO-ordered turn; `wakeup` (default `true`) wakes a
@@ -169,8 +169,6 @@ export abstract class Agent {
    *   without running the model: an open turn stages it for the next safe log
    *   position, while an idle injection appends it immediately without opening
    *   a turn.
-   *
-   * Invalid input throws synchronously before any notification, enqueue, or append.
    * @param content - the model-facing content blocks to deliver.
    * @param options - target queue, wakeup decision, and source.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
@@ -289,7 +287,7 @@ declare module 'cordis' {
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
-     * A frozen item entered the queued or steering inbox.
+     * An item entered the queued or steering inbox.
      * @param agent - the owning agent.
      * @param message - accepted content, source, and correlation identity.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.

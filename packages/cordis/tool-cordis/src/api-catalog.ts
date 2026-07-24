@@ -906,8 +906,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/inbox/enqueue',
     mode: 'emit',
     signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
-    jsDoc: '/**\n * A frozen item entered the queued or steering inbox.\n * @param agent - the owning agent.\n * @param message - accepted content, source, and correlation identity.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'A frozen item entered the queued or steering inbox.',
+    jsDoc: '/**\n * An item entered the queued or steering inbox.\n * @param agent - the owning agent.\n * @param message - accepted content, source, and correlation identity.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'An item entered the queued or steering inbox.',
   },
   {
     name: 'agent/prompt-submit',
