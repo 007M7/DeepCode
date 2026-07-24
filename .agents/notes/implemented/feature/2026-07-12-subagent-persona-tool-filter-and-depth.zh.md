@@ -59,7 +59,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 ### 能力门控保持提供方诚实
 
-能力将请求的特性与提供方实现分离。`SubagentCapabilities` 声明 `persona`、`toolFilter` 和 `depthLimit`；`SubagentService.start()` 在调用提供方之前，对照这些标志检查请求中每个存在的字段。
+能力将请求的功能与提供方实现分离。`SubagentCapabilities` 声明 `persona`、`toolFilter` 和 `depthLimit`；`SubagentService.start()` 在调用提供方之前，对照这些标志检查请求中每个存在的字段。
 
 这使 spawn 和 fork 提供方可以共享进程内实现，而外部提供方只声明自己能强制执行的部分。请求永远不会静默降级：选择不受支持的控制会产生 `UNSUPPORTED_CAPABILITY`，不会有运行或生命周期事件存在。
 
@@ -75,7 +75,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 具体而言，子 agent 局部工具在全局过滤之后添加，可能不在父级视图中。仅 deny 的子 agent 也能看到 deny 列表未命名的后来全局工具。这些是有意的活组合语义，而非不可升级保证。
 
-安全设计需要独立的授权表示、传播规则和执行时强制点。创建时的授权快照、父级子集授权、显式的未来授权 API，以及通用的能力/输出/终止标签均不在本特性范围内。
+安全设计需要独立的授权表示、传播规则和执行时强制点。创建时的授权快照、父级子集授权、显式的未来授权 API，以及通用的能力/输出/终止标签均不在本功能范围内。
 
 ## 曾考虑的替代方案
 
