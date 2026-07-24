@@ -352,6 +352,7 @@ export class SessionQuerySqlite extends SessionQueryService {
   }
 
   private async _reconcile(signal: AbortSignal | undefined): Promise<PersistenceBinding> {
+    assertNotAborted(signal)
     const db = this._requireDb()
     const persistedRows = db.prepare(
       'SELECT id, revision, generation FROM persisted_sessions',
@@ -452,7 +453,8 @@ export class SessionQuerySqlite extends SessionQueryService {
         try {
           const canReuseIndexed = this._lastPersistenceIdentity === undefined
             || this._lastPersistenceIdentity === persistenceBinding.identity
-          const before = await waitWithAbort(persistence.listSnapshots(), signal)
+          const before = await persistence.listSnapshots(signal)
+          assertNotAborted(signal)
           persisted = materializePersistenceSnapshots(before)
           for (const entry of persisted.values()) {
             if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) continue
@@ -461,13 +463,16 @@ export class SessionQuerySqlite extends SessionQueryService {
             // crash-repair side effects; the live-membership retry below makes
             // the returned observation live-preferred.
             if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
-            const loaded = await waitWithAbort(persistence.inspect(entry.header.id), signal)
+            assertNotAborted(signal)
+            const loaded = await persistence.inspect(entry.header.id, signal)
+            assertNotAborted(signal)
             assertSessionHeadersCompatible(entry.header, loaded.meta)
             entry.loaded = observeSession(loaded.meta, loaded.events)
           }
-          const after = materializePersistenceSnapshots(
-            await waitWithAbort(persistence.listSnapshots(), signal),
-          )
+          assertNotAborted(signal)
+          const afterSnapshots = await persistence.listSnapshots(signal)
+          assertNotAborted(signal)
+          const after = materializePersistenceSnapshots(afterSnapshots)
           if (!samePersistenceSnapshots(persisted, after)) continue
           if (this._persistenceBinding !== persistenceBinding) continue
         } catch (error: unknown) {

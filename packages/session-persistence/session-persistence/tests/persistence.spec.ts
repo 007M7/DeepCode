@@ -137,7 +137,8 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return [...this.store.values()].map(e => structuredClone(e.meta))
   }
 
-  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+  async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
+    signal?.throwIfAborted()
     return [...this.store.values()].map(entry => ({
       header: structuredClone(entry.meta),
       revision: SessionPersistenceRevision(`events:${entry.events.length}`),

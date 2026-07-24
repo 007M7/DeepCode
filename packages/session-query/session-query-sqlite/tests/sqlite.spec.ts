@@ -69,11 +69,16 @@ class TestPersistence extends SessionPersistence {
   static nextRevision = 0
   static loads = new Map<SessionIdType, number>()
   static inspections = new Map<SessionIdType, number>()
+  static inspectSignals: Array<AbortSignal | undefined> = []
+  static snapshotSignals: Array<AbortSignal | undefined> = []
   static loadEffect: ((entry: { meta: SessionHeader; events: SessionEvent[] }) => void) | undefined
-  static inspectEffect: ((entry: { meta: SessionHeader; events: SessionEvent[] }) => void | Promise<void>) | undefined
+  static inspectEffect: ((
+    entry: { meta: SessionHeader; events: SessionEvent[] },
+    signal?: AbortSignal,
+  ) => void | Promise<void>) | undefined
   static listGate: Promise<void> | undefined
   static listStarted: (() => void) | undefined
-  static snapshotEffect: (() => void | Promise<void>) | undefined
+  static snapshotEffect: ((signal?: AbortSignal) => void | Promise<void>) | undefined
   static snapshotOverride: (() => SessionPersistenceSnapshot[]) | undefined
   static failure: unknown
 
@@ -86,6 +91,8 @@ class TestPersistence extends SessionPersistence {
     this.revisions = new Map()
     this.loads = new Map()
     this.inspections = new Map()
+    this.inspectSignals = []
+    this.snapshotSignals = []
     this.loadEffect = undefined
     this.inspectEffect = undefined
     for (const entry of entries) this.set(entry)
@@ -128,12 +135,13 @@ class TestPersistence extends SessionPersistence {
     return structuredClone(entry)
   }
 
-  async inspect(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  async inspect(id: SessionIdType, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     TestPersistence.inspections.set(id, (TestPersistence.inspections.get(id) ?? 0) + 1)
+    TestPersistence.inspectSignals.push(signal)
     if (TestPersistence.failure !== undefined) throw TestPersistence.failure
     const entry = TestPersistence.entries.get(id)
     if (entry === undefined) throw new Error('missing test session')
-    await TestPersistence.inspectEffect?.(entry)
+    await TestPersistence.inspectEffect?.(entry, signal)
     TestPersistence.inspectEffect = undefined
     return structuredClone(entry)
   }
@@ -146,7 +154,8 @@ class TestPersistence extends SessionPersistence {
   }
 
 
-  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+  async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
+    TestPersistence.snapshotSignals.push(signal)
     TestPersistence.listStarted?.()
     await TestPersistence.listGate
     if (TestPersistence.failure !== undefined) throw TestPersistence.failure
@@ -155,7 +164,7 @@ class TestPersistence extends SessionPersistence {
         header: structuredClone(entry.meta),
         revision: SessionPersistenceRevision(`test:${TestPersistence.revisions.get(entry.meta.id)}`),
       }))
-    await TestPersistence.snapshotEffect?.()
+    await TestPersistence.snapshotEffect?.(signal)
     return snapshots
   }
 }
@@ -1209,6 +1218,167 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     }
   })
 
+  it.each(['sessions', 'events'] as const)(
+    'forwards one exact reconciliation signal through both snapshot lists and persisted inspection for %s search',
+    async (scope) => {
+      const durable = header(`signal-${scope}`)
+      TestPersistence.reset([{ meta: durable, events: messageEvents('signal needle') }])
+      const ctx = await liveContext()
+      await ctx.plugin(TestPersistence)
+      const controller = new AbortController()
+
+      const result = scope === 'sessions'
+        ? await ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal })
+        : await ctx.sessionQuery.searchEvents(
+          { sessionId: durable.id, query: 'needle' },
+          { signal: controller.signal },
+        )
+
+      expect(result.items).toHaveLength(1)
+      expect(TestPersistence.snapshotSignals).toEqual([controller.signal, controller.signal])
+      expect(TestPersistence.inspectSignals).toEqual([controller.signal])
+    },
+  )
+
+  it.each(['sessions', 'events'] as const)(
+    'starts no persistence observation for a pre-aborted %s search',
+    async (scope) => {
+      const durable = header(`pre-aborted-${scope}`)
+      TestPersistence.reset([{ meta: durable, events: messageEvents('needle') }])
+      const ctx = await liveContext()
+      await ctx.plugin(TestPersistence)
+      const controller = new AbortController()
+      controller.abort(new Error(`pre-aborted ${scope}`))
+
+      const pending = scope === 'sessions'
+        ? ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal })
+        : ctx.sessionQuery.searchEvents(
+          { sessionId: durable.id, query: 'needle' },
+          { signal: controller.signal },
+        )
+
+      await expect(pending).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+      expect(TestPersistence.snapshotSignals).toEqual([])
+      expect(TestPersistence.inspectSignals).toEqual([])
+    },
+  )
+
+  it('awaits cooperative snapshot-list cancellation cleanup without starting another observation step', async () => {
+    const durable = header('cooperative-list-abort')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const started = Promise.withResolvers<AbortSignal>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const cleanup = Promise.withResolvers<undefined>()
+    TestPersistence.snapshotEffect = async (signal) => {
+      TestPersistence.snapshotEffect = undefined
+      if (signal === undefined) throw new Error('expected reconciliation signal')
+      started.resolve(signal)
+      await new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+      abortObserved.resolve(undefined)
+      await cleanup.promise
+      signal.throwIfAborted()
+    }
+    const controller = new AbortController()
+    const pending = ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal })
+    expect(await started.promise).toBe(controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+
+    controller.abort(new Error('cooperative list cancellation'))
+    await abortObserved.promise
+    expect(settled).toBe(false)
+    expect(TestPersistence.snapshotSignals).toEqual([controller.signal])
+    expect(TestPersistence.inspectSignals).toEqual([])
+
+    cleanup.resolve(undefined)
+    await expect(pending).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+  })
+
+  it('keeps a second search serialized while an abort-ignoring snapshot list finishes', async () => {
+    const durable = header('serialized-list-abort')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const cleanup = Promise.withResolvers<undefined>()
+    const started = Promise.withResolvers<undefined>()
+    TestPersistence.listGate = cleanup.promise
+    TestPersistence.listStarted = () => {
+      TestPersistence.listStarted = undefined
+      started.resolve(undefined)
+    }
+    const controller = new AbortController()
+    const first = ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal })
+    await started.promise
+    let firstSettled = false
+    let secondSettled = false
+    void first.then(
+      () => { firstSettled = true },
+      () => { firstSettled = true },
+    )
+    controller.abort(new Error('ignored list cancellation'))
+    const second = ctx.sessionQuery.searchEvents({ sessionId: durable.id, query: 'needle' })
+    void second.then(
+      () => { secondSettled = true },
+      () => { secondSettled = true },
+    )
+    await Promise.resolve()
+
+    expect(firstSettled).toBe(false)
+    expect(secondSettled).toBe(false)
+    expect(TestPersistence.snapshotSignals).toEqual([controller.signal])
+    expect(TestPersistence.inspectSignals).toEqual([])
+
+    cleanup.resolve(undefined)
+    await expect(first).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+    await expect(second).resolves.toMatchObject({ items: [{ sessionId: durable.id }] })
+  })
+
+  it('awaits an abort-ignoring inspection and starts neither another inspection nor the after-list', async () => {
+    const first = header('ignored-inspect-first')
+    const second = header('ignored-inspect-second')
+    TestPersistence.reset([
+      { meta: first, events: messageEvents('first needle') },
+      { meta: second, events: messageEvents('second needle') },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const started = Promise.withResolvers<AbortSignal>()
+    const cleanup = Promise.withResolvers<undefined>()
+    TestPersistence.inspectEffect = async (_entry, signal) => {
+      TestPersistence.inspectEffect = undefined
+      if (signal === undefined) throw new Error('expected reconciliation signal')
+      started.resolve(signal)
+      await cleanup.promise
+    }
+    const controller = new AbortController()
+    const pending = ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal })
+    expect(await started.promise).toBe(controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+
+    controller.abort(new Error('ignored inspect cancellation'))
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(TestPersistence.snapshotSignals).toEqual([controller.signal])
+    expect(TestPersistence.inspections.get(first.id)).toBe(1)
+    expect(TestPersistence.inspections.get(second.id)).toBeUndefined()
+
+    cleanup.resolve(undefined)
+    await expect(pending).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+    expect(TestPersistence.snapshotSignals).toEqual([controller.signal])
+    expect(TestPersistence.inspections.get(second.id)).toBeUndefined()
+  })
+
   it('cancels both queued and in-flight source waits without committing them', async () => {
     TestPersistence.reset()
     const ctx = await liveContext()
@@ -1262,13 +1432,71 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const active = ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: activeController.signal })
     await activeStarted
     activeController.abort()
-    await expect(active).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+    let activeSettled = false
+    void active.then(
+      () => { activeSettled = true },
+      () => { activeSettled = true },
+    )
+    await Promise.resolve()
+    expect(activeSettled).toBe(false)
     releaseActive()
+    await expect(active).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
 
     const db = (ctx.sessionQuery as unknown as { _db: DatabaseSync })._db
     expect(db.prepare('SELECT COUNT(*) AS count FROM persisted_sessions').get()).toEqual({ count: 0 })
     await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
       .resolves.toMatchObject({ items: [{ header: { id: SessionId('uncommitted') } }] })
+  })
+
+  it.each([
+    [new Error('ready error'), 'ready error'],
+    ['non-error ready failure', 'session-search dependency rejected with a non-Error value'],
+  ])('normalizes a rejected readiness wait before mapping it to an index error', async (failure, detail) => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    const internals = ctx.sessionQuery as unknown as {
+      _ready: Promise<void>
+      _ensureReady(signal: AbortSignal): Promise<void>
+    }
+    internals._ready = Promise.resolve().then(() => {
+      throw failure
+    })
+
+    await expect(internals._ensureReady(new AbortController().signal))
+      .rejects.toThrow(`session-search SQLite index failed to open: ${detail}`)
+  })
+
+  it('checks cancellation after readiness before reconciliation accesses SQLite', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    const internals = ctx.sessionQuery as unknown as {
+      _db: DatabaseSync
+      _ready: Promise<void>
+      _ensureReady(signal: AbortSignal | undefined): Promise<void>
+    }
+    const readiness = Promise.withResolvers<undefined>()
+    internals._ready = readiness.promise
+    const readyWaitStarted = Promise.withResolvers<undefined>()
+    const ensureReady = internals._ensureReady.bind(internals)
+    vi.spyOn(internals, '_ensureReady').mockImplementation(async (signal) => {
+      const pending = ensureReady(signal)
+      readyWaitStarted.resolve(undefined)
+      return pending
+    })
+    const prepare = vi.spyOn(internals._db, 'prepare')
+    const reason = new Error('cancelled after readiness')
+    const controller = new AbortController()
+    const pending = ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal })
+    await readyWaitStarted.promise
+
+    const queueBoundaryAbort = readiness.promise.then(() => {
+      queueMicrotask(() => { controller.abort(reason) })
+    })
+    readiness.resolve(undefined)
+    await queueBoundaryAbort
+
+    await expect(pending).rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+    expect(prepare).not.toHaveBeenCalled()
   })
 
   it('rejects queued and future work when close waits for an accepted operation', async () => {

@@ -14,7 +14,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 | `load(id): Promise<{ meta; events }>` | Return a stored header plus a balanced contiguous log. A live load first flushes its snapshot and rejects while its turn is open; a cold load preserves an interrupted final turn and closes it with synthetic `tool/result`/`step/end?`/`turn/end {interrupted}` events. Only a torn tail fragment is dropped; committed corruption and unknown `version` reject. |
 | `inspect(id, signal?): Promise<{ meta; events }>` | Return a detached valid stored prefix without truncating a torn tail, synthesizing recovery closers, or publishing coordinator state. Serialized with same-id writes; the optional signal promptly rejects a queued caller, prevents that queued backend read from starting, and cancels active backend read work. Intended for read models and other observers that must never recover a log. |
 | `list(signal?): Promise<SessionHeader[]>` | Lightweight listing from metadata, no full-log parse. The optional signal cancels backend listing work. A zero-event lazily-materialized session is absent from `list`. |
-| `listSnapshots(): Promise<SessionPersistenceSnapshot[]>` | Lightweight metadata plus an opaque branded per-log revision, without loading event logs. A revision stays equal while that log and its backing store are unchanged, changes after append or mutating load repair, and cannot collide solely because two stores use the same local counter. |
+| `listSnapshots(signal?): Promise<SessionPersistenceSnapshot[]>` | Lightweight metadata plus an opaque branded per-log revision, without loading event logs. A revision stays equal while that log and its backing store are unchanged, changes after append or mutating load repair, and cannot collide solely because two stores use the same local counter. The optional signal requests cancellation of backend discovery work; first-party backends settle any started listing work before rejecting so an awaited call is quiescent. |
 
 ## Invariants every backend must honor
 
@@ -33,7 +33,7 @@ Crash repair is cold-only. For a live id, `load(id)` snapshots the authoritative
 
 When a live session emits `session/disposed`, the coordinator waits for its controller, serializes a final drain, then releases state owned by that exact `Session` object. Failed retirement leaves the controller in the live-session map, so backend teardown can retry it. Backend teardown stops event admission first, flushes every remaining controller, awaits per-id operations, and only then closes the storage handle.
 
-The side-effect-free `locate` and lightweight `listSnapshots` queries remain backend-owned because they describe storage topology and revision identity rather than write orchestration.
+The side-effect-free `locate` and lightweight `listSnapshots` queries remain backend-owned because they describe storage topology and revision identity rather than write orchestration. `listSnapshots(signal?)` passes the caller's exact signal into backend discovery so observers can cancel that work without detaching it.
 
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
 

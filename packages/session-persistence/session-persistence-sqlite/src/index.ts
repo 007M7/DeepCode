@@ -266,9 +266,12 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   /** List metadata with a source-qualified monotonic revision per session. */
-  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+  async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
+    signal?.throwIfAborted()
     await this.ready
+    signal?.throwIfAborted()
     const rows = this.db.prepare('SELECT * FROM sessions').all() as unknown as SessionRow[]
+    signal?.throwIfAborted()
     return rows.map(row => ({
       header: rowToMeta(row),
       revision: SessionPersistenceRevision(

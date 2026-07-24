@@ -122,9 +122,10 @@ export abstract class SessionPersistence extends Service {
    * successful mutating {@link load} repair changes the next listed revision.
    * Revisions also distinguish independently backed stores so backend-local
    * counters cannot compare equal across different persistence sources.
+   * @param signal - optional cancellation for backend snapshot-listing work.
    * @returns one header and opaque revision per materialized session without loading full logs.
    */
-  abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
+  abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 }
 
 export default SessionPersistence

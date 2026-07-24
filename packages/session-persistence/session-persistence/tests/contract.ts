@@ -227,9 +227,11 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       try {
         const reason = new Error('persistence observation cancelled')
         const controller = new AbortController()
+        await expect(persistence.listSnapshots(controller.signal)).resolves.toEqual([])
         controller.abort(reason)
 
         await expect(persistence.list(controller.signal)).rejects.toBe(reason)
+        await expect(persistence.listSnapshots(controller.signal)).rejects.toBe(reason)
         await expect(persistence.inspect(SessionId('cancelled-inspect'), controller.signal))
           .rejects.toBe(reason)
       } finally {

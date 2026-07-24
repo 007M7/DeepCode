@@ -960,9 +960,10 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
  * successful mutating {@link load} repair changes the next listed revision.
  * Revisions also distinguish independently backed stores so backend-local
  * counters cannot compare equal across different persistence sources.
+ * @param signal - optional cancellation for backend snapshot-listing work.
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
-abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
+abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 ```
 
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)

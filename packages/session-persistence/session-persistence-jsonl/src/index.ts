@@ -281,11 +281,13 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** List metadata plus a stat-derived identity for each append-only log. */
-  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+  async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
     const snapshots: SessionPersistenceSnapshot[] = []
-    for (const artifact of await this.listArtifacts()) {
+    for (const artifact of await this.listArtifacts(signal)) {
+      signal?.throwIfAborted()
       try {
         const identity = await stat(artifact.path, { bigint: true })
+        signal?.throwIfAborted()
         snapshots.push({
           header: artifact.header,
           revision: SessionPersistenceRevision([
@@ -297,9 +299,11 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
           ].join(':')),
         })
       } catch (error: unknown) {
+        signal?.throwIfAborted()
         if (!isENOENT(error)) throw error
       }
     }
+    signal?.throwIfAborted()
     return snapshots
   }
 
