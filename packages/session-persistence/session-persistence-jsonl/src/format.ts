@@ -86,6 +86,7 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && typeof (value as { createdAt?: unknown }).createdAt === 'number'
     && Number.isSafeInteger((value as { createdAt: number }).createdAt)
     && (value as { createdAt: number }).createdAt >= 0
+    && !Object.is((value as { createdAt: number }).createdAt, -0)
     && typeof (value as { delegationDepth?: unknown }).delegationDepth === 'number'
     && Number.isSafeInteger((value as { delegationDepth: number }).delegationDepth)
     && (value as { delegationDepth: number }).delegationDepth >= 0

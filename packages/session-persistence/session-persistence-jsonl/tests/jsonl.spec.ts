@@ -574,6 +574,11 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
   })
 
+  it('rejects a session header with negative-zero createdAt', () => {
+    const log = '{"type":"session","version":0,"id":"invalid-created-at","createdAt":-0,"delegationDepth":0}\n'
+    expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
+  })
+
   it.each([
     ['missing', undefined],
     ['a string', '1'],
