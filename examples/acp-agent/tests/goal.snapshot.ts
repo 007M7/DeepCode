@@ -83,6 +83,7 @@ describe('ACP same-session goal snapshot', () => {
     const calls = events.filter(event => event.type === 'tool/call').map(event => event.data.name)
     expect(calls).toEqual(['create_goal', 'get_goal'])
     const rounds = events.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'goal'
+      && event.data.source.round > 0
       ? [event.data.source.round]
       : [])
     expect(rounds).toEqual([1, 2])

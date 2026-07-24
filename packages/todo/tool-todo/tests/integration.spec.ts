@@ -59,7 +59,7 @@ describe('todo_write tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-todo'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'plan a two-step task' }])
+    agent.followup([{ type: 'text', text: 'plan a two-step task' }])
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -87,7 +87,7 @@ describe('todo_write tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-todo-2'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'plan then update' }])
+    agent.followup([{ type: 'text', text: 'plan then update' }])
     await waitForIdle(ctx, agent)
 
     const todoEvents = agent.session.events.filter(e => e.type === 'todo/write')

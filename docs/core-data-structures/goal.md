@@ -69,7 +69,7 @@ interface GoalView extends GoalSnapshot {
 
 ## Durable changes
 
-Every mutation is a `context/message` whose metadata is either a complete snapshot or a clear tombstone. The version, metadata, goal source, and verbatim rendered content form one replay invariant.
+Every mutation is a round-zero goal-sourced `user/message` whose metadata is either a complete snapshot or a clear tombstone. The version, metadata, goal source, and verbatim rendered content form one replay invariant.
 
 ```ts type-equiv
 /** Full-snapshot goal mutation retained in a model-visible context event. */

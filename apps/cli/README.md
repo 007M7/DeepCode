@@ -5,7 +5,7 @@ The `dsh` command-line entry follows the `apps/` assembly tier: `apps/*` are pro
 The TUI surface:
 
 - boots the shipped default config (`examples/tui-agent/cordis.yml`) or an explicit config argument, through [`dsh-app-boot`](../../packages/ui/app-boot/README.md);
-- resumes a persisted session with `dsh --resume <session-id>` — the form the TUI prints on exit and lists under `/resume`; the flag sets `RESUME_SESSION_ID` before boot so the shipped config rehydrates that session, and a missing or unreadable id fails loud and exits nonzero;
+- resumes a persisted session with `dsh --resume <session-id>` and, when the Node host exposes `process.execve`, supplies the TUI's in-place handoff host: after selector preflight and current-session flush, the host disposes the app and replaces the process with a normalized resume flag; runtimes without process replacement keep the displayed command fallback, the flag still sets `RESUME_SESSION_ID` before boot, and a missing or unreadable id fails loud instead of creating a fresh session;
 - treats the **invoking directory** as the workspace — sessions, relative paths, and workspace instructions resolve from the cwd;
 - tells the agent where its own source lives: after boot it adds a prompt section naming this harness checkout, resolved from the launcher's real path so it holds under a PATH symlink and an arbitrary cwd, so the self-referential `cordis` toolset can read and modify it;
 - applies the personal overlay from `~/.dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `.env` fills environment gaps (ambient > project `.env` > personal `.env`), `config.yaml` patches the booted tree.

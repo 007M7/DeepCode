@@ -62,8 +62,9 @@ describe('tails', () => {
 
   it('a settled others-variant row renders the sparkle icon in the leading slot', () => {
     const settled: ToolResultNode = {
-      kind: 'tool-result', seq: 2, callId: 'c5',
+      kind: 'tool-result', seq: 2, time: 2_000, callId: 'c5',
       call: { name: 'todo_write', argsRaw: '{"note":"x"}' },
+      callTime: 1_000,
       content: [], isError: false, callView: null, resultView: null,
     }
     const props: ToolRowOwnerProps = {
@@ -77,8 +78,9 @@ describe('tails', () => {
 
   it('BashRow shows the failed pill on error results (root session arm)', () => {
     const errorResult: ToolResultNode = {
-      kind: 'tool-result', seq: 1, callId: 'c1',
+      kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
       call: { name: 'bash', argsRaw: '{"command":"boom"}' },
+      callTime: 500,
       content: [], isError: true, callView: null, resultView: null,
     }
     // Root session (no parentId): the global arm renders, error pill visible.

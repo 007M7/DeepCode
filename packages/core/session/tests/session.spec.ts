@@ -62,7 +62,7 @@ describe('Session', () => {
       turn: 1,
       trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'before' } },
     })
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'before' }],
       source: { kind: 'plugin', plugin: 'before' },
     }, { surfaceOp: 'append' })
@@ -82,7 +82,7 @@ describe('Session', () => {
       turn: 3,
       trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'after' } },
     })
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'after' }],
       source: { kind: 'plugin', plugin: 'after' },
     }, { surfaceOp: 'append' })
@@ -117,14 +117,14 @@ describe('Session', () => {
       .toThrow('seed turn/end at index 1 uses unsupported reason-bearing aborted format')
   })
 
-  it('renders context and steering messages as plain user content', () => {
+  it('renders injected-context and steering messages as plain user content', () => {
     expect(displayPromptContent({
       content: [{ type: 'text', text: 'plain prompt' }],
       source: { kind: 'user' },
     })).toEqual([{ type: 'text', text: 'plain prompt' }])
 
     const session = new Session(SessionId('s2'))
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'file changed: a.ts' }],
       source: { kind: 'plugin', plugin: 'watcher' },
     }, { surfaceOp: 'append' })
@@ -177,7 +177,7 @@ describe('Session', () => {
       version: 1,
       changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
     }
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-context' },
       meta,
@@ -188,7 +188,7 @@ describe('Session', () => {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
     }])
     const event = session.events[0]
-    expect(event?.type === 'context/message' && event.data.meta).toEqual(meta)
+    expect(event?.type === 'user/message' && event.data.meta).toEqual(meta)
   })
 
   it('replays identically from a seeded event log', () => {
@@ -791,7 +791,7 @@ describe('Session', () => {
       { header: 1, error: /not a plain JSON record/ },
       { header: null, error: /not a plain JSON record/ },
       { header: { ...base, version: 1 }, error: /header version/ },
-      { header: { ...base, createdAt: '123' }, error: /createdAt must be a finite number/ },
+      { header: { ...base, createdAt: '123' }, error: /createdAt must be a non-negative safe integer/ },
       { header: { ...base, cwd: 1 }, error: /header cwd must be a string/ },
       { header: { ...base, cwd: 'relative' }, error: /header cwd must be an absolute path/ },
       { header: { ...base, parentSession: 1 }, error: /header parentSession must be a string/ },
@@ -996,7 +996,7 @@ describe('SessionStore', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('plain'))
     expect(session.header).toMatchObject({ version: SESSION_FORMAT_VERSION, id: 'plain' })
-    expect(typeof session.header.createdAt).toBe('number')
+    expect(Number.isSafeInteger(session.header.createdAt)).toBe(true)
     expect(session.header.cwd).toBeUndefined()
     expect(session.header.parentSession).toBeUndefined()
   })
@@ -1035,7 +1035,10 @@ describe('SessionStore', () => {
       { meta: { parentSession: 1n }, error: /header is not losslessly JSON-serializable/ },
       { meta: { cwd: 1 }, error: /header cwd must be a string/ },
       { meta: { parentSession: 1 }, error: /header parentSession must be a string/ },
-      { meta: { createdAt: '123' }, error: /header createdAt must be a finite number/ },
+      { meta: { createdAt: '123' }, error: /header createdAt must be a non-negative safe integer/ },
+      { meta: { createdAt: 1.5 }, error: /header createdAt must be a non-negative safe integer/ },
+      { meta: { createdAt: -1 }, error: /header createdAt must be a non-negative safe integer/ },
+      { meta: { createdAt: Number.MAX_SAFE_INTEGER + 1 }, error: /header createdAt must be a non-negative safe integer/ },
       { meta: { seedLength: '1' }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: 0.5 }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: -1 }, error: /seedLength must be a non-negative safe integer/ },

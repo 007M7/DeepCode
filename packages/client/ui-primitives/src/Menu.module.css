@@ -3,21 +3,32 @@
   display: inline-flex;
 }
 
-/* Dropdown card (figma MenuDropdown 122:10096): white card, r12, no border,
- * layered drop shadows via the shadow token, 4px inset padding. */
+/* Dropdown card (figma MenuDropdown 122:9481 / 419:16920): menu surface,
+ * r12, inverted hairline border, shadow-lv3, 4px inset padding. */
+.list,
+.submenu {
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--dsw-alias-border-inverted);
+  border-radius: 12px;
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
 .list {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 100;
   min-width: 130px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-1);
-  box-shadow: var(--dsw-shadow-lv2);
+}
+
+/* Open above the anchor (empty-state workspace chip: figma 122:9481). */
+.sideTop {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .alignEnd {
@@ -25,12 +36,18 @@
   right: 0;
 }
 
-/* Menu cell (figma .Menu_cell 27:5169): r10, pad 10/8, 14/22 primary text,
+.itemWrap {
+  position: relative;
+}
+
+/* Menu cell (figma .Menu_cell): min-h 40, r10, pad 10/8, 14/22 primary,
  * gap 8 between leading icon / label / trailing check. */
 .item {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  min-height: 40px;
   padding: 8px 10px;
   border: none;
   border-radius: 10px;
@@ -51,9 +68,22 @@
   cursor: not-allowed;
 }
 
+.itemIcon {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .itemLabel {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .check {
@@ -65,4 +95,35 @@
  * class remains as a hook for owner-side emphasis. */
 .selected {
   background: transparent;
+}
+
+/* Separator cell (figma 122:9481): py 4 / px 2 around the hairline. */
+.separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--dsw-alias-border-l1);
+}
+
+/* Nested card to the right of the parent row (figma 419:16920).
+ * Bottom-aligned with the parent menu card (grows upward): itemWrap sits in
+ * .list's 4px pad, so bottom: -4px matches the list's outer bottom edge.
+ * Horizontal: list pad (4px) + 6px card gap = 10px past itemWrap — plain
+ * `100% + 6px` collapses to ~2px between outer card edges.
+ * ::before bridges the full gap so the pointer can cross without mouseLeave. */
+.submenu {
+  position: absolute;
+  top: auto;
+  bottom: -4px;
+  left: calc(100% + 10px);
+  z-index: 101;
+  min-width: 160px;
+}
+
+.submenu::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -10px;
+  width: 10px;
 }

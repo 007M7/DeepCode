@@ -1,0 +1,62 @@
+// Modal: controlled full-viewport dialog (create-workspace and similar).
+// Fixed overlay in the React tree (no react-dom portal) so ui-primitives
+// stays free of a react-dom dependency; mask tokens match figma 451:18655.
+
+import { useEffect } from 'react'
+import type { ReactNode } from 'react'
+import clsx from 'clsx'
+import css from './Modal.module.css'
+
+/**
+ * Render a centered modal over a blurred page mask.
+ * @param props.open - whether the dialog is showing.
+ * @param props.onClose - Escape or mask click.
+ * @param props.title - dialog heading.
+ * @param props.description - optional supporting sentence under the title.
+ * @param props.children - body (inputs, etc.).
+ * @param props.footer - action row (Cancel / Create).
+ * @returns null when closed; otherwise the overlay tree.
+ */
+export function Modal({ open, onClose, title, description, children, footer, className }: {
+  open: boolean
+  onClose: () => void
+  title: string
+  description?: string
+  children?: ReactNode
+  footer?: ReactNode
+  className?: string
+}) {
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div className={css.root} role="presentation">
+      <div className={css.mask} aria-hidden="true" onClick={onClose} />
+      <div
+        className={clsx(css.dialog, className)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className={css.content}>
+          <div className={css.header}>
+            <h2 className={css.title}>{title}</h2>
+            {description !== undefined && description !== '' && (
+              <p className={css.description}>{description}</p>
+            )}
+          </div>
+          {children !== undefined && <div className={css.body}>{children}</div>}
+        </div>
+        {footer !== undefined && <div className={css.footer}>{footer}</div>}
+      </div>
+    </div>
+  )
+}
