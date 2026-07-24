@@ -8,7 +8,7 @@
 
 ## `SessionEventMap`：事件词汇
 
-仅追加的事件类型。可通过声明合并扩展：插件通过 declaration merging 声明额外的事件类型。例如[上下文压缩（context compaction） seam](compaction.md) 添加了 `compact/start` / `compact/summary` / `compact/end`，`@deepseek-ai/dsh-hook-protocol` 添加了仅记录日志的 `hook/invoked` / `hook/result` 溯源事件，用于钩子桥接。与 `compact/*` 一样，这些都不是 `SurfaceEventType`（没有 `surfaceOp`）。生成的[持久化日志事件目录](../persistence-catalog.md)列举了所有成员（核心与合并扩展的），包含其 payload、surface 标记与声明位置。
+仅追加的事件类型。可通过声明合并扩展：插件通过 declaration merging 声明额外的事件类型。例如[压缩（compaction） seam](compaction.md) 添加了 `compact/start` / `compact/summary` / `compact/end`，`@deepseek-ai/dsh-hook-protocol` 添加了仅记录日志的 `hook/invoked` / `hook/result` 溯源事件，用于钩子桥接。与 `compact/*` 一样，这些都不是 `SurfaceEventType`（没有 `surfaceOp`）。生成的[持久化日志事件目录](../persistence-catalog.md)列举了所有成员（核心与合并扩展的），包含其 payload、surface 标记与声明位置。
 
 ```ts type-equiv
 /** Shared payload for ordinary and steering prompt messages. */

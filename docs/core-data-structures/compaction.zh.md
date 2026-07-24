@@ -1,4 +1,4 @@
-# 上下文压缩（context compaction）
+# 压缩（compaction）
 
 [English](compaction.md) | 中文
 
