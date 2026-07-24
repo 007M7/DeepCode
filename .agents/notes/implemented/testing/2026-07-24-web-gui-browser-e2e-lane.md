@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-24-web-gui-browser-e2e-lane.zh.md)
+
 ## Problem
 
 The web GUI ships as a real assembled chain — chromium page → client plugin bundles → HTTP unary RPC + two SSE streams → `toFetchHandler`/apiproxy → `bootHost`'s agent loop, tools, and JSONL persistence — and no test exercised that chain keylessly and deterministically. The [GUI testing system](../process/2026-07-20-gui-testing-system.md) covers tier 1 (wire isomorphism in node), tier 2 (object-layer state machines), and tier-3 smokes, but the keyless smoke drives `FixtureApiClient` — no host, no wire, no agent loop — while the full-chain smoke needs `DEEPSEEK_API_KEY` and a live model, so it is nondeterministic and self-skips in keyless CI. The snapshot philosophy of [docs/testing.md](../../../../docs/testing.md) — record once with a key, replay forever keyless, refresh on format churn — already covers the ACP, headless `stream-json`, and TUI transcript surfaces; the web surface was the one assembled product shape without it. The gap is exactly where the two confirmed GUI P0s hid: the wire carriage chain the fixture client short-circuits.
