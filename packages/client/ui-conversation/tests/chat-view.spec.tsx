@@ -10,7 +10,8 @@ import type {
   AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ChatViewSlotProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
@@ -156,6 +157,44 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {
+    const markdown = '# Rendered\n\n- **one**\n- `two`'
+    const h = makeHarness({ nodes: [user(1, markdown), assistant(2, markdown)] })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.container.querySelectorAll('h1')).toHaveLength(1)
+    const literal = view.getByText((_content, element) => (
+      element?.tagName === 'DIV' && element.childElementCount === 0 && element.textContent === markdown
+    ))
+    expect(literal.querySelector('h1')).toBeNull()
+
+    act(() => {
+      h.set({ partial: { turn: 2, step: 1, blocks: [{ kind: 'text', text: markdown }] } })
+    })
+    expect(view.container.querySelectorAll('h1')).toHaveLength(2)
+    expect(view.container.querySelector('[data-streaming="true"] h1')?.textContent).toBe('Rendered')
+
+    act(() => {
+      h.set({
+        nodes: [user(1, markdown), assistant(2, markdown), assistant(3, markdown)],
+        partial: null,
+      })
+    })
+    expect(view.container.querySelectorAll('h1')).toHaveLength(2)
+    expect(view.container.querySelector('[data-streaming="true"]')).toBeNull()
+
+    act(() => {
+      h.set({
+        nodes: [
+          user(1, markdown),
+          assistant(2, markdown),
+          { ...assistant(3, markdown), interrupted: true },
+        ],
+      })
+    })
+    expect(view.getByText('已停止')).toBeTruthy()
+    expect(view.container.querySelectorAll('h1')).toHaveLength(2)
   })
 
   it('streaming partial frames re-render only the tail (Profiler count)', () => {
@@ -305,7 +344,8 @@ describe('ChatView', () => {
 
   it('pending interactions render placeholder cards', () => {
     const h = makeHarness({
-      pending: [{ kind: 'approval', rpcId: 'r1' as never, approvalId: 'ap1', toolName: 'bash' }],
+      pending: [new PendingWait('approval', RpcId('r1'), SID,
+        { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn())],
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByText(/等待审批/)).toBeTruthy()

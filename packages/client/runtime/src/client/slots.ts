@@ -66,6 +66,10 @@ interface ErasedRegisterOptions {
   id?: string
   order?: number
   label?: string
+  /** Chain-slot routing selector (pure; the core validates presence for chain targets). */
+  select?: (owner: never) => unknown
+  /** Chain-slot explicit ordering override (ascending; registration order otherwise). */
+  priority?: number
   registrant?: string
 }
 

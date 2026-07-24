@@ -7,7 +7,7 @@
 
 import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
-import { IconThinkOutline14, JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconThinkOutline14, JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ToolRow } from './ToolRow.tsx'
 import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
 import css from './AssistantMarkdown.module.css'
@@ -46,7 +46,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, strea
     <div className={css.root} data-streaming={streaming || undefined}>
       {blocks.map((block, i) => {
         switch (block.kind) {
-          case 'text': return <MessageText key={i} text={block.text} />
+          case 'text': return <MarkdownText key={i} text={block.text} />
           case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} />
           case 'image': return <ImageGallery key={i} images={[block]} load={loadImage} align="start" />
           // Tool-call heads render as tool rows in the chat view's grouping pass.

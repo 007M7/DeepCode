@@ -5,13 +5,15 @@
  */
 
 import { Context } from 'cordis'
+import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { PtySessionId } from '@deepseek-ai/dsh-pty'
 import type { PtySendResult, PtySessionId as PtySessionIdType, PtySignal } from '@deepseek-ai/dsh-pty'
 import type {} from '@deepseek-ai/dsh-tasks'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolResult } from '@deepseek-ai/dsh-tools'
-import { renderList, renderRead, renderSend, renderSendRead, renderSpawn } from './render.ts'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { boundTerminalText, renderList, renderRead, renderSend, renderSendRead, renderSpawn } from './render.ts'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -23,6 +25,25 @@ declare module '@deepseek-ai/dsh-tasks' {
 export const name = 'tool-pty'
 /** Required capability, registry, and prompt services. */
 export const inject = ['pty', 'tools', 'systemPrompt']
+
+/** Default cap for one complete model-facing terminal result. */
+export const DEFAULT_MAX_RESULT_BYTES = 256 * 1024
+/** Smallest cap that preserves every counter-backed PTY and task id in its creation acknowledgement. */
+export const MIN_MAX_RESULT_BYTES = 64
+
+/** Model-facing terminal tool configuration. */
+export interface Config {
+  /** Expose `run_in_background` and accept background sends (default true). */
+  enableRunInBackground?: boolean
+  /** Maximum UTF-8 bytes in one complete terminal or task-output result. */
+  maxResultBytes?: number
+}
+
+/** Schemastery configuration for the terminal tool consumer. */
+export const Config: z<Config> = z.object({
+  enableRunInBackground: z.boolean().default(true),
+  maxResultBytes: z.number().step(1).min(MIN_MAX_RESULT_BYTES).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_RESULT_BYTES),
+})
 
 interface SpawnArgs {
   type: string
@@ -105,9 +126,13 @@ function sessionId(args: SessionArgs): PtySessionIdType {
   return PtySessionId(args.sessionId)
 }
 
-function rawResultText(result: ToolResult): string | undefined {
-  if (result.content.length !== 1) return undefined
-  const block = result.content[0]
+function textResult(text: string, maxBytes: number): ContentBlock[] {
+  return [{ type: 'text', text: boundTerminalText(text, maxBytes) }]
+}
+
+function rawContentText(content: readonly ContentBlock[]): string | undefined {
+  if (content.length !== 1) return undefined
+  const block = content[0]
   return block?.type === 'text' ? block.text : undefined
 }
 
@@ -118,7 +143,16 @@ function sendDetail(result: PtySendResult): string {
 }
 
 /** Register all terminal tools and the minimal usage guidance. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config = {}): void {
+  const enableRunInBackground = config.enableRunInBackground ?? true
+  const maxResultBytes = config.maxResultBytes ?? DEFAULT_MAX_RESULT_BYTES
+  if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes < MIN_MAX_RESULT_BYTES) {
+    throw new Error(`tool-pty: maxResultBytes must be a safe integer of at least ${MIN_MAX_RESULT_BYTES}`)
+  }
+  const finalizeContent: NonNullable<ToolDefinition['finalizeContent']> = (_exec, result) => {
+    const raw = rawContentText(result.content)
+    return raw === undefined ? undefined : textResult(raw, maxResultBytes)
+  }
   ctx.systemPrompt.section({
     name: 'tool:pty',
     order: 106,
@@ -133,6 +167,7 @@ export function apply(ctx: Context): void {
       name: { type: 'string', description: 'Optional owner-local display name such as "main" or "gdb".' },
       cwd: { type: 'string', description: 'Initial working directory. Defaults to the deployment workspace root.' },
     },
+    finalizeContent,
     output: {
       schema: {
         type: 'object',
@@ -142,7 +177,7 @@ export function apply(ctx: Context): void {
           motd: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderSpawn(value) }],
+      render: (_args, value) => [{ type: 'text', text: renderSpawn(value, maxResultBytes) }],
     },
     async execute(args: SpawnArgs, exec) {
       if (args.type.length === 0) throw new Error('type must be a non-empty string')
@@ -161,13 +196,17 @@ export function apply(ctx: Context): void {
 
   ctx.tools.register(defineTool({
     name: 'terminal_send',
-    description: 'Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a task id for task_output/task_kill.',
+    description: 'Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit.'
+      + (enableRunInBackground ? ' Background mode returns a task id for task_output/task_kill.' : ''),
     parameters: {
       sessionId: { type: 'string', required: true, description: 'Terminal session id returned by terminal_open or terminal_list.' },
       text: { type: 'string', required: true, description: 'UTF-8 text to write to the terminal.' },
       submit: { type: 'boolean', description: 'Submit Enter after text (default true). Set false for control characters or incomplete REPL input.' },
-      run_in_background: { type: 'boolean', description: 'Return a task id immediately; collect with task_output or stop with task_kill.' },
+      ...enableRunInBackground
+        ? { run_in_background: { type: 'boolean' as const, description: 'Return a task id immediately; collect with task_output or stop with task_kill.' } }
+        : {},
     },
+    finalizeContent,
     output: {
       schema: {
         oneOf: [
@@ -193,7 +232,7 @@ export function apply(ctx: Context): void {
         type: 'text',
         text: value.kind === 'background'
           ? `started background task ${value.taskId}`
-          : renderSend(value),
+          : renderSend(value, maxResultBytes),
       }],
       presentationMeta: (_args, value) => value.kind === 'foreground'
         ? {
@@ -209,6 +248,7 @@ export function apply(ctx: Context): void {
       const id = sessionId(args)
       const request = { text: args.text, submit: args.submit ?? true }
       if (args.run_in_background === true) {
+        if (!enableRunInBackground) throw new Error('background terminal sends are disabled by tool-pty configuration')
         const tasks = ctx.get('tasks')
         if (tasks === undefined) throw new Error('background terminal sends require @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         let cancelRequested = false
@@ -216,6 +256,7 @@ export function apply(ctx: Context): void {
           kind: 'pty-send',
           label: `${id}: ${args.text || '(input)'}`,
           owner,
+          outputLimitBytes: maxResultBytes,
           run: () => {
             const operation = ctx.pty.startSend(owner, id, request)
             return {
@@ -247,7 +288,7 @@ export function apply(ctx: Context): void {
     },
     presentResult(args, result) {
       if ((args as Partial<SendArgs>).run_in_background === true || result.isError) return undefined
-      const raw = rawResultText(result)
+      const raw = rawContentText(result.content)
       return raw === undefined ? undefined : { card: 'terminal', output: raw }
     },
   }))
@@ -260,6 +301,7 @@ export function apply(ctx: Context): void {
       offset: { type: 'number', description: 'Newest-relative line offset (default 0).' },
       count: { type: 'number', description: 'Requested line count (default 500; backend caps apply).' },
     },
+    finalizeContent,
     output: {
       schema: {
         type: 'object',
@@ -272,7 +314,7 @@ export function apply(ctx: Context): void {
           truncated: { type: 'boolean', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderRead(value) }],
+      render: (_args, value) => [{ type: 'text', text: renderRead(value, maxResultBytes) }],
     },
     execute(args: ReadArgs, exec) {
       const result = ctx.pty.read(requireAgent(exec.agent), sessionId(args), {
@@ -291,6 +333,7 @@ export function apply(ctx: Context): void {
       sessionId: { type: 'string', required: true, description: 'Terminal session id.' },
       signal: { type: 'string', required: true, enum: ['SIGINT', 'SIGTERM', 'SIGKILL', 'SIGTSTP', 'SIGHUP'], description: 'Signal to deliver. Shell-targeted SIGKILL is rejected; use terminal_close.' },
     },
+    finalizeContent,
     output: {
       schema: {
         type: 'object',
@@ -314,6 +357,7 @@ export function apply(ctx: Context): void {
     parameters: {
       sessionId: { type: 'string', required: true, description: 'Terminal session id.' },
     },
+    finalizeContent,
     output: {
       schema: {
         type: 'object',
@@ -342,9 +386,10 @@ export function apply(ctx: Context): void {
     name: 'terminal_list',
     description: 'List persistent terminal sessions owned by the current agent.',
     parameters: {},
+    finalizeContent,
     output: {
       schema: { type: 'array', items: SESSION_SNAPSHOT_SCHEMA },
-      render: (_args, value) => [{ type: 'text', text: renderList(value) }],
+      render: (_args, value) => [{ type: 'text', text: renderList(value, maxResultBytes) }],
     },
     execute(_args: Record<string, never>, exec) {
       return Promise.resolve(ctx.pty.list(requireAgent(exec.agent)))

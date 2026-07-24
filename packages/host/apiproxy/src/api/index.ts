@@ -39,7 +39,7 @@ export type {
 } from './rpc.ts'
 
 // ---- Errors and ids ----
-export { RpcId } from './rpc.ts'
+export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
 
 // ---- Method registry and derived generics ----

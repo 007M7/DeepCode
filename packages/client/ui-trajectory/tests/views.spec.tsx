@@ -28,6 +28,9 @@ import { WaterfallView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 
 const SID = 's1' as SessionId
+/** Fallback-only chain stub (no composer takeover in these benches). */
+const fallbackRenderSlotChain: ConversationRootProps['renderSlotChain'] =
+  (_key, _owner, opts) => opts?.fallback ?? null
 
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
@@ -80,6 +83,9 @@ async function bench() {
   const chatBody = vi.fn(() => <div data-testid="chat-body" />)
   slots.register(
     { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
+  // 'conversation' inject is an ordering edge; the bench declares the ring
+  // itself, so a stub satisfies the wait.
+  ctx.provide('conversation', {})
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, slots, fiber }
@@ -120,6 +126,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       renderSlot={renderSlot}
+      renderSlotChain={fallbackRenderSlotChain}
       SessionProvider={SessionProviderStub}
       views={{
         list: () => tabsOf(slots),

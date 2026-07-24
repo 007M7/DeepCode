@@ -2,7 +2,16 @@
 
 Six model-facing tools over `ctx.pty`: `terminal_open`, `terminal_send`, `terminal_read`, `terminal_signal`, `terminal_close`, and `terminal_list`. Every operation requires the exact initiating `Agent`, so a model cannot address another agent's terminal even if it learns the id.
 
-`terminal_send(run_in_background: true)` reuses `ctx.tasks`; task preflight occurs before any terminal write, completion is collected with `task_output`, and `task_kill` requests `Ctrl-C`. Foreground sends use terminal ACP cards; lifecycle, history, signal, and list calls use generic cards.
+`terminal_send(run_in_background: true)` reuses `ctx.tasks`; task preflight and the PTY service's exclusive per-session send reservation occur before the task id is returned, completion is collected with `task_output`, and `task_kill` delivers `SIGINT` to the foreground process group. Foreground sends use terminal ACP call/result cards. Background sends use a generic execute card; open, read, signal, close, and list use generic `execute`, `read`, `execute`, `delete`, and `read` cards respectively. None declares source locations.
+
+## Config
+
+| key | default | meaning |
+|---|---:|---|
+| `enableRunInBackground` | `true` | expose and accept `run_in_background`; false omits the schema field and rejects a forced undeclared argument |
+| `maxResultBytes` | `262144` | UTF-8 cap (minimum `64`) for each complete terminal result or PTY task output after wait, session, pagination, truncation, and task-status metadata |
+
+Both values are validated at load. The minimum result cap keeps every registry-issued session or task id visible in its creation acknowledgement. When a result exceeds `maxResultBytes`, rendering reserves space for control metadata and a truncation marker when they fit; cuts preserve UTF-8 boundaries. Each terminal definition's final-content callback applies the same cap after normalized pre-, around-, and post-execute policy failures, denials, short-circuits, replacements, or blocks; a structured multi-block policy result retains its shape.
 
 ## Model Experience
 
@@ -44,11 +53,11 @@ Prefix-stable while tool visibility and definitions are unchanged.
 
 #### What the model sees
 
-Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Results remain in session history until compaction; incremental task reads do not repeat consumed output. Programmatic callers receive typed session snapshots, bounded send/read DTOs, signal and close outcomes, or `{ kind: "background", taskId }`; Native rendering preserves the text above.
+Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Every terminal-owned or policy-produced single-text result is capped by `maxResultBytes` after normalized tool or pipeline errors, denials, short-circuits, replacements, blocks, and generic task status text. Structured multi-block policy results retain their shape. Results remain in session history until compaction; incremental task reads do not repeat consumed output. Programmatic callers receive typed session snapshots, bounded provider read/send DTOs, signal and close outcomes, or `{ kind: "background", taskId }`; Native rendering applies the presentation cap above.
 
 #### Token effect
 
-Data-dependent and bounded by the backend; each returned result remains in history until compaction.
+Terminal-owned and policy-produced single-text results are data-dependent and bounded by `maxResultBytes`; a policy that deliberately substitutes structured multi-block content owns that content's bound. Each returned result remains in history until compaction.
 
 #### KV Cache effect
 

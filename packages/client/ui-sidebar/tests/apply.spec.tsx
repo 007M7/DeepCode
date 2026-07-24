@@ -23,7 +23,7 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const list = createSnapshotStore<SessionListState>({
     ids: [sid('a')],
-    byId: { [sid('a')]: { id: sid('a'), title: 'alpha', cwd: '/proj', running: false, updatedAt: 1 } },
+    byId: { [sid('a')]: { id: sid('a'), title: 'alpha', displayTitle: 'alpha', cwd: '/proj', running: false, updatedAt: 1 } },
     current: undefined,
   })
   const sessions = { list, create: vi.fn(async () => sid('minted')), open: vi.fn() }

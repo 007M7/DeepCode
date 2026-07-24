@@ -21,6 +21,9 @@ import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
+/** Fallback-only chain stub (no takeover registered in these benches). */
+const fallbackRenderSlotChain: ConversationRootProps['renderSlotChain'] =
+  (_key, _owner, opts) => opts?.fallback ?? null
 
 function snapshotBase(): ConversationSnapshot {
   return {
@@ -43,7 +46,7 @@ function listHook(rows: { id: string; title: string; cwd?: string; parentId?: st
   const store = createSnapshotStore<SessionListState>({
     ids: rows.map(r => r.id as SessionId),
     byId: Object.fromEntries(rows.map(r => [r.id, {
-      id: r.id as SessionId, title: r.title, running: false, updatedAt: 1,
+      id: r.id as SessionId, title: `durable ${r.title}`, displayTitle: r.title, running: false, updatedAt: 1,
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentId: r.parentId as SessionId } : {}),
     }])),
@@ -73,6 +76,7 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         renderSlot={stubRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
         SessionProvider={SessionProviderStub}
         views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
         addImages={vi.fn(() => null)}
@@ -135,6 +139,7 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         renderSlot={stubRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
         SessionProvider={SessionProviderStub}
         views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
         addImages={vi.fn(() => null)}

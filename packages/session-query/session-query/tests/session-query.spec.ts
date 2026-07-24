@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
-import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
+import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, {
+  type SessionEventSurface,
   type SessionQueryErrorCode,
 } from '@deepseek-ai/dsh-session-query'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
+import { TestSessionQueryService } from './test-service.ts'
 
 function header(id: string, createdAt = 1, extra: Partial<SessionHeader> = {}): SessionHeader {
   return { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt, ...extra }
@@ -25,13 +27,15 @@ function eventLog(text = 'hello'): SessionEvent[] {
 class TestPersistence extends SessionPersistence {
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static listFailure: unknown
-  static loadFailure: unknown
+  static inspectFailure: unknown
+  static inspectEffect: (() => void) | undefined
   static afterList: (() => void) | undefined
 
   static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
     this.entries = new Map(entries.map(entry => [entry.meta.id, structuredClone(entry)]))
     this.listFailure = undefined
-    this.loadFailure = undefined
+    this.inspectFailure = undefined
+    this.inspectEffect = undefined
     this.afterList = undefined
   }
 
@@ -52,10 +56,17 @@ class TestPersistence extends SessionPersistence {
   }
 
   load(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    if (TestPersistence.loadFailure !== undefined) return rejectUnknown(TestPersistence.loadFailure)
+    return this.inspect(id)
+  }
+
+  inspect(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    if (TestPersistence.inspectFailure !== undefined) return rejectUnknown(TestPersistence.inspectFailure)
     const entry = TestPersistence.entries.get(id)
     if (entry === undefined) return Promise.reject(new Error('missing test session'))
-    return Promise.resolve(structuredClone(entry))
+    const result = structuredClone(entry)
+    TestPersistence.inspectEffect?.()
+    TestPersistence.inspectEffect = undefined
+    return Promise.resolve(result)
   }
 
   list(): Promise<SessionHeader[]> {
@@ -64,12 +75,20 @@ class TestPersistence extends SessionPersistence {
     TestPersistence.afterList?.()
     return Promise.resolve(headers)
   }
+
+
+  async listSnapshots() {
+    return [...TestPersistence.entries.values()].map(entry => ({
+      header: structuredClone(entry.meta),
+      revision: SessionPersistenceRevision(`events:${entry.events.length}`),
+    }))
+  }
 }
 
-async function liveContext(config: ConstructorParameters<typeof SessionQueryService>[1] = {}): Promise<Context> {
+async function liveContext(config: ConstructorParameters<typeof TestSessionQueryService>[1] = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionQueryService, config)
+  await ctx.plugin(TestSessionQueryService, config)
   return ctx
 }
 
@@ -86,6 +105,22 @@ function rejectUnknown<T>(reason: unknown): Promise<T> {
 }
 
 describe('session-query exact reads', () => {
+  it('prefers a live owner that attaches while its persisted prefix is inspected', async () => {
+    const shared = header('attach-during-inspect', 2)
+    TestPersistence.reset([{ meta: shared, events: eventLog('persisted') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    TestPersistence.inspectEffect = () => {
+      ctx.sessions.create(shared.id, {
+        seed: eventLog('live'),
+        meta: { createdAt: shared.createdAt },
+      })
+    }
+
+    await expect(ctx.sessionQuery.filterEvents(shared.id, []))
+      .resolves.toMatchObject([{ sessionId: shared.id, text: 'live' }])
+  })
+
   it('reads the latest title from one live-preferred or persisted log without widening listSessions', async () => {
     const persistedHeader = header('persisted-title', 2)
     const sharedHeader = header('shared-title', 3)
@@ -149,6 +184,38 @@ describe('session-query exact reads', () => {
     expect(records.every(record => record.live && !record.persisted)).toBe(true)
     Object.assign(records[2]!.header, { createdAt: 99 })
     expect(older.header.createdAt).toBe(1)
+  })
+
+  it('filters sessions symmetrically and owns mutable filter values immediately', async () => {
+    const durable = header('durable-filter', 1)
+    TestPersistence.reset([{ meta: durable, events: eventLog('durable') }])
+    const ctx = await liveContext()
+    const live = ctx.sessions.create(SessionId('live-filter'), { meta: { createdAt: 2 } })
+    live.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    const persistence = await ctx.plugin(TestPersistence)
+
+    const ids = [durable.id]
+    const filtered = ctx.sessionQuery.filterSessions([{ kind: 'id', values: ids }])
+    ids[0] = live.id
+    await expect(filtered).resolves.toEqual([{
+      header: durable,
+      live: false,
+      persisted: true,
+    }])
+
+    const surfaces: SessionEventSurface[] = ['current']
+    const events = ctx.sessionQuery.filterEvents(live.id, [{ kind: 'surface', values: surfaces }])
+    surfaces[0] = 'shadowed'
+    await expect(events).resolves.toMatchObject([{ sessionId: live.id, surface: 'current', text: 'live' }])
+    await expect(ctx.sessionQuery.filterSessions([{ kind: 'future' } as never]))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await expect(ctx.sessionQuery.filterEvents(live.id, [{ kind: 'future' } as never]))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await persistence.dispose()
   })
 
   it('classifies current, shadowed, and raw-log-only events through foldSurface', async () => {
@@ -301,6 +368,8 @@ describe('session-query exact reads', () => {
     const sharedEntry = TestPersistence.entries.get(shared.id)!
     sharedEntry.meta = { ...sharedEntry.meta, cwd: '/conflict' }
     await expect(ctx.sessionQuery.listSessions()).rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+    sharedEntry.meta = { ...sharedEntry.meta, cwd: '/same', delegationDepth: 1 }
+    await expect(ctx.sessionQuery.listSessions()).rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
     await persistence.dispose()
     await expect(ctx.sessionQuery.listSessions()).resolves.toEqual([
       { header: shared, live: true, persisted: false },
@@ -319,7 +388,7 @@ describe('session-query exact reads', () => {
     )
     await ctx.plugin(TestPersistence)
     TestPersistence.listFailure = new Error('list unavailable')
-    TestPersistence.loadFailure = new Error('load unavailable')
+    TestPersistence.inspectFailure = new Error('inspect unavailable')
 
     await expect(ctx.sessionQuery.listEvents(live.id)).resolves.toHaveLength(2)
     await expect(ctx.sessionQuery.readEvent({ sessionId: live.id, seq: 1 })).resolves.toMatchObject({ target: { seq: 1 } })
@@ -337,10 +406,10 @@ describe('session-query exact reads', () => {
     await expect(ctx.sessionQuery.listEvents(SessionId('absent')))
       .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
 
-    TestPersistence.loadFailure = 'raw failure'
+    TestPersistence.inspectFailure = 'raw failure'
     await expect(ctx.sessionQuery.listEvents(durable.id))
       .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
-    TestPersistence.loadFailure = undefined
+    TestPersistence.inspectFailure = undefined
     const durableEntry = TestPersistence.entries.get(durable.id)!
     durableEntry.meta = { ...durableEntry.meta, cwd: '/changed-after-list' }
     TestPersistence.afterList = () => {
@@ -370,19 +439,41 @@ describe('session-query exact reads', () => {
 
     const direct = new Context()
     await direct.plugin(SessionStore)
-    expect(new SessionQueryService(direct)).toBeInstanceOf(SessionQueryService)
+    expect(new TestSessionQueryService(direct)).toBeInstanceOf(SessionQueryService)
     const invalid = new Context()
     await invalid.plugin(SessionStore)
-    expect(() => new SessionQueryService(invalid, { readWindowMax: -1 }))
+    expect(() => new TestSessionQueryService(invalid, { readWindowMax: -1 }))
       .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
   })
 
   it('leaves the optional persistence dependency optional', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(SessionQueryService)
-    expect(ctx.sessionQuery).toBeInstanceOf(SessionQueryService)
+    const fiber = await ctx.plugin(TestSessionQueryService)
+    expect(ctx.sessionQuery).toBeInstanceOf(TestSessionQueryService)
     await fiber.dispose()
     expect(ctx.sessionQuery).toBeUndefined()
+  })
+
+  it('awaits optional-persistence child-fiber quiescence on disposal', async () => {
+    TestPersistence.reset()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const query = await ctx.plugin(TestSessionQueryService)
+    const persistence = await ctx.plugin(TestPersistence)
+    const optional = (ctx.sessionQuery as unknown as {
+      _corpus: { _optionalPersistenceFiber: Fiber }
+    })._corpus._optionalPersistenceFiber
+    let release!: () => void
+    const cleanup = new Promise<void>((resolve) => { release = resolve })
+    optional.ctx.effect(() => () => cleanup)
+
+    let settled = false
+    const disposing = query.dispose().then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    release()
+    await disposing
+    await persistence.dispose()
   })
 })
