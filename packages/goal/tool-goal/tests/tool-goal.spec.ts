@@ -377,12 +377,26 @@ describe('goal tool state transitions', () => {
     closeTurn(root, turn)
   })
 
-  it('returns structured domain and required-argument failures', async () => {
+  it('returns structured domain and conditional-argument failures', async () => {
     const { ctx, root } = await harness()
     openTurn(root, { kind: 'user' })
     const invalidCreate = await execute(ctx, 'create_goal', { objective: ' ' }, root.agent)
     expect(invalidCreate.error?.info?.code).toBe('GOAL_INVALID_OBJECTIVE')
     const created = ctx.goals.create(root.agent, { objective: 'valid' })
+    const replacement = await execute(ctx, 'update_goal', {
+      goal_id: created.id,
+      revision: created.revision,
+      action: 'pause',
+      objective: 'not valid for pause',
+    }, root.agent)
+    expect(replacement.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const terminalUpdate = await execute(ctx, 'update_goal', {
+      goal_id: created.id,
+      revision: created.revision,
+      action: 'complete',
+      max_goal_rounds: 2,
+    }, root.agent)
+    expect(terminalUpdate.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const blockedWithoutReason = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'blocked',
     }, root.agent)
@@ -391,43 +405,22 @@ describe('goal tool state transitions', () => {
       goal_id: created.id, revision: created.revision, action: 'blocked', blocked_reason: ' ',
     }, root.agent)
     expect(blockedWithEmptyReason.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const completeWithReason = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'complete', blocked_reason: 'Not a blocker.',
+    }, root.agent)
+    expect(completeWithReason.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const editWithReason = await execute(ctx, 'update_goal', {
+      goal_id: created.id,
+      revision: created.revision,
+      action: 'edit',
+      objective: 'still valid',
+      blocked_reason: 'Not valid for edit.',
+    }, root.agent)
+    expect(editWithReason.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const malformedRef = await execute(ctx, 'update_goal', {
       goal_id: '', revision: 0, action: 'edit', objective: 'x',
-      max_goal_rounds: 0, blocked_reason: '',
     }, root.agent)
     expect(malformedRef.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
-  })
-
-  it('ignores unused action fields emitted by strict-schema providers', async () => {
-    const { ctx, root } = await harness()
-    openTurn(root, { kind: 'user' })
-    let goal = ctx.goals.create(root.agent, { objective: 'valid' })
-    const strictArgs = {
-      objective: '',
-      max_goal_rounds: 0,
-      blocked_reason: '',
-    }
-
-    const paused = await execute(ctx, 'update_goal', {
-      goal_id: goal.id, revision: goal.revision, action: 'pause', ...strictArgs,
-    }, root.agent)
-    goal = ctx.goals.get(root.agent)!
-    expect(resultGoal(paused)).toMatchObject({ phase: 'paused', objective: 'valid' })
-    const resumed = await execute(ctx, 'update_goal', {
-      goal_id: goal.id, revision: goal.revision, action: 'resume', ...strictArgs,
-    }, root.agent)
-    goal = ctx.goals.get(root.agent)!
-    expect(resultGoal(resumed)).toMatchObject({ phase: 'active', objective: 'valid' })
-    const edited = await execute(ctx, 'update_goal', {
-      goal_id: goal.id, revision: goal.revision, action: 'edit', objective: 'edited',
-      max_goal_rounds: 7, blocked_reason: '',
-    }, root.agent)
-    goal = ctx.goals.get(root.agent)!
-    expect(resultGoal(edited)).toMatchObject({ objective: 'edited', maxGoalRounds: 7 })
-    const complete = await execute(ctx, 'update_goal', {
-      goal_id: goal.id, revision: goal.revision, action: 'complete', ...strictArgs,
-    }, root.agent)
-    expect(resultGoal(complete)).toMatchObject({ phase: 'complete', objective: 'edited', maxGoalRounds: 7 })
   })
 
   it('allows exact goal rounds to complete but not edit or pause', async () => {
