@@ -106,13 +106,13 @@ forever:
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
-  append 'user/message' -> flush persistence
+  append 'user/message'
   do not open a turn or run the model
 ```
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona, while the loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Tool-time context—including active-turn `inject()` and post-tool `additionalContexts`—settles after results. Steering drains at the same boundary and requests another step. Idle `inject()` instead appends and flushes context immediately without changing turn numbering; `whenIdle()` and disposal await that flush.
+Tool-time context—including active-turn `inject()` and post-tool `additionalContexts`—settles after results. Steering drains at the same boundary and requests another step. Idle `inject()` instead appends context immediately without changing turn numbering; persistence owns its eager drain.
 
 Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 

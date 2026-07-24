@@ -474,28 +474,6 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.fiber.dispose()
   })
 
-  it('an idle inject() is flushed durably on its own (survives without explicit flush/dispose)', async () => {
-    // No clean disposal follows, so disk presence proves the idle injection's
-    // own checkpoint ran without a synthetic turn.
-    const adapter1 = new MockAdapter([textResponse('answer')])
-    const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
-    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
-    await waitForIdle(ctx1, a1)
-    a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
-    await a1.whenIdle()
-
-    // A SEPARATE backend reads the on-disk log — proving the inject persisted
-    // itself, not a later dispose drain.
-    const probe = new Context()
-    await probe.plugin(SessionStore)
-    await probe.plugin(SessionPersistenceJsonl, { root })
-    const loaded = await probe.sessionPersistence.load(SessionId('inject-sess'))
-    expect(JSON.stringify(loaded.events)).toContain('background task 42 finished')
-    await probe.fiber.dispose()
-    await ctx1.fiber.dispose()
-  })
-
   it('an idle inject() survives persist + resume without a synthetic turn', async () => {
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)

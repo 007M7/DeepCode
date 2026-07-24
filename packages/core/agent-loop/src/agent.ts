@@ -139,11 +139,6 @@ export class ReactLoopAgent extends Agent {
         return id
       }
       this.session.append('user/message', { content, source }, { surfaceOp: 'append' })
-      const previous = this.done
-      const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
-        this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${errorChain(toError(error))}`)
-      })
-      this.done = Promise.all([previous, flush]).then(() => undefined)
       return id
     }
 
@@ -199,19 +194,15 @@ export class ReactLoopAgent extends Agent {
    */
   retry(): void {
     if (this.abort !== undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
-    const previous = this.done
-    const run = this.loopCtx.agents.withInitiator(this, () => this.run({ kind: 'retry' }))
-    this.done = Promise.all([previous, run]).then(() => undefined)
+    this.done = this.loopCtx.agents.withInitiator(this, () => this.run({ kind: 'retry' }))
   }
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
   async whenIdle(): Promise<void> {
-    // `done` is replaced by runs and idle-injection flushes. Re-read after
-    // every settlement so work admitted by a synchronous observer is included.
-    while (true) {
-      const done = this.done
-      await done.catch(() => undefined)
-      if (done === this.done && this.abort === undefined && !this.queued.some(message => message.wakeup)) return
+    // `done` is replaced per activity, so re-reading it follows chained turns;
+    // a run failure still counts as quiescence for the waiter.
+    while (this.abort !== undefined || this.queued.some(message => message.wakeup)) {
+      await this.done.catch(() => undefined)
     }
   }
 
@@ -224,8 +215,7 @@ export class ReactLoopAgent extends Agent {
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(message, false))
     const admission = new AbortController()
     this.abort = admission
-    const previous = this.done
-    const admissionTask = this.loopCtx.agents.withInitiator(this, async () => {
+    this.done = this.loopCtx.agents.withInitiator(this, async () => {
       const signal = admission.signal
       const trigger: TurnTrigger = { kind: 'message', source: message.source }
       let admitted = false
@@ -258,7 +248,6 @@ export class ReactLoopAgent extends Agent {
       }
       await this.run(trigger)
     })
-    this.done = Promise.all([previous, admissionTask]).then(() => undefined)
   }
 
   /** Own one complete turn over input already admitted by {@link kick}, or retry history as-is. */

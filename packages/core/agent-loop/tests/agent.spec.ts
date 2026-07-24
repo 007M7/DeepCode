@@ -6,7 +6,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { bindReactLoopAgentContext, prepareReactLoopAgent, type ReactLoopAgent } from '../src/agent.ts'
+import { bindReactLoopAgentContext, prepareReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 function driverDone(agent: Agent): Promise<void> {
@@ -83,30 +83,19 @@ describe('Agent', () => {
     await ctx.fiber.dispose()
   })
 
-  it('idle inject() appends context and flushes without opening a turn', async () => {
+  it('idle inject() appends context without opening a turn or requesting a flush', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const release = Promise.withResolvers<void>()
     let flushes = 0
-    ctx.on('session/flush', async (session) => {
-      if (session !== agent.session) return
-      flushes += 1
-      await release.promise
-    })
+    ctx.on('session/flush', () => { flushes += 1 })
 
     agent.inject([{ type: 'text', text: 'context' }], { source: { kind: 'plugin', plugin: 'p' } })
     expect(agent.session.events.map(event => event.type)).toEqual(['user/message'])
     expect(agent.status).toBe('idle')
     expect(adapter.requests).toHaveLength(0)
-
-    let idle = false
-    const settled = agent.whenIdle().then(() => { idle = true })
-    await Promise.resolve()
-    expect(flushes).toBe(1)
-    expect(idle).toBe(false)
-    release.resolve()
-    await settled
+    await agent.whenIdle()
+    expect(flushes).toBe(0)
   })
 
   it('inject() defaults its source to an empty plugin, never user', async () => {
@@ -119,35 +108,15 @@ describe('Agent', () => {
     await agent.whenIdle()
   })
 
-  it('idle inject() contains a failing flush without inventing an agent turn error', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    ctx.on('session/flush', () => { throw new Error('disk gone') })
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
-
-    expect(() => { agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } }) }).not.toThrow()
-    await agent.whenIdle()
-    expect(errors).toEqual([])
-    expect(agent.session.events.map(event => event.type)).toEqual(['user/message'])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('flush after idle injection failed'))
-    warn.mockRestore()
-  })
-
-  it('idle inject() does not flush input rejected before append', async () => {
+  it('idle inject() rejects invalid input before append', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    let flushes = 0
-    ctx.on('session/flush', () => { flushes += 1 })
 
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
     }).toThrow(/non-JSON-serializable/)
     expect(agent.session.events).toHaveLength(0)
-    expect(flushes).toBe(0)
   })
 
   it('steer() when idle falls through to send() and starts a turn', async () => {

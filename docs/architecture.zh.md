@@ -106,13 +106,13 @@ forever:
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
-  append 'user/message' -> flush persistence
+  append 'user/message'
   do not open a turn or run the model
 ```
 
 每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定，循环则提供 `model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-工具执行阶段的上下文，包括活跃轮次内的 `inject()` 和工具执行后的 `additionalContexts`，会在结果记录完毕后落定。steering（中途引导）会在同一边界排空，并请求再执行一个步骤。空闲状态下的 `inject()` 则会立即追加上下文并完成持久化刷新，且不改变轮次编号；`whenIdle()` 和 dispose（资源释放）会等待该刷新完成。
+工具执行阶段的上下文，包括活跃轮次内的 `inject()` 和工具执行后的 `additionalContexts`，会在结果记录完毕后落定。steering（中途引导）会在同一边界排空，并请求再执行一个步骤。空闲状态下的 `inject()` 则会立即追加上下文，且不改变轮次编号；持久化层独立负责由此产生的即时排空。
 
 裁剪先于摘要；溢出重试必须取得持久进展。有界的瞬态重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 

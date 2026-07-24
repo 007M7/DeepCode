@@ -1041,33 +1041,4 @@ describe('agent scope lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('handle.dispose() awaits an idle-injection flush before unregistering or detaching', async () => {
-    const ctx = await harness()
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('idle-flush-s'),
-      agentOptions: { provider: 'mock', model: 'mock' },
-    })
-    const gate = Promise.withResolvers<undefined>()
-    let flushStarted = false
-    ctx.on('session/flush', (session) => {
-      if (session !== handle.agent.session) return
-      flushStarted = true
-      return gate.promise
-    })
-
-    handle.agent.inject(text('durable idle context'), { source: { kind: 'plugin', plugin: 'test' } })
-    expect(flushStarted).toBe(true)
-
-    let disposed = false
-    const disposal = handle.dispose().then(() => { disposed = true })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(disposed).toBe(false)
-    expect(ctx.agents.get(SessionId('idle-flush-s'))).toBe(handle.agent)
-    expect(ctx.sessions.get(SessionId('idle-flush-s'))).toBe(handle.agent.session)
-
-    gate.resolve(undefined)
-    await disposal
-    expect(ctx.agents.get(SessionId('idle-flush-s'))).toBeUndefined()
-    expect(ctx.sessions.get(SessionId('idle-flush-s'))).toBeUndefined()
-  })
 })
