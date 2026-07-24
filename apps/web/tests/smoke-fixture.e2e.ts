@@ -292,6 +292,7 @@ describe('web boot chain success pass (keyless, ten real bundles, ?fixture)', ()
     const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: 15_000 })
     expect({
+      pendingQuestionPlaceholders: await page.getByText(/等待回答（/).count(),
       question: await composer.getByRole('heading').innerText(),
       progress: await composer.getByText('1 / 3', { exact: true }).innerText(),
       options: await composer.getByRole('radio').allTextContents(),
@@ -304,6 +305,7 @@ describe('web boot chain success pass (keyless, ten real bundles, ?fixture)', ()
           "2研究潜力型更看重 Agent 理解、训练评测思路和长期成长空间。",
           "3均衡型同时要求工程能力和 Agent 认知，但可能筛选门槛更高。",
         ],
+        "pendingQuestionPlaceholders": 0,
         "progress": "1 / 3",
         "question": "你现在更想招哪类 Agent/Harness 候选人？",
       }
@@ -312,11 +314,30 @@ describe('web boot chain success pass (keyless, ten real bundles, ?fixture)', ()
     await composer.getByRole('radio', { name: '工程落地型' }).click()
     await composer.getByText('2 / 3', { exact: true }).waitFor()
     await composer.getByRole('button', { name: '跳过本题', exact: true }).click()
-    const detail = composer.getByText('按当前招聘目标选择；跳过则视为不设偏好。')
+    const planHeading = composer.getByRole('heading', { level: 1, name: '面试计划' })
+    await planHeading.waitFor()
+    expect({
+      code: await composer.locator('code').filter({ hasText: '偏好' }).innerText(),
+      headingTag: await planHeading.evaluate(element => element.tagName),
+      listItems: await composer.locator('li').allTextContents(),
+      strong: await composer.locator('strong').filter({ hasText: '按当前招聘目标' }).innerText(),
+    }).toMatchInlineSnapshot(`
+      {
+        "code": "偏好",
+        "headingTag": "H1",
+        "listItems": [
+          "按当前招聘目标选择",
+          "跳过则视为不设 偏好",
+        ],
+        "strong": "按当前招聘目标",
+      }
+    `)
     // Exercise provider-sized plan detail through the assembled composer
     // without making the shared fixture transcript permanently enormous.
-    await detail.evaluate((element) => {
-      element.textContent = Array.from(
+    await planHeading.evaluate((element) => {
+      const markdown = element.parentElement
+      if (markdown === null) throw new Error('Markdown detail root missing')
+      markdown.textContent = Array.from(
         { length: 80 },
         (_, index) => `Plan section ${String(index + 1)} keeps review context readable.`,
       ).join(' ')

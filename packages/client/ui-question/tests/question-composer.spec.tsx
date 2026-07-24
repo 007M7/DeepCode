@@ -101,6 +101,29 @@ describe('QuestionComposer', () => {
     expect((screen.getByRole('button', { name: '正在提交…' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('renders plan detail through the shared assistant Markdown primitive', () => {
+    const carrier = new PendingWait(
+      'question',
+      RpcId('markdown-plan'),
+      SID,
+      {
+        questions: [{
+          id: 'plan',
+          question: '批准这个计划吗？',
+          detail: '# 实施计划\n\n- **先验证**现状\n- 修改 `QuestionComposer`',
+          options: [{ label: '批准' }],
+        }],
+      } as PendingWait<'question'>['payload'],
+      vi.fn(),
+    )
+    const view = render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    expect(screen.getByRole('heading', { level: 1, name: '实施计划' })).toBeTruthy()
+    expect(view.container.querySelector('strong')?.textContent).toBe('先验证')
+    expect(view.container.querySelector('code')?.textContent).toBe('QuestionComposer')
+    expect(view.container.querySelectorAll('li')).toHaveLength(2)
+  })
+
   it('skips individual questions without discarding earlier answers', () => {
     const { carrier, respond } = wait()
     render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)

@@ -2,7 +2,7 @@ import { useMemo, useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutline16, IconChevronLeftOutline14, IconChevronRightOutline14,
-  IconCloseOutline16, IconEditOutline16,
+  IconCloseOutline16, IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PendingQuestion, type QuestionAnswer, type QuestionComposerProps } from './contract/slots.ts'
 import css from './QuestionComposer.module.css'
@@ -199,7 +199,9 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
         </header>
 
         <div className={css.body} data-question-scroll>
-          {question.detail !== undefined && <p className={css.detail}>{question.detail}</p>}
+          {question.detail !== undefined && (
+            <div className={css.detail}><MarkdownText text={question.detail} /></div>
+          )}
           <div className={css.options} role={question.multiSelect === true ? 'group' : 'radiogroup'}>
             {(question.options ?? []).map((option, optionIndex) => {
               const selected = draft.selected.includes(option.label)

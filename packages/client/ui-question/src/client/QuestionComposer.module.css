@@ -68,10 +68,6 @@
 
 .detail {
   margin: 0 2px 8px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 400;
 }
 
 .headerActions,

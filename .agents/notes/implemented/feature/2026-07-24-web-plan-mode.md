@@ -34,7 +34,7 @@ Business and transport failures leave the confirmed snapshot unchanged, re-enabl
 
 ## Exit review
 
-`exit_plan_mode` remains registered in both modes for request-cache stability. In plan mode the model submits the complete Markdown plan through that tool. The plan service asks through `ctx.userInteraction`, and the already-composed Web question plugin presents the plan detail with Approve, Keep planning, and the free-text answer channel. The capped question card keeps its title, navigation, and submission actions fixed while the complete plan and choices share an internal scroll region.
+`exit_plan_mode` remains registered in both modes for request-cache stability. In plan mode the model submits the complete Markdown plan through that tool. The plan service asks through `ctx.userInteraction`, and the already-composed Web question plugin presents the plan detail with Approve, Keep planning, and the free-text answer channel. Question detail reuses the assistant-output Markdown primitive and its untrusted-content policy. The capped question card keeps its title, navigation, and submission actions fixed while the complete plan and choices share an internal scroll region. The chat flow omits its generic pending-question placeholder because the composer takeover is the sole presentation of that wait.
 
 Approval queues inactive mode for the next step; it does not rewrite the current tool batch. Keep planning or custom feedback leaves plan mode active and returns corrective feedback to the model. If the review channel is unavailable or aborted, the tool fails closed and the policy tells the model to ask the user to switch modes manually.
 
