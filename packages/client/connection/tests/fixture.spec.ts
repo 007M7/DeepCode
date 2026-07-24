@@ -56,6 +56,9 @@ describe('createFixtureApi', () => {
     expect((await client.sessions.setPlanMode({ sessionId: sid('fx-alpha'), active: true })).result).toEqual({
       ok: true, value: { active: false, pending: true },
     })
+    expect((await client.sessions.setPlanMode({ sessionId: sid('fx-alpha'), active: true })).result).toEqual({
+      ok: true, value: { active: false, pending: true },
+    })
     expect((await client.sessions.cancel({ sessionId: sid('fx-alpha') })).result).toEqual({
       ok: true, value: { accepted: true },
     })
@@ -83,12 +86,12 @@ describe('createFixtureApi', () => {
     const createdId = created.result.value.sessionId
     await client.sessions.setPlanMode({ sessionId: createdId, active: true })
     expect((await client.sessions.setPlanMode({ sessionId: createdId, active: false })).result).toEqual({
-      ok: true, value: { active: false, pending: false },
+      ok: true, value: { active: false },
     })
-    // Selecting the effective target again is a no-op, and a net-zero pending
-    // target clears at the boundary without a redundant plan/mode event.
+    // Selecting the committed target clears pending immediately, and repeating
+    // that selection remains a no-op without a redundant plan/mode event.
     expect((await client.sessions.setPlanMode({ sessionId: createdId, active: false })).result).toEqual({
-      ok: true, value: { active: false, pending: false },
+      ok: true, value: { active: false },
     })
     await client.sessions.prompt({
       sessionId: createdId, mode: 'queue', content: [{ type: 'text', text: 'remain default' }],

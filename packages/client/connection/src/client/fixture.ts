@@ -510,7 +510,7 @@ export function createFixtureApi(): ApiProxy {
         if (planState?.pending !== undefined) {
           const active = planState.pending
           planStates.set(id, { active })
-          if (active !== planState.active) append(id, { type: 'plan/mode', data: { active } })
+          append(id, { type: 'plan/mode', data: { active } })
         }
         append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
         startReply(
@@ -551,10 +551,11 @@ export function createFixtureApi(): ApiProxy {
             details: { sessionId: request.payload.sessionId },
           })
         }
-        const target = state.pending ?? state.active
-        const next = request.payload.active === target
-          ? state
-          : { active: state.active, pending: request.payload.active }
+        const next = request.payload.active === state.active
+          ? { active: state.active }
+          : request.payload.active === state.pending
+            ? state
+            : { active: state.active, pending: request.payload.active }
         planStates.set(request.payload.sessionId, next)
         return ok(request, { ...next })
       },
