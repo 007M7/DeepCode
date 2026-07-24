@@ -262,6 +262,23 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     expect(ops.every(r => !('event.seq' in r.attributes) && !('event.type' in r.attributes))).toBe(true)
   })
 
+  it('retires a disposed session: no retention, no stale shutdown marker at unload', async () => {
+    const { ctx, backend, fiber } = await setup()
+    liveSession(ctx, 'survivor')
+    // A session owned by its own fiber: disposing the fiber detaches it from
+    // the store and emits `session/disposed` — the authoritative retirement
+    // signal a long-lived telemetry backend must honor, or every closed
+    // session (and its full event log) stays strongly held for the backend's
+    // lifetime and final unload emits shutdown markers for dead sessions.
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.sessions.create(SessionId('ephemeral'), { meta: {} })
+    }, { inject: ['sessions'] }))
+    await owner.dispose()
+    await fiber.dispose()
+    const ops = backend.records.filter(r => r.channel === 'ops')
+    expect(ops.map(r => r.attributes['session.id'])).toEqual(['survivor'])
+  })
+
   it('warns instead of throwing when backend shutdown fails', async () => {
     const backend = new FakeBackend()
     backend.shutdownError = new Error('exporter unreachable')

@@ -108,9 +108,13 @@ export interface TelemetryBackend {
   flush?(): void
   /**
    * Forward the fiber's disposal to the SDK: flush whatever is queued and
-   * reach quiescence, per the SDK's own shutdown contract. Awaited by the
-   * coordinator's dispose; a rejection is logged as a warning and never
-   * fails application teardown.
+   * reach quiescence, per the SDK's own shutdown contract. Everything
+   * emitted before this call must still be delivered — including records
+   * enqueued while a {@link flush} hint is in flight, so a backend whose SDK
+   * guards against concurrent flushes orders behind the outstanding one (the
+   * coordinator emits its dispose-time `shutdown` markers immediately before
+   * calling this). Awaited by the coordinator's dispose; a rejection is
+   * logged as a warning and never fails application teardown.
    * @returns resolves when the backend's pipeline has quiesced.
    */
   shutdown(): Promise<void>

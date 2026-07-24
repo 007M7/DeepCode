@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { once } from 'node:events'
+import { gunzipSync } from 'node:zlib'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -43,17 +44,26 @@ afterEach(async () => {
   }
 })
 
-async function mockCollector(): Promise<{ url: string; captures: Capture[] }> {
+async function mockCollector(
+  beforeRespond?: (requestIndex: number) => Promise<void> | void,
+): Promise<{ url: string; captures: Capture[] }> {
   const captures: Capture[] = []
+  let requestIndex = 0
   const server = createServer((request, response) => {
     const chunks: Buffer[] = []
     request.on('data', chunk => chunks.push(chunk as Buffer))
     request.on('end', () => {
-      captures.push({
-        headers: request.headers,
-        body: JSON.parse(Buffer.concat(chunks).toString()) as OtlpLogsRequest,
-      })
-      response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+      const index = requestIndex++
+      void (async () => {
+        await beforeRespond?.(index)
+        const raw = Buffer.concat(chunks)
+        const body = request.headers['content-encoding'] === 'gzip' ? gunzipSync(raw) : raw
+        captures.push({
+          headers: request.headers,
+          body: JSON.parse(body.toString()) as OtlpLogsRequest,
+        })
+        response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+      })()
     })
   })
   servers.push(server)
@@ -111,6 +121,59 @@ describe('TelemetryOtel wire', () => {
 
     expect(ops).toHaveLength(1)
     expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
+  })
+
+  it('delivers records enqueued while a turn-boundary flush is in flight (flush/shutdown race)', async () => {
+    // Hold the collector's response to the flush-triggered export open until
+    // after disposal has begun: the SDK's concurrent-flush guard makes the
+    // shutdown-internal flush return early while another flush is running, so
+    // without ordering in the backend the coordinator's dispose-time shutdown
+    // marker (enqueued after the flush snapshot) would be dropped silently.
+    const gate = Promise.withResolvers<boolean>()
+    const arrived = Promise.withResolvers<boolean>()
+    const { url, captures } = await mockCollector(async (index) => {
+      if (index === 0) {
+        arrived.resolve(true)
+        await gate.promise
+      }
+    })
+    const { ctx, fiber } = await boot(url)
+    const session = ctx.sessions.create(SessionId('race'), { meta: {} })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    ctx.telemetry.flush!()
+    await arrived.promise
+
+    const disposal = fiber.dispose()
+    // Let disposal reach the backend's shutdown while the export is held open.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    gate.resolve(true)
+    await disposal
+
+    const records = allRecords(captures)
+    const ops = records.filter(r => r.scope === '@deepseek-ai/dsh-session-telemetry-otel/ops')
+    expect(ops).toHaveLength(1)
+    expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
+  })
+
+  it('passes exporter options beyond url and headers through to the SDK exporter', async () => {
+    const { url, captures } = await mockCollector()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    // `compression` is a documented SDK exporter option; the advertised
+    // verbatim passthrough must hand it (and every other field) to the
+    // exporter rather than silently rebuilding url/headers only.
+    const fiber = await ctx.plugin(TelemetryOtel, {
+      exporter: { url, compression: 'gzip' },
+    } as Config)
+    const session = ctx.sessions.create(SessionId('gzip'), { meta: {} })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await fiber.dispose()
+
+    expect(captures.length).toBeGreaterThan(0)
+    expect(captures[0]!.headers['content-encoding']).toBe('gzip')
+    const types = allRecords(captures).flatMap(({ record }) =>
+      record.attributes?.flatMap(a => a.key === 'event.type' ? [a.value.stringValue] : []) ?? [])
+    expect(types).toContain('turn/start')
   })
 
   it('maps the warn severity and forwards the flush hint to the SDK', async () => {

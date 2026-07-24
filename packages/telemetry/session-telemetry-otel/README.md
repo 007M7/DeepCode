@@ -15,7 +15,7 @@ The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — th
     processor: {}            # optional; passed verbatim to BatchLogRecordProcessor
 ```
 
-`exporter.url` is the one field this package validates itself — required, no default, must parse as `http(s)` — so a missing endpoint fails at plugin load. Everything else is the SDK's option shape, owned and documented by the SDK; batching, retry, queue bounds, and loss policy under sustained failure are its documented behavior, tuned through the `processor` passthrough. Removing this block from `cordis.yml` is the opt-out: no residual state, no `enabled` flag.
+`exporter.url` is the one field this package validates itself — required, no default, must parse as `http(s)` — so a missing endpoint fails at plugin load. Everything else is the SDK's option shape, owned and documented by the SDK, and both blocks pass through whole: every `OTLPExporterNodeConfigBase` field (`headers`, `timeoutMillis`, `compression`, `keepAlive`, …) reaches the exporter, and batching, retry, queue bounds, and loss policy under sustained failure are the SDK's documented behavior, tuned through the `processor` passthrough. Removing this block from `cordis.yml` is the opt-out: no residual state, no `enabled` flag.
 
 ## What leaves the machine
 

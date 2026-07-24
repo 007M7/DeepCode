@@ -1059,12 +1059,15 @@ Requires: `sessions`
  * must fail at plugin load, not at first export.
  */
 export interface Config {
-  /** Passed verbatim to the SDK's OTLP/HTTP log exporter. */
-  exporter?: {
+  /**
+   * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
+   * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
+   * `compression`, `keepAlive`, …), owned and documented by the SDK. `url`
+   * is the one field this package requires and validates itself.
+   */
+  exporter?: OTLPExporterNodeConfigBase & {
     /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required; validated at plugin load. */
     url?: string
-    /** Extra request headers (auth etc.); owned and sent by the SDK exporter. */
-    headers?: Record<string, string>
   }
   /**
    * Passed verbatim to `BatchLogRecordProcessor` (minus the exporter slot,
@@ -1074,9 +1077,9 @@ export interface Config {
 }
 ```
 
-Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`)
+Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
 
-Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:39`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:40`](../packages/telemetry/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 

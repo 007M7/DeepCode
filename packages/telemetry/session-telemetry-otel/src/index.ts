@@ -23,6 +23,7 @@ import {
   type BatchLogRecordProcessorOptions,
 } from '@opentelemetry/sdk-logs'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
+import type { OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base'
 import { SeverityNumber, type AnyValue, type Logger } from '@opentelemetry/api-logs'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 
@@ -37,12 +38,15 @@ const { version } = createRequire(import.meta.url)('../package.json') as { versi
  * must fail at plugin load, not at first export.
  */
 export interface Config {
-  /** Passed verbatim to the SDK's OTLP/HTTP log exporter. */
-  exporter?: {
+  /**
+   * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
+   * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
+   * `compression`, `keepAlive`, …), owned and documented by the SDK. `url`
+   * is the one field this package requires and validates itself.
+   */
+  exporter?: OTLPExporterNodeConfigBase & {
     /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required; validated at plugin load. */
     url?: string
-    /** Extra request headers (auth etc.); owned and sent by the SDK exporter. */
-    headers?: Record<string, string>
   }
   /**
    * Passed verbatim to `BatchLogRecordProcessor` (minus the exporter slot,
@@ -54,15 +58,13 @@ export interface Config {
 /**
  * Schemastery validator for {@link Config}; cordis runs it before the plugin
  * starts. Shape-level only — the load-bearing `exporter.url` check lives in
- * the constructor so its error message names the field.
+ * the constructor so its error message names the field. Both slots are opaque
+ * passthroughs: the SDK owns their shapes and validates its own options;
+ * re-declaring them field-by-field here would violate the boundary axiom
+ * (and silently drop every field not re-declared).
  */
 export const Config: z<Config> = z.object({
-  exporter: z.object({
-    url: z.string(),
-    headers: z.dict(z.string()),
-  }),
-  // Opaque passthrough: the SDK owns this shape and validates its own
-  // options; re-declaring them here would violate the boundary axiom.
+  exporter: z.any(),
   processor: z.any(),
 })
 
@@ -112,14 +114,13 @@ export class TelemetryOtel extends Telemetry {
       processors: [
         new BatchLogRecordProcessor({
           ...config.processor,
-          exporter: new OTLPLogExporter({
-            url,
-            // App identity travels in the Resource (service.name/version);
-            // the transport-level user-agent is the SDK's own, per the axiom.
-            // Schemastery fills `headers` with {} before cordis constructs the
-            // plugin, so the optional type exists for hand-authors only.
-            headers: config.exporter?.headers as Record<string, string>,
-          }),
+          // The complete validated exporter object, verbatim: every SDK
+          // option (`timeoutMillis`, `compression`, `keepAlive`, …) reaches
+          // the exporter — rebuilding selected fields here would silently
+          // ignore the rest. App identity travels in the Resource
+          // (service.name/version); the transport-level user-agent is the
+          // SDK's own, per the axiom.
+          exporter: new OTLPLogExporter(config.exporter),
         }),
       ],
     })
@@ -146,22 +147,34 @@ export class TelemetryOtel extends Telemetry {
     })
   }
 
+  /** The latest turn-boundary flush, retained so {@link shutdown} can order behind it. */
+  private inflightFlush: Promise<void> = Promise.resolve()
+
   /** Forward the turn-boundary hint to the SDK's flush, fire-and-forget. */
   override flush(): void {
     // Best-effort hint: the SDK resolves forceFlush even when exports fail
     // (failures go to its own diagnostics), and the coordinator stops calling
-    // this once the fiber is disposed — a rejection would be SDK drift.
+    // this once the fiber is disposed — a rejection would be SDK drift. The
+    // settled promise is retained (not awaited): the SDK's concurrent-flush
+    // guard makes a flush that overlaps another return WITHOUT draining, so
+    // shutdown must wait this one out before trusting its own flush.
     /* v8 ignore next -- unreachable guard: forceFlush does not reject while the provider is alive */
-    void this.provider.forceFlush().catch(() => {})
+    this.inflightFlush = this.provider.forceFlush().catch(() => {})
   }
 
   /**
    * Delegate disposal to the SDK's shutdown contract: flush the queue and
-   * quiesce. Awaited (and error-contained) by the coordinator's disposer.
+   * quiesce. Orders behind the last turn-boundary flush first — shutdown's
+   * internal flush is a no-op while one is in flight (the SDK's
+   * concurrent-flush guard), which would silently drop everything enqueued
+   * after that flush snapshot, including the coordinator's dispose-time
+   * `shutdown` markers. Awaited (and error-contained) by the coordinator's
+   * disposer.
    * @returns resolves when the SDK pipeline has quiesced.
    */
-  shutdown(): Promise<void> {
-    return this.provider.shutdown()
+  async shutdown(): Promise<void> {
+    await this.inflightFlush
+    await this.provider.shutdown()
   }
 }
 
