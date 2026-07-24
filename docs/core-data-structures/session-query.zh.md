@@ -27,7 +27,17 @@ interface SessionRecord {
 }
 ```
 
-`SessionSurfaceSnapshot` 表示一次精确读取所得的观测，而不是持续保留的订阅。它的原始日志边界与折叠后的事件来自同一次优先使用 live 数据的加载。
+`SessionLogSnapshot` 是供恢复预检使用的完整原始日志：它脱离运行时，并经过回放验证。`SessionSurfaceSnapshot` 表示一次精确读取的 surface 观测结果，而不是持续保留的订阅。
+
+```ts type-equiv
+/** One validated detached observation of a logical session's complete raw log. */
+interface SessionLogSnapshot {
+  /** Cloned session header selected from the same observation as `events`. */
+  session: SessionHeader
+  /** Cloned contiguous raw events after persistence repair and replay validation. */
+  events: SessionEvent[]
+}
+```
 
 ```ts type-equiv
 /** One atomic live-preferred observation of a session's current model surface. */
