@@ -11,7 +11,13 @@
 仅追加的事件类型。可通过声明合并扩展：插件通过 declaration merging 声明额外的事件类型。例如[压缩（compaction） seam](compaction.md) 添加了 `compact/start` / `compact/summary` / `compact/end`，`@deepseek-ai/dsh-hook-protocol` 添加了仅记录日志的 `hook/invoked` / `hook/result` 溯源事件，用于钩子桥接。与 `compact/*` 一样，这些都不是 `SurfaceEventType`（没有 `surfaceOp`）。生成的[持久化日志事件目录](../persistence-catalog.md)列举了所有成员（核心与合并扩展的），包含其 payload、surface 标记与声明位置。
 
 ```ts type-equiv
-/** Shared payload for ordinary and steering prompt messages. */
+/**
+ * Shared payload for user, injected-context, and steering prompt messages. A
+ * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
+ * steering all project into the model transcript as verbatim user-role content;
+ * they are told apart by `source` (a non-`user` kind marks injected context),
+ * not by event type. `meta` carries durable model-hidden producer state.
+ */
 interface PromptMessageData {
   /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
   content: ContentBlock[]
@@ -19,6 +25,15 @@ interface PromptMessageData {
   source: MessageSource
   /** Present only when prompt-prefix contexts were baked into `content`. */
   envelope?: PromptMessageEnvelope
+  /**
+   * Opaque durable JSON state retained on the event but hidden from the model
+   * projection. It is the intended channel for a future framing directive (a
+   * producer declares the frame, a dedicated renderer applies it — see the
+   * deferred note in
+   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
+   * so the surface keeps projecting `content` verbatim rather than wrapping it.
+   */
+  meta?: JsonValue
 }
 ```
 
@@ -48,29 +63,21 @@ interface SessionEventMap {
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (the queued message claimed for this turn). */
+  /**
+   * A user-role message on the model-visible surface: a direct human prompt
+   * (the queued message claimed for this turn), a synthetic `agent.inject()`
+   * context (file-change notices, subdir AGENTS.md, skill content, cron
+   * notifications, …), or an admitted goal continuation round. All three
+   * project their `content` verbatim; `source` (with a non-`user` kind marking
+   * injected context) is the only channel that tells them apart. An idle
+   * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+   */
   'user/message': PromptMessageData
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
    * prompt never enters the model-visible surface, and its turn runs zero steps.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
-  /**
-   * In-session context injection (file-change notices, subdir AGENTS.md,
-   * skill content, cron notifications, …). Rendered into the derived history
-   * as a synthetic user-role message carrying `content` verbatim — NOT a
-   * user prompt. `meta` is durable JSON state omitted from the model
-   * projection; it is also the intended channel for any future framing
-   * directive (a producer declares the frame, a dedicated renderer applies it —
-   * see the deferred note in
-   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
-   * so the surface keeps projecting `content` verbatim rather than wrapping it.
-   */
-  'context/message': {
-    content: ContentBlock[]
-    source: MessageSource
-    meta?: JsonValue
-  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -203,7 +210,7 @@ interface EpochHeader {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -237,7 +244,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ## Surface 类型
 
-五种产生消息的类型（`SurfaceEventType`：`user/message`、`assistant/message`、`tool/result`、`context/message`、`steering/message`）携带 surface 元数据，用来声明它们如何加入有序的派生 surface。见 [session surface Agent Note](../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)。
+四种产生消息的类型（`SurfaceEventType`：`user/message`、`assistant/message`、`tool/result`、`steering/message`）携带 surface 元数据，用来声明它们如何加入有序的派生 surface。见 [session surface Agent Note](../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)。
 
 ### `SurfaceEventType`：事件类型中产生消息的子集
 
@@ -251,7 +258,6 @@ type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'context/message'
   | 'steering/message'
 ```
 
@@ -262,7 +268,7 @@ type SurfaceEventType =
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -469,7 +475,7 @@ declare class Session {
 - `user/message` → 一条携带确切 `content` 的 user 消息；可选 envelope 仅作为日志中的展示元数据保留。
 - `assistant/message` → 一条 assistant 消息，包含事件的提供方/模型溯源信息和可选的适配器私有回放状态。原始 `assistant/chunk` 事件属于回放/UI 数据，在派生时会被**跳过**（组装后的消息才是权威）。**内容为空的** `assistant/message` 也会跳过：因 max-tokens 而截断且无内容的步骤仍会记录一条 `assistant/message` 以承载用量和溯源信息，但无内容的 assistant 轮次不得进入提供方 transcript。
 - `tool/result` → 一条携带 `tool-result` 块的 user 消息。
-- `context/message` → 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`。可选的 JSON `meta` 保留在事件日志中，绝不渲染。
+- `user/message`（注入上下文，即非 `user` 来源）→ 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`。可选的 JSON `meta` 保留在事件日志中，绝不渲染。
 - `steering/message` → 按时间顺序在相应位置生成一条携带确切 `content` 的 user-role 消息；可选 envelope 仅作为日志中的展示元数据保留。
 
 其余所有事件（`turn/*`、`step/*`、插件所有的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。操作错误的步骤号记录在 `turn/end.reason`（`kind: 'error'`）中；如果是最终模型请求失败，其中包含规范化的 `LlmFailure` 事实，其他实时错误则包含消息/代码。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝缺少提供方和模型的请求头，以及缺少提供方/模型溯源信息的 assistant 消息，而不会猜测历史数据应走的提供方路由。
@@ -493,11 +499,12 @@ interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
   /**
    * An out-of-band context injection (`agent.inject()`) made while the agent
-   * was idle. The loop wraps the injected `context/message` in a one-shot turn
-   * (`turn/start` → `context/message` → `turn/end`) so every event in the log
-   * stays turn-enclosed — the durability/replay boundary is the turn, and a
-   * bare event between turns would otherwise be indistinguishable from a crash
-   * tail on reload.
+   * was idle. The loop wraps the injected `user/message` (a non-`user` source,
+   * plugin by default) in a one-shot turn (`turn/start` → `user/message` →
+   * `turn/end`) so every event in the log stays turn-enclosed — the
+   * durability/replay boundary is the turn, and a bare event between turns would
+   * otherwise be indistinguishable from a crash tail on reload. The trigger's
+   * `source` mirrors that message's producer.
    */
   injection: { kind: 'injection'; source: MessageSource }
 }
@@ -548,13 +555,13 @@ interface TurnEndReasonMap {
 
 ## 轮次封闭不变式
 
-每个会话事件都位于一个轮次**之内**（在 `turn/start` 和对应的 `turn/end` 之间）。loop 在 `turn/start` *之后*追加已排队的 `user/message` 事件；空闲时的 `agent.inject()` 会用一次性的 `injection` 轮次包住其 `context/message`；没有打开的轮次时，`appendOutOfBand()` 同样会用一个轮次包住符合条件的仅日志事件。这使轮次成为唯一的持久性/回放边界：后端可以将最后一个 `turn/end` 之后的任何内容视为崩溃中断尾部，而不会丢失合法记录在轮次之间的上下文。可选的 `dsh-session/invariant` 配套插件通过 `ctx.invariants` 在开发环境中强制此不变式（消息事件若位于打开的轮次之外便会抛出）。见[轮次封闭不变式 Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)。
+每个会话事件都位于一个轮次**之内**（在 `turn/start` 和对应的 `turn/end` 之间）。loop 在 `turn/start` *之后*追加已排队的 `user/message` 事件；空闲时的 `agent.inject()` 会用一次性的 `injection` 轮次包住其 `user/message`；没有打开的轮次时，`appendOutOfBand()` 同样会用一个轮次包住符合条件的仅日志事件。这使轮次成为唯一的持久性/回放边界：后端可以将最后一个 `turn/end` 之后的任何内容视为崩溃中断尾部，而不会丢失合法记录在轮次之间的上下文。可选的 `dsh-session/invariant` 配套插件通过 `ctx.invariants` 在开发环境中强制此不变式（消息事件若位于打开的轮次之外便会抛出）。见[轮次封闭不变式 Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)。
 
 ## 插件贡献的仅日志事件
 
 插件可以通过 declaration merging 添加额外的 `SessionEventMap` 类型。这些是**仅日志**事件：不是 `SurfaceEventType`（不携带 `surfaceOp`，不参与派生历史），但与所有事件一样，必须位于一个打开的轮次内。完整的逐事件枚举（核心与插件贡献的，含 payload 与溯源信息）见生成的[持久化日志事件目录](../persistence-catalog.md)；压缩 seam 的 `compact/*` 语义在 [compaction.md](compaction.md) 中讨论。
 
-钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。轮次中间的钩子点（`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`）在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 不生成 `hook/*` 记录：它注入的 `context/message` 已是持久证据，而且当时没有已打开的轮次可容纳该记录（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
+钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。轮次中间的钩子点（`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`）在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 不生成 `hook/*` 记录：它注入的 `user/message` 已是持久证据，而且当时没有已打开的轮次可容纳该记录（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
 
 ## 持久性契约
 

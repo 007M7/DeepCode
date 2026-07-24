@@ -35,10 +35,10 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
 
-/** Every `context/message` in the agent's log, flattened to joined text + source for terse assertions. */
+/** Every injected-context user message in the agent's log, flattened to joined text + source for terse assertions. */
 function reminders(agent: Agent): { text: string; source: unknown }[] {
   return [...agent.session.events]
-    .filter((e): e is SessionEvent<'context/message'> => e.type === 'context/message')
+    .filter((e): e is SessionEvent<'user/message'> => e.type === 'user/message' && e.data.source.kind !== 'user')
     .map(e => ({
       text: e.data.content.map(block => block.type === 'text' ? block.text : '').join('|'),
       source: e.data.source,
@@ -56,7 +56,7 @@ describe('threshold escalation', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
@@ -77,7 +77,7 @@ describe('threshold escalation', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
@@ -99,7 +99,7 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
@@ -123,7 +123,7 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(reminders(agent)).toHaveLength(1)
@@ -141,7 +141,7 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
@@ -162,7 +162,7 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
@@ -178,7 +178,7 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(reminders(agent)).toHaveLength(1) // probe was NOT excluded
@@ -194,7 +194,7 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(reminders(agent)).toHaveLength(1) // all three canonicalize identically
@@ -215,8 +215,8 @@ describe('chain semantics', () => {
     ]))
     const agentA = ctx.agentLoop.create(SessionId('a'), { provider: 'mock-a', model: 'model-a' })
     const agentB = ctx.agentLoop.create(SessionId('b'), { provider: 'mock-b', model: 'model-b' })
-    agentA.send([{ type: 'text', text: 'go' }])
-    agentB.send([{ type: 'text', text: 'go' }])
+    agentA.followup([{ type: 'text', text: 'go' }])
+    agentB.followup([{ type: 'text', text: 'go' }])
     await Promise.all([waitForIdle(ctx, agentA), waitForIdle(ctx, agentB)])
 
     expect(reminders(agentA)).toHaveLength(0) // 2 repeats < 3, despite B's 3 in the same registry
@@ -234,9 +234,9 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
-    agent.send([{ type: 'text', text: 'again' }])
+    agent.followup([{ type: 'text', text: 'again' }])
     await waitForIdle(ctx, agent)
 
     expect(reminders(agent)).toHaveLength(0)
@@ -256,13 +256,13 @@ describe('chain semantics', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       first = inner.agentLoop.create(SessionId('reused'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
-    first.send([{ type: 'text', text: 'go' }])
+    first.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, first)
     await fiber.dispose()
     await first.whenIdle()
 
     const second = ctx.agentLoop.create(SessionId('reused'), { provider: 'mock', model: 'mock' })
-    second.send([{ type: 'text', text: 'go' }])
+    second.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, second)
 
     expect(reminders(second)).toHaveLength(0)
@@ -278,7 +278,7 @@ describe('chain semantics', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(reminders(agent)).toHaveLength(1)
@@ -294,7 +294,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(reminders(agent)).toHaveLength(0)
@@ -316,7 +316,7 @@ describe('fold onto the downstream decision', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
@@ -347,7 +347,7 @@ describe('fold onto the downstream decision', () => {
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)

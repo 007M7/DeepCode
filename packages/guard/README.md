@@ -6,4 +6,4 @@ Behavioral guard plugins that watch the agent loop for unproductive patterns and
 |---|---|---|
 | `repeat-tool-guard/` | Advisory reminders when an agent loops on identical tool calls | (listens on `ctx.tools`' waterfalls) |
 
-Reminders travel as `additionalContexts` on the `tools/post-execute` decision; the agent loop appends them as logged `context/message` events after the step's tool results (see [the tools package](../core/tools)), so everything a guard says to the model is reconstructable from the session log.
+Reminders travel as `additionalContexts` on the `tools/post-execute` decision; the agent loop appends them as logged plugin-sourced `user/message` events after the step's tool results (see [the tools package](../core/tools)), so everything a guard says to the model is reconstructable from the session log.

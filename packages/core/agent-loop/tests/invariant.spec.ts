@@ -42,7 +42,7 @@ describe('request-reconstruction invariant', () => {
 
   it('uses the step boundary rather than content appended afterward', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    session.append('context/message', { content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' } }, { surfaceOp: 'append' })
+    session.append('user/message', { content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' } }, { surfaceOp: 'append' })
     const options = loopRequest({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })

@@ -64,7 +64,7 @@ describe('multi-subagent coexistence (spawn + fork on one context)', () => {
     ])
 
     // Parent does one real turn first, so the fork has a completed turn to seed.
-    parent.send([{ type: 'text', text: 'parent q1' }])
+    parent.followup([{ type: 'text', text: 'parent q1' }])
     await parent.whenIdle()
     const parentPrefixLen = parent.session.events.length
 
@@ -93,7 +93,7 @@ describe('multi-subagent coexistence (spawn + fork on one context)', () => {
     await forkRun.dispose()
 
     // The parent is unaffected and keeps working after both delegations.
-    parent.send([{ type: 'text', text: 'parent q2' }])
+    parent.followup([{ type: 'text', text: 'parent q2' }])
     await parent.whenIdle()
     const lastParentMessage = parent.session.events.findLast(e => e.type === 'assistant/message')
     expect(lastParentMessage?.type === 'assistant/message' && text(lastParentMessage.data.content)).toBe('parent turn two')
