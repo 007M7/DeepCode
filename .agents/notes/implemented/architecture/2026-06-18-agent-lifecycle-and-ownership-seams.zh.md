@@ -14,11 +14,11 @@ ACP（Agent Client Protocol）与 tool-bash 的若干限制是同一个缺失 se
 
 ### 1. 队列感知的 `Agent.cancel(cause?)`
 
-`Agent` 接口新增 `cancel()` 动词——唯一的公开停止原语。（它最初与范围更窄、仅作用于步骤的 `abort()` 一同交付；后者后来因无人使用而移除，使 `cancel()` 成为唯一公开的停止工作方式。）它清空 inbox 的 queued + steering FIFO，在存在活跃轮次时中止它，并保留一个不带 cause 的 pre-run 标记，使在取得所有权前被取消的提示词永不运行，而后来的提示词仍保持独立。有效调用会在清空或中止前发出 `agent/cancel-requested`，携带类型化的 `user | parent` cause；空闲取消不发出任何事件，也不会使下一条提示词搁浅。`whenIdle()` 会到达取消后的静默状态，ACP 的 `session/cancel` 映射到 `user`。[显式轮次取消决策](2026-07-16-explicit-turn-cancellation.md)拥有当前的 cause、signal 生命周期与协作式结算契约。
+`Agent` 接口新增 `cancel()` 动词——唯一的公开停止原语。（它最初与范围更窄、仅作用于步骤的 `abort()` 一同交付；后者后来因无人使用而移除，使 `cancel()` 成为唯一公开的停止工作方式。）它清空 inbox 的 queued + steering FIFO，在存在活跃轮次时中止它，并保留一个不带 cause 的 pre-run 标记，使在取得所有权前被取消的提示词永不运行，而后来的提示词仍保持独立。有效调用会在清空或中止前发出 `agent/cancel-requested`，携带类型化的 `user | parent` cause；空闲取消不发出任何事件，也不会使下一条提示词搁浅。`whenIdle()` 会在取消后达到完全停稳，ACP 的 `session/cancel` 映射到 `user`。[显式轮次取消决策](2026-07-16-explicit-turn-cancellation.md)拥有当前的 cause、signal 生命周期与协作式结算契约。
 
 ### 2. `AgentHandle` 异步释放器
 
-`ctx.agents.create`/`resume`（以及 `AgentFactory` 接口）返回 `AgentHandle = { agent: Agent; dispose(): Promise<void> }`。释放器是一种**消费方能力**——仅持有裸 `Agent` 的注册表观察者无法将其拆除。调用方 fiber 和已注册的 factory 提供方是结构上的共同所有者：调用方卸载强制结构化所有权，而提供方卸载必须停止旧实例，因为其实例作用域的依赖 surface 通过该提供方解析。三条路径都会进入同一个 memoize 的拆除过程：停止循环、等待其退出与空闲刷写完成（真正的静默，而非仅把状态翻转为 `disposed`）、分离 agent、分离其会话，然后解除其 scope。每个公开 ID 在其精确注册表条目分离时变得可复用；不存在独立的保留释放阶段。由配置创建的 agent 已归 `AgentLoop` fiber 所有（handle 被丢弃）。ACP 在其 `SessionRecord` 中保存每个会话的释放器，并在断连/拆除时运行它，因此单纯的客户端断连不会留下已注册 agent 或会话存储条目——即使 `session/load` 与拆除竞争（刚恢复的 handle 会在 closed-guard 抛出前释放）。
+`ctx.agents.create`/`resume`（以及 `AgentFactory` 接口）返回 `AgentHandle = { agent: Agent; dispose(): Promise<void> }`。释放器是一种**消费方能力**——仅持有裸 `Agent` 的注册表观察者无法将其拆除。调用方 fiber 和已注册的 factory 提供方是结构上的共同所有者：调用方卸载强制结构化所有权，而提供方卸载必须停止旧实例，因为其实例作用域的依赖 surface 通过该提供方解析。三条路径都会进入同一个 memoize 的拆除过程：停止循环、等待其退出与空闲刷写完成（完全停稳，而非仅把状态翻转为 `disposed`）、分离 agent、分离其会话，然后解除其 scope。每个公开 ID 在其精确注册表条目分离时变得可复用；不存在独立的保留释放阶段。由配置创建的 agent 已归 `AgentLoop` fiber 所有（handle 被丢弃）。ACP 在其 `SessionRecord` 中保存每个会话的释放器，并在断连/拆除时运行它，因此单纯的客户端断连不会留下已注册 agent 或会话存储条目——即使 `session/load` 与拆除竞争（刚恢复的 handle 会在 closed-guard 抛出前释放）。
 
 **拆除顺序对持久性至关重要**，实现将会话生命周期折叠进 agent 的单个复合 Cordis effect（`SessionStore.prepare`/`enter`/`announce`，取代兄弟 effect 拆分）。fiber 卸载会并发释放兄弟 effect（`Promise.all`），这会让会话存储的 append 发布钩子移除与循环关闭时的 `session/flush` 竞争，从而丢失关闭的 `turn/end`；在一个 effect 内，释放器作为有序的 LIFO 链运行（停止循环 + `await agent.done` 在会话分离之前），因此无论 handle 的 `dispose()` 还是 fiber 卸载，都会捕获循环的最终刷写。被隔离的 `agent/disposed` 和 `session/disposed` 通知无法拒绝该链或跳过后续拆除。
 
@@ -47,4 +47,4 @@ bash 所有者 token 比较依赖共享的 `Agent.id`/`SessionId` 在存活 agen
 
 ## 后果
 
-本变更有意触及公开接口（`Agent`、`AgentFactory`、bash seam），而非作为 ACP 的局部补丁。简洁的同步 `Agent.send()` 人体工学得以保留；异步生命周期路径是增量添加的，供需要它的所有者使用。
+本变更有意触及公开接口（`Agent`、`AgentFactory`、bash seam），而非作为 ACP 的局部补丁。同步 `Agent.send()` 的简洁易用性得以保留；异步生命周期路径是增量添加的，供需要它的所有者使用。

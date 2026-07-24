@@ -30,7 +30,7 @@ harness 最初仅通过 readline 循环暴露 agent。该接口能传输文本�
 
 桥接层还提供基于 ACP 的 `UserInteractionProvider`：`ask_user_question` 请求变为所属会话上的表单引导。select、multi-select、选项描述与自定义回答覆盖语义均被保留。
 
-生命周期所有权是显式的。桥接层为每个活跃会话持有一个 `AgentHandle`。断连和 Cordis dispose（资源释放）会取消待处理的提示词，并行 dispose 所有 handle，等待循环静默与持久化刷写，然后移除记录。流通知失败被隔离，因此消失的客户端不会破坏 agent 轮次。ACP 应用组合不加载 stdout logger；一个测试守卫 stdout 仅包含帧化的 JSON-RPC。
+生命周期所有权是显式的。桥接层为每个活跃会话持有一个 `AgentHandle`。断连和 Cordis dispose（资源释放）会取消待处理的提示词，并行 dispose 所有 handle，等待循环完全停稳与持久化刷写，然后移除记录。流通知失败被隔离，因此消失的客户端不会破坏 agent 轮次。ACP 应用组合不加载 stdout logger；一个测试守卫 stdout 仅包含帧化的 JSON-RPC。
 
 精确的已支持与已推迟的协议行列表见 [`packages/ui/acp/acp-feature-support.md`](../../../../packages/ui/acp/acp-feature-support.md)；包 README 是操作契约。
 
@@ -56,4 +56,4 @@ harness 最初仅通过 readline 循环暴露 agent。该接口能传输文本�
 
 ## 验证
 
-ACP 测试套件覆盖内存协议编解码器、创建/加载回放、精确的提示词结算、取消竞争、不支持的内容、工具展示、终端能力回退、权限结果映射、config-option 校验与持久化、多会话隔离、断连/释放静默，以及 HMR（热模块替换）清理。快照测试与 built-bin 测试验证应用组合，真实 API 的 e2e 测试在无 key 时自动跳过。
+ACP 测试套件覆盖内存协议编解码器、创建/加载回放、精确的提示词结算、取消竞争、不支持的内容、工具展示、终端能力回退、权限结果映射、config-option 校验与持久化、多会话隔离、断连/释放后的完全停稳，以及 HMR（热模块替换）清理。快照测试与 built-bin 测试验证应用组合，真实 API 的 e2e 测试在无 key 时自动跳过。

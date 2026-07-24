@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-unify-agent-and-session-id.md: c55152f4f13fe0acb530503e84f465799007cff7
-2026-06-20-unify-agent-and-session-id.zh.md: ac6f7e09b20b2b6e17ca0e9f6ebb088abaf5a996
+2026-06-20-unify-agent-and-session-id.zh.md: 1fa2fe1fd64478bfe17c590e45abd0cf8281cbe4

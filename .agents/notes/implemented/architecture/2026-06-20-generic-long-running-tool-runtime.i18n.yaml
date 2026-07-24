@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-generic-long-running-tool-runtime.md: 25668a6a699576e435670b9580385073f2f036fe
-2026-06-20-generic-long-running-tool-runtime.zh.md: f6432b7d1f1bd4497c2bf186235bb4e3bb653ec7
+2026-06-20-generic-long-running-tool-runtime.zh.md: d6db17b441d965dfaed1847f0dcfa4fd6fc25bb4

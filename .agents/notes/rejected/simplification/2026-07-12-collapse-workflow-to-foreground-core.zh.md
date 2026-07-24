@@ -31,7 +31,7 @@ live handle 在观测者消失后仍重复事件时代的数据。`WorkflowRun.i
 - 工作流公开 seam 仅包含有生产消费方的执行、取消、结果与 dispose 契约。
 - 不再保留任何工作流事件、phase/log 协议消息、run-id 生成器、仅供进度使用的元数据、host 配对账本或 fatal 模式分支。
 - run handle 不再有 id/meta 回显，取消在同步 `start()` 返回后只有一条持有者拥有的通道。
-- parallel/pipeline 行为、上限、取消静默、worker 隔离、结构化输出与面向模型的工作流场景保持测试覆盖。
+- parallel/pipeline 行为、上限、取消后的完全停稳、worker 隔离、结构化输出与面向模型的工作流场景保持测试覆盖。
 - 类型检查、覆盖率、快照、doc-sync（文档同步门禁）、module-graph 校验、构建与 hygiene 全部通过。
 
 ## 风险

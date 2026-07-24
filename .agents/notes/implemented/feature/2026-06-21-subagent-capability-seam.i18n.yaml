@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-21-subagent-capability-seam.md: 9c17a93751de209e5e4e5a0ca7d7b1d8e5656a47
-2026-06-21-subagent-capability-seam.zh.md: 9386b495a03611ecbf1d45e53c8ba0aa87eaa6f0
+2026-06-21-subagent-capability-seam.zh.md: 454e5c7859314a1f6706edf690eb79cbcb6cf5ee

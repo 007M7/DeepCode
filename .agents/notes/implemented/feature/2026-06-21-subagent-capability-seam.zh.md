@@ -38,7 +38,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 原语：异步 `start → SubagentRun`
 
-提供方暴露 `start(request) → Promise<SubagentRun>`。完成时发布一个就绪的子 agent 并将其运行句柄转交给调用方。一个信号覆盖就绪前后的取消；`dispose()`（资源释放）取消剩余工作并等待静止。启动失败时清理部分资源，不发出生命周期事件。`start` 与传输方式无关；`spawn` 仅指代全新的进程内后端。
+提供方暴露 `start(request) → Promise<SubagentRun>`。完成时发布一个就绪的子 agent 并将其运行句柄转交给调用方。一个信号覆盖就绪前后的取消；`dispose()`（资源释放）取消剩余工作并等待完全停稳。启动失败时清理部分资源，不发出生命周期事件。`start` 与传输方式无关；`spawn` 仅指代全新的进程内后端。
 
 ### 两类可选能力，两种发现方式
 

@@ -110,6 +110,6 @@ export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string):
 
 **每个工具各自实现超时，不共享代码（先前的现状，也是 Claude Code 的选择）。** 否决，因为它已经在产生分化和重复的正确性负担：web_fetch 手写了与未来网络/进程类工具各自需要重新推导的完全相同的 controller/reason 逻辑，而融合 + `signal.reason` 恢复正是容易出错的部分。Claude Code 容忍完全重复；本仓库有一个统一的共享 abort 通道（每次 `execute` 上的 `exec.signal`），使得一个小型共享原语严格更优，因此成本/收益不同。
 
-**用 `withTimeout(promise, ms)` 包装器代替信号工厂。** 否决，因为让 promise 与定时器竞争只是在截止时间到达时 resolve *工具调用*的 promise，而不会停止底层工作——子进程或 fetch socket 会泄漏。分发信号并要求能力监听，才能强制一条真实的终止路径存在。这与「dispose 必须达到静止状态，而非仅仅请求它」的防御性规则一致。
+**用 `withTimeout(promise, ms)` 包装器代替信号工厂。** 否决，因为让 promise 与定时器竞争只是在截止时间到达时 resolve *工具调用*的 promise，而不会停止底层工作——子进程或 fetch socket 会泄漏。分发信号并要求能力监听，才能强制一条真实的终止路径存在。这与「dispose 必须达到完全停稳，而非仅仅请求它」的防御性规则一致。
 
 **保留 bash 独立的超时和取消触发器。** 否决，因为一个 deadline 信号移除了定制定时器并标准化了分类。竞争的原因报告先到达的那个 abort，而既有的 SIGTERM→SIGKILL 终止路径保持不变。

@@ -19,7 +19,7 @@ ctx.emit('agent/stream-chunk', agent, turn, step, chunk)   // ← the mirror
 
 实时发射相比会话事件唯一多出的东西是实时的 `Agent` 句柄，而唯一的消费方直接丢弃了它（其处理函数签名为 `(_agent, _turn, _step, chunk)`）。
 
-这与[移除边界镜像](2026-06-20-remove-agent-boundary-mirror-events.md)为轮次/步骤边界消除的重复相同：消费方面对同一持久事实的两个事实来源，每次变更都必须同时触及两者。该 Agent Note（agent 决策记录）没有把分片流一并纳入，而是推迟处理（“`assistant/chunk` 持久化仍承载关键约束，所以以后可以将分片流作为镜像评估，但那是一项独立决策”）。本 Agent Note 就是那项独立决策。
+这与[移除边界镜像](2026-06-20-remove-agent-boundary-mirror-events.md)为轮次/步骤边界消除的重复相同：消费方面对同一持久事实的两个真源，每次变更都必须同时触及两者。该 Agent Note（agent 决策记录）没有把分片流一并纳入，而是推迟处理（“`assistant/chunk` 持久化仍承载关键约束，所以以后可以将分片流作为镜像评估，但那是一项独立决策”）。本 Agent Note 就是那项独立决策。
 
 推迟所依赖的前提已经明确：分片持久化是权威的，且将保留。停止持久化分片、仅保留瞬态实时流事件的提案已被[否决](../../rejected/simplification/2026-06-20-assembled-assistant-messages-only.md)——高保真回放、部分失败的流以及快照回放都依赖持久化的 `assistant/chunk` 序列。因此 `session/event` 上的 `assistant/chunk` 是持久的、承重的 token 流，而 `agent/stream-chunk` 是它的纯冗余镜像。
 

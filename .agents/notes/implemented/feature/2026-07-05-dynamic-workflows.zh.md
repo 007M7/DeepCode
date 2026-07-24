@@ -24,11 +24,11 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 ### 引擎（dsh-workflow-workerthread）：每次运行一个 worker 线程
 
-**信任前提**：工作流脚本与模型的 bash 访问具有相同的信任级别。引擎容纳有缺陷的脚本，并保证结果已 settled、值为 JSON 安全、取消后静默；它不防御恶意代码。vm 上下文和 worker 线程不是安全边界：脚本可以逃逸到具有进程级权限的 Node API。沙箱化需要在此 seam 背后使用独立进程或 isolated-vm 引擎。
+**信任前提**：工作流脚本与模型的 bash 访问具有相同的信任级别。引擎容纳有缺陷的脚本，并保证结果已 settled、值为 JSON 安全、取消后完全停稳；它不防御恶意代码。vm 上下文和 worker 线程不是安全边界：脚本可以逃逸到具有进程级权限的 Node API。沙箱化需要在此 seam 背后使用独立进程或 isolated-vm 引擎。
 
 **为何选择 `node:worker_threads`**：每次运行获得一个非池化的 worker。vm 上下文限制了文档化的脚本表面，而消息端口 RPC 将 `agent()` 桥接到宿主侧的子循环。worker 防止脚本的同步工作阻塞宿主，提供序列化边界，并允许取消后强制终止。`isolated-vm` 因其维护状态和部署要求被否决。
 
-宿主在发布前校验元数据并解析正文。私有枚举键 payload 映射定义协议格式；待启动记录、已发布子记录、单一取消信号、worker 死亡回收、结果优先级与 dispose 静默，在此协议上保持 subagent run 契约。这些竞态算法归[agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records)所有。
+宿主在发布前校验元数据并解析正文。私有枚举键 payload 映射定义协议格式；待启动记录、已发布子记录、单一取消信号、worker 死亡回收、结果优先级与 dispose 完全停稳，在此协议上保持 subagent run 契约。这些竞态算法归[agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records)所有。
 
 引擎暴露一条进程内 `MessageChannel` 测试路径，因为主进程 V8 覆盖率无法观测 worker 执行。
 

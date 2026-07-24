@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-12-collapse-workflow-to-foreground-core.md: 629e2140523c3ae7caf533de99821206d05f1b8e
-2026-07-12-collapse-workflow-to-foreground-core.zh.md: f71ea19f563ff64a1f638c644d35f51148e493cb
+2026-07-12-collapse-workflow-to-foreground-core.zh.md: 3ae5e026a0b123a6b695b339010bf14a99515912

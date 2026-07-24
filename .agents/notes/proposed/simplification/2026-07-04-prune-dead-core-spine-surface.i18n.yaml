@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-prune-dead-core-spine-surface.md: 432aaa848540fe7d1db3039399345a02afed5bd3
-2026-07-04-prune-dead-core-spine-surface.zh.md: 9e2203fab4fc0b2b0bec6ff956a3b572c0c9062a
+2026-07-04-prune-dead-core-spine-surface.zh.md: 2c7cc4c0dc234afc107bdfc715cf717e5ad8c55c

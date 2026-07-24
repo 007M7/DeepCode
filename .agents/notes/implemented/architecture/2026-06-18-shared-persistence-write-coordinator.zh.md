@@ -27,7 +27,7 @@ Status: implemented
 - `appendBatch(meta, events, isMaterialized)`——持久追加一个连续批次，在尚未物化时原子地惰性物化会话（物化写入与首批事件必须一起提交——崩溃不得留下一个已物化但为空的会话；这就是为什么没有单独的 `materialize` 钩子）。
 - `commitRepair(meta, tornMarker, closers)`——使崩溃修复持久化：截断损坏的尾部（当且仅当 `tornMarker !== undefined`）并追加 `closers`。**不要求原子性**——JSONL 合理地分两步 fsync（先截断再追加），SQLite 在一个事务中完成 DELETE+INSERT。用于 `load`（截断 + 合成 closers）和 live-adoption（仅截断，`closers = []`）。
 - `list()`——列出所有已存储的元数据。
-- `close?()`——可选的生命周期清理（SQLite 关闭 db 句柄；JSONL 省略），在 dispose effect 中于静默排空之后被 await，因此 close 失败不会掩盖排空错误。
+- `close?()`——可选的生命周期清理（SQLite 关闭 db 句柄；JSONL 省略），在 dispose effect 中于排空至完全停稳之后被 await，因此 close 失败不会掩盖排空错误。
 
 ### 不透明的 torn marker
 
@@ -44,4 +44,4 @@ Status: implemented
 
 ## 后果
 
-协调器增加了一层间接、一个不透明的 torn marker 和脱离会话生命周期的退役任务，但将此前每个后端重复的、对正确性要求很高的编排逻辑集中到一处。会话 dispose 仍是仅观察事件，因此会话所有者不会等待持久化退役；协调器会收容失败、在存活控制器中保留待处理事件，并以后端 teardown 为静止状态边界。其钩子面保持窄小：标识校验、接管、碰撞检查与不修改状态的检查共用 `loadStored`；物化保持在 `appendBatch` 内原子完成；列举绕过协调器。读模型使用 `inspect` 而非 `load`，因此观察已持久化但仍开放的轮次时，不会因提交中断 closers 而与新的存活所有者产生竞态。新后端只需实现存储原语，而无需复制立即写入生命周期。
+协调器增加了一层间接、一个不透明的 torn marker 和脱离会话生命周期的退役任务，但将此前每个后端重复的、对正确性要求很高的编排逻辑集中到一处。会话 dispose 仍是仅观察事件，因此会话所有者不会等待持久化退役；协调器会收容失败、在存活控制器中保留待处理事件，并以后端 teardown 为完全停稳边界。其钩子面保持窄小：标识校验、接管、碰撞检查与不修改状态的检查共用 `loadStored`；物化保持在 `appendBatch` 内原子完成；列举绕过协调器。读模型使用 `inspect` 而非 `load`，因此观察已持久化但仍开放的轮次时，不会因提交中断 closers 而与新的存活所有者产生竞态。新后端只需实现存储原语，而无需复制立即写入生命周期。

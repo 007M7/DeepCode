@@ -47,7 +47,7 @@ task id 在运行时全局可见且可预测，因此注册表会授权每次访
 
 快照存储所有者的品牌化 `SessionId` 以供授权，生命周期操作则保留确切的实时 `Agent` 实例。这两种身份用途不同：会话相等性授予访问权，精确对象身份决定清理和完成通知的接收方。复用 agent 或会话 id，不能将旧作用域的清理或通知重定向到替代实例。
 
-某个所有者的第一个任务会向 `owner.ctx` 附加一个异步 effect。agent 作用域释放时会取消该所有者的实时任务、等待其终止记录，并移除其快照。该 effect 可跨生产方重载存续，并加入 agent 现有的停稳边界。任务服务保留 effect disposer，使服务重载可以在全局资源销毁后，从仍然存活的 agent 作用域中分离回调。
+某个所有者的第一个任务会向 `owner.ctx` 附加一个异步 effect。agent 作用域释放时会取消该所有者的实时任务、等待其终止记录，并移除其快照。该 effect 可跨生产方重载存续，并加入 agent 现有的完全停稳边界。任务服务保留 effect disposer，使服务重载可以在全局资源销毁后，从仍然存活的 agent 作用域中分离回调。
 
 对于遵守契约的生产方，`AgentHandle.dispose()` 只在所属后台工作停止后解决。需要比 agent 存活更久的工作必须以无所有者方式启动；要跨运行时重启存续，则需另行设计持久任务。
 
@@ -89,7 +89,7 @@ task id 在运行时全局可见且可预测，因此注册表会授权每次访
 
 ## 生产方集成
 
-bash seam 暴露 `resolve`、`run` 和 `start`。`start(spec)` 返回一个 `BashProcess`，提供增量读取、取消、退出事实以及不拒绝的停稳 promise。本地执行器只为自身释放时能终止并等待进程而保留实时句柄。前台调用方继续直接使用 `resolve` 和 `run`。
+bash seam 暴露 `resolve`、`run` 和 `start`。`start(spec)` 返回一个 `BashProcess`，提供增量读取、取消、退出事实以及不拒绝的完全停稳 promise。本地执行器只为自身释放时能终止并等待进程而保留实时句柄。前台调用方继续直接使用 `resolve` 和 `run`。
 
 对于后台 bash，`dsh-tool-bash` 将调用方 agent 注册为所有者。其钩子将 `kill()` 映射为取消，将 `done` 映射为 completed 或 killed 的 `TaskOutcome`，并将 `readOutput()` 映射为进程的有界增量输出，以及溢出文件与沙箱通知。通用任务工具拥有 id、状态行、列表、等待和完成通知。
 

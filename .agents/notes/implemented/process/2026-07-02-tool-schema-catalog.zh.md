@@ -21,7 +21,7 @@ Cordis 目录是纯 TypeScript AST 遍历，因为每个事件/服务名都是�
 - `tool-subagent` 的工具名是 `config.toolName ?? 'subagent'`——加载时选定，并非字面量。
 - MCP 插件可以通过 `ctx.tools.register()` 直接注册**原始 JSON Schema**，完全不经过 `defineTool`，因此结构化枚举 `defineTool(` 调用点会遗漏。
 
-唯一忠实的事实来源，是插件加载后注册表实际持有的 schema。启动插件是把[测试策略](../../../../docs/testing.md)中“验证现实，而非自我报告”的准则应用到文档生成器：读取已发布产物，而非重新推导一份。
+唯一准确的真源，是插件加载后注册表实际持有的 schema。启动插件是把[测试策略](../../../../docs/testing.md)中“验证现实，而非自我报告”的准则应用到文档生成器：读取已发布产物，而非重新推导一份。
 
 ### 恢复「不会静默遗漏」的保证
 

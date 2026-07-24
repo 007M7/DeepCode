@@ -10,7 +10,7 @@ Status: implemented
 
 ACP（Agent Client Protocol）对两种 identity 使用相同值。Stdio 和钩子也在会话事件流上工作，并且直接需要对应的实时 agent；没有生产路径会把一个实时 agent 对象重新附着到多个会话，或通过多个 agent id 驱动一个会话。
 
-[agent 范围运行时](../architecture/2026-07-12-agent-scope-runtime-design.md)使用同一个 `AgentCreationTransaction` 执行创建和恢复，agent/会话条目共享相同的最终条目冲突规则。第二个 identity 并不代表单独的存活性、回滚或静止状态；它只会围绕同一事务增加 API 与转换状态。
+[agent 范围运行时](../architecture/2026-07-12-agent-scope-runtime-design.md)使用同一个 `AgentCreationTransaction` 执行创建和恢复，agent/会话条目共享相同的最终条目冲突规则。第二个 identity 并不代表单独的存活性、回滚或完全停稳；它只会围绕同一事务增加 API 与转换状态。
 
 会话 identity 同样只有一个归属，即 `Session.header.id`；`Session.id` 是派生访问器，而非需要重复验证的独立状态。
 
@@ -29,7 +29,7 @@ agent 的注册表 id 等于其会话 id。`CreateAgentOptions` 接受一个 `se
 ## 验证
 
 - Agent 创建/恢复和 subagent 创建只携带一个 identity，`Session` 也只在一个位置存储它。
-- 创建事务继续覆盖最终条目冲突、精确条目分离、回滚和静止状态，无需 identity 特有的生命周期状态。
+- 创建事务继续覆盖最终条目冲突、精确条目分离、回滚和完全停稳，无需 identity 特有的生命周期状态。
 - ACP、stdio、钩子、bash 归属、持久化和 lineage 直接使用共享 `SessionId`。ACP subagent 后端在父命名空间中铸造其生命周期 id，因为子服务器返回的会话 id 仅在服务器本地有效；ACP bridge 根据正向会话 map 验证精确的 `Agent` 归属；JSON-RPC 只转发生命周期事件中由服务快照保存的 `local` 标记为 true 的事件，从带范围的事件 carrier 取得委托父项，并且不保留子 identity 或 lineage cache。
 - 配置驱动的恢复还是创建策略是显式的，并在持久化重启场景下得到覆盖。
 - 生产监听器搜索确认保留 `agent/created`/`agent/disposed` 及其发布语义。
