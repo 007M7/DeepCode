@@ -25,6 +25,7 @@ const WORKSPACE_CLOSURE = [
   'packages/sandbox/sandbox-local',
   'packages/sandbox/sandbox',
   'packages/llm/llm',
+  'packages/attachment/attachment',
   'packages/util/brand',
   'packages/support/invariants',
 ]
