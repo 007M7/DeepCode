@@ -393,6 +393,11 @@ function ansi(open: string, close: string, enabled: boolean): (text: string) => 
 }
 
 const TERMINAL_CONTROL_PATTERN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu
+const TERMINAL_OSC_PATTERN = /(?:\u001B\]|\u009D)(?:(?!\u0007|\u001B\\)[\s\S])*(?:\u0007|\u001B\\|$)/gu
+const TERMINAL_CSI_PATTERN = /(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/gu
+const TERMINAL_ESCAPE_PATTERN = /\u001B[@-_]/gu
+const BRACKETED_PASTE_START = '\u001B[200~'
+const BRACKETED_PASTE_END = '\u001B[201~'
 
 /**
  * Escape external C0/C1 controls before pi-tui adds application-owned ANSI.
@@ -406,6 +411,15 @@ function displayText(text: string): string {
 /** Escape external controls for terminal fields that must remain on one line. */
 function displayInlineText(text: string): string {
   return displayText(text).replaceAll('\n', '\\x0a')
+}
+
+/** Remove terminal controls from clipboard text before an editable field stores it. */
+function sanitizePastedText(text: string): string {
+  return text
+    .replace(TERMINAL_OSC_PATTERN, '')
+    .replace(TERMINAL_CSI_PATTERN, '')
+    .replace(TERMINAL_ESCAPE_PATTERN, '')
+    .replace(TERMINAL_CONTROL_PATTERN, '')
 }
 
 /**
@@ -1335,6 +1349,7 @@ function summarizeResumeCandidate(
 /** Full-viewport keyboard selector over detached, preflighted resume summaries. */
 class ResumePicker implements Component, Focusable {
   private readonly search = new Input()
+  private pasteBuffer: string | undefined
   private selectedIndex = 0
   private error = ''
   focused = false
@@ -1360,7 +1375,39 @@ class ResumePicker implements Component, Focusable {
       || candidate.record.header.id.toLocaleLowerCase().includes(query))
   }
 
+  private visibleCandidateCount(): number {
+    const candidateBudget = Math.max(1, Math.floor((Math.max(1, this.viewportRows()) - 13) / 4))
+    return Math.min(this.maxVisible, candidateBudget)
+  }
+
+  private handleBracketedPaste(data: string): boolean {
+    const start = data.indexOf(BRACKETED_PASTE_START)
+    if (this.pasteBuffer === undefined && start < 0) return false
+    if (this.pasteBuffer === undefined) {
+      const prefix = data.slice(0, start)
+      if (prefix !== '') this.handleInput(prefix)
+      this.pasteBuffer = data.slice(start + BRACKETED_PASTE_START.length)
+    } else {
+      this.pasteBuffer += data
+    }
+    const end = this.pasteBuffer.indexOf(BRACKETED_PASTE_END)
+    if (end < 0) return true
+    const pasted = sanitizePastedText(this.pasteBuffer.slice(0, end))
+    const remaining = this.pasteBuffer.slice(end + BRACKETED_PASTE_END.length)
+    this.pasteBuffer = undefined
+    const previous = this.search.getValue()
+    this.search.handleInput(`${BRACKETED_PASTE_START}${pasted}${BRACKETED_PASTE_END}`)
+    if (this.search.getValue() !== previous) {
+      this.selectedIndex = 0
+      this.error = ''
+    }
+    if (remaining !== '') this.handleInput(remaining)
+    this.invalidate()
+    return true
+  }
+
   handleInput(data: string): void {
+    if (this.handleBracketedPaste(data)) return
     const filtered = this.filtered()
     if (matchesKey(data, Key.ctrl('c'))) {
       this.cancel()
@@ -1380,11 +1427,11 @@ class ResumePicker implements Component, Focusable {
     } else if (matchesKey(data, Key.down)) {
       this.selectedIndex = filtered.length === 0 ? 0 : (this.selectedIndex + 1) % filtered.length
     } else if (matchesKey(data, Key.pageUp)) {
-      this.selectedIndex = Math.max(0, this.selectedIndex - this.maxVisible)
+      this.selectedIndex = Math.max(0, this.selectedIndex - this.visibleCandidateCount())
     } else if (matchesKey(data, Key.pageDown)) {
       this.selectedIndex = Math.min(
         Math.max(0, filtered.length - 1),
-        this.selectedIndex + this.maxVisible,
+        this.selectedIndex + this.visibleCandidateCount(),
       )
     } else if (matchesKey(data, Key.enter)) {
       const selected = filtered[this.selectedIndex]
@@ -1421,7 +1468,7 @@ class ResumePicker implements Component, Focusable {
 
     const searchInnerWidth = Math.max(1, contentWidth - 4)
     lines.push(`${indent}${this.palette.dim(`╭${'─'.repeat(Math.max(0, contentWidth - 2))}╮`)}`)
-    const searchContent = (this.search.render(searchInnerWidth)[0] ?? '').replace(/^> /u, '⌕ ')
+    const searchContent = this.search.render(searchInnerWidth).join('').replace(/^> /u, '⌕ ')
     const clippedSearch = truncateToWidth(searchContent, searchInnerWidth, '')
     lines.push(
       `${indent}${this.palette.dim('│')} ${clippedSearch}${' '.repeat(Math.max(0, searchInnerWidth - visibleWidth(clippedSearch)))} ${this.palette.dim('│')}`,
@@ -1431,8 +1478,7 @@ class ResumePicker implements Component, Focusable {
       '',
     )
 
-    const candidateBudget = Math.max(1, Math.floor((height - 13) / 4))
-    const visibleCount = Math.min(this.maxVisible, candidateBudget)
+    const visibleCount = this.visibleCandidateCount()
     const start = Math.max(0, Math.min(
       this.selectedIndex - Math.floor(visibleCount / 2),
       filtered.length - visibleCount,

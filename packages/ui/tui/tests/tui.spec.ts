@@ -333,6 +333,65 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
+  it('sanitizes bracketed-paste terminal controls before storing the search query', async () => {
+    const target = header('safe-target', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Safe target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\x1b[200~Safe\x1b]0;own')
+    result.terminal.send('ed\x07 target\x1b[31m\x1b[201~')
+    await tick()
+    const rendered = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(rendered).toContain('⌕ Safe target')
+    expect(rendered).not.toContain('owned')
+    expect(rendered).not.toContain('[31m')
+    result.terminal.send('\x1b')
+    result.terminal.send('Safe\x1b[200~\x1b[201~ target')
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .toContain('⌕ Safe target')
+    await dispose(result)
+  })
+
+  it('pages by the number of candidates that fit the current viewport', async () => {
+    const targets = Array.from({ length: 8 }, (_, index) =>
+      header(`paged-${index}`, 1000 - index, '/workspace'))
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => targets,
+        load: async id => ({
+          meta: targets.find(target => target.id === id)!,
+          events: resumeEvents(`Paged ${id.slice('paged-'.length)}`, 'deepseek', 1000 - Number(id.slice('paged-'.length)) * 10),
+        }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\x1b[6~')
+    await tick()
+    const rendered = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(rendered).toContain('❯ Paged 3')
+    result.terminal.send('\x1b[5~')
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .toContain('❯ Untitled session')
+    result.terminal.resize(10)
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .toContain('⌕')
+    result.terminal.send('\x03')
+    await dispose(result)
+  })
+
   it('clips candidate count through the configured visible-session limit', async () => {
     const targets = [header('limited-a', 10, '/workspace'), header('limited-b', 20, '/workspace')]
     const result = await setup({
