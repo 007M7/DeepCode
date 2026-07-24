@@ -242,9 +242,23 @@ Approval service that applies session policy before answerers and logs every ask
  *   append commit point.
  */
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
+
+/**
+ * Stamp the parent's approval-policy OVERRIDE onto a child session through
+ * the canonical write path — the delegation-inheritance step: a `'never'`
+ * (headless/CI) parent must not mint children that fall back to a prompting
+ * default. Only the override chain is copied: an unswitched parent stamps
+ * nothing, so the child keeps following the LIVE configured default. A
+ * child whose log (e.g. a fork seed) already folds to the inherited policy
+ * is left untouched. Callers must append inside an open child turn — a bare
+ * between-turn event is crash-tail garbage on reload.
+ * @param parent - the delegating session whose effective override is read.
+ * @param child - the child session the override is appended to.
+ */
+inheritOverride(parent: Session, child: Session): void
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/ui/user-approval/src/index.ts:213`](../../packages/ui/user-approval/src/index.ts)
 
@@ -874,9 +888,23 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
  * @returns the fully resolved per-call mode and absolute workspace root.
  */
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
+
+/**
+ * Stamp the parent's sandbox-mode OVERRIDE onto a child session through the
+ * canonical write path — the delegation-inheritance step: a child agent runs
+ * under the policy its delegating parent was switched to, not under the
+ * (possibly wider) deployment default. Only the override chain is copied: an
+ * unswitched parent stamps nothing, so the child keeps following the LIVE
+ * deployment default. A child whose log (e.g. a fork seed) already folds to
+ * the inherited mode is left untouched. Callers must append inside an open
+ * child turn — a bare between-turn event is crash-tail garbage on reload.
+ * @param parent - the delegating session whose effective override is read.
+ * @param child - the child session the override is appended to.
+ */
+inheritOverride(parent: Session, child: Session): void
 ```
 
-Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md)
+Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../../packages/sandbox/sandbox-policy/src/index.ts)
 

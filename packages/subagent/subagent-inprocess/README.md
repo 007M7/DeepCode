@@ -16,6 +16,8 @@ The driver follows this sequence:
 
 The child gets the parent's working-directory/session lineage and inherits the parent model unless `request.agentOptions` overrides it. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
 
+The child also inherits the parent's session POLICY overrides: a one-shot `agent/prompt-submit` listener installed during setup stamps the parent's effective `sandbox/mode` and `approval/policy` overrides onto the child through `ctx.sandboxPolicy.inheritOverride` / `ctx.approval.inheritOverride` (both consumed opportunistically — compositions without them delegate policy-free). Anchoring inside the child's first turn keeps the stamp turn-enclosed (durable) and ahead of the first request, and its log position after any fork-seed switch lets the ordinary last-event-wins fold resolve stale-seed timing; only the override chain is copied, so an unswitched parent stamps nothing and the child follows the live deployment default. Nesting composes: each stamp folds the delegating session's already-stamped log ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+
 ## Cancellation and ownership
 
 The required request signal covers both startup and the live run. Before publication, `AgentCreationTransaction` observes it, rolls back, and rejects. The factory detaches that creation-only listener before returning; the driver immediately checks the signal once more before installing a minimal live-run listener, closing the handoff race. After publication, abort cancels the child.

@@ -14,6 +14,11 @@ import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReaso
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+// Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
+// to the policy services when composed — the driver consumes both
+// opportunistically (the documented `ctx.get` pattern), never as a hard dep.
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   attachStructuredRuntime,
   type StructuredAttachment,
@@ -104,6 +109,20 @@ export async function startInProcessRun(
     if (request.outputSchema !== undefined) {
       structured = attachStructuredRuntime(childCtx, request.outputSchema)
     }
+    // Policy inheritance: stamp the parent's sandbox/approval OVERRIDES onto
+    // the child once, anchored inside the child's FIRST turn (prompt-submit
+    // runs after turn/start, before prompt assembly) — a bare between-turn
+    // append would be crash-tail garbage on reload, and stamping here also
+    // orders the override after any stale switch a fork seed carried, so the
+    // ordinary last-event-wins fold resolves it. One-shot: later turns must
+    // not re-stamp over a switch the child made itself. Both services are
+    // consumed opportunistically — without them, delegation stays policy-free.
+    const disposeInherit = childCtx.on('agent/prompt-submit', (childAgent, _content, _source, _signal, next) => {
+      disposeInherit()
+      parent.ctx.get('sandboxPolicy')?.inheritOverride(parent.session, childAgent.session)
+      parent.ctx.get('approval')?.inheritOverride(parent.session, childAgent.session)
+      return next()
+    })
   }
 
   const flags = { cancelled: false }

@@ -150,6 +150,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },
+      {
+        signature: 'inheritOverride(parent: Session, child: Session): void',
+        jsDoc: '/**\n * Stamp the parent\'s approval-policy OVERRIDE onto a child session through\n * the canonical write path — the delegation-inheritance step: a `\'never\'`\n * (headless/CI) parent must not mint children that fall back to a prompting\n * default. Only the override chain is copied: an unswitched parent stamps\n * nothing, so the child keeps following the LIVE configured default. A\n * child whose log (e.g. a fork seed) already folds to the inherited policy\n * is left untouched. Callers must append inside an open child turn — a bare\n * between-turn event is crash-tail garbage on reload.\n * @param parent - the delegating session whose effective override is read.\n * @param child - the child session the override is appended to.\n */',
+      },
     ],
   },
   {
@@ -441,6 +445,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
         jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
+      },
+      {
+        signature: 'inheritOverride(parent: Session, child: Session): void',
+        jsDoc: '/**\n * Stamp the parent\'s sandbox-mode OVERRIDE onto a child session through the\n * canonical write path — the delegation-inheritance step: a child agent runs\n * under the policy its delegating parent was switched to, not under the\n * (possibly wider) deployment default. Only the override chain is copied: an\n * unswitched parent stamps nothing, so the child keeps following the LIVE\n * deployment default. A child whose log (e.g. a fork seed) already folds to\n * the inherited mode is left untouched. Callers must append inside an open\n * child turn — a bare between-turn event is crash-tail garbage on reload.\n * @param parent - the delegating session whose effective override is read.\n * @param child - the child session the override is appended to.\n */',
       },
     ],
   },

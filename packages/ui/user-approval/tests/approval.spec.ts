@@ -576,3 +576,46 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(afterDispose.injected).toEqual([])
   })
 })
+
+describe('inheritOverride (parent → child stamping)', () => {
+  const policyEvents = (session: Session) => session.events.filter(e => e.type === 'approval/policy')
+
+  function bareSession(id: string): Session {
+    return new Session(SessionId(id))
+  }
+
+  it('stamps the parent LAST override onto the child through the canonical write path', async () => {
+    const ctx = await mounted()
+    const parent = bareSession('sess-appr-inherit-parent')
+    const child = bareSession('sess-appr-inherit-child')
+    setApprovalPolicy(parent, 'never')
+
+    ctx.approval.inheritOverride(parent, child)
+
+    const stamped = policyEvents(child)
+    expect(stamped).toHaveLength(1)
+    expect(stamped[0]?.data).toEqual({ policy: 'never' })
+  })
+
+  it('appends NOTHING when the parent never switched (the configured default must stay live)', async () => {
+    const ctx = await mounted()
+    const parent = bareSession('sess-appr-default-parent')
+    const child = bareSession('sess-appr-default-child')
+
+    ctx.approval.inheritOverride(parent, child)
+
+    expect(child.events).toHaveLength(0)
+  })
+
+  it('skips the append when the child already folds to the inherited policy (fork-seed dedup)', async () => {
+    const ctx = await mounted()
+    const parent = bareSession('sess-appr-dedup-parent')
+    const child = bareSession('sess-appr-dedup-child')
+    setApprovalPolicy(parent, 'never')
+    setApprovalPolicy(child, 'never')
+
+    ctx.approval.inheritOverride(parent, child)
+
+    expect(policyEvents(child)).toHaveLength(1)
+  })
+})

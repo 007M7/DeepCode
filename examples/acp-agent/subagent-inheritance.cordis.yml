@@ -1,0 +1,44 @@
+# Subagent policy-inheritance snapshot overlay: add a read-only preset to the
+# default permission table so a scenario can tighten the parent session below
+# the snapshot composition's danger-full-access default before delegating — the
+# child's denial then proves the override crossed the delegation boundary. The
+# model is pinned to deepseek-v4-flash so this scenario's request headers stay
+# uniform with the rest of the recorded sandbox-class corpus. A config patch
+# replaces the whole target config, so base fields are restated verbatim.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: permission
+        name: '@deepseek-ai/dsh-permission'
+        config:
+          presets:
+            read-only:
+              sandbox: read-only
+              approval: ask
+              name: read-only
+              description: Read all files; every mutation is denied without a per-call approval.
+            workspace-write:
+              sandbox: workspace-write
+              approval: ask
+              name: workspace-write
+              description: Write inside the workspace and permitted temporary directories; wider retries require approval.
+            danger-full-access:
+              sandbox: danger-full-access
+              approval: never
+              name: danger-full-access
+              description: Full file access without approval prompts.
+      - id: acp-agent
+        name: '@deepseek-ai/dsh-acp-demo'
+        config:
+          provider: deepseek
+          model: deepseek-v4-flash
+          persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+          persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+          workspaceContext:
+            maxBytes: 65536
+          persona: |
+            You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
+
+            Verify your work by running the code or tests. Keep answers brief and factual.

@@ -1,0 +1,65 @@
+# Keyless replay counterpart of subagent-inheritance.cordis.yml: the same
+# read-only preset and model pin, plus the standard replay swaps (disable the
+# key-requiring adapter, passthrough sandbox runner, insert llm-replay).
+# Patches do not compose across nested includes, so everything applies together
+# over the live tree.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
+        disabled: true
+      - id: sandbox
+        name: '@deepseek-ai/dsh-sandbox-local'
+        config:
+          runnerCommand:
+            - bash
+            - -c
+            - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+            - passthrough-runner
+          runnerFailureSignatures:
+            - 'passthrough-runner: profile rejected'
+      - id: permission
+        name: '@deepseek-ai/dsh-permission'
+        config:
+          presets:
+            read-only:
+              sandbox: read-only
+              approval: ask
+              name: read-only
+              description: Read all files; every mutation is denied without a per-call approval.
+            workspace-write:
+              sandbox: workspace-write
+              approval: ask
+              name: workspace-write
+              description: Write inside the workspace and permitted temporary directories; wider retries require approval.
+            danger-full-access:
+              sandbox: danger-full-access
+              approval: never
+              name: danger-full-access
+              description: Full file access without approval prompts.
+      - id: acp-agent
+        name: '@deepseek-ai/dsh-acp-demo'
+        config:
+          provider: deepseek
+          model: deepseek-v4-flash
+          persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+          persistenceCompression: none
+          workspaceContext:
+            maxBytes: 65536
+          persona: |
+            You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
+
+            Verify your work by running the code or tests. Keep answers brief and factual.
+      - insert:
+          - id: llm-replay
+            name: '@deepseek-ai/dsh-llm-replay'
+            config:
+              providers:
+                - id: deepseek
+                  name: DeepSeek
+                  models:
+                    - id: deepseek-v4-flash
+                    - id: deepseek-v4-pro

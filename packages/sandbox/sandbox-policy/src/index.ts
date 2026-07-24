@@ -19,7 +19,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { effectiveSandboxMode } from './session-mode.ts'
+import { effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 
 export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 
@@ -103,6 +103,24 @@ export class SandboxPolicyService extends Service {
       mode: request.mode ?? (session === undefined ? undefined : effectiveSandboxMode(session.events)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
     }
+  }
+
+  /**
+   * Stamp the parent's sandbox-mode OVERRIDE onto a child session through the
+   * canonical write path — the delegation-inheritance step: a child agent runs
+   * under the policy its delegating parent was switched to, not under the
+   * (possibly wider) deployment default. Only the override chain is copied: an
+   * unswitched parent stamps nothing, so the child keeps following the LIVE
+   * deployment default. A child whose log (e.g. a fork seed) already folds to
+   * the inherited mode is left untouched. Callers must append inside an open
+   * child turn — a bare between-turn event is crash-tail garbage on reload.
+   * @param parent - the delegating session whose effective override is read.
+   * @param child - the child session the override is appended to.
+   */
+  inheritOverride(parent: Session, child: Session): void {
+    const inherited = effectiveSandboxMode(parent.events)
+    if (inherited === undefined || effectiveSandboxMode(child.events) === inherited) return
+    setSandboxMode(child, inherited)
   }
 }
 

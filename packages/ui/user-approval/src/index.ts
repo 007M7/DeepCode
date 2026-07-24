@@ -327,6 +327,24 @@ export class ApprovalService extends Service {
   }
 
   /**
+   * Stamp the parent's approval-policy OVERRIDE onto a child session through
+   * the canonical write path — the delegation-inheritance step: a `'never'`
+   * (headless/CI) parent must not mint children that fall back to a prompting
+   * default. Only the override chain is copied: an unswitched parent stamps
+   * nothing, so the child keeps following the LIVE configured default. A
+   * child whose log (e.g. a fork seed) already folds to the inherited policy
+   * is left untouched. Callers must append inside an open child turn — a bare
+   * between-turn event is crash-tail garbage on reload.
+   * @param parent - the delegating session whose effective override is read.
+   * @param child - the child session the override is appended to.
+   */
+  inheritOverride(parent: Session, child: Session): void {
+    const inherited = effectiveApprovalPolicy(parent.events)
+    if (inherited === undefined || effectiveApprovalPolicy(child.events) === inherited) return
+    setApprovalPolicy(child, inherited)
+  }
+
+  /**
    * Dispatch the waterfall, contained and raced against the request signal.
    * @param req - the borrowed public request.
    * @param session - the request agent's session used for policy lookup.

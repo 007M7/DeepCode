@@ -1,0 +1,37 @@
+# Agent Note: In-process subagent policy inheritance — the child starts under the parent's sandbox and approval overrides
+
+Status: implemented
+
+English | [中文](2026-07-25-subagent-policy-inheritance.zh.md)
+
+## Problem
+
+Session policy overrides are per-session log folds: the effective sandbox mode is `fold(session's sandbox/mode events) ?? deployment default` ([the sandbox Agent Note](2026-07-06-sandbox.md)), and the approval policy folds `approval/policy` the same way. In-process subagent children get a NEW session, so no override crossed the delegation boundary: a spawn child of a `read-only`-switched parent ran under the (possibly wider) deployment default — delegation was a bypass channel for a user's tightening — and a fork child inherited only whatever switch happened to sit inside its completed-turn seed, missing exactly the most common timing (the user switches while the agent is idle, so the switch lands after the last `turn/end` and outside the seed). A `'never'` (headless/CI) approval parent likewise minted children that fell back to a prompting default. The escalation hint a denied child sees ("the approval prompt asks the user") also promised a prompt no answerer would ever deliver.
+
+## Decision
+
+The shared in-process driver (`startInProcessRun` in `packages/subagent/subagent-inprocess`) snapshots the parent's policy overrides at delegation and stamps them onto the child as ordinary log events inside the child's FIRST turn:
+
+- **Read at creation, write at first `agent/prompt-submit`.** The driver installs a one-shot child-scoped `agent/prompt-submit` listener during the creation transaction's setup window. Prompt-submit runs after `turn/start` and before prompt assembly, so the stamped events are turn-enclosed (durable — a bare between-turn event is crash-tail garbage on reload) and visible to the child's very first request (an inherited `'never'` reaches the child's first system prompt). This is the same anchoring the ACP bridge uses for idle preset switches.
+- **Only the override chain is copied, through the canonical write paths.** `SandboxPolicyService.inheritOverride(parent, child)` and `ApprovalService.inheritOverride(parent, child)` each fold the parent's FULL live log (not the fork seed), append via `setSandboxMode`/`setApprovalPolicy` only when the parent has an override the child does not already fold to, and never copy the deployment default — an unswitched parent stamps nothing, so a resumed child keeps following the LIVE default. The driver consumes both services opportunistically (`ctx.get`, type-only imports): compositions without them delegate policy-free, unchanged.
+- **Fork stale-seed precedence falls out of log order.** The stamped event lands after any switch the seed carried, so the existing last-event-wins fold resolves the child's mode with no new precedence machinery; an equal seed-carried override is deduplicated instead of re-stamped.
+- **Nesting composes by construction.** A grandchild's stamp folds its parent-the-child's log, which already contains the child's stamped (or self-switched) override — the chain collapses one level per delegation, at any depth. One-shot `allowed-once` escalation grants never enter any log, so they can never leak down the chain.
+
+### What a blocked child experiences
+
+A confined child that hits the wall gets the ordinary denial marker; an escalation retry resolves through the real approval waterfall, where no answerer owns an in-process child, to the distinct fail-closed reason (`no approval channel is available`). The recovery path is reporting the denial upward: the parent — owned by an editor — escalates in its own session or re-delegates after the user widens the mode. An inherited `'never'` skips even that wasted retry: the child's first system prompt already says not to request escalation.
+
+## Alternatives considered
+
+- **A `sandboxMode`/`approvalPolicy` baseline in `SessionHeader` meta (the `delegationDepth` precedent)** — rejected: it survives the one corner the event approach loses (a child hard-killed before its first `turn/end` and then resumed loses the stamp), but that child has completed nothing and has no resume value, while the header field costs a session-format extension, a durable-boundary validation path, seed-slicing precedence logic in every fold consumer (`resolve()`, pty-local, permission display), and a second home for policy state. The event approach changes no fold, no format, and no consumer.
+- **Stamping at child creation (outside any turn)** — rejected: the persistence contract commits at turn boundaries, so a pre-turn bare event is truncated as a torn tail on reload; the session invariant suite fails such an append outright.
+- **Live resolution walking `parentSession` at each call** — rejected: it breaks the "two sessions never see each other's state" isolation invariant, requires the parent session to stay loaded for the child's lifetime, and makes a mid-run parent switch retroactively change a running child. Snapshot-at-delegation is the semantic: the child keeps the policy it was handed; cancel-and-respawn picks up a tightening.
+- **Forcing `approvalPolicy: 'never'` onto every in-process child** — rejected: true today (no answerer owns them) but it forecloses a future child-capable answerer silently and muddies inheritance semantics; inheriting only the parent's override keeps the fail-closed outcome with honest per-request reasons.
+- **Routing a child's approval asks to the root session's editor** — deferred, unchanged from [the approval-seam Agent Note](2026-07-06-approval-seam.md): the ACP prompt must attach to a streamed tool call, a background child's originating call has already returned, and the bridge would need parent-chain ownership plus the spawning `callId` on the start request. Recorded here so the obstacles are not re-derived.
+
+## Consequences
+
+- A parent's tightened sandbox mode and `'never'` approval stance now bind spawn children, fork children (regardless of seed timing), and grandchildren; the delegation bypass is closed at every depth. Pinned by the real-wall suite in `packages/subagent/subagent-inprocess/tests/inheritance.spec.ts` (a scripted-model child hitting the real `dsh-fs-sandbox` fence through the real `write` tool, asserted on disk state and denial markers) and the `inheritOverride` contract tests in the two service suites.
+- The stamped override is the child's own durable record: resume replays it like any switch, and the child may later be switched independently without the driver re-stamping over it (one-shot listener + fold dedup).
+- Accepted limits: a parent switch made while a child is already running does not propagate (snapshot semantics); a child hard-killed before its first `turn/end` loses the stamp on resume (worthless-resume corner, recorded above); out-of-process backends (`subagent-acp`, subprocess children) inherit nothing here — their policy belongs to the child harness's own deployment, the sandbox Agent Note's deferred phase.
+- `dsh-subagent-inprocess` now declares `dsh-sandbox-policy` and `dsh-user-approval` as peers for the `ctx.get` typing; both remain runtime-optional.

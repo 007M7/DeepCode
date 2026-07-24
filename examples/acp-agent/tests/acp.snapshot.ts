@@ -38,6 +38,7 @@ const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
+const SUBAGENT_INHERITANCE_CONFIG = fileURLToPath(new URL('../subagent-inheritance.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -241,6 +242,19 @@ const SCENARIOS: Scenario[] = [
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  // Policy inheritance across delegation: the overlay adds a read-only preset,
+  // the script tightens the PARENT session to it, and the delegated child's
+  // real write is then denied by the fs fence — proving the parent's override
+  // crossed the delegation boundary instead of the child escaping to the
+  // composition default (the subagent policy-inheritance Agent Note).
+  {
+    name: 'subagent-sandbox-inheritance',
+    hasModelTurn: true,
+    recorded: true,
+    headerClass: 'subagent-inheritance',
+    pinsHeader: true,
+    configPath: SUBAGENT_INHERITANCE_CONFIG,
+  },
   // Unlike ordinary snapshots, this session cwd is outside the platform temp
   // roots that workspace-write always grants. The overlay points the
   // deployment fallback at /tmp, so a successful relative write proves the
