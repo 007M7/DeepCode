@@ -369,7 +369,7 @@ describe('runOneShot and executeCli', () => {
     const { ctx, agent } = await harness([textResponse('streamed')])
     const other = ctx.sessions.create(SessionId('unrelated'))
     let injected = false
-    ctx.on('agent/queued', (subject) => {
+    ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject !== agent || injected) return
       injected = true
       agent.inject([{ type: 'text', text: 'startup injection' }], { source: { kind: 'plugin', plugin: 'test' } })
@@ -383,7 +383,7 @@ describe('runOneShot and executeCli', () => {
     expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 2, trigger: { kind: 'message' } } })
     expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 2 } })
     expect(lines.slice(0, -1).every(line => line['sessionId'] === agent.session.id)).toBe(true)
-    expect(events.some(event => event.type === 'context/message')).toBe(false)
+    expect(events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
   })
 
   it('emits partial data and a diagnostic for non-completed turns', async () => {
@@ -471,7 +471,7 @@ describe('runOneShot and executeCli', () => {
     startup.ctx.on('session/event', (session, event) => {
       if (session === startup.agent.session && event.type === 'assistant/chunk') started()
     })
-    startup.agent.send([{ type: 'text', text: 'first' }])
+    startup.agent.followup([{ type: 'text', text: 'first' }])
     await running
     const startupAbort = new AbortController()
     const waiting = runOneShot(startup.ctx, { task: 'second', signal: startupAbort.signal })
@@ -481,7 +481,7 @@ describe('runOneShot and executeCli', () => {
 
     const queued = await harness([textResponse('unused')])
     const queuedAbort = new AbortController()
-    queued.ctx.on('agent/queued', (agent) => {
+    queued.ctx.on('agent/inbox/enqueue', (agent) => {
       if (agent === queued.agent) queuedAbort.abort('cancel queued')
     })
     await expect(runOneShot(queued.ctx, { task: 'task', signal: queuedAbort.signal })).rejects.toThrow('cancel queued')

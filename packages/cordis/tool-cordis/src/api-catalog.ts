@@ -886,6 +886,27 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
+    name: 'agent/inbox/dequeue',
+    mode: 'emit',
+    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
+  },
+  {
+    name: 'agent/inbox/discard',
+    mode: 'emit',
+    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void',
+    jsDoc: '/**\n * Pending inbox items were dropped without delivering them, so every\n * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR\n * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after\n * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`\n * dropping pending steering (in-turn and on the post-turn late-steering\n * drain); and disposal of any still-pending items (before\n * `agent/status(\'disposed\')`). Fires once per drop with every dropped item.\n * @param agent - the agent whose inbox items were dropped.\n * @param messages - the discarded messages in FIFO order (queued then steering); never empty.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Pending inbox items were dropped without delivering them, so every enqueued id receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`.',
+  },
+  {
+    name: 'agent/inbox/enqueue',
+    mode: 'emit',
+    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `message` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection through\n * `agent.inject()` or equivalent `send()` routing bypasses the FIFOs\n * and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'A detached, frozen item entered the agent\'s inbox (queued or steering FIFO).',
+  },
+  {
     name: 'agent/post-step',
     mode: 'serial',
     signature: '\'agent/post-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
@@ -905,13 +926,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
     jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default. A listener wrapping a\n * downstream `allow` must preserve its `content` and `additionalContexts`\n * unless it intentionally replaces them. The signal controls only this turn;\n * listeners may cooperate with it but must not retain it to control another\n * turn. Steering messages do not dispatch this event; they join an open turn\n * at a steering checkpoint.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message.',
-  },
-  {
-    name: 'agent/queued',
-    mode: 'emit',
-    signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; contexts: HookContext[]; steering: boolean }): void',
-    jsDoc: '/**\n * Detached, frozen content entered the agent\'s inbox. Source defaults have\n * already been applied, so these are the exact values retained for the log.\n * @param agent - the agent whose inbox received the message.\n * @param content - the accepted content blocks retained by the inbox.\n * @param info - the accepted source, contexts, and whether it entered as steering.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Detached, frozen content entered the agent\'s inbox.',
   },
   {
     name: 'agent/request',
@@ -945,7 +959,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
-    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does\n * not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). A waking\n * delivery does not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`, or → `disposed`).',
   },
   {
@@ -1171,7 +1185,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(cause?: AgentCancelCause): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    followup(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    queue(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId;\n    send(input: ResolvedAgentInput): AgentMessageId;\n    cancel(cause?: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -1184,6 +1198,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentHandle',
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'AgentMessageId',
+    declaration: 'export type AgentMessageId = Branded<\'AgentMessageId\'>;',
   },
   {
     name: 'AgentOptions',
@@ -1284,6 +1302,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CallId',
     declaration: 'export type CallId = Branded<\'CallId\'>;',
+  },
+  {
+    name: 'CancelOptions',
+    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -1503,7 +1525,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InjectOptions',
-    declaration: 'export interface InjectOptions extends Omit<SendOptions, \'contexts\'> {\n    meta?: JsonValue;\n}',
+    declaration: 'export interface InjectOptions {\n    source?: MessageSource;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'InvariantFailure',
@@ -1528,6 +1550,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'LlmAdapter',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext | undefined>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmCallConfig',
@@ -1591,7 +1617,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptMessageData',
-    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n}',
+    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'PromptMessageEnvelope',
@@ -1694,6 +1720,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
   {
+    name: 'RequestHeaderReason',
+    declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
+  },
+  {
+    name: 'ResolvedAgentInput',
+    declaration: 'export type ResolvedAgentInput = {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta: JsonValue | undefined;\n} & ({\n    target: \'next-turn\';\n    wakeup: boolean;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: true;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: false;\n    contexts: [\n    ];\n});',
+  },
+  {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
@@ -1727,7 +1761,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SendOptions',
-    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n}',
+    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'Session',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -1739,7 +1777,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: R /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -1864,6 +1902,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSearchRequest',
     declaration: 'export interface SessionSearchRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
+  },
+  {
+    name: 'SessionSurface',
+    declaration: 'export interface SessionSurface {\n    readonly nodes: readonly number[];\n    readonly replaceGeneration: number;\n}',
   },
   {
     name: 'SessionSurfaceSnapshot',
@@ -1995,7 +2037,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurfaceEventType',
-    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'context/message\' | \'steering/message\';',
+    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'steering/message\';',
+  },
+  {
+    name: 'SurfaceIntent',
+    declaration: 'export interface SurfaceIntent {\n    surfaceOp: SurfaceOp;\n    sourceEventSeqs?: number[];\n}',
   },
   {
     name: 'SurfaceOp',

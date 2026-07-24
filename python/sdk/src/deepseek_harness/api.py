@@ -143,7 +143,10 @@ class Session:
             notifications.append(notification)
             if on_notification is not None:
                 on_notification(notification)
-            if notification.method == "session.event":
+            if (
+                notification.method == "session.event"
+                and notification.payload.get("sessionId") == self.id
+            ):
                 event = notification.payload.get("event")
                 if isinstance(event, dict):
                     events.append(event)

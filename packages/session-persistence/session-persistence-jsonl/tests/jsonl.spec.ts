@@ -560,6 +560,26 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   })
 
   it.each([
+    ['fractional', 1.5],
+    ['negative', -1],
+    ['unsafe', Number.MAX_SAFE_INTEGER + 1],
+  ])('rejects a session header with a %s createdAt', (_label, createdAt) => {
+    const log = JSON.stringify({
+      type: 'session',
+      version: 0,
+      id: 'invalid-created-at',
+      createdAt,
+      delegationDepth: 0,
+    }) + '\n'
+    expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
+  })
+
+  it('rejects a session header with negative-zero createdAt', () => {
+    const log = '{"type":"session","version":0,"id":"invalid-created-at","createdAt":-0,"delegationDepth":0}\n'
+    expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
+  })
+
+  it.each([
     ['missing', undefined],
     ['a string', '1'],
     ['fractional', 1.5],

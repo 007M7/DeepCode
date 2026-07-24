@@ -42,7 +42,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 function events(agent: Agent): SessionEvent[] {
@@ -87,7 +87,7 @@ describe('agent/prompt-submit', () => {
     expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('original')
   })
 
-  it('allow with additionalContexts injects separate context/message events into the turn', async () => {
+  it('allow with additionalContexts injects separate injected-context user messages into the turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -107,12 +107,12 @@ describe('agent/prompt-submit', () => {
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    const userMsg = log.find(e => e.type === 'user/message')
-    const ctxMsg = log.find(e => e.type === 'context/message')
+    const userMsg = log.find(e => e.type === 'user/message' && e.data.source.kind === 'user')
+    const ctxMsg = log.find(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
     expect(userMsg).toBeDefined()
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.meta).toEqual(meta)
+    expect(ctxMsg?.type === 'user/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
+    expect(ctxMsg?.type === 'user/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
+    expect(ctxMsg?.type === 'user/message' && ctxMsg.data.meta).toEqual(meta)
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
   })
@@ -128,7 +128,7 @@ describe('agent/prompt-submit', () => {
         ? downstream
         : { ...downstream, content: [{ type: 'text', text: 'rewritten request' }] }
     })
-    agent.send([{ type: 'text', text: 'original request' }], {
+    agent.followup([{ type: 'text', text: 'original request' }], {
       contexts: [{
         content: [{ type: 'text', text: 'untrusted prefix' }],
         source: { kind: 'plugin', plugin: 'prefix' },
@@ -155,7 +155,7 @@ describe('agent/prompt-submit', () => {
         }],
       },
     })
-    expect(log.some(event => event.type === 'context/message')).toBe(false)
+    expect(log.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
     expect(adapter.requests[0]?.messages.at(-1)).toEqual({
       role: 'user',
       content: [
@@ -203,7 +203,7 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    agent.send([{ type: 'text', text: 'do something' }], {
+    agent.followup([{ type: 'text', text: 'do something' }], {
       contexts: [{ content: [{ type: 'text', text: 'must be dropped' }], source: { kind: 'plugin', plugin: 'test' } }],
     })
     await waitForIdle(ctx, agent)
@@ -215,7 +215,6 @@ describe('agent/prompt-submit', () => {
     expect(log.some(e => e.type === 'turn/start')).toBe(true)
     expect(log.some(e => e.type === 'turn/end')).toBe(true)
     expect(log.some(e => e.type === 'user/message')).toBe(false)
-    expect(log.some(e => e.type === 'context/message')).toBe(false)
     expect(log.some(e => e.type === 'step/start')).toBe(false)
     // the veto is recorded durably as a prompt/blocked in the open turn
     const blocked = log.find(e => e.type === 'prompt/blocked')
@@ -340,8 +339,8 @@ describe('agent/session-start', () => {
     // the injected context reached the model on the first (only) request
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('session preamble')
     // and is recorded with the plugin source, never mislabeled as a user prompt
-    const ctxMsg = events(agent).find(e => e.type === 'context/message')
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
+    const ctxMsg = events(agent).find(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
+    expect(ctxMsg?.type === 'user/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
   })
 
   it('a throwing session-start listener does not abort agent construction', async () => {
@@ -624,23 +623,22 @@ describe('tool additionalContexts buffering across a step', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // Event order in the log: both tool/results, THEN both context/messages —
+    // Event order in the log: both tool/results, THEN both injected contexts —
     // never interleaved (which would break tool-call/result adjacency).
-    const types = events(agent).map(e => e.type)
-    const firstResult = types.indexOf('tool/result')
-    const lastResult = types.lastIndexOf('tool/result')
-    const firstCtx = types.indexOf('context/message')
+    const injected = events(agent).filter(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
+    const seqs = events(agent)
+    const firstResult = seqs.findIndex(e => e.type === 'tool/result')
+    const lastResult = seqs.map(e => e.type).lastIndexOf('tool/result')
+    const firstCtx = seqs.findIndex(e => e === injected[0])
     expect(firstResult).toBeGreaterThanOrEqual(0)
     expect(lastResult).toBeGreaterThan(firstResult) // two results
     expect(firstCtx).toBeGreaterThan(lastResult)    // context only after ALL results
     // both contexts present
-    const ctxTexts = events(agent)
-      .filter(e => e.type === 'context/message')
-      .flatMap(e => (e.type === 'context/message' ? e.data.content : []))
+    const ctxTexts = injected
+      .flatMap(e => (e.type === 'user/message' ? e.data.content : []))
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
-    const contextEvents = events(agent).filter(e => e.type === 'context/message')
-    expect(contextEvents.map(e => e.type === 'context/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
+    expect(injected.map(e => e.type === 'user/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
   })
 
   it('appends multiple contexts deferred by one composite tool after its outer result', async () => {
@@ -661,14 +659,14 @@ describe('tool additionalContexts buffering across a step', () => {
 
     const log = events(agent)
     const resultIndex = log.findIndex(event => event.type === 'tool/result')
-    const contextEvents = log.filter(event => event.type === 'context/message')
+    const contextEvents = log.filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     expect(resultIndex).toBeGreaterThanOrEqual(0)
     expect(log.findIndex(event => event === contextEvents[0])).toBeGreaterThan(resultIndex)
-    expect(contextEvents.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+    expect(contextEvents.map(event => event.type === 'user/message' && event.data.source)).toEqual([
       { kind: 'plugin', plugin: 'a' },
       { kind: 'plugin', plugin: 'b' },
     ])
-    expect(contextEvents.map(event => event.type === 'context/message' && event.data.meta)).toEqual([{ order: 1 }, { order: 2 }])
+    expect(contextEvents.map(event => event.type === 'user/message' && event.data.meta)).toEqual([{ order: 1 }, { order: 2 }])
   })
 })
 
@@ -750,13 +748,13 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
 
     const log = events(agent)
     // session-start preamble injected
-    expect(log.some(e => e.type === 'context/message'
+    expect(log.some(e => e.type === 'user/message' && e.data.source.kind === 'plugin'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('policy active (started: startup)')))).toBe(true)
-    // prompt allowed → user/message recorded
-    expect(log.some(e => e.type === 'user/message')).toBe(true)
+    // prompt allowed → user-sourced user/message recorded
+    expect(log.some(e => e.type === 'user/message' && e.data.source.kind === 'user')).toBe(true)
     // tool ran (echo allowed) and post-execute attached "audited" context
     expect(log.some(e => e.type === 'tool/result' && !e.data.isError)).toBe(true)
-    expect(log.some(e => e.type === 'context/message'
+    expect(log.some(e => e.type === 'user/message' && e.data.source.kind === 'plugin'
       && e.data.content.some(b => b.type === 'text' && b.text === 'audited'))).toBe(true)
     // NO hook/* events — a native plugin needs none
     expect(log.some(e => e.type.startsWith('hook/'))).toBe(false)

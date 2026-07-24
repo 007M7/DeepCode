@@ -447,7 +447,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
           if (mode === 'steer') agent.steer(content, { source })
-          else agent.send(content, { source })
+          else agent.followup(content, { source })
         } catch (error: unknown) {
           // A synchronous throw from send/steer means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
