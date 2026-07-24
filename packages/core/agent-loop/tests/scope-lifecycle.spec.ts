@@ -203,11 +203,11 @@ describe('agent scope lifecycle', () => {
       if (event.type === 'user/message') heard.push('a-sees:user-message')
     })
 
-    b.send(text('for b'))
+    b.followup(text('for b'))
     await waitForIdle(ctx, b)
     expect(heard).toEqual([]) // nothing of b's leaked into a's scope
 
-    a.send(text('for a'))
+    a.followup(text('for a'))
     await waitForIdle(ctx, a)
     expect(heard).toContain('a-sees:a:running')
     expect(heard).toContain('a-sees:user-message')
@@ -934,7 +934,7 @@ describe('agent scope lifecycle', () => {
         if (event.type === 'turn/start') { off(); resolve() }
       })
     })
-    agent.send(text('work'))
+    agent.followup(text('work'))
     await turnOpen
     await owner.dispose()
     expect(order).toEqual(['turn-end', 'disposed(listed=false)', 'session-still-stored=true'])

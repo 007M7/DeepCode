@@ -5,11 +5,12 @@
  * @module dsh-agent-loop/loop
  */
 
+import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
 import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
-import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { agentEvents, agentInterruptReasonOf, assembleContextFor, AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { PromptMessageData, Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
@@ -19,7 +20,7 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
-import type { Inbox } from './inbox.ts'
+import { agentMessage, type Inbox, type InboxMessage } from './inbox.ts'
 import type { TurnCancellation } from './cancellation.ts'
 
 /** Normalize thrown values while preserving an existing error code. */
@@ -201,9 +202,11 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
   while (!handle.isDisposed()) {
     // An idle listener can enqueue and cancel replacement work before the next
     // wait is installed. Consume that empty marker before parking the driver.
+    // A quiet (`wakeup:false`) item alone must not un-park the loop, so gate on
+    // hasWakingQueued, not hasQueued.
     if (handle.isPreRunCancelled()) {
       handle.clearPreRunCancel()
-      if (!handle.inbox.hasQueued) {
+      if (!handle.inbox.hasWakingQueued) {
         handle.settleIdle()
         handle.setStatus('idle')
         continue
@@ -217,7 +220,7 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     // a replacement prompt still runs before the eventual idle transition.
     if (handle.isPreRunCancelled()) {
       handle.clearPreRunCancel()
-      if (!handle.inbox.hasQueued) {
+      if (!handle.inbox.hasWakingQueued) {
         // Settle before publishing idle: the already-idle path has no status
         // transition, while an idle listener can register waiters for new work.
         handle.settleIdle()
@@ -234,10 +237,11 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     }
 
     // A synchronous `running` listener can cancel before `runTurn`; balance the
-    // status only when no replacement prompt was queued by that listener.
+    // status only when no waking replacement prompt was queued by that listener
+    // (a lone quiet item parks at idle rather than driving a turn).
     if (cancellation.signal.aborted) {
       handle.clearTurnCancellation(cancellation)
-      if (!handle.inbox.hasQueued) {
+      if (!handle.inbox.hasWakingQueued) {
         handle.setStatus('idle')
         continue
       }
@@ -260,12 +264,22 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
       handle.clearTurnCancellation(cancellation)
     }
 
-    // Late steering becomes queued input unless terminal policy stopped the turn.
-    for (const message of handle.inbox.drainSteering()) {
-      if (!terminalStopped) handle.inbox.enqueue(message)
+    // Late steering (arriving after runTurn returns, e.g. during the post-turn
+    // flush) becomes queued input — unless terminal policy stopped the turn, in
+    // which case it is dropped and must publish a discard so its enqueue is
+    // still matched (the invariant only catches a NEGATIVE count, not a leak).
+    const lateSteering = handle.inbox.drainSteering()
+    if (terminalStopped) {
+      if (lateSteering.length > 0) {
+        events.emit('agent/inbox/discard', lateSteering.map(message => agentMessage(message, true)))
+      }
+    } else {
+      for (const message of lateSteering) handle.inbox.enqueue(message)
     }
 
-    if (!handle.inbox.hasQueued) handle.setStatus('idle')
+    // Park at idle unless a waking item still wants the model to run; a lone
+    // quiet (`wakeup:false`) item stays queued but does not keep the loop busy.
+    if (!handle.inbox.hasWakingQueued) handle.setStatus('idle')
   }
 }
 
@@ -279,10 +293,14 @@ async function runTurn(
   const drainSteering = (): boolean => {
     const messages = handle.inbox.drainSteering()
     for (const message of messages) {
+      events.emit('agent/inbox/dequeue', agentMessage(message, true))
       const prepared = preparePromptMessage(message.content, message.source, message.contexts)
-      session.append('steering/message', { turn, ...prepared.data }, { surfaceOp: 'append' })
+      session.append('steering/message', {
+        turn, ...prepared.data,
+        ...message.meta === undefined ? {} : { meta: message.meta },
+      }, { surfaceOp: 'append' })
       for (const context of prepared.separateContexts) {
-        session.append('context/message', {
+        session.append('user/message', {
           content: context.content,
           source: context.source,
           ...context.meta === undefined ? {} : { meta: context.meta },
@@ -296,6 +314,7 @@ async function runTurn(
   const message = handle.inbox.dequeueQueued()
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
   if (!message) throw new Error('runTurn invariant violated: no queued message at turn start')
+  events.emit('agent/inbox/dequeue', agentMessage(message, false))
   const trigger: TurnTrigger = { kind: 'message', source: message.source }
 
   let reason: TurnEndReason = { kind: 'completed' }
@@ -361,7 +380,10 @@ async function runTurn(
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
       const content = promptDecision.content ?? message.content
       const prepared = preparePromptMessage(content, message.source, promptDecision.additionalContexts ?? [])
-      session.append('user/message', prepared.data, { surfaceOp: 'append' })
+      session.append('user/message', {
+        ...prepared.data,
+        ...message.meta === undefined ? {} : { meta: message.meta },
+      }, { surfaceOp: 'append' })
       // Separate contexts still enter THIS turn through inject(). Prefix
       // contexts are already baked into the user/message with their durable
       // display envelope, so appending them again would duplicate model input.
@@ -536,9 +558,21 @@ async function runTurn(
         break
       }
 
-      // A continuation reason becomes next-step steering.
+      // A continuation reason becomes next-step steering. Publish the same
+      // enqueue event a public steer would, so the inbox ledger stays balanced
+      // (every FIFO entry has a matching enqueue before its dequeue/discard).
       if (decision.action === 'continue' && decision.reason) {
-        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source, contexts: [] })
+        // Detach and freeze the listener-owned reason like a public steer, so an
+        // enqueue listener or the producer cannot mutate the durable/model-visible
+        // steering message before it drains.
+        const item: InboxMessage = deepFreeze({
+          id: AgentMessageId(randomUUID()),
+          content: structuredClone(decision.reason.content),
+          source: structuredClone(decision.reason.source),
+          contexts: [], wakeup: true,
+        })
+        handle.inbox.steer(item)
+        events.emit('agent/inbox/enqueue', agentMessage(item, true))
       }
       let shouldContinue = decision.action === 'continue'
 
@@ -562,7 +596,13 @@ async function runTurn(
       if (terminalStop) {
         terminalStopped = true
         // Terminal stop discards steering but preserves ordinary queued prompts.
-        handle.inbox.drainSteering()
+        // Publish a discard for every dropped steering item so the enqueue ⇒
+        // dequeue-or-discard ledger stays balanced (the outstanding-count
+        // invariant and correlation consumers must not be left with dangling ids).
+        const dropped = handle.inbox.drainSteering()
+        if (dropped.length > 0) {
+          events.emit('agent/inbox/discard', dropped.map(item => agentMessage(item, true)))
+        }
         shouldContinue = false
       }
 

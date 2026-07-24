@@ -48,7 +48,7 @@ function waitForStatus(ctx: Context, agent: Agent, expected: Agent['status']): P
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('Agent', () => {
@@ -83,7 +83,41 @@ describe('Agent', () => {
     await ctx.fiber.dispose()
   })
 
-  it('send() throws after disposal', async () => {
+  it('send exposes the fully resolved delivery path without applying helper defaults', async () => {
+    const adapter = new MockAdapter([textResponse('accepted')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const enqueued = Promise.withResolvers<{ id: string; source: unknown; wakeup: boolean }>()
+    ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject === agent) enqueued.resolve(message)
+    })
+
+    const id = agent.send({
+      content: [{ type: 'text', text: 'advanced input' }],
+      source: { kind: 'plugin', plugin: 'advanced-caller' },
+      contexts: [],
+      meta: { caller: 'advanced' },
+      target: 'next-turn',
+      wakeup: true,
+    })
+    await waitForIdle(ctx, agent)
+
+    expect(await enqueued.promise).toMatchObject({
+      id,
+      source: { kind: 'plugin', plugin: 'advanced-caller' },
+      wakeup: true,
+    })
+    expect(agent.session.events.find(event => event.type === 'user/message'))
+      .toMatchObject({
+        data: {
+          source: { kind: 'plugin', plugin: 'advanced-caller' },
+          meta: { caller: 'advanced' },
+        },
+      })
+    await ctx.fiber.dispose()
+  })
+
+  it('followup() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: Agent
@@ -95,7 +129,28 @@ describe('Agent', () => {
     await fiber.dispose()
     await driverDone(agent)
 
-    expect(() => { agent.send([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
+    expect(() => { agent.followup([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
+  })
+
+  it('disposal discards still-pending inbox items so every id gets a terminal event', async () => {
+    const adapter = new MockAdapter(['hang'])
+    const ctx = await harness(adapter)
+    let agent!: Agent
+    const discarded: string[] = []
+    ctx.on('agent/inbox/discard', (subject, messages) => {
+      if (subject === agent) discarded.push(...messages.map(m => m.id))
+    })
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+
+    // A quiet (non-waking) item stays parked in the inbox; disposal must drop it
+    // WITH a discard so its enqueued id is not left dangling forever.
+    const id = agent.queue([{ type: 'text', text: 'never runs' }])
+    await fiber.dispose()
+    await driverDone(agent)
+
+    expect(discarded).toEqual([id])
   })
 
   it('steer() throws after disposal', async () => {
@@ -139,7 +194,7 @@ describe('Agent', () => {
     agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     agent.inject([{ type: 'text', text: 'mid' }], { source: { kind: 'plugin', plugin: 'p' } })
     expect(agent.session.events.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(agent.session.events.at(-1)!.type).toBe('context/message')
+    expect(agent.session.events.at(-1)!.type).toBe('user/message')
 
     // Close the turn; now inject must wrap its own one-shot injection turn.
     agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -149,6 +204,16 @@ describe('Agent', () => {
     const last = starts[1]!
     expect(last.type === 'turn/start' && last.data.trigger.kind).toBe('injection')
     expect(agent.session.events.at(-1)!.type).toBe('turn/end') // turn-enclosed
+  })
+
+  it('inject() defaults its source to an empty plugin, never user', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    agent.inject([{ type: 'text', text: 'no explicit source' }])
+    const injected = agent.session.events.at(-1)!
+    expect(injected.type === 'user/message' && injected.data.source).toEqual({ kind: 'plugin', plugin: '' })
   })
 
   it('idle inject() contains a failing flush (logs, does not throw into the caller)', async () => {
@@ -167,24 +232,54 @@ describe('Agent', () => {
     warn.mockRestore()
   })
 
-  it('idle inject() closes its one-shot turn AND still checkpoints even if the append throws', async () => {
+  it('idle inject() validates its payload BEFORE opening a turn, so invalid input appends nothing', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    // Non-serializable injected content makes Session.append throw AFTER
-    // turn/start was recorded. The turn/end must still be appended (finally),
-    // AND the durability checkpoint must still fire — the balanced turn is in
-    // memory and a crash before the next turn/dispose would otherwise lose it.
+    // Non-serializable injected content is rejected by the up-front snapshot
+    // BEFORE any append (the unified send contract: invalid input throws before
+    // mutating the log). No one-shot turn opens and no durability checkpoint fires.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
-    }).toThrow(/non-JSON-serializable/)
-    const types = agent.session.events.map(e => e.type)
-    expect(types).toEqual(['turn/start', 'turn/end']) // balanced, no open turn
-    await new Promise(r => setTimeout(r, 10)) // let the fire-and-forget flush run
-    expect(flushes).toBe(1) // checkpoint fired despite the throw
+    }).toThrow(/losslessly JSON-serializable/)
+    expect(agent.session.events).toHaveLength(0)
+    await new Promise(r => setTimeout(r, 10)) // give any (erroneous) flush a chance
+    expect(flushes).toBe(0) // nothing was appended, so no checkpoint
+  })
+
+  it('idle inject() re-entered from a session/event listener is rejected pre-commit and opens no turn', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    let flushes = 0
+    ctx.on('session/flush', () => { flushes += 1 })
+    // Injecting from inside a session/event listener re-enters Session.append,
+    // which rejects pre-commit — so turn/start never commits. The finally sees
+    // no open turn (closes nothing) and no recorded turn (no checkpoint), and
+    // the reentrant throw is contained by Session's post-commit dispatch.
+    // Fire on turn/end: at that instant the outer one-shot turn is closed (no
+    // turn open), so the reentrant inject takes the idle one-shot-turn path and
+    // its turn/start append re-enters Session and is rejected pre-commit.
+    let reentered = false
+    ctx.on('session/event', (_s, event) => {
+      if (!reentered && event.type === 'turn/end') {
+        reentered = true
+        agent.inject([{ type: 'text', text: 'reentrant' }], { source: { kind: 'plugin', plugin: 'p' } })
+      }
+    })
+
+    agent.inject([{ type: 'text', text: 'outer' }], { source: { kind: 'plugin', plugin: 'p' } })
+    // The outer injection's own one-shot turn is balanced; the reentrant one
+    // opened no turn (its turn/start was rejected pre-commit).
+    const turnStarts = agent.session.events.filter(e => e.type === 'turn/start')
+    expect(turnStarts).toHaveLength(1)
+    const injected = agent.session.events.filter(e => e.type === 'user/message')
+    expect(injected).toHaveLength(1) // the reentrant user/message never committed
+    await new Promise(r => setTimeout(r, 10))
+    expect(flushes).toBe(1) // only the outer accepted turn checkpointed
   })
 
   it('idle inject() still checkpoints when a listener throws on the synthetic turn/end', async () => {
@@ -202,7 +297,7 @@ describe('Agent', () => {
 
     expect(() => { agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } }) }).not.toThrow()
     const types = agent.session.events.map(e => e.type)
-    expect(types).toEqual(['turn/start', 'context/message', 'turn/end']) // balanced
+    expect(types).toEqual(['turn/start', 'user/message', 'turn/end']) // balanced
     await new Promise(r => setTimeout(r, 10))
     expect(flushes).toBe(1) // checkpoint fired despite the throwing turn/end listener
   })
@@ -234,13 +329,11 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // A non-serializable source makes the turn/start append throw BEFORE the
-    // event is pushed (Session.append validates before push), so NO turn opens.
-    // The finally's isTurnOpen() guard sees no open turn and appends nothing —
-    // the log stays empty, not left with a dangling turn/start.
+    // A non-serializable source is rejected by the up-front snapshot BEFORE any
+    // append, so NO turn opens and the log stays empty.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
-    }).toThrow(/non-JSON-serializable/)
+    }).toThrow(/losslessly JSON-serializable/)
     expect(agent.session.events).toHaveLength(0)
   })
 
@@ -397,7 +490,7 @@ describe('Agent', () => {
     const { agent } = prepared
     prepared.markPublished()
     const dispose = prepared.startDriver()
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 

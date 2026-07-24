@@ -17,7 +17,7 @@ import type {
   GoalSnapshotChangeMeta,
 } from './types.ts'
 
-type ContextMessageEvent = Extract<SessionEvent, { type: 'context/message' }>
+type UserMessageEvent = Extract<SessionEvent, { type: 'user/message' }>
 
 const SNAPSHOT_OPERATIONS: ReadonlySet<Exclude<GoalOperation, 'clear'>> = new Set([
   'create',
@@ -310,17 +310,18 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
 }
 
 /**
- * Decode and verify one model-visible goal context event without folding it.
- * @param event - context event whose metadata and rendered content must agree.
- * @returns validated change or `undefined` for an unrelated context event.
+ * Decode and verify one model-visible goal state change without folding it. A
+ * goal state change is a round-zero goal-sourced `user/message` carrying
+ * `goal/change` metadata; any other user message returns `undefined`. Goal
+ * metadata on a non-goal source, or a mismatched attribution or rendered body,
+ * fails replay loudly.
+ * @param event - user message whose metadata and rendered content must agree.
+ * @returns validated change, or `undefined` when the message is not a goal state change.
  */
-export function decodeGoalEvent(event: ContextMessageEvent): GoalChangeMeta | undefined {
+export function decodeGoalEvent(event: UserMessageEvent): GoalChangeMeta | undefined {
   const change = decodeGoalChange(event.data.meta)
+  if (change === undefined) return undefined
   const source = goalSource(event.data.source)
-  if (change === undefined) {
-    if (source !== undefined) throw new Error(`goal source at session event ${event.seq} lacks goal change metadata`)
-    return undefined
-  }
   const ref = goalChangeRef(change)
   if (source === undefined || source.goalId !== ref.id || source.revision !== ref.revision || source.round !== 0) {
     throw new Error(`goal change at session event ${event.seq} has mismatched source attribution`)
@@ -338,23 +339,27 @@ export function decodeGoalEvent(event: ContextMessageEvent): GoalChangeMeta | un
  * @returns decoded change for pending-overlay reconciliation.
  */
 export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): GoalChangeMeta | undefined {
-  if (event.type === 'context/message') {
-    const change = decodeGoalEvent(event)
-    if (change === undefined) return undefined
-    applyGoalChange(state, change)
-    return change
-  }
   if (event.type === 'user/message') {
-    const source = goalSource(event.data.source)
-    if (source !== undefined) {
-      const current = state.goal
-      if (current === undefined || current.phase !== 'active' || source.goalId !== current.id
-        || source.revision !== current.revision || source.round !== state.roundsStarted + 1
-        || source.round > current.maxGoalRounds) {
-        throw new Error(`goal round at session event ${event.seq} is not the next admitted round of the active goal`)
-      }
-      state.roundsStarted = source.round
+    // A goal state change carries `goal/change` metadata (round zero).
+    const change = decodeGoalEvent(event)
+    if (change !== undefined) {
+      applyGoalChange(state, change)
+      return change
     }
+    const source = goalSource(event.data.source)
+    if (source === undefined) return undefined
+    // A goal-sourced message without change metadata must be a positive-round
+    // admitted continuation prompt; round zero owes durable change metadata.
+    if (source.round === 0) {
+      throw new Error(`goal source at session event ${event.seq} lacks goal change metadata`)
+    }
+    const current = state.goal
+    if (current === undefined || current.phase !== 'active' || source.goalId !== current.id
+      || source.revision !== current.revision || source.round !== state.roundsStarted + 1
+      || source.round > current.maxGoalRounds) {
+      throw new Error(`goal round at session event ${event.seq} is not the next admitted round of the active goal`)
+    }
+    state.roundsStarted = source.round
   }
   return undefined
 }

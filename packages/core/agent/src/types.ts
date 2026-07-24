@@ -6,6 +6,7 @@
  */
 
 import type { Context } from 'cordis'
+import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -26,8 +27,9 @@ export interface AgentOptions {
 }
 
 /**
- * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
- * and may authorize policy consumers, so non-human producers must label their content.
+ * Options for {@link Agent.followup}, {@link Agent.queue}, and {@link Agent.steer}.
+ * An omitted source attests direct human input as `{ kind: 'user' }` and may
+ * authorize policy consumers, so non-human producers must label their content.
  */
 export interface SendOptions {
   source?: MessageSource
@@ -37,19 +39,71 @@ export interface SendOptions {
    * records them directly at its next checkpoint.
    */
   contexts?: HookContext[]
+  /** Opaque JSON state retained on the durable message but hidden from the model. */
+  meta?: JsonValue
 }
 
 /** Options specific to durable synthetic context injection. */
-export interface InjectOptions extends Omit<SendOptions, 'contexts'> {
-  /** Opaque JSON state retained in the session event but hidden from the model. */
+export interface InjectOptions {
+  /** Defaults to `{ kind: 'plugin', plugin: '' }`; non-human producers should identify themselves. */
+  source?: MessageSource
+  /** Opaque JSON state retained on the durable message but hidden from the model. */
   meta?: JsonValue
+}
+
+/**
+ * Opaque id assigned to one accepted agent input. FIFO inputs carry the same id
+ * on their `agent/inbox/*` events; injection bypasses those events.
+ */
+export type AgentMessageId = Branded<'AgentMessageId'>
+
+/**
+ * Brand a string as an {@link AgentMessageId}.
+ * @param id - the generated message id.
+ * @returns the same string, branded; no validation is performed.
+ */
+export function AgentMessageId(id: string): AgentMessageId {
+  return id as AgentMessageId
+}
+
+/**
+ * One accepted FIFO message, carried by the `agent/inbox/*` live events. `id`
+ * is the value returned by the accepting helper or {@link Agent.send},
+ * stable across this message's enqueue, dequeue, and discard events. Source
+ * defaults, when applicable, are already applied, so these are the exact values
+ * the item was accepted with.
+ * `steering` is true for an item drained between steps; otherwise it is claimed
+ * at a turn boundary. `SendOptions.meta` is intentionally omitted: it is durable
+ * model-hidden state that lands on the eventual `user/message`/
+ * `steering/message`, not live-event routing data.
+ */
+export interface AgentMessage {
+  /** The id returned by the accepting helper or {@link Agent.send}. */
+  id: AgentMessageId
+  content: ContentBlock[]
+  source: MessageSource
+  contexts: HookContext[]
+  /** Whether the item joined the steering FIFO rather than the queued FIFO. */
+  steering: boolean
+  /** Whether the item wakes the driver or requests another step. */
+  wakeup: boolean
+}
+
+/** Options for {@link Agent.cancel}. */
+export interface CancelOptions {
+  /**
+   * Preserve queued and steering inbox items instead of discarding them. The
+   * active turn is still aborted, but un-started and pending work survives for a
+   * later turn and no `agent/inbox/discard` fires.
+   */
+  keepInbox?: boolean
 }
 
 /**
  * An agent's lifecycle state, emitted on every transition as `agent/status`:
  * `idle` (parked, waiting for queued work), `running` (the driver is draining
  * work and may be closing or checkpointing a turn), `disposed` (terminal — no
- * transition leaves it, and `send`/`steer`/`inject` throw).
+ * transition leaves it, and every delivery method throws).
  */
 export type AgentStatus = 'idle' | 'running' | 'disposed'
 
@@ -58,14 +112,30 @@ export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
   /**
-   * Model placement. Absent or `separate` records an independent
-   * `context/message`; `prompt-prefix` prepends this context and a stable
+   * Model placement. Absent or `separate` records an independent injected
+   * `user/message`; `prompt-prefix` prepends this context and a stable
    * request delimiter to the same user-role message as its attached prompt.
    */
   placement?: 'separate' | 'prompt-prefix'
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
+
+/**
+ * Fully specified input for {@link Agent.send}. Unlike the intent-named
+ * helpers, this form applies no defaults: callers provide content, source,
+ * contexts, metadata (including explicit `undefined`), target, and wakeup.
+ * The union excludes attached contexts from non-waking next-step injection.
+ */
+export type ResolvedAgentInput = {
+  content: ContentBlock[]
+  source: MessageSource
+  meta: JsonValue | undefined
+} & (
+  | { target: 'next-turn'; wakeup: boolean; contexts: HookContext[] }
+  | { target: 'next-step'; wakeup: true; contexts: HookContext[] }
+  | { target: 'next-step'; wakeup: false; contexts: [] }
+)
 
 /**
  * Prompt interception result. `allow.content` replaces the prompt. Each
@@ -113,54 +183,90 @@ export type AgentInterruptReason = AgentCancelCause | { readonly kind: 'disposed
 export interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
+  /** The provider route and model this agent's requests use. */
   readonly options: AgentOptions
+  /** The live session this agent drives; its log is the durable source of truth. */
   readonly session: Session
+  /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
-   * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
-   * ordinary message in its FIFO-ordered turn; the next claimed item waits for
-   * that turn's checkpoint.
-   * Attached contexts share the same snapshot and ownership boundary. Invalid
-   * input throws synchronously before notification or enqueue.
+   * Queue an ordinary message as its own FIFO-ordered turn and wake the driver.
+   * Content, resolved source, and attached contexts are detached, validated,
+   * and frozen together; invalid input throws synchronously before notification
+   * or enqueue.
+   * @param content - the prompt content blocks.
+   * @param options - source, attached contexts, and durable model-hidden meta.
+   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(content: ContentBlock[], options?: SendOptions): void
+  followup(content: ContentBlock[], options?: SendOptions): AgentMessageId
 
   /**
-   * Submit steering while the agent is `running`. An open turn records it at
-   * the next steering checkpoint before a request or continuation decision;
-   * policy may stop before another step. After turn close and its checkpoint,
-   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
-   * cancellation, or disposal may discard it. Uses the same synchronous
-   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
+   * Queue an ordinary message without waking an idle driver. The item retains
+   * FIFO order and is claimed only after another input wakes the driver. A lone
+   * queued item leaves `whenIdle()` resolved.
+   * @param content - the prompt content blocks.
+   * @param options - source, attached contexts, and durable model-hidden meta.
+   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  steer(content: ContentBlock[], options?: SendOptions): void
+  queue(content: ContentBlock[], options?: SendOptions): AgentMessageId
+
+  /**
+   * Submit steering into the running turn and request another step. An open turn
+   * records it at the next steering checkpoint before a request or continuation
+   * decision; policy may stop before another step. After turn close and its
+   * checkpoint, any remainder is queued for a later turn; terminal
+   * `agent/turn-stop`, cancellation, or disposal may discard it. Idle steering
+   * becomes a waking ordinary turn.
+   * @param content - the steering content blocks.
+   * @param options - source, attached contexts, and durable model-hidden meta.
+   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
+   */
+  steer(content: ContentBlock[], options?: SendOptions): AgentMessageId
 
   /**
    * Append detached model-facing context without running the model. An open-turn
    * injection joins at the current log position unless the current tool batch is
-   * executing; then it waits FIFO until that batch settles and drains before turn
-   * close even when interrupted. Idle injection uses a one-shot turn and durability
-   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
+   * executing; then it waits FIFO until that batch settles and drains before
+   * turn close even when interrupted. Idle injection uses a one-shot turn and
+   * durability checkpoint. Disposal awaits idle checkpoints; flush failures
+   * report through `agent/error`. An omitted source defaults to
+   * `{ kind: 'plugin', plugin: '' }`.
+   * @param content - the injected context content blocks.
+   * @param options - source and durable model-hidden meta.
+   * @returns the accepted injection's {@link AgentMessageId}; injection emits no `agent/inbox/*` events.
    */
-  inject(content: ContentBlock[], options?: InjectOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId
 
   /**
-   * Clear all queued and steering work, including items waiting to start, and
-   * abort the active turn. An effective call first emits
-   * `agent/cancel-requested` with the resolved typed cause. The first cause wins
-   * for the active turn, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Omission means `{ kind: 'user' }`. Idle cancellation is a no-op
-   * and does not arm later work. The active turn snapshots and freezes the cause.
-   * @param cause - the stable caller intent carried by the current turn signal.
+   * Accept one fully specified input through the same snapshot and routing path
+   * as the four intent-named helpers. `next-turn` targets the ordinary FIFO;
+   * `next-step`/wakeup targets steering (falling back to an ordinary waking turn
+   * while idle); and `next-step` without wakeup injects durable context without
+   * running the model. Every field is mandatory and no source or routing default
+   * is applied. Invalid input throws synchronously before notification, enqueue,
+   * or append.
+   * @param input - the resolved content, attribution, context, metadata, and routing facts.
+   * @returns the accepted input's {@link AgentMessageId}, carried by FIFO lifecycle events when applicable.
    */
-  cancel(cause?: AgentCancelCause): void
+  send(input: ResolvedAgentInput): AgentMessageId
+
+  /**
+   * Clear queued and steering work — unless `keepInbox` — and abort the active
+   * turn. An effective call first emits `agent/cancel-requested` with the
+   * resolved typed cause. The first cause wins for the active turn, and
+   * `whenIdle()` resolves after cancellation reaches quiescence. Omitted cause
+   * means `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm
+   * later work. The active turn snapshots and freezes the cause.
+   * @param cause - the stable caller intent carried by the current turn signal.
+   * @param options - cancellation options; `keepInbox` preserves pending work.
+   */
+  cancel(cause?: AgentCancelCause, options?: CancelOptions): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
-
 }
 
 declare module 'cordis' {
@@ -187,8 +293,8 @@ declare module 'cordis' {
      */
     'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
     /**
-     * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does
-     * not enter `running` synchronously; drive lifecycle from this event.
+     * Agent status changed (`idle` ⇄ `running`, or → `disposed`). A waking
+     * delivery does not enter `running` synchronously; drive lifecycle from this event.
      * @param agent - the agent whose status flipped.
      * @param status - the status just entered (the transition's destination).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -196,15 +302,42 @@ declare module 'cordis' {
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
-     * Detached, frozen content entered the agent's inbox. Source defaults have
-     * already been applied, so these are the exact values retained for the log.
-     * @param agent - the agent whose inbox received the message.
-     * @param content - the accepted content blocks retained by the inbox.
-     * @param info - the accepted source, contexts, and whether it entered as steering.
+     * A detached, frozen item entered the agent's inbox (queued or steering
+     * FIFO). Source defaults are already applied, so `message` holds the exact
+     * accepted values. This is the enqueue-time live signal; the durable record
+     * is the eventual `user/message`/`steering/message`. Injection through
+     * `agent.inject()` or equivalent `send()` routing bypasses the FIFOs
+     * and does not emit this.
+     * @param agent - the agent whose inbox received the item.
+     * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; contexts: HookContext[]; steering: boolean }): void
+    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
+    /**
+     * The driver claimed one item out of the inbox: a queued item at a turn
+     * boundary, or steering drained between steps. Fires after the item leaves
+     * its FIFO and before it becomes a durable message.
+     * @param agent - the agent whose inbox item was claimed.
+     * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
+    /**
+     * Pending inbox items were dropped without delivering them, so every
+     * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR
+     * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after
+     * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`
+     * dropping pending steering (in-turn and on the post-turn late-steering
+     * drain); and disposal of any still-pending items (before
+     * `agent/status('disposed')`). Fires once per drop with every dropped item.
+     * @param agent - the agent whose inbox items were dropped.
+     * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void
     /**
      * Effective broad cancellation was requested, before queued/steering work
      * is cleared or the active turn is aborted. This observe-only notification

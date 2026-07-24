@@ -84,11 +84,12 @@ export interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
   /**
    * An out-of-band context injection (`agent.inject()`) made while the agent
-   * was idle. The loop wraps the injected `context/message` in a one-shot turn
-   * (`turn/start` → `context/message` → `turn/end`) so every event in the log
-   * stays turn-enclosed — the durability/replay boundary is the turn, and a
-   * bare event between turns would otherwise be indistinguishable from a crash
-   * tail on reload.
+   * was idle. The loop wraps the injected `user/message` (a non-`user` source,
+   * plugin by default) in a one-shot turn (`turn/start` → `user/message` →
+   * `turn/end`) so every event in the log stays turn-enclosed — the
+   * durability/replay boundary is the turn, and a bare event between turns would
+   * otherwise be indistinguishable from a crash tail on reload. The trigger's
+   * `source` mirrors that message's producer.
    */
   injection: { kind: 'injection'; source: MessageSource }
 }
@@ -201,7 +202,13 @@ export interface PromptMessageEnvelope {
   prefixContexts: PromptPrefixContext[]
 }
 
-/** Shared payload for ordinary and steering prompt messages. */
+/**
+ * Shared payload for user, injected-context, and steering prompt messages. A
+ * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
+ * steering all project into the model transcript as verbatim user-role content;
+ * they are told apart by `source` (a non-`user` kind marks injected context),
+ * not by event type. `meta` carries durable model-hidden producer state.
+ */
 export interface PromptMessageData {
   /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
   content: ContentBlock[]
@@ -209,6 +216,15 @@ export interface PromptMessageData {
   source: MessageSource
   /** Present only when prompt-prefix contexts were baked into `content`. */
   envelope?: PromptMessageEnvelope
+  /**
+   * Opaque durable JSON state retained on the event but hidden from the model
+   * projection. It is the intended channel for a future framing directive (a
+   * producer declares the frame, a dedicated renderer applies it — see the
+   * deferred note in
+   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
+   * so the surface keeps projecting `content` verbatim rather than wrapping it.
+   */
+  meta?: JsonValue
 }
 
 /**
@@ -236,29 +252,21 @@ export interface SessionEventMap {
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (the queued message claimed for this turn). */
+  /**
+   * A user-role message on the model-visible surface: a direct human prompt
+   * (the queued message claimed for this turn), a synthetic `agent.inject()`
+   * context (file-change notices, subdir AGENTS.md, skill content, cron
+   * notifications, …), or an admitted goal continuation round. All three
+   * project their `content` verbatim; `source` (with a non-`user` kind marking
+   * injected context) is the only channel that tells them apart. An idle
+   * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+   */
   'user/message': PromptMessageData
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
    * prompt never enters the model-visible surface, and its turn runs zero steps.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
-  /**
-   * In-session context injection (file-change notices, subdir AGENTS.md,
-   * skill content, cron notifications, …). Rendered into the derived history
-   * as a synthetic user-role message carrying `content` verbatim — NOT a
-   * user prompt. `meta` is durable JSON state omitted from the model
-   * projection; it is also the intended channel for any future framing
-   * directive (a producer declares the frame, a dedicated renderer applies it —
-   * see the deferred note in
-   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
-   * so the surface keeps projecting `content` verbatim rather than wrapping it.
-   */
-  'context/message': {
-    content: ContentBlock[]
-    source: MessageSource
-    meta?: JsonValue
-  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -331,7 +339,6 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'context/message'
   | 'steering/message'
 
 /**
@@ -349,7 +356,7 @@ export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: Surface
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -384,7 +391,7 @@ export interface SurfaceIntent {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.

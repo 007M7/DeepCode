@@ -207,7 +207,9 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(2)
     const rounds: number[] = []
     for (const event of test.agent.session.events) {
-      if (event.type === 'user/message' && event.data.source.kind === 'goal') {
+      // Round zero is a durable goal state change; positive rounds are the
+      // admitted continuation prompts this test counts.
+      if (event.type === 'user/message' && event.data.source.kind === 'goal' && event.data.source.round > 0) {
         rounds.push(event.data.source.round)
       }
     }
@@ -274,7 +276,7 @@ describe('same-session goal driving', () => {
       ? Promise.resolve({ kind: 'block', reason: 'stop this round' })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
-      if (change.operation === 'block') agent.send([{ type: 'text', text: 'inspect the blocker' }])
+      if (change.operation === 'block') agent.followup([{ type: 'text', text: 'inspect the blocker' }])
     })
     test.ctx.goals.create(test.agent, { objective: 'stop and inspect' })
 
@@ -287,7 +289,7 @@ describe('same-session goal driving', () => {
 
   it('pauses and drops a reserved round when cancellation lands before admission', async () => {
     const test = await harness([])
-    const cancel = test.ctx.on('agent/queued', (agent, _content, info) => {
+    const cancel = test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent === test.agent && info.source.kind === 'goal') {
         cancel()
         agent.cancel({ kind: 'user' })
@@ -299,8 +301,10 @@ describe('same-session goal driving', () => {
 
     expect(goal).toMatchObject({ roundsStarted: 0, activation: 'disarmed' })
     expect(test.adapter.requests).toHaveLength(0)
+    // No admitted continuation round (positive round); goal state changes
+    // (round zero) are expected in the log.
     expect(test.agent.session.events.some(event => event.type === 'user/message'
-      && event.data.source.kind === 'goal')).toBe(false)
+      && event.data.source.kind === 'goal' && event.data.source.round > 0)).toBe(false)
   })
 
   it('pauses an admitted round when cancellation aborts an active step', async () => {
@@ -319,7 +323,7 @@ describe('same-session goal driving', () => {
   it('lets already-queued human work finish before reserving the next round', async () => {
     const test = await harness([textResponse('human answer'), textResponse('goal answer')])
     test.ctx.goals.create(test.agent, { objective: 'continue after the human', maxGoalRounds: 1 })
-    test.agent.send([{ type: 'text', text: 'human goes first' }])
+    test.agent.followup([{ type: 'text', text: 'human goes first' }])
 
     await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
@@ -334,7 +338,7 @@ describe('same-session goal driving', () => {
     const warnings: string[] = []
     test.ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof test.ctx.logger.warn
     let inserted = false
-    test.ctx.on('agent/queued', (agent, _content, info) => {
+    test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
       inserted = true
       const lastStart = agent.session.events.findLast(event => event.type === 'turn/start')
@@ -357,10 +361,10 @@ describe('same-session goal driving', () => {
   it('makes a reserved round stale when a listener queues human work behind it', async () => {
     const test = await harness([textResponse('human batch'), textResponse('later goal')])
     let inserted = false
-    test.ctx.on('agent/queued', (agent, _content, info) => {
+    test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
       inserted = true
-      agent.send([{ type: 'text', text: 'human joined the pending batch' }])
+      agent.followup([{ type: 'text', text: 'human joined the pending batch' }])
     })
     test.ctx.goals.create(test.agent, { objective: 'yield to nested human input', maxGoalRounds: 1 })
 
@@ -375,7 +379,7 @@ describe('same-session goal driving', () => {
   it('blocks a queued reservation made stale by a goal edit and continues the new revision', async () => {
     const test = await harness([textResponse('new revision')])
     let edited = false
-    test.ctx.on('agent/queued', (agent, _content, info) => {
+    test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal' || edited) return
       edited = true
       const current = test.ctx.goals.get(agent)
@@ -391,7 +395,7 @@ describe('same-session goal driving', () => {
     expect(blocked?.type === 'prompt/blocked' ? blocked.data.reason : undefined)
       .toBe('stale goal-round reservation')
     const admitted = test.agent.session.events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'goal')
+      && event.data.source.kind === 'goal' && event.data.source.round > 0)
     expect(admitted?.type === 'user/message' && admitted.data.source.kind === 'goal'
       ? admitted.data.source.revision
       : undefined).toBe(2)
@@ -475,10 +479,16 @@ describe('same-session goal driving', () => {
     expect(injectedTurn).toBeGreaterThan(goalTurn)
   })
 
-  it('blocks the goal when a custom agent rejects the otherwise valid send', async () => {
+  it('blocks the goal when a custom agent rejects the otherwise valid follow-up', async () => {
     const test = await harness([])
-    vi.spyOn(test.agent, 'send').mockImplementationOnce(() => {
-      throw new Error('queue rejected')
+    // Reject only the goal-sourced round follow-up, not the state-change injection
+    // that precedes it.
+    const realFollowup = test.agent.followup.bind(test.agent)
+    vi.spyOn(test.agent, 'followup').mockImplementation((content, options) => {
+      if (options?.source?.kind === 'goal') {
+        throw new Error('queue rejected')
+      }
+      return realFollowup(content, options)
     })
     test.ctx.goals.create(test.agent, { objective: 'handle queue failure' })
 
@@ -492,11 +502,15 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
-  it('preserves a custom agent side effect when send disarms before throwing', async () => {
+  it('preserves a custom agent side effect when followup disarms before throwing', async () => {
     const test = await harness([])
-    vi.spyOn(test.agent, 'send').mockImplementationOnce(() => {
-      test.ctx.goals.disarm(test.agent)
-      throw new Error('queue rejected after disarm')
+    const realFollowup = test.agent.followup.bind(test.agent)
+    vi.spyOn(test.agent, 'followup').mockImplementation((content, options) => {
+      if (options?.source?.kind === 'goal') {
+        test.ctx.goals.disarm(test.agent)
+        throw new Error('queue rejected after disarm')
+      }
+      return realFollowup(content, options)
     })
     test.ctx.goals.create(test.agent, { objective: 'preserve the newer activation state' })
 
@@ -554,7 +568,7 @@ describe('same-session goal driving', () => {
   it('fails a pre-admission read closed even when the first disarm attempt throws', async () => {
     const test = await harness([textResponse('retry after containment')])
     let armed = true
-    test.ctx.on('agent/queued', (agent, _content, info) => {
+    test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal' || !armed) return
       armed = false
       vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
@@ -595,7 +609,7 @@ describe('same-session goal driving', () => {
 
   it('blocks forged goal attribution without touching an absent reservation', async () => {
     const test = await harness([])
-    test.agent.send([{ type: 'text', text: 'forged automatic work' }], {
+    test.agent.followup([{ type: 'text', text: 'forged automatic work' }], {
       source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 },
     })
     await test.agent.whenIdle()
@@ -607,7 +621,7 @@ describe('same-session goal driving', () => {
 
   it('does not invent goal state when ordinary queued work is cancelled', async () => {
     const test = await harness([])
-    test.agent.send([{ type: 'text', text: 'cancel ordinary work' }])
+    test.agent.followup([{ type: 'text', text: 'cancel ordinary work' }])
     test.agent.cancel({ kind: 'user' })
     await test.agent.whenIdle()
 
@@ -617,7 +631,7 @@ describe('same-session goal driving', () => {
 
   it('disarms without durably pausing when cancellation belongs to unrelated human work', async () => {
     const test = await harness(['hang'])
-    test.agent.send([{ type: 'text', text: 'inspect something first' }])
+    test.agent.followup([{ type: 'text', text: 'inspect something first' }])
     await waitForRequests(test.adapter, 1)
     const created = test.ctx.goals.create(test.agent, { objective: 'continue after inspection' })
 
@@ -635,7 +649,7 @@ describe('same-session goal driving', () => {
 
   it('falls back to disarming when a cancelled reservation cannot be paused', async () => {
     const test = await harness([])
-    const cancel = test.ctx.on('agent/queued', (agent, _content, info) => {
+    const cancel = test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal') return
       cancel()
       vi.spyOn(test.ctx.goals, 'pause').mockImplementationOnce(() => {
@@ -689,7 +703,7 @@ describe('same-session goal driving', () => {
   it('cancels an accepted queued round and awaits its driver task during teardown', async () => {
     const test = await harness([])
     let unloading: Promise<void> | undefined
-    test.ctx.on('agent/queued', (agent, _content, info) => {
+    test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent === test.agent && info.source.kind === 'goal' && unloading === undefined) {
         unloading = Promise.resolve(test.driver.dispose())
       }

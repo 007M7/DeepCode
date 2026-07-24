@@ -1056,7 +1056,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         const { text } = referencedPrompt
         let preparedContent: ContentBlock[] = [{ type: 'text', text }]
-        let preparedContexts: NonNullable<Parameters<Agent['send']>[1]>['contexts'] = []
+        let preparedContexts: NonNullable<Parameters<Agent['followup']>[1]>['contexts'] = []
         if (referencedPrompt.references.length > 0) {
           const sessionReferences = ctx.get('sessionReferences')
           if (sessionReferences === undefined) {
@@ -1081,14 +1081,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
           }
           assertOpen()
         }
-        // Install the in-flight slot BEFORE send() (send does not synchronously
+        // Install the in-flight slot BEFORE followup() (followup does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
         // A turn that ends in error rejects this promise (the codec never
         // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
-          rec.agent.send(preparedContent, { contexts: preparedContexts })
+          rec.agent.followup(preparedContent, { contexts: preparedContexts })
         })
         return { stopReason }
       },
@@ -1333,8 +1333,8 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  * generic fallback (title = tool name, raw args as input) when no registry is
  * available (e.g. pure translator tests).
  *
- * Other event types (turn/step boundaries, context/message, …) produce
- * no client update.
+ * Other event types (turn/step boundaries, injected-context user messages, …)
+ * produce no client update.
  * @param sessionId - the ACP session id stamped on every emitted notification.
  * @param event - the harness session event to translate.
  * @param notify - sink for each produced `session/update` notification; called
@@ -1374,6 +1374,9 @@ export function streamSessionEventUpdate(
     }
     case 'user/message': {
       if (!includeUserMessages) return
+      // Only a direct human prompt replays as a user message; injected context
+      // (plugin/goal source) is not the user's turn and produces no update.
+      if (event.data.source.kind !== 'user') return
       // Replay the user's prompt so a loaded session shows both sides of each
       // turn. Live prompt turns suppress this path to avoid duplicating what
       // the client just sent.
@@ -1420,7 +1423,7 @@ export function streamSessionEventUpdate(
       notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
       return
     }
-    // non-error turn/step boundaries, context/message, steering,
+    // non-error turn/step boundaries, injected-context user messages, steering,
     // assistant/message — no direct ACP client update.
     default:
       return

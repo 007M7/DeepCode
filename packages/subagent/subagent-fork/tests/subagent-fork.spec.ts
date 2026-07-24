@@ -89,9 +89,9 @@ describe('dsh-subagent-fork', () => {
 
   it('seeds every completed parent turn through the last turn/end', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('second'), textResponse('child')])
-    parent.send([{ type: 'text', text: 'q1' }])
+    parent.followup([{ type: 'text', text: 'q1' }])
     await parent.whenIdle()
-    parent.send([{ type: 'text', text: 'q2' }])
+    parent.followup([{ type: 'text', text: 'q2' }])
     await parent.whenIdle()
     const parentPrefixLen = parent.session.events.length
 
@@ -108,7 +108,7 @@ describe('dsh-subagent-fork', () => {
     // Parent runs one turn, then we fork. The child's seeded log should contain
     // the parent's first turn, and the child should run its own new turn on top.
     const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
-    parent.send([{ type: 'text', text: 'parent question' }])
+    parent.followup([{ type: 'text', text: 'parent question' }])
     await parent.whenIdle()
     const parentPrefixLen = parent.session.events.length
 
@@ -137,10 +137,10 @@ describe('dsh-subagent-fork', () => {
     // open (a hanging model call), and fork while it's in flight. The seed must stop after the
     // balanced first turn; including the open turn would fail invariant replay during start.
     const { ctx, parent } = await setup([textResponse('done'), 'hang', textResponse('child')])
-    parent.send([{ type: 'text', text: 'q1' }])
+    parent.followup([{ type: 'text', text: 'q1' }])
     await parent.whenIdle()
     // Start a second turn that hangs (open turn/start + open step, never ends).
-    parent.send([{ type: 'text', text: 'q2' }])
+    parent.followup([{ type: 'text', text: 'q2' }])
     await new Promise(r => setTimeout(r, 20)) // let the hanging turn open
 
     // Forking now must NOT throw (the open second turn is excluded from the seed).
@@ -164,7 +164,7 @@ describe('dsh-subagent-fork', () => {
       textResponse('parent turn'),
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
     ])
-    parent.send([{ type: 'text', text: 'warm up' }])
+    parent.followup([{ type: 'text', text: 'warm up' }])
     await parent.whenIdle()
     const run = await start(ctx, 'fork', {
       prompt: [{ type: 'text', text: 'report structured' }],
@@ -183,7 +183,7 @@ describe('dsh-subagent-fork', () => {
     // `readResult` must scan only child-owned events after the seed. The child emits no assistant
     // message, so scanning the whole log would incorrectly return the parent's distinctive text.
     const { ctx, parent } = await setup([textResponse('parent stale'), emptyStop])
-    parent.send([{ type: 'text', text: 'parent question' }])
+    parent.followup([{ type: 'text', text: 'parent question' }])
     await parent.whenIdle()
 
     const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child question' }], parent })

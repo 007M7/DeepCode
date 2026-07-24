@@ -224,7 +224,7 @@ describe('headless stream-json snapshots', () => {
           .map(record => (record.data as JsonObject | undefined)?.name)
         expect(calls).toEqual(['create_goal', 'get_goal'])
         const goalChanges = records.filter((record) => {
-          if (record.type !== 'context/message') return false
+          if (record.type !== 'user/message') return false
           const data = record.data as JsonObject | undefined
           const meta = data?.meta as JsonObject | undefined
           return meta?.kind === 'goal/change'

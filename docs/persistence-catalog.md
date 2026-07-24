@@ -24,14 +24,13 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'context/message'
   | 'steering/message'
 
 /**
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -51,7 +50,7 @@ export type SurfaceOp =
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -79,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:317`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:330`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:360`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:392`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:325`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:338`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:367`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:399`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -151,7 +150,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -167,7 +166,7 @@ Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:278`](../packages/core/session/src/types.ts)
 
 ### `compact/*`
 
@@ -220,33 +219,6 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
 Types: [ContentBlock](core-data-structures/core.md)
 
 Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
-
-### `context/*`
-
-#### `context/message` — surface
-
-```ts persistence-catalog
-/**
- * In-session context injection (file-change notices, subdir AGENTS.md,
- * skill content, cron notifications, …). Rendered into the derived history
- * as a synthetic user-role message carrying `content` verbatim — NOT a
- * user prompt. `meta` is durable JSON state omitted from the model
- * projection; it is also the intended channel for any future framing
- * directive (a producer declares the frame, a dedicated renderer applies it —
- * see the deferred note in
- * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
- * so the surface keeps projecting `content` verbatim rather than wrapping it.
- */
-'context/message': {
-  content: ContentBlock[]
-  source: MessageSource
-  meta?: JsonValue
-}
-```
-
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -357,7 +329,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:41`](../packages/plan/plan-mode/s
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:269`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -371,7 +343,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:305`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:313`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -427,7 +399,7 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:44`](../packages
 'steering/message': PromptMessageData & { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:298`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:306`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -438,7 +410,7 @@ Source: [`packages/core/session/src/types.ts:298`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -447,7 +419,7 @@ Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -460,7 +432,7 @@ Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:300`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -477,7 +449,7 @@ Source: [`packages/core/session/src/types.ts:300`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:284`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -531,7 +503,7 @@ Source: [`packages/core/tools/src/code-mode.ts:34`](../packages/core/tools/src/c
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:288`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:296`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -549,7 +521,7 @@ Source: [`packages/core/session/src/types.ts:288`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:234`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -565,15 +537,23 @@ Source: [`packages/core/session/src/types.ts:234`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
 #### `user/message` — surface
 
 ```ts persistence-catalog
-/** A user-visible prompt (the queued message claimed for this turn). */
+/**
+ * A user-role message on the model-visible surface: a direct human prompt
+ * (the queued message claimed for this turn), a synthetic `agent.inject()`
+ * context (file-change notices, subdir AGENTS.md, skill content, cron
+ * notifications, …), or an admitted goal continuation round. All three
+ * project their `content` verbatim; `source` (with a non-`user` kind marking
+ * injected context) is the only channel that tells them apart. An idle
+ * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+ */
 'user/message': PromptMessageData
 ```
 
-Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)

@@ -95,7 +95,7 @@ describe('dsh-subagent-spawn', () => {
   it('a fresh child does NOT inherit the parent conversation (its log starts empty before the prompt)', async () => {
     // Drive the parent through one real turn so it has history, THEN spawn.
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('child sees nothing')])
-    parent.send([{ type: 'text', text: 'parent prompt' }])
+    parent.followup([{ type: 'text', text: 'parent prompt' }])
     await parent.whenIdle()
     const parentEventCount = parent.session.events.length
     expect(parentEventCount).toBeGreaterThan(0)
@@ -188,10 +188,10 @@ describe('dsh-subagent-spawn', () => {
     expect(published).toEqual([])
   })
 
-  it('a cancel from agent/queued maps a no-turn child log to aborted', async () => {
+  it('a cancel from agent/inbox/enqueue maps a no-turn child log to aborted', async () => {
     const { ctx, parent } = await setup([])
     const controller = new AbortController()
-    ctx.on('agent/queued', () => { controller.abort('queued-window') })
+    ctx.on('agent/inbox/enqueue', () => { controller.abort('queued-window') })
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent, signal: controller.signal })
     const result = await run.result
     expect(result).toMatchObject({ stopReason: 'aborted', output: [] })
@@ -372,7 +372,7 @@ describe('dsh-subagent-spawn', () => {
         textResponse('parent answer'),
         textResponse('child answer'),
       ])
-      parent.send([{ type: 'text', text: 'hi' }])
+      parent.followup([{ type: 'text', text: 'hi' }])
       await parent.whenIdle()
 
       const run = await start(ctx, 'spawn', {

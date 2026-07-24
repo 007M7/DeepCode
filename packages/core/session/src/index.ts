@@ -532,10 +532,10 @@ export class Session {
     // trace/replay data.
 
     switch (event.type) {
-      // Injected context, ordinary prompts, and mid-turn steering project
+      // Ordinary prompts, injected context, and mid-turn steering project
       // identically in user role: the event's model-facing content stays
       // verbatim. A prompt envelope is model-hidden display metadata; its
-      // prefix bytes are already present in content. context's `source`/`meta`
+      // prefix bytes are already present in content. The message's `source`/`meta`
       // and steering's `turn` are also log-only. Do NOT
       // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
       // caller-owned — a producer bakes it into `content`, as workspace-context
@@ -544,7 +544,6 @@ export class Session {
       // verbatim pass-through. See the deferred design note in
       // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
       case 'user/message':
-      case 'context/message':
       case 'steering/message': {
         return { role: 'user', content: event.data.content }
       }

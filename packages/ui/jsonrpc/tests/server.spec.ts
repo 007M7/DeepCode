@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import { AgentMessageId, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
@@ -152,7 +152,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
-      orphanHandle.agent.send([{ type: 'text', text: 'outside the sdk session map' }])
+      orphanHandle.agent.followup([{ type: 'text', text: 'outside the sdk session map' }])
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)
@@ -170,16 +170,16 @@ describe('HarnessSdkServer', () => {
     const mainWhenIdle = vi.fn<() => Promise<void>>()
       .mockReturnValueOnce(firstMainIdle)
       .mockResolvedValue(undefined)
-    const mainSend = vi.fn()
-    const mainAgent = {
-      send: mainSend,
+    const mainFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('main-followup'))
+    const mainAgent = ({
+      followup: mainFollowup,
       whenIdle: mainWhenIdle,
-    } as unknown as Agent
-    const otherSend = vi.fn()
-    const otherAgent = {
-      send: otherSend,
+    } satisfies Pick<Agent, 'followup' | 'whenIdle'>) as unknown as Agent
+    const otherFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('other-followup'))
+    const otherAgent = ({
+      followup: otherFollowup,
       whenIdle: vi.fn(() => Promise.resolve()),
-    } as unknown as Agent
+    } satisfies Pick<Agent, 'followup' | 'whenIdle'>) as unknown as Agent
     const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
     const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
     const create = vi.fn(async (options: { sessionId: SessionId }) =>
@@ -196,7 +196,7 @@ describe('HarnessSdkServer', () => {
     })
 
     const first = prompt('main', 'first')
-    await vi.waitFor(() => { expect(mainSend).toHaveBeenCalledOnce() })
+    await vi.waitFor(() => { expect(mainFollowup).toHaveBeenCalledOnce() })
 
     await expect(prompt('main', 'overlap')).rejects.toThrow('session already has an active prompt: main')
     await expect(prompt('other', 'independent')).resolves.toEqual({ accepted: true })
@@ -208,8 +208,8 @@ describe('HarnessSdkServer', () => {
     await expect(prompt('main', 'failing')).rejects.toThrow('turn wait failed')
     await expect(prompt('main', 'after failure')).resolves.toEqual({ accepted: true })
 
-    expect(mainSend).toHaveBeenCalledTimes(4)
-    expect(otherSend).toHaveBeenCalledOnce()
+    expect(mainFollowup).toHaveBeenCalledTimes(4)
+    expect(otherFollowup).toHaveBeenCalledOnce()
     await server.shutdown()
     expect(mainHandle.dispose).toHaveBeenCalledOnce()
     expect(otherHandle.dispose).toHaveBeenCalledOnce()
@@ -225,9 +225,9 @@ describe('HarnessSdkServer', () => {
       shutdown(): Promise<Record<string, never>>
     }
     const session = ctx.sessions.create(SessionId('message-outcome'))
-    const agent = {
+    const agent = ({
       session,
-      send(content: { type: 'text'; text: string }[]) {
+      followup(content: { type: 'text'; text: string }[]) {
         session.append('turn/start', {
           turn: 1,
           trigger: { kind: 'message', source: { kind: 'user' } },
@@ -241,14 +241,15 @@ describe('HarnessSdkServer', () => {
           turn: 2,
           trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
         })
-        session.append('context/message', {
+        session.append('user/message', {
           content: [{ type: 'text', text: 'late metadata' }],
           source: { kind: 'plugin', plugin: 'late-metadata' },
         }, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+        return AgentMessageId('message-outcome')
       },
       whenIdle: () => Promise.resolve(),
-    } as unknown as Agent
+    } satisfies Pick<Agent, 'session' | 'followup' | 'whenIdle'>) as unknown as Agent
     server.sessions.set('message-outcome', {
       handle: { agent, dispose: () => Promise.resolve() },
       lastTurnEnd: undefined,
