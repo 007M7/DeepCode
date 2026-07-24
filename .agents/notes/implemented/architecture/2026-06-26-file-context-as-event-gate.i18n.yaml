@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-26-file-context-as-event-gate.md: 4700222aa2e0f91d9f355495c228e2eb92825f55
-2026-06-26-file-context-as-event-gate.zh.md: 5edfda5a2da3a7a06093dae65c89fc5ea49b43a8
+2026-06-26-file-context-as-event-gate.zh.md: 21c8706bcc14790a5092fa59e03bce329049760a

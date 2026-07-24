@@ -18,7 +18,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**`agentType` subagent 类别标签**（CC 的 `subagent_type` 在 harness 中的对应物），放在请求与两个生命周期载荷上。早期草案曾包含它；评审中移除，因为它是 Claude Code 的概念，不适合我们自己的 seam（此处没有任何逻辑解释它，唯一消费方是 CC 方言桥接层）。CC 桥接层改为直接为其 SubagentStart/Stop 的 `agent_type` matcher 填入 Claude Code 自身的默认值 `"general-purpose"`，因此本 Agent Note 只交付一项丰富化：`lastAssistantMessage`。
+**`agentType` subagent 类别标签**（CC 的 `subagent_type` 在 harness 中的对应物），放在请求与两个生命周期载荷上。早期草案曾包含它；评审中移除，因为它是 Claude Code 的概念，不适合我们自己的 seam（此处没有任何逻辑解释它，唯一消费方是 CC 方言桥接层）。CC 桥接层改为直接为其 SubagentStart/Stop 的 `agent_type` matcher 填入 Claude Code 自身的默认值 `"general-purpose"`，因此本 Agent Note 只交付**一项**丰富化：`lastAssistantMessage`。
 
 **控制流式 `subagent/end`**：推迟；见下文。
 
