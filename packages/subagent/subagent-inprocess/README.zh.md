@@ -14,7 +14,7 @@
 2. 直接调用 `parent.ctx.agents.create`，把必需的请求信号传入工厂的创建事务。可继续请求会精确发布 `request.continuation.sessionId`，而不是内部生成的 ID。
 3. 在该事务未发布的设置窗口中，安装请求的 persona、工具限制和结构化输出运行时；对于可继续请求，还会安装一次性的 `agent/step` 贡献，在初始 `turn/start` 之后、首次请求之前追加 `subagent/descriptor` 事件，使描述符随该轮次的 flush 到达持久化层。
 4. 发布子 agent，保留返回的 `AgentHandle`，并通过先调用 `child.followup(prompt)`、再调用 `child.whenIdle()` 来驱动一项任务。
-5. 对于可继续的启动或恢复，在返回结果前再次调用 `child.ctx.sessions.flush(child.session)`。这次最终确认会重试轮次检查点失败后保留的事件；若仍然失败，`result` 会以 `SubagentError.code === 'DURABILITY_FAILED'` 拒绝，保留后端失败作为 `cause`，并在消息中指出可恢复性风险。前台运行仍采用循环的尽力而为检查点行为。
+5. 对于可继续的启动或恢复，在返回结果前再次调用 `child.ctx.sessions.flush(child.session)`。这次最终确认会重试轮次检查点失败后保留的事件；若仍然失败，`result` 会以 `SubagentError.code === 'DURABILITY_FAILED'` 拒绝，保留后端失败作为 `cause`，并在消息中指出可恢复性风险。在这次等待期间取消 activation 时，即使已记录完成的轮次，或检查点随后失败，取消仍决定尚未发布的结果。前台运行仍采用循环的尽力而为检查点行为。
 6. 读取子 agent 自身最后一条 assistant 消息，以及由消息触发的最新轮次原因；排除任何 fork 初始内容和后续由插件拥有的轮次间记录。
 
 子 agent 会获得父 agent 的工作目录／会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型和输出 token 上限。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。

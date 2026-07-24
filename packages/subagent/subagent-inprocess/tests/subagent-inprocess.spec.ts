@@ -111,6 +111,37 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it.each([
+    { checkpoint: 'succeeds', failure: undefined },
+    { checkpoint: 'fails', failure: new Error('disk full') },
+  ])('lets cancellation own the result when the final durability checkpoint $checkpoint', async ({ failure }) => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    const checkpointStarted = Promise.withResolvers<undefined>()
+    const releaseCheckpoint = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session.header.parentSession === undefined) return
+      flushes++
+      if (flushes !== 2) return
+      checkpointStarted.resolve(undefined)
+      await releaseCheckpoint.promise
+      if (failure !== undefined) throw failure
+    })
+    const controller = new AbortController()
+
+    const run = await startInProcessRun({
+      ...continuableRequest(parent),
+      signal: controller.signal,
+    }, {})
+    await checkpointStarted.promise
+    controller.abort()
+    releaseCheckpoint.resolve(undefined)
+
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
+    expect(flushes).toBe(2)
+    await run.dispose()
+  })
+
   it('keeps foreground runs best-effort when their turn checkpoint fails', async () => {
     const { ctx, parent } = await setup([textResponse('driver answer')])
     let flushes = 0

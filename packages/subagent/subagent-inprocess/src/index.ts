@@ -272,11 +272,13 @@ function driveTurn(
         try {
           await child.ctx.sessions.flush(child.session)
         } catch (error: unknown) {
-          throw new SubagentError(
-            `subagent "${childId}" durability checkpoint failed; the latest child state was not confirmed persisted and may be unavailable or stale on resume: ${errorChain(error)}`,
-            'DURABILITY_FAILED',
-            { cause: error },
-          )
+          if (!signal.aborted) {
+            throw new SubagentError(
+              `subagent "${childId}" durability checkpoint failed; the latest child state was not confirmed persisted and may be unavailable or stale on resume: ${errorChain(error)}`,
+              'DURABILITY_FAILED',
+              { cause: error },
+            )
+          }
         }
       }
       return readResult(
@@ -284,6 +286,7 @@ function driveTurn(
         boundary,
         flags.cancelled,
         structured ? { captured: structured.captured() } : undefined,
+        durability === 'required' && signal.aborted,
       )
     } finally {
       signal.removeEventListener('abort', onAbort)
@@ -325,6 +328,7 @@ function readResult(
   boundary: number,
   cancelled: boolean,
   structured?: { captured?: { value: unknown } | undefined },
+  cancellationOwnsCompleted = false,
 ): SubagentResult {
   const own = child.session.events.slice(boundary)
   const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
@@ -332,9 +336,11 @@ function readResult(
   const output: ContentBlock[] = lastMessage?.data.message.content ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary
-  // `aborted` end, yielding `disposed` instead. A requested cancellation owns
-  // every non-completed in-flight outcome; a turn already completed stays so.
-  const stopReason: SubagentStopReason = cancelled && recorded !== 'completed'
+  // `aborted` end, yielding `disposed` instead. Activation cancellation during
+  // its final durability checkpoint also owns a recorded completed turn because
+  // the provider has not published that result yet.
+  const stopReason: SubagentStopReason = cancelled
+    && (recorded !== 'completed' || cancellationOwnsCompleted)
     ? 'aborted'
     : recorded
   if (structured !== undefined) {

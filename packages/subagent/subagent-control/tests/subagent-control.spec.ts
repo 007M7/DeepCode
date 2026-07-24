@@ -237,6 +237,29 @@ describe('SubagentControlService.startContinuable', () => {
     expect(snapshot.status).toBe('killed')
     expect(ctx.agents.get(started.childId)).toBeUndefined()
   })
+
+  it('task_kill during the final durability checkpoint settles killed', async () => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    const checkpointStarted = Promise.withResolvers<undefined>()
+    const releaseCheckpoint = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session.header.parentSession === undefined) return
+      flushes++
+      if (flushes !== 2) return
+      checkpointStarted.resolve(undefined)
+      await releaseCheckpoint.promise
+    })
+    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+
+    await checkpointStarted.promise
+    expect(ctx.tasks.kill(started.taskId, parent, 'no longer needed')).toBe('requested')
+    releaseCheckpoint.resolve(undefined)
+
+    const snapshot = await waitTerminal(ctx, started.taskId, parent)
+    expect(snapshot.status).toBe('killed')
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+  })
 })
 
 describe('SubagentControlService.sendMessage', () => {
