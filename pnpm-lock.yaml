@@ -1351,9 +1351,6 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tool-session-query':
-        specifier: workspace:^
-        version: link:../../session-query/tool-session-query
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
