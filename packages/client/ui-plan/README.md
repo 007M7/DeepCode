@@ -2,7 +2,7 @@
 
 Web plan-mode feature with two lifecycle-coupled halves. The node entry mounts `@deepseek-ai/dsh-plan-mode` with the Web product policy; the browser entry contributes a session-scoped selector to `conversation.composer.controls`.
 
-The selector distinguishes unavailable capability (`planMode === null`), committed mode (`active`), and the target queued for the next model-request boundary (`pending`, including `pending: false`). Selecting a mode never cancels a running turn. It remains available while generation is running, disables only during its own RPC, and displays the host-confirmed pending target until a logged `plan/mode` event commits it.
+The selector distinguishes unavailable capability (`planMode === null`), committed mode (`active`), and the target queued for the next model-request boundary (`pending`, including `pending: false`). Selecting a mode never cancels a running turn. It remains available while generation is running, disables only during its own RPC, and displays the host-confirmed pending target until a logged `plan/mode` event commits it. The transparent native select mirrors keyboard focus onto the visible chip and carries a dynamic accessible description of the committed and pending modes.
 
 The model exits plan mode through the stable `exit_plan_mode` tool. Its plan review uses the composed Web question channel: approval schedules default mode for the next step, while rejection or custom feedback keeps plan mode active and returns the feedback to the model.
 

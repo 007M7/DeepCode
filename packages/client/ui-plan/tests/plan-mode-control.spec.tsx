@@ -40,17 +40,26 @@ describe('PlanModeControl', () => {
     cleanup()
     setup({ active: false })
     expect(screen.getByTitle('当前为默认模式')).toBeTruthy()
-    expect((screen.getByRole('combobox', { name: '协作模式' }) as HTMLSelectElement).value).toBe('default')
+    const select = screen.getByRole('combobox', { name: '协作模式' }) as HTMLSelectElement
+    expect(select.value).toBe('default')
+    expect(document.getElementById(select.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('当前为默认模式')
   })
 
   it('treats pending field presence as the target, including pending false', () => {
     setup({ active: false, pending: true })
     expect(screen.getByText('计划 · 待生效')).toBeTruthy()
     expect(screen.getByTitle(/当前为默认模式/)).toBeTruthy()
+    const planSelect = screen.getByRole('combobox')
+    expect(document.getElementById(planSelect.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('当前为默认模式；计划模式将在下一次模型请求时生效')
     cleanup()
     setup({ active: true, pending: false })
     expect(screen.getByText('默认 · 待生效')).toBeTruthy()
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('default')
+    const defaultSelect = screen.getByRole('combobox') as HTMLSelectElement
+    expect(defaultSelect.value).toBe('default')
+    expect(document.getElementById(defaultSelect.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('当前为计划模式；默认模式将在下一次模型请求时生效')
   })
 
   it('switches from the effective target and remains available while a turn runs', async () => {

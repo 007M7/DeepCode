@@ -18,7 +18,7 @@ The policy is product-owned configuration at this composition boundary. It tells
 
 `ui-conversation` owns and renders the new additive controls slot to the left of the primary composer action. It provides no business payload; entries receive the standard session kit. Whole-composer replacements remain on the separate selector-routed `conversation.composer` chain, so a pending question replaces the InputBar and its controls without either feature importing the other.
 
-The control is absent when `planMode` is `null`. Otherwise, its selected value is `pending ?? active`, while pending presentation tests field presence rather than truthiness. It displays `计划 · 待生效` or `默认 · 待生效` until a logged commit replaces the snapshot. A selection disables only the selector while its own RPC is in flight. Generation does not disable it: selecting during a running turn neither calls cancel nor changes that turn, and cancelling generation does not clear the pending target.
+The control is absent when `planMode` is `null`. Otherwise, its selected value is `pending ?? active`, while pending presentation tests field presence rather than truthiness. It displays `计划 · 待生效` or `默认 · 待生效` until a logged commit replaces the snapshot. The transparent native select mirrors focus onto the visible chip and references a dynamic accessible description that distinguishes committed mode from the pending target. A selection disables only the selector while its own RPC is in flight. Generation does not disable it: selecting during a running turn neither calls cancel nor changes that turn, and cancelling generation does not clear the pending target.
 
 ## Interaction semantics
 

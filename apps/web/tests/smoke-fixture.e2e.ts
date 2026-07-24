@@ -252,9 +252,20 @@ describe('web boot chain success pass (keyless, ten real bundles, ?fixture)', ()
     const select = page.getByRole('combobox', { name: '协作模式' })
     await select.waitFor({ state: 'visible', timeout: 15_000 })
     await expect(page.getByTitle('当前为默认模式').isVisible()).resolves.toBe(true)
+    await select.focus()
+    expect(await select.evaluate((element) => {
+      const chip = element.parentElement?.firstElementChild
+      if (!(chip instanceof HTMLElement)) return null
+      const style = getComputedStyle(chip)
+      return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth }
+    })).toEqual({ outlineStyle: 'solid', outlineWidth: '2px' })
 
     await select.selectOption('plan')
     await page.getByTitle(/计划模式将在下一次模型请求时生效/).waitFor()
+    const descriptionId = await select.getAttribute('aria-describedby')
+    expect(descriptionId).not.toBeNull()
+    expect(await page.locator(`[id="${descriptionId}"]`).textContent())
+      .toBe('当前为默认模式；计划模式将在下一次模型请求时生效')
     const input = page.locator('textarea[placeholder]')
     await input.fill('commit plan mode')
     await page.getByRole('button', { name: '发送' }).click()

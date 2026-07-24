@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { PlanModeControlProps } from './index.ts'
 import css from './PlanModeControl.module.css'
 
@@ -13,6 +13,7 @@ export function PlanModeControl({ useSession, setPlanMode }: PlanModeControlProp
   const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const aliveRef = useRef(true)
+  const descriptionId = useId()
 
   useEffect(() => {
     aliveRef.current = true
@@ -57,9 +58,11 @@ export function PlanModeControl({ useSession, setPlanMode }: PlanModeControlProp
             <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </svg>
         </span>
+        <span id={descriptionId} className={css.description}>{title}</span>
         <select
           className={css.select}
           aria-label="协作模式"
+          aria-describedby={descriptionId}
           value={value}
           disabled={switching}
           onChange={(event) => { select(event.target.value === 'plan') }}
