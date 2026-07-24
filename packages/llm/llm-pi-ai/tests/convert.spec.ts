@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { toPiContext } from '../src/context.ts'
@@ -520,7 +520,22 @@ describe('mapStopReason / mapUsage', () => {
     ['toolUse', { kind: 'tool-calls' }],
     ['aborted', { kind: 'aborted', failure: { message: 'pi-ai stream aborted', code: 'ABORTED' } }],
   ] as const)('maps %s', (stopReason, expected) => {
-    expect(mapStopReason(assistant({ stopReason }))).toEqual(expected)
+    expect(mapStopReason(assistant({ stopReason, content: [{ type: 'text', text: 'ok' }] }))).toEqual(expected)
+  })
+
+  it('classifies a completed stop with no content as an EMPTY_RESPONSE error', () => {
+    expect(mapStopReason(assistant({ stopReason: 'stop' }))).toEqual({
+      kind: 'error',
+      failure: {
+        message: 'model "deepseek-v4-flash" returned a completed response with no content',
+        code: EMPTY_RESPONSE_CODE,
+      },
+    })
+  })
+
+  it('keeps a thinking-only stop successful (any block counts as content)', () => {
+    expect(mapStopReason(assistant({ stopReason: 'stop', content: [{ type: 'thinking', thinking: 'mull' }] })))
+      .toEqual({ kind: 'stop' })
   })
 
   it('defaults the error message when pi-ai omits it', () => {
@@ -580,7 +595,9 @@ describe('mapStopReason / mapUsage', () => {
   })
 
   it('uses the resolved context window for silent and length-stop overflows', () => {
-    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0) })
+    // Non-empty content keeps the no-window branch on the successful stop path
+    // (an empty stop is EMPTY_RESPONSE, covered above); overflow wins over both.
+    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0), content: [{ type: 'text', text: 'x' }] })
     expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
     expect(mapStopReason(silent, 100)).toEqual({
       kind: 'error',

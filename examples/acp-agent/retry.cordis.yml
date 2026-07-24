@@ -1,0 +1,30 @@
+# Retry-scenario overlay: pin the bounded transient retry policy to a
+# deterministic 1 ms zero-jitter delay so the durable `llm/retry` event
+# (`delayMs`) and replay wall time stay reproducible. The overlay changes no
+# tool or prompt composition, so its scenarios share the default header class.
+# A config patch replaces the whole app config, so the base fields are restated
+# verbatim; the model is re-pinned to `deepseek-v4-flash` like the other
+# snapshot overlays because the recorded corpus was captured on flash.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: acp-agent
+        name: '@deepseek-ai/dsh-acp-demo'
+        config:
+          provider: deepseek
+          model: deepseek-v4-flash
+          persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+          persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+          workspaceContext:
+            maxBytes: 65536
+          llmRetry:
+            maxTransientRetries: 2
+            initialDelayMs: 1
+            maxDelayMs: 1
+            jitterRatio: 0
+          persona: |
+            You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
+
+            Verify your work by running the code or tests. Keep answers brief and factual.
