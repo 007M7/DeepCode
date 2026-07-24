@@ -19,10 +19,10 @@ Both fields are optional so another agent/request listener may supply the target
 
 | Method | Behavior |
 |---|---|
-| `initialize` | Negotiates the supported version and advertises text-only prompts. No session, editor, terminal, filesystem, or MCP capability is advertised. |
+| `initialize` | Negotiates the supported version and advertises baseline-only prompts (no image, audio, or embedded-context capability). No session, editor, terminal, filesystem, or MCP capability is advertised. |
 | `authenticate` | No-op because the server advertises no authentication methods. |
 | `session/new` | Creates a fresh agent with an absolute primary `cwd`; empty `additionalDirectories` and `mcpServers` are accepted, non-empty values reject. |
-| `session/prompt` | Concatenates text blocks, rejects empty or non-text input, permits one in-flight request per session, and settles from that request's owning durable `turn/end`. |
+| `session/prompt` | Concatenates text blocks, renders baseline resource links as bracketed textual references, rejects empty or beyond-baseline input, permits one in-flight request per session, and settles from that request's owning durable `turn/end`. |
 | `session/cancel` | Cancels only the addressed agent and settles its pending prompt as `cancelled`; unknown ids are no-ops. |
 | `session/update` | Emits one `agent_message_chunk` per non-empty text block in a committed `assistant/message`. Raw deltas and non-message events are omitted. |
 | `session/request_permission` | Offers one-shot allow/reject choices for bridge-owned approval requests carrying a tool call id. Clients may answer automatically. |
@@ -45,7 +45,7 @@ Client disconnect and Cordis disposal share one memoized teardown. The bridge fi
 
 #### What the model sees
 
-`session/prompt` text blocks are concatenated verbatim into one user message. Protocol metadata, client capabilities, permission choices, and session ids never enter the model request.
+`session/prompt` text blocks are concatenated verbatim into one user message; a baseline resource link appears in that message as a bracketed `[resource_link name=… uri=…]` reference the model may open with its own tools. Protocol metadata, client capabilities, permission choices, and session ids never enter the model request.
 
 #### Token effect
 
@@ -72,6 +72,6 @@ Append-only through the owning tool result.
 ## Known Limitations and Deferred Work
 
 - **Fresh sessions only** — load, list, resume, delete, and fork are unsupported.
-- **Text and one workspace only** — resource links, images, audio, embedded resources, non-empty additional directories, and MCP servers reject.
+- **Baseline prompts and one workspace only** — images, audio, embedded resources, non-empty additional directories, and MCP servers reject; resource links flatten to textual references rather than fetched content.
 - **Committed answers only** — live progress, reasoning, tool activity, plans, titles, and usage stay off the wire.
 - **Connection-owned lifetime** — one connection releases all of its sessions; per-session close is not implemented.

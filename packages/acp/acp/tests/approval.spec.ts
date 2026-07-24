@@ -50,6 +50,13 @@ describe('ACP machine permission policy', () => {
     await expect(harness.ctx.approval.request(request)).resolves.toBe('rejected')
   })
 
+  it('fails closed when the client errors the permission request', async () => {
+    harness = await makeBridgeHarness()
+    const request = await ownedRequest()
+    harness.onPermission = () => { throw new Error('client gone') }
+    await expect(harness.ctx.approval.request(request)).resolves.toBe('unavailable')
+  })
+
   it('delegates a same-id foreign agent', async () => {
     harness = await makeBridgeHarness()
     const request = await ownedRequest()

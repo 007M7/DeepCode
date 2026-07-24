@@ -192,12 +192,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const makeAgent = (connection: AgentSideConnection): AcpAgent => {
     conn = connection
     return {
-      initialize(params: InitializeRequest): Promise<InitializeResponse> {
-        const protocolVersion = params.protocolVersion === PROTOCOL_VERSION
-          ? params.protocolVersion
-          : PROTOCOL_VERSION
+      initialize(_params: InitializeRequest): Promise<InitializeResponse> {
+        // Single-version agent: per spec, answer the latest version this
+        // server supports regardless of the client's requested version.
         return Promise.resolve({
-          protocolVersion,
+          protocolVersion: PROTOCOL_VERSION,
           agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
           agentCapabilities: {
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
@@ -239,14 +238,28 @@ export function apply(ctx: Context, config: AcpConfig): void {
           throw invalidParams('a prompt is already in flight for this session')
         }
         if (promptHasUnsupportedContent(params.prompt)) {
-          throw invalidParams('only text prompt content is supported')
+          throw invalidParams('only text and resource_link prompt content is supported')
         }
         const text = acpPromptToText(params.prompt)
         if (text.trim().length === 0) throw invalidParams('empty prompt')
 
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
+          // Arm the slot before send() so a listener-driven synchronous turn
+          // cannot slip past correlation; a synchronous send() failure (an
+          // agent disposed outside the bridge, e.g. an agent-loop-only reload)
+          // must free the slot again or the session would reject every later
+          // prompt as already in flight.
           record.inflight = { resolve, reject, turn: undefined }
-          record.agent.send([{ type: 'text', text }])
+          try {
+            record.agent.send([{ type: 'text', text }])
+          } catch (error: unknown) {
+            record.inflight = undefined
+            // send() throws only Errors (disposed agent / invalid input); the
+            // String arm is a defensive fallback for a non-Error throw.
+            /* v8 ignore next */
+            const detail = error instanceof Error ? error.message : String(error)
+            throw internalError(`prompt was not queued: ${detail}`)
+          }
         })
         return { stopReason }
       },

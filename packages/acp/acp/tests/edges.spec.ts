@@ -54,7 +54,11 @@ describe('ACP automation output boundary', () => {
     expect(harness.updates).toHaveLength(0)
   })
 
-  it('contains client update failures without changing prompt settlement', async () => {
+  // `session/update` is a JSON-RPC notification, so a client-side handler
+  // failure never reaches the bridge; this pins that the prompt still settles
+  // normally with such a client. The bridge's own write-failure guard is
+  // transport-level and documented untestable at `notify`.
+  it('settles the prompt normally when the client rejects update notifications', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('answer')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
