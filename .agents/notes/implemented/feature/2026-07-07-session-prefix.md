@@ -4,6 +4,8 @@ Status: implemented
 
 The request-only prefix seam described below was later removed by the [unified sourced-message decision](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md). Current producers inject durable sourced `user/message` context at `agent/step`; this record preserves the earlier design and its trade-offs.
 
+English | [中文](2026-07-07-session-prefix.zh.md)
+
 ## Problem
 
 A plugin often owns a session-stable opener the model must always see — a skills catalog, an AGENTS.md digest, a workspace baseline. Before this seam the harness offered two homes, and both are wrong for that content. The system prompt is one rendered string: message-shaped content (a user-role `<system-reminder>` envelope, a multi-message primer) does not fit it, and providers weight conversation messages differently from system text. Durable history (`agent.inject()`, a `context/message` at session start) makes the opener permanent: every `deriveMessages()` consumer replays it, the compaction retention walk owns it, forks bake it in stale, and a resume cannot refresh it — a catalog captured at session birth outlives the world it described.

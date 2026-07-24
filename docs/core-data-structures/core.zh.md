@@ -11,7 +11,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 精确地说，一个数据结构是**核心**的，当且仅当满足以下条件之一：
 
 1. 它流经 agent loop 主干——循环在每个轮次中持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄本身），与当前加载了哪些插件无关；**或者**
-2. 它是插件作者面向某条流水线编写的唯一标题类型——`ToolDefinition`（每个工具*是什么*）。
+2. 它是插件作者面向某条流水线编写的代表性类型——`ToolDefinition`（每个工具*是什么*）。
 
 其他一切都记录在**子页面**上，而非本页。划线的规则是：*你编写、持有或接收的类型是核心；为它提供类型推导、渲染或持久化的机制是子页面细节*。因此 `ToolDefinition` 是核心，但为它提供类型推导的 `ValueSchemaSpec`/`ParameterSchemaSpec` 机制、为它提供渲染意图的 `ToolCallView`/`ToolResultView` 词汇，以及存储事件日志的 `SessionPersistence` seam 都不是——它们分别在下列子页面中。
 
@@ -44,6 +44,8 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [workflow.md](workflow.md) | 工作流 seam：`WorkflowStartRequest`、`WorkflowMeta`、`WorkflowRun`/`Result`、`workflow/*` 事件载荷、`WorkflowError` 致命性 |
 
 > 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](../cordis-catalog/services.md)。
+
+<a id="the-map--derived-union-pattern"></a>
 
 ## `…Map → derived-union` 模式
 
@@ -78,6 +80,8 @@ declare module '@deepseek-ai/dsh-llm' {
 | `SessionEventMap` | dsh-session | `SessionEvent` | [session.md](session.md) |
 
 消费方最常 `switch` 的两个大型判别联合类型是：**`StreamChunk`**（流式协议）和 **`SessionEvent`**（日志条目）。按仓库约定，对标签做 `switch`——不要链式 `if`——这样每个分支都能窄化类型，拼错的标签会编译失败。
+
+<a id="branded-ids"></a>
 
 ## 品牌化 ID
 
@@ -167,6 +171,8 @@ interface MessageSourceMap {
 
 完整联合类型、适配器契约（usage-before-finish、原始 JSON 工具参数、两条认可的错误路径）和 `BlockAssembler` 在 **[llm-streaming.md](llm-streaming.md)** 中。
 
+<a id="the-model-request-and-result"></a>
+
 ## 模型请求
 
 一次模型调用是一个完全组装好的 `GenerateOptions`。适配器以原始 `StreamChunk` 流作答；消费方用 `BlockAssembler` 组装它（见 [llm-streaming.md](llm-streaming.md)）。
@@ -218,7 +224,8 @@ interface GenerateOptions {
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
    * the `system` slot). A loop-built request assembles them as
-   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
+   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
+   * hand-built one-shot passes any list.
    */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */
@@ -288,11 +295,11 @@ interface ToolSchema {
 
 ### 请求信封：`LlmCallConfig` 与记录的 header
 
-循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的提示词和权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的提示词、权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）以及会话前缀。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型或采样参数。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
+`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型或采样参数。`agent/session-prefix` 为每个循环实例组合一次仅用于请求的 prefix 消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
-在协议格式上，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。开发不变式针对每个循环构建的请求精确重算此等式。
+在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的提示词组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
 
 FIXME(call-config-shape)：重新审视此类型的精确定义——出于缓存目的，哪些字段确实属于 epoch 层级（`model` 肯定属于；采样标量目前出于谨慎放在这里），以及适配器需要时，提供方特有的额外项（推理选项、额外 body 参数）应归属何处。
 
@@ -354,7 +361,9 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-十二种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及轮次封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+十三种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及轮次封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+
+<a id="the-agent-handle"></a>
 
 ## Agent 句柄
 
@@ -364,61 +373,87 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ```ts type-equiv
 /**
- * Which inbox queue a {@link Agent.send} item joins:
- * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
- * - `next-step` — the item joins the active turn between steps as steering,
- *   or, when no turn is active, is promoted per its `wakeup` flag.
- */
-type SendTarget = 'next-turn' | 'next-step'
-```
-
-```ts type-equiv
-/**
- * Options for the unified {@link Agent.send} primitive over the
- * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
- * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
- * {@link Agent.inject} (`next-step`/no-wakeup).
- *
- * The object is complete so routing policy is explicit.
+ * Options for {@link Agent.followup}, {@link Agent.queue}, and {@link Agent.steer}.
+ * An omitted source attests direct human input as `{ kind: 'user' }` and may
+ * authorize policy consumers, so non-human producers must label their content.
  */
 interface SendOptions {
-  /** Queue the item joins. */
-  target: SendTarget
+  source?: MessageSource
   /**
-   * Whether this item makes the model run: wake a parked driver (`next-turn`)
-   * or force a continuation step (`next-step` while running). A `false`
-   * `next-turn` item queues without waking; a `false`
-   * `next-step` item attaches durable context without forcing another step
-   * (the injection preset).
+   * Model-facing contexts captured with this inbox item. A queued prompt exposes
+   * them through the default `agent/prompt-submit` allow decision, while steering
+   * records them directly at its next checkpoint.
    */
-  wakeup: boolean
+  contexts?: HookContext[]
+  /** Opaque JSON state retained on the durable message but hidden from the model. */
+  meta?: JsonValue
 }
 ```
 
-固定预设别名拥有 `target` 与 `wakeup`；它们的 `UserMessageData` 输入同时携带内容与来源。
+```ts type-equiv
+/** Options specific to durable synthetic context injection. */
+interface InjectOptions {
+  /** Defaults to `{ kind: 'plugin', plugin: '' }`; non-human producers should identify themselves. */
+  source?: MessageSource
+  /** Opaque JSON state retained on the durable message but hidden from the model. */
+  meta?: JsonValue
+}
+```
 
-`send` 返回被接受消息的不透明 `AgentMessageId`，并在该消息的 `agent/inbox/*` 事件中保持稳定：
+高级接收形式会显式给出所有默认值，并禁止为注入附加上下文：
 
 ```ts type-equiv
 /**
- * Opaque id assigned to one accepted {@link Agent.send} message; returned by
- * `send` and carried on its `agent/inbox/*` events for correlation.
+ * Fully specified input for {@link Agent.send}. Unlike the intent-named
+ * helpers, this form applies no defaults: callers provide content, source,
+ * contexts, metadata (including explicit `undefined`), target, and wakeup.
+ * The union excludes attached contexts from non-waking next-step injection.
+ */
+type ResolvedAgentInput = {
+  content: ContentBlock[]
+  source: MessageSource
+  meta: JsonValue | undefined
+} & (
+  | { target: 'next-turn'; wakeup: boolean; contexts: HookContext[] }
+  | { target: 'next-step'; wakeup: true; contexts: HookContext[] }
+  | { target: 'next-step'; wakeup: false; contexts: [] }
+)
+```
+
+FIFO 投递方法返回不透明的 `AgentMessageId`，该 id 在同一条消息的各个 `agent/inbox/*` 事件中保持稳定。注入也返回 id，但会绕过这些事件：
+
+```ts type-equiv
+/**
+ * Opaque id assigned to one accepted agent input. FIFO inputs carry the same id
+ * on their `agent/inbox/*` events; injection bypasses those events.
  */
 type AgentMessageId = Branded<'AgentMessageId'>
 ```
 
-`agent/inbox/*` 实时事件携带一条被接受的消息；注入绕过 FIFO，因此绝不会出现在这些事件中：
+`agent/inbox/*` 实时事件承载一条已接收的消息；注入绕过两个 FIFO，从不出现在这些事件中：
 
 ```ts type-equiv
 /**
- * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
- * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. Its content and source are
- * the exact input values accepted by the agent.
+ * One accepted FIFO message, carried by the `agent/inbox/*` live events. `id`
+ * is the value returned by the accepting helper or {@link Agent.send},
+ * stable across this message's enqueue, dequeue, and discard events. Source
+ * defaults, when applicable, are already applied, so these are the exact values
+ * the item was accepted with.
+ * `steering` is true for an item drained between steps; otherwise it is claimed
+ * at a turn boundary. `SendOptions.meta` is intentionally omitted: it is durable
+ * model-hidden state that lands on the eventual `user/message`/
+ * `steering/message`, not live-event routing data.
  */
-interface AgentMessage extends UserMessageData {
-  /** The id `send` returned for this message. */
+interface AgentMessage {
+  /** The id returned by the accepting helper or {@link Agent.send}. */
   id: AgentMessageId
+  content: ContentBlock[]
+  source: MessageSource
+  contexts: HookContext[]
+  /** Whether the item joined the steering FIFO rather than the queued FIFO. */
+  steering: boolean
+  /** Whether the item wakes the driver or requests another step. */
+  wakeup: boolean
 }
 ```
 
@@ -441,10 +476,10 @@ type AgentCancelCause =
   | { readonly kind: 'parent' }
 ```
 
-`Agent` 是公开 live-agent 契约的接口。具体驱动器实现 `followup`/`steer`/`inject` 别名，并通过 `send` 的（`target` × `wakeup`）矩阵完成路由。
+结构化 `Agent` 接口公开四个按意图命名的辅助方法，以及接受完全解析输入的方法。具体驱动器只需实现一次这套路由矩阵，每个辅助方法提供其固定路由与默认值。
 
 ```ts type-equiv
-/** Public live-agent handle with aliases over the unified delivery primitive. */
+/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
@@ -458,83 +493,86 @@ interface Agent {
   readonly ctx: Context
 
   /**
-   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
-   * It routes the caller's typed content and source as follows:
-   *
-   * - `next-turn` queues an item that becomes the sole ordinary message of its
-   *   own FIFO-ordered turn; `wakeup:true` wakes a
-   *   parked driver, while `wakeup:false` queues without waking.
-   * - `next-step` with `wakeup:true` submits steering into the active turn
-   *   (idle falls back to a woken `next-turn`).
-   * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: an open turn stages it for the next safe log
-   *   position, while an idle injection appends it immediately without opening
-   *   a turn.
-   * @param input - model-facing content and its producer provenance.
-   * @param options - target queue and wakeup decision.
+   * Queue an ordinary message as its own FIFO-ordered turn and wake the driver.
+   * Content, resolved source, and attached contexts are detached, validated,
+   * and frozen together; invalid input throws synchronously before notification
+   * or enqueue.
+   * @param content - the prompt content blocks.
+   * @param options - source, attached contexts, and durable model-hidden meta.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(input: UserMessageData, options: SendOptions): AgentMessageId
+  followup(content: ContentBlock[], options?: SendOptions): AgentMessageId
+
+  /**
+   * Queue an ordinary message without waking an idle driver. The item retains
+   * FIFO order and is claimed only after another input wakes the driver. A lone
+   * queued item leaves `whenIdle()` resolved.
+   * @param content - the prompt content blocks.
+   * @param options - source, attached contexts, and durable model-hidden meta.
+   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
+   */
+  queue(content: ContentBlock[], options?: SendOptions): AgentMessageId
+
+  /**
+   * Submit steering into the running turn and request another step. An open turn
+   * records it at the next steering checkpoint before a request or continuation
+   * decision; policy may stop before another step. After turn close and its
+   * checkpoint, any remainder is queued for a later turn; terminal
+   * `agent/turn-stop`, cancellation, or disposal may discard it. Idle steering
+   * becomes a waking ordinary turn.
+   * @param content - the steering content blocks.
+   * @param options - source, attached contexts, and durable model-hidden meta.
+   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
+   */
+  steer(content: ContentBlock[], options?: SendOptions): AgentMessageId
+
+  /**
+   * Append detached model-facing context without running the model. An open-turn
+   * injection joins at the current log position unless the current tool batch is
+   * executing; then it waits FIFO until that batch settles and drains before
+   * turn close even when interrupted. Idle injection uses a one-shot turn and
+   * durability checkpoint. Disposal awaits idle checkpoints; flush failures
+   * report through `agent/error`. An omitted source defaults to
+   * `{ kind: 'plugin', plugin: '' }`.
+   * @param content - the injected context content blocks.
+   * @param options - source and durable model-hidden meta.
+   * @returns the accepted injection's {@link AgentMessageId}; injection emits no `agent/inbox/*` events.
+   */
+  inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId
+
+  /**
+   * Accept one fully specified input through the same snapshot and routing path
+   * as the four intent-named helpers. `next-turn` targets the ordinary FIFO;
+   * `next-step`/wakeup targets steering (falling back to an ordinary waking turn
+   * while idle); and `next-step` without wakeup injects durable context without
+   * running the model. Every field is mandatory and no source or routing default
+   * is applied. Invalid input throws synchronously before notification, enqueue,
+   * or append.
+   * @param input - the resolved content, attribution, context, metadata, and routing facts.
+   * @returns the accepted input's {@link AgentMessageId}, carried by FIFO lifecycle events when applicable.
+   */
+  send(input: ResolvedAgentInput): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
    * turn. An effective call first emits `agent/cancel-requested` with the
    * resolved typed cause. The first cause wins for the active turn, and
-   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
-   * cancellation is a no-op and does not arm later work.
+   * `whenIdle()` resolves after cancellation reaches quiescence. Omitted cause
+   * means `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm
+   * later work. The active turn snapshots and freezes the cause.
    * @param cause - the stable caller intent carried by the current turn signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
-  cancel(cause: AgentCancelCause, options?: CancelOptions): void
+  cancel(cause?: AgentCancelCause, options?: CancelOptions): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
-
-  /**
-   * Queue an ordinary follow-up turn and wake the driver — the
-   * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
-   * ordinary message of its own turn.
-   * @param input - prompt content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
-   */
-  followup(input: UserMessageData): AgentMessageId
-
-  /**
-   * Submit steering into the running turn — the `next-step`/wakeup preset of
-   * {@link send}. An open turn records it at the next steering checkpoint before
-   * a request or stop decision. If the turn fails before that boundary, the
-   * remainder stays staged without waking the agent; retry or a later prompt
-   * takes it. Idle steering falls back to a woken follow-up turn, while
-   * cancellation or disposal may discard pending steering.
-   * @param input - steering content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
-   */
-  steer(input: UserMessageData): AgentMessageId
-
-  /**
-   * Append model-facing context without running the model — the
-   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
-   * at the next safe log position; an idle injection appends immediately
-   * without opening a turn.
-   * @param input - injected context and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
-   */
-  inject(input: UserMessageData): AgentMessageId
-
-  /**
-   * Re-open a turn on the current session log without a new prompt — the
-   * explicit resummon verb. During `agent/request-error`, this schedules one
-   * retry turn after the failed turn closes; while idle, it starts one
-   * immediately. Repeated calls before the scheduled retry coalesce.
-   * @throws while other agent work is running.
-   */
-  retry(): void
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose 会从注册表中移除 agent 并发出 `agent/disposed`；它不是终态状态值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越轮次关闭、其持久化检查点以及连续的排队轮次；它不能证明某个轮次仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
-cause 是必选且由 TypeScript 强制约束的同进程输入。活跃持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`。`agentInterruptReasonOf(signal)` 无需查询环境中的 initiator 状态，即可识别 `user`、`parent` 与仅用于生命周期的 `disposed`。持久 `turn/end` 对用户或父级取消使用 `{ kind: 'aborted' }`，对生命周期拆卸使用 `{ kind: 'disposed' }`。
+cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancellation` 持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`，并在发布 `turn/end` 前退役；冻结后的 `AbortSignal.reason` 仍可读取。`agentInterruptReasonOf(signal)` 无需查询环境中的 initiator 状态，即可识别 `user`、`parent` 与仅用于生命周期的 `disposed`。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
 [事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
 
@@ -544,32 +582,78 @@ cause 是必选且由 TypeScript 强制约束的同进程输入。活跃持有�
 
 ## 拦截决策
 
-提示词决策与工具后决策直接使用 `UserMessageData`，即持久用户角色输入使用的 content/source 形状。每个 `additionalContexts` 项都会成为一条单独的 `user/message`，并保留其来源信息。钩子桥接层会把原生决策字段映射到这些类型化结果。
+每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex 钩子桥接层把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。提示词决策与工具后决策共享一种面向模型的上下文形状 `HookContext`，它必须携带 `source`（缺少 source 会默认成 `{kind:'user'}`，从而把插件上下文错标为用户提示词）。其中的 `content` 作为 user-role 输入逐字到达模型，而 JSON `meta` 持久保存插件状态但不向模型暴露。未指定放置方式或指定为 `separate` 时，上下文会成为一条注入的 `user/message`（来源类别为插件或 goal）；`prompt-prefix` 放置方式可用于提示词和 steering 收件箱附件，会在同一条消息中把上下文置于最终生效的请求之前。两种决策都携带 `additionalContexts[]`，使每一项保留各自的 provenance、元数据与放置方式。Continuation reason 则是 steering 消息，并有意使用更窄的 content/source 形状。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/prompt-submit` 在轮次打开前返回 `PromptDecision`。`allow` 可以改写已领取的提示词或附加 `additionalContexts`；`block` 会拒绝接纳，且不创建轮次事件：
+```ts type-equiv
+/** Model-facing context injected by a listener or atomically attached to one inbox message. */
+interface HookContext {
+  content: ContentBlock[]
+  source: MessageSource
+  /**
+   * Model placement. Absent or `separate` records an independent injected
+   * `user/message`; `prompt-prefix` prepends this context and a stable
+   * request delimiter to the same user-role message as its attached prompt.
+   */
+  placement?: 'separate' | 'prompt-prefix'
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
+}
+```
+
+`agent/prompt-submit` 返回 `PromptDecision`（允许该轮次已领取的排队消息——可选地改写其 `content` 或附加 `additionalContexts`——或者记录 `prompt/blocked` 并以 `rejected` 结束这个零步骤轮次）：
 
 ```ts type-equiv
 /**
- * Prompt interception result. `allow.content` replaces the prompt, while
- * `additionalContexts` appends model-facing context before the turn starts.
- * An `allow` returned by a listener is authoritative: a listener wrapping
- * `next()` preserves both fields unless it intentionally replaces them.
+ * Prompt interception result. `allow.content` replaces the prompt. Each
+ * `additionalContexts` entry follows its declared placement: separate context
+ * message by default, or a prefix inside the prompt's user-role message.
+ * `block` records a durable `prompt/blocked` and ends the claimed prompt's
+ * zero-step turn as rejected. An `allow` returned by a listener is
+ * authoritative: a listener wrapping `next()` preserves downstream `content`
+ * and `additionalContexts` unless it intentionally replaces them.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessageData[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 ```
 
-`agent/request-error` 会在失败的模型步骤关闭后、其轮次关闭前运行。监听器可以在失败轮次的信号仍然有效时修复持久状态或等待策略工作。负责处理的监听器会调用 `agent.retry()` 且不调用 `next()`；重复调用会合并为一个重试轮次。
+`agent/turn-continuation` 返回 `ContinuationDecision`（步骤有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一轮次中下一个步骤的 steering，因此不携带上下文元数据——即类型化 `/goal` 模式）：
+
+```ts type-equiv
+/** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
+type ContinuationDecision =
+  | { action: 'stop' }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
+```
+
+`agent/request-error` 接收确切的原始 `RequestError`、其不可变 `LlmFailure`、在连续序列中已批准另一次请求的不可变失败列表、轮次信号以及 `next()`。恢复插件按 `failure.code` 路由，而不是按活跃错误的消息路由；每项策略只统计自身的 code，一次成功请求会清空历史：
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-`agent/step` 是派生请求之前唯一的串行边界。当轮次不再因工具或 steering 继续时，`agent/stopping` 会在最后一次排空 steering 之前运行。
+它返回 `RequestErrorDecision`；`retry` 在恢复 listener 的持久变更之后打开一个带新编号的步骤，而 `fail` 在 `turn/end` 上保留结构化失败：
+
+```ts type-equiv
+/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
+type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
+```
+
+`agent/post-step` 会在 assistant 输出、真实或合成的工具结果、缓冲上下文与 steering 持久化之后、`step/end` 之前被 await。被取消的工具批次在排空后携带 aborted signal 到达这里；其签名为 `(agent, turn, step, signal)`，可回放事实保留在会话日志中，而不是瞬态 payload 中。
+
+`agent/turn-stop` 返回仅停止的 `ContinuationStop` 子集或 `undefined`。循环在折叠普通决策、其 reason 和待处理 steering 之后调用此串行检查点；stop 是终态，会丢弃待处理的 steering。
+
+```ts type-equiv
+/**
+ * The terminal subset of {@link ContinuationDecision}. A listener on
+ * `agent/turn-stop` returns this to make the already-composed continuation
+ * outcome terminal; `undefined` abstains.
+ */
+type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
+```
 
 `agent/session-start` 携带 `SessionStartSource`（会话生命周期为何开始；桥接层据此匹配其 SessionStart）：
 
@@ -577,6 +661,8 @@ type RequestError = Error & { code?: string }
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
+
+`agent/session-prefix` 在每个循环实例中组合一次 `Message[]`。深度冻结的结果被记录在请求 header 中，并前置于每次派生历史，使其成为会话稳定开场白的归属。恢复的实例会重新组合；会话中途的变更使用仅追加的上下文通道。该 waterfall 直接返回内容，因为它是贡献而非决策。
 
 ## `ToolDefinition`
 
