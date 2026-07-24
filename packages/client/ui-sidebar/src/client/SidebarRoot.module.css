@@ -1,38 +1,59 @@
-/* Sidebar column (figma 133:7629): vertical stack, padding 16/6, sidebar
-   fill + 1px right border painted by the layout column. Collapse morphs in
-   place: the four control rows persist into the 56px rail (one icon each,
-   x-converged by the shrinking column), geometry rides the deepsuite curve
-   while wide-only content cross-fades 200ms; explicit margins own the
-   vertical rhythm in both states so every gap can transition. */
+/* Sidebar column (figma 133:7629): vertical stack, padding 12/6, sidebar
+   fill + 1px right border painted by the layout column. Collapse is a
+   slide + crossfade, not a morph: the content holds its frozen expanded
+   layout (inline width set by the component) and fades in place (.fading)
+   while the sliding column (AppFrame grid tracks) clips it; the rail layout
+   (.collapsed) only applies after the fade settles, so nothing reflows
+   mid-slide. */
 
 .root {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 6px 16px;
+  padding: 6px 12px;
   box-sizing: border-box;
   background: var(--dsw-specific-sidebar-fill);
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
-  transition: padding var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
+/* Rail geometry (figma rail spec): 36x36 control boxes centered in the 56px
+   rail (10px side padding), 12px vertical rhythm, 18px from the rail top to
+   the whale's box (24px to the 24-wide whale glyph itself). */
 .root.collapsed {
-  padding-top: 14px;
+  padding: 18px 10px 6px;
 }
 
-/* Wide-only content: fades ahead of the geometry (200ms vs 300ms) and
-   unmounts once the collapse settles; remounts fade back in. */
+/* Collapse phase 1: the whole frozen-width content fades out in place over
+   150ms; at settle the children unmount/snap to the rail layout. */
+.fading > * {
+  opacity: 0;
+  transition: opacity 150ms var(--ds-ease-in-out);
+}
+
+/* Wide-only content fades back in on expand remount. */
 .wide {
   animation: wide-in 200ms var(--ds-ease-in-out);
-  transition: opacity 200ms var(--ds-ease-in-out);
-}
-
-.collapsed .wide {
-  opacity: 0;
 }
 
 @keyframes wide-in {
+  from { opacity: 0; }
+}
+
+/* Rail controls hold hidden while the column slides shut, then fade in over
+   the slide's tail: .railIn applies at settle (150ms into the 0.3s AppFrame
+   track transition), so a 100ms delay + 150ms fade starts just before the
+   slide ends (250ms) and finishes at 400ms; `backwards` keeps them at
+   opacity 0 through the delay. Only a live collapse gets .railIn — a
+   refresh straight into the collapsed state renders statically. */
+.railIn .iconButton,
+.railIn .newSession,
+.railIn .searchButton,
+.railIn .foot {
+  animation: rail-in 150ms var(--ds-ease-in-out) 100ms backwards;
+}
+
+@keyframes rail-in {
   from { opacity: 0; }
 }
 
@@ -45,23 +66,19 @@
   justify-content: flex-end;
   gap: 8px;
   height: 60px;
-  padding: 8px 4px;
+  padding: 8px 0 8px 4px;
   margin-bottom: 16px;
   box-sizing: border-box;
   overflow: hidden;
-  transition:
-    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .collapsed .logoRow {
-  height: 24px;
+  height: 36px;
   padding: 0;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
-/* Brand group (figma I133:7632): fish + wordmark ride the text ink
+/* Brand group (figma I133:7632): the full wordmark rides the text ink
    (figma-flows ruling: main-screen instance is black; blue is brand
    emphasis only). */
 .brand {
@@ -69,26 +86,7 @@
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
   overflow: hidden;
-}
-
-.wordmark {
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* HARNESS badge (figma 34:10358): 14px tall, mono 11/500 on primary fill. */
-.badge {
-  flex: none;
-  padding: 0 3px;
-  border-radius: 2px;
-  background: var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-label-primary-inverted);
-  font-family: var(--ds-font-family-code);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 14px;
 }
 
 .iconButton {
@@ -104,9 +102,6 @@
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
-  transition:
-    width var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    height var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .iconButton:hover {
@@ -114,12 +109,33 @@
 }
 
 .collapsed .iconButton {
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
 }
 
-/* New Session: 38px capsule (figma 133:7634) morphing into the rail's plain
-   icon control — border and fill fade with the label. */
+/* Rail logo swap: collapsed, the toggle rests as the whale mark (brand ink,
+   no hover circle) and hovering reveals the panel icon — the expand
+   affordance (figma sidebar-hover flow). Expanded it is a plain panel icon. */
+.collapsed .toggle .panelIcon {
+  display: none;
+}
+
+.collapsed .toggle:hover .panelIcon {
+  display: inline;
+}
+
+.collapsed .toggle:hover .railFish {
+  display: none;
+}
+
+/* Rail icons ride the primary ink (figma rail spec); expanded keeps the
+   secondary icon-button ink. */
+.collapsed .iconButton {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* New Session: 38px capsule (figma 133:7634); collapsed it renders as the
+   rail's plain icon control. */
 .newSession {
   flex: none;
   display: flex;
@@ -128,24 +144,17 @@
   gap: 6px;
   height: 38px;
   padding: 8px 16px;
-  margin-bottom: 20px; /* former headerBlock padBottom 12 + root gap 8 */
+  margin: 0 2px 20px; /* bottom: former headerBlock padBottom 12 + root gap 8 */
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 24px;
   background: var(--dsw-alias-button-elevated-fill);
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
-  font-weight: 510;
+  font-weight: 500;
   line-height: 22px;
   cursor: pointer;
   overflow: hidden;
-  transition:
-    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    gap var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    background-color 200ms var(--ds-ease-in-out);
 }
 
 .newSession:hover {
@@ -153,9 +162,9 @@
 }
 
 .collapsed .newSession {
-  height: 24px;
+  height: 36px;
   padding: 0;
-  margin-bottom: 8px;
+  margin: 0 0 12px;
   gap: 0;
   border-color: transparent;
   background: transparent;
@@ -169,7 +178,6 @@
   max-width: 200px;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .collapsed .newSessionLabel {
@@ -191,16 +199,12 @@
   border-radius: 12px;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
-  transition:
-    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .collapsed .sectionHeader {
-  height: 24px;
+  height: 36px;
   padding-left: 0;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .sectionLabel {
@@ -211,8 +215,8 @@
   line-height: 20px;
 }
 
-/* Search input: 38px capsule (figma 133:7649) morphing into the rail's
-   search control. Upstream binds a dedicated design-system variable (light
+/* Search input: 38px capsule (figma 133:7649); collapsed it renders as the
+   rail's search control. Upstream binds a dedicated design-system variable (light
    #F1F3F5 / dark #1B1B1C) matching no shipped alias — a component token
    pinned to the static scale mirrors it (ruled compliant: indirect via
    custom property, upstream-variable equivalent). */
@@ -223,7 +227,7 @@
   align-items: center;
   gap: 8px;
   height: 38px;
-  margin-bottom: 12px; /* former listArea gap 4 + own 8 (spec padB12 to the first cell) */
+  margin: 0 2px 12px; /* bottom: former listArea gap 4 + own 8 (spec padB12 to the first cell) */
   padding: 0 14px;
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -231,13 +235,6 @@
   background: var(--dsh-search-input-fill);
   color: var(--dsw-alias-label-caption);
   overflow: hidden;
-  transition:
-    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    gap var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    background-color 200ms var(--ds-ease-in-out);
 }
 
 :global(body[data-ds-dark-theme]) .search {
@@ -245,9 +242,9 @@
 }
 
 .collapsed .search {
-  height: 24px;
+  height: 36px;
   padding: 0;
-  margin-bottom: 8px;
+  margin: 0 0 12px;
   gap: 0;
   border-color: transparent;
   background: transparent;
@@ -261,8 +258,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
   border: none;
   border-radius: 50%;
   padding: 0;
@@ -272,9 +267,11 @@
 }
 
 .collapsed .searchButton {
+  width: 36px;
+  height: 36px;
   pointer-events: auto;
   cursor: pointer;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-primary);
 }
 
 .collapsed .searchButton:hover {
@@ -366,39 +363,41 @@
   font-size: 13px;
 }
 
-/* Foot: settings entry (figma 133:7668). Left padding lands the 14px glyph
-   on the rail's icon axis when collapsed. */
+/* Foot: settings entry (figma 133:7668, 49 hug): the former 18/10 vertical
+   margins fold into the row so the hover pill spans the full 49px. */
 .foot {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 29px;
-  margin: 18px 0 10px; /* former root gap 8 + own 10 above; root padBottom 6 below */
+  height: 49px;
+  margin: 8px 0 0; /* + 49px row + root padBottom 6 keeps the old 57px band */
   padding: 0 2px 0 6px;
   border-radius: 12px;
   cursor: pointer;
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
-  transition:
-    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    gap var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .foot:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* Rail settings: the same 36x36 circle box as the other rail controls. */
 .collapsed .foot {
+  width: 36px;
+  height: 36px;
+  margin: 18px 0 10px;
+  justify-content: center;
   gap: 0;
-  padding: 0 0 0 5px;
+  padding: 0;
+  border-radius: 50%;
 }
 
 .footLabel {
   max-width: 120px;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .collapsed .footLabel {
@@ -406,16 +405,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .root,
   .wide,
-  .logoRow,
-  .iconButton,
-  .newSession,
-  .newSessionLabel,
-  .sectionHeader,
-  .search,
-  .foot,
-  .footLabel {
+  .fading > *,
+  .railIn .iconButton,
+  .railIn .newSession,
+  .railIn .searchButton,
+  .railIn .foot {
     transition: none;
     animation: none;
   }

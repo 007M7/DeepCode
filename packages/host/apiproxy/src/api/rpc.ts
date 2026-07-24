@@ -51,6 +51,20 @@ export type RpcError = {
 export type RpcResult<T> = { ok: true; value: T } | { ok: false; error: RpcError }
 
 /**
+ * Fold a transport exception into the RpcResult error branch (unified error
+ * surface; 'internal' as the catch-all code). Lives with RpcResult so every
+ * carrier consumer folds the same way.
+ * @param error - the thrown value from the carrier.
+ * @returns the error branch of an RpcResult.
+ */
+export function transportError<T>(error: unknown): RpcResult<T> {
+  return {
+    ok: false,
+    error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },
+  }
+}
+
+/**
  * Signature-layer narrow form, request side (domain-interface view, shared by
  * both directions): rpcId is explicit in the signature, never mixed into the
  * business payload; the type tag and method are filled in by the carrier layer.

@@ -8,6 +8,8 @@ import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'
+import type { Config as SessionTitleLlmConfig } from '@deepseek-ai/dsh-session-title-first-message-llm'
 import type { HostFrame, MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -22,6 +24,10 @@ class ScriptedAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if ((options.tools?.length ?? 0) === 0) {
+      yield * textResponse('Durable append-only session titles')
+      return
+    }
     this.requests.push(options)
     const entry = this.script.shift()
     if (!entry) throw new Error('ScriptedAdapter: script exhausted')
@@ -68,6 +74,21 @@ function expectOk<T>(response: RpcResponse<T>): T {
   return response.result.value
 }
 
+async function nextMux(iterator: AsyncIterator<RpcRequest<MuxFrame>>): Promise<RpcRequest<MuxFrame>> {
+  const next = await iterator.next()
+  if (next.done === true) throw new Error('mux ended before the expected frame')
+  return next.value
+}
+
+/** Durably append a title event without mounting title-generation policy. */
+function appendTitle(ctx: Context, agent: Agent, title: string) {
+  return ctx.sessions.appendOutOfBand(agent.session, 'session/title', {
+    title,
+    messageSeqs: [1],
+    source: { kind: 'fallback' },
+  }, { kind: 'session-title' })
+}
+
 let host: RunningHost | undefined
 
 beforeEach(() => {
@@ -80,13 +101,19 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-async function boot(script: (StreamChunk[] | 'hang')[] = []): Promise<RunningHost> {
+async function boot(
+  script: (StreamChunk[] | 'hang')[] = [],
+  sessionTitle?: SessionTitleConfig,
+  sessionTitleLlm?: true | SessionTitleLlmConfig,
+): Promise<RunningHost> {
   host = await startHost({
     boot: {
       persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-runtime-')),
       workspaceContext: false,
       provider: 'scripted',
       model: 'test-model',
+      ...(sessionTitle === undefined ? {} : { sessionTitle }),
+      ...(sessionTitleLlm === undefined ? {} : { sessionTitleLlm }),
     },
   })
   host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter(script))
@@ -161,6 +188,23 @@ describe('bootHost / startHost', () => {
     expect(requestText).toContain('Instructions from: AGENTS.md')
     expect(requestText).toContain('host-workspace-context-probe')
   })
+
+  it('keeps model title generation disabled when sessionTitleLlm is omitted', async () => {
+    const running = await boot([textResponse('pong')])
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const idle = waitForIdle(ctx, agent)
+    expectOk(await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'Explain durable session titles.' }],
+    })))
+    await idle
+
+    expect((await ctx.sessionTitle.refresh(agent.session))?.source).toEqual({ kind: 'fallback' })
+    expect(agent.session.events.some(event => event.type === 'session/title-llm-request')).toBe(false)
+  })
 })
 
 describe('host.describe', () => {
@@ -190,6 +234,94 @@ describe('sessions.create / list', () => {
 })
 
 describe('sessions.prompt / cancel', () => {
+  it.each([
+    { name: 'host default', config: true, target: '5 words', maxTokens: 64 },
+    {
+      name: 'configured policy',
+      config: {
+        targetWords: 3,
+        targetCjkCharacters: 8,
+        maxInputBytes: 2_048,
+        maxOutputTokens: 24,
+        timeoutMs: 2_000,
+      },
+      target: '3 words',
+      maxTokens: 24,
+    },
+  ] satisfies {
+    name: string
+    config: true | SessionTitleLlmConfig
+    target: string
+    maxTokens: number
+  }[])('replaces the fallback with a model-backed first-message title using the $name', async ({ config, target, maxTokens }) => {
+    const modelTitle = 'Durable append-only session titles'
+    const running = await boot([textResponse('pong')], undefined, config)
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const idle = waitForIdle(ctx, agent)
+    expectOk(await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'Explain why append-only logs make session titles durable.' }],
+    })))
+    await idle
+
+    await vi.waitFor(() => {
+      expect(agent.session.events.filter(event => event.type === 'session/title').map(event => event.data))
+        .toEqual([
+          {
+            title: 'Explain why append-only logs make',
+            messageSeqs: [1],
+            source: { kind: 'fallback' },
+          },
+          {
+            title: modelTitle,
+            messageSeqs: [1],
+            source: {
+              kind: 'provider',
+              provider: 'session-title-first-message-llm',
+              model: { provider: 'scripted', model: 'test-model' },
+            },
+          },
+        ])
+    })
+    const titleRequest = agent.session.events.find(event => event.type === 'session/title-llm-request')
+    expect(titleRequest?.data.system).toContain(target)
+    expect(titleRequest?.data.maxTokens).toBe(maxTokens)
+  })
+
+  it.each([
+    { name: 'host default', config: undefined, expected: 'Show the Web UI durable' },
+    {
+      name: 'configured limit',
+      config: { fallbackMaxWords: 2, fallbackMaxBytes: 40, maxTitleBytes: 80 },
+      expected: 'Show the',
+    },
+  ] satisfies { name: string; config: SessionTitleConfig | undefined; expected: string }[])(
+    'logs a durable fallback title with the $name',
+    async ({ config, expected }) => {
+      const running = await boot([textResponse('pong')], config)
+      const { api, ctx } = running
+      const { sessionId } = expectOk(await api.sessions.create(request({})))
+      const agent = ctx.agents.get(sessionId) as Agent
+      const idle = waitForIdle(ctx, agent)
+      expectOk(await api.sessions.prompt(request({
+        sessionId,
+        mode: 'queue' as const,
+        content: [{ type: 'text' as const, text: 'Show the Web UI durable session title' }],
+      })))
+      await idle
+
+      const title = agent.session.events.find(event => event.type === 'session/title')
+      expect(title?.data).toEqual({
+        title: expected,
+        messageSeqs: [1],
+        source: { kind: 'fallback' },
+      })
+    },
+  )
+
   it('queues a prompt whose rpcId rides into user/message, then the reply lands', async () => {
     const running = await boot([textResponse('pong')])
     const { api, ctx } = running
@@ -261,6 +393,7 @@ describe('sessions.history', () => {
     const idle = waitForIdle(first.ctx, agent)
     agent.send([{ type: 'text', text: 'save me' }])
     await idle
+    const titleEvent = await appendTitle(first.ctx, agent, 'Persisted title')
     await first.dispose()
 
     host = await startHost({
@@ -268,6 +401,8 @@ describe('sessions.history', () => {
     })
     host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([]))
     expect(host.ctx.agents.get(sessionId)).toBeUndefined()
+    const abort = new AbortController()
+    const mux = host.api.events.mux(request({}), abort.signal)[Symbol.asyncIterator]()
     const [a, b] = await Promise.all([
       host.api.sessions.history(request({ sessionId })),
       host.api.sessions.history(request({ sessionId })),
@@ -278,6 +413,11 @@ describe('sessions.history', () => {
     }
     expect(host.ctx.agents.get(sessionId)).toBeDefined()
     expect(host.ctx.agents.list()).toHaveLength(1)
+    expect((await nextMux(mux)).payload).toMatchObject({ type: 'session/subscribed', sessionId })
+    expect((await nextMux(mux)).payload).toEqual(expect.objectContaining({
+      type: 'session/title', sessionId, title: 'Persisted title', eventSeq: titleEvent.seq,
+    }))
+    abort.abort()
   })
 
   it('errors session-not-found when resume fails, deduplicating concurrent resumes', async () => {
@@ -383,6 +523,43 @@ describe('events streams', () => {
 
     ac.abort()
     expect((await stream.next()).done).toBe(true)
+  })
+
+  it('mux: projects durable titles after open baselines and immediately after live raw events', async () => {
+    const running = await boot()
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const initial = await appendTitle(ctx, agent, 'Initial title')
+
+    const ac = new AbortController()
+    const stream = api.events.mux(request({}), ac.signal)[Symbol.asyncIterator]()
+    expect((await nextMux(stream)).payload).toMatchObject({ type: 'session/subscribed', sessionId })
+    expect((await nextMux(stream)).payload).toEqual(expect.objectContaining({
+      type: 'session/title', sessionId, title: 'Initial title', eventSeq: initial.seq, updatedAt: initial.time,
+    }))
+
+    const revised = await appendTitle(ctx, agent, 'Revised title')
+    let raw: RpcRequest<MuxFrame>
+    do raw = await nextMux(stream)
+    while (!(raw.payload.type === 'session/event' && raw.payload.event.type === 'session/title'))
+    expect(raw.payload).toMatchObject({ type: 'session/event', sessionId, event: { seq: revised.seq } })
+    expect((await nextMux(stream)).payload).toEqual(expect.objectContaining({
+      type: 'session/title', sessionId, title: 'Revised title', eventSeq: revised.seq, updatedAt: revised.time,
+    }))
+    ac.abort()
+  })
+
+  it('mux: emits no title control for untitled subscriptions', async () => {
+    const { api } = await boot()
+    const first = expectOk(await api.sessions.create(request({}))).sessionId
+    const ac = new AbortController()
+    const stream = api.events.mux(request({}), ac.signal)[Symbol.asyncIterator]()
+    expect((await nextMux(stream)).payload).toMatchObject({ type: 'session/subscribed', sessionId: first })
+
+    const second = expectOk(await api.sessions.create(request({}))).sessionId
+    expect((await nextMux(stream)).payload).toMatchObject({ type: 'session/subscribed', sessionId: second })
+    ac.abort()
   })
 
   it('host: session lifecycle, status flips (disposed suppressed), and agent errors', async () => {

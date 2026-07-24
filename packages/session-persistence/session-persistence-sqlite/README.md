@@ -33,7 +33,7 @@ interface Config {
 
 ## Write path
 
-Like the JSONL backend, the plugin also installs the `session/event` → buffer → `session/flush` drain: it copies each already-frozen event into a persistence-owned buffer, persists a fork's seed once on `session/created`, keeps a per-session write cursor so a resumed session never re-appends stored events, and seeds existing live sessions on apply (HMR does not replay `session/created`). Dispose awaits every in-flight init + final drain and then closes the database, so no write lands after teardown.
+Like the JSONL backend, the plugin copies each frozen `session/event` into one controller per live session and starts an eager drain. Concurrent events share the current transaction; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. The controller persists a fork's seed once, keeps a write cursor so resume never re-appends stored events, and seeds live sessions on apply because HMR does not replay `session/created`. Dispose drains every retained controller before closing the database.
 
 ## Model Experience
 

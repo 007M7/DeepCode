@@ -1,11 +1,10 @@
 # Full-screen TUI coding agent with swappable DeepSeek and local-bash backends.
 # `dsh-tui-demo` supplies the agent spine, workspace instructions, generic
 # task controls, JSONL persistence, the pi-tui front door, and `main`.
-# HMR remains a leaf because it requires Loader internals; `demo:tui` passes
-# `--expose-internals`. The app bin loads the gitignored root `.env`; this file
-# reads `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` through `!!js`.
+# HMR remains a leaf because it depends on Loader internals. The app bin loads
+# the gitignored root `.env`; this file reads `DEEPSEEK_API_KEY` and optional
+# `DEEPSEEK_BASE_URL` through `!!js`.
 
-# Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:

@@ -46,7 +46,7 @@ function listHook(rows: { id: string; title: string; cwd?: string; parentId?: st
   const store = createSnapshotStore<SessionListState>({
     ids: rows.map(r => r.id as SessionId),
     byId: Object.fromEntries(rows.map(r => [r.id, {
-      id: r.id as SessionId, title: r.title, running: false, updatedAt: 1,
+      id: r.id as SessionId, title: `durable ${r.title}`, displayTitle: r.title, running: false, updatedAt: 1,
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentId: r.parentId as SessionId } : {}),
     }])),

@@ -25,7 +25,10 @@ import type { Session } from './session.ts'
 /** Session list row projected from the host list RPC plus live stream increments. */
 export interface SessionSummary {
   id: SessionId
-  title: string
+  /** Latest durable log-backed title, absent until the host projects one. */
+  title?: string
+  /** Human-facing label: durable title, project basename, then session id. */
+  displayTitle: string
   cwd?: string
   parentId?: SessionId
   running: boolean
@@ -62,10 +65,11 @@ export function scopeOf(ctx: Context): SessionId | undefined {
 function sessionScope(): void {}
 
 /**
- * Display title projection. The wire summary carries no title yet (P-I
- * ledger): the project directory's basename stands in, then the raw id.
+ * Display title projection: durable title, project directory basename, then
+ * the raw id.
  */
-function titleOf(cwd: string | undefined, id: SessionId): string {
+function displayTitleOf(title: string | undefined, cwd: string | undefined, id: SessionId): string {
+  if (title !== undefined) return title
   if (cwd !== undefined && cwd !== '') {
     const base = cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop()
     if (base !== undefined && base !== '') return base
@@ -165,6 +169,18 @@ export class SessionsService {
   }
 
   /**
+   * Read the session scope tag off a context. Service-method seam: fetch
+   * bundles must reach scope resolution through ctx.sessions — a cross-bundle
+   * value import of the standalone helper would inline a second module
+   * instance whose private tag Symbol never matches.
+   * @param ctx - any client context.
+   * @returns the session id, or undefined on root contexts.
+   */
+  scopeOf(ctx: Context): SessionId | undefined {
+    return scopeOf(ctx)
+  }
+
+  /**
    * Resolve the stable session binding (scope-addressed assembly feed). Pure
    * resolution — no staging, no window side effects.
    * @param id - session id.
@@ -259,9 +275,10 @@ export class SessionsService {
       ids.push(entry.sessionId)
       byId[entry.sessionId] = {
         id: entry.sessionId,
-        title: titleOf(entry.cwd, entry.sessionId),
+        displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
         updatedAt: entry.updatedAt,
+        ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
       }

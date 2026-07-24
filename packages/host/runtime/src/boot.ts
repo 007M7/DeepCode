@@ -8,6 +8,9 @@ import { Context } from 'cordis'
 import Timer from '@cordisjs/plugin-timer'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
+import SessionTitleService, { type Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'
+import * as SessionTitleFirstMessageLlm from '@deepseek-ai/dsh-session-title-first-message-llm'
+import type { Config as SessionTitleLlmConfig } from '@deepseek-ai/dsh-session-title-first-message-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -40,6 +43,22 @@ import SpillLocal from '@deepseek-ai/dsh-spill-local'
 import * as spillPolicy from '@deepseek-ai/dsh-spill-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
+/** Default deterministic title policy for sessions created through the host. */
+const DEFAULT_SESSION_TITLE_CONFIG: SessionTitleConfig = {
+  fallbackMaxWords: 5,
+  fallbackMaxBytes: 40,
+  maxTitleBytes: 80,
+}
+
+/** Default first-message model-title policy for sessions created through the host. */
+const DEFAULT_SESSION_TITLE_LLM_CONFIG: SessionTitleLlmConfig = {
+  targetWords: 5,
+  targetCjkCharacters: 10,
+  maxInputBytes: 4_096,
+  maxOutputTokens: 64,
+  timeoutMs: 60_000,
+}
+
 /** Options for bootHost — the assembly-layer composition knobs. */
 export interface BootHostOptions {
   /** Root directory for JSONL session persistence. */
@@ -50,6 +69,10 @@ export interface BootHostOptions {
   provider?: string
   /** Default model id (defaults to 'deepseek-v4-flash', matching the demos). */
   model?: string
+  /** Deterministic fallback-title limits. */
+  sessionTitle?: SessionTitleConfig
+  /** Opt-in first-message model-title policy; `true` selects host defaults and an explicit config overrides them. */
+  sessionTitleLlm?: true | SessionTitleLlmConfig
   /**
    * Default project directory for sessions created without an explicit cwd
    * (defaults to the host process working directory). A session's cwd is its
@@ -93,6 +116,13 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(Timer)
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionTitleService, options.sessionTitle ?? DEFAULT_SESSION_TITLE_CONFIG)
+  if (options.sessionTitleLlm !== undefined) {
+    await ctx.plugin(
+      SessionTitleFirstMessageLlm,
+      options.sessionTitleLlm === true ? DEFAULT_SESSION_TITLE_LLM_CONFIG : options.sessionTitleLlm,
+    )
+  }
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(UserInteractionService)
