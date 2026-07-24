@@ -243,11 +243,11 @@ export function rawSessionLog(session: Session): string {
 
 /**
  * Record-mode fixture write-back: harvest the live session, scrub request
- * headers to {{system}}/{{tools}} (the web lane pins no header class — a
- * deliberate deviation logged in the Agent Note's deferred work), tokenize
- * the run-local session id and cwd ({{sessionId}}/{{cwd}}, the committed ACP
- * fixture convention — re-records then diff only on real content), and write
- * the committed fixture.
+ * headers to {{system}}/{{tools}} (TODO(web-header-pin): the web lane pins no
+ * header class — a deliberate deviation logged in the Agent Note's deferred
+ * work), tokenize the run-local session id and cwd ({{sessionId}}/{{cwd}},
+ * the committed ACP fixture convention — re-records then diff only on real
+ * content), and write the committed fixture.
  * @param harness - the record-mode harness.
  * @param sessionId - the driven session.
  * @param fixturePath - the committed session.jsonl / seed.jsonl target.

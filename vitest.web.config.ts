@@ -1,10 +1,13 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Web smoke lane (GUI, gate-exempt — not part of the CI sequence yet): built
-// page + real chromium, so it lives outside the unit/e2e includes. The
-// real-host test self-skips without DEEPSEEK_API_KEY; the fixture test is
-// keyless and deterministic.
+// Web browser lane (GUI, gate-exempt — not part of the CI sequence yet):
+// built page + real chromium, so it lives outside the unit/e2e includes. The
+// real-host smoke self-skips without DEEPSEEK_API_KEY; the fixture smoke and
+// the replayed e2e scenarios are keyless and deterministic.
+// TODO(ci-browser): running this lane in CI requires chromium provisioning
+// and reverses the no-browser-in-CI ruling — staged criteria in
+// .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md.
 try {
   // Node >= 21.7 native; throws when the file does not exist.
   process.loadEnvFile(new URL('.env', import.meta.url).pathname)
