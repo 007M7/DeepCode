@@ -76,15 +76,19 @@ jobs:
           compression-level: 0
 
   node-24-coverage:
-    # Same-repo PRs only: this lane runs on an in-house self-hosted runner,
-    # so fork-originated code must never land here. The repo is currently
-    # private with forking disabled; this guard keeps that invariant explicit
-    # if either setting ever changes.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Runs on the in-house pool (self-hosted, 64-core) instead of the metered
-    # enterprise pool. The pool holds 4 always-on instances plus 4 registered
-    # spares; the runner service is systemd-managed and self-healing.
-    runs-on: [self-hosted, linux, x64, vm-backup]
+    if: github.event_name == 'pull_request'
+    # Trusted same-repo PRs run on the in-house pool (self-hosted, 64-core;
+    # 4 always-on systemd-managed instances plus 4 registered spares) instead
+    # of the metered enterprise pool. Untrusted PRs — forks and Dependabot
+    # (same-repo but dependency-supplied code; same author test as e2e.yml) —
+    # stay on the hosted enterprise pool so no untrusted code reaches the
+    # persistent self-hosted VM. Selecting the pool via runs-on keeps this a
+    # single job, so the all-checks-passed aggregate never sees a skip.
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.full_name != github.repository
+           || github.event.pull_request.user.login == 'dependabot[bot]')
+          && 'dsh-enterprise-ubuntu-24-04-32core-test'
+          || fromJSON('["self-hosted", "linux", "x64", "vm-backup"]') }}
     name: node 24 / coverage
     env:
       DSH_COVERAGE_MAX_WORKERS: '24'
@@ -94,17 +98,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/cache/restore@v4
-        with:
-          # Path must stay byte-identical to the save-side path in the master
-          # lane: actions/cache hashes the literal path into the cache version,
-          # so any variation (e.g. ~) would never match the saved cache. On
-          # self-hosted this restore simply misses and the persistent local
-          # pnpm store covers warm installs instead.
-          path: /home/runner/.local/share/pnpm/store/v11
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+      # No pnpm-store cache restore in this lane: on the self-hosted pool
+      # pnpm's persistent store lives outside /home/runner, so restoring the
+      # hosted cache here downloads ~180 MB into a path pnpm never reads
+      # (measured: 52 s restore, then a 2.8 s install straight from the
+      # persistent store). The rare hosted (untrusted-PR) run just does a
+      # cold install.
 
       - uses: actions/setup-node@v6
         with:

@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-企业保留仅限本仓库使用的 Ubuntu 和 Windows x64 大型运行器池。普通拉取请求直接指定 3 个 32 核运行器池：Ubuntu 24.04 用于完整覆盖率，Ubuntu latest 用于其余主 Node 24 清单，Windows 2025 用于阻塞性 Windows 契约。公网 IP 已禁用；工作流并发仍设有边界，因为自动扩缩容上限既不会分配闲置机器，也不意味着仓库工作可以无限扩展。
+企业保留仅限本仓库使用的 Ubuntu 和 Windows x64 大型运行器池。普通拉取请求直接指定 2 个 32 核托管运行器池：Ubuntu latest 用于其余主 Node 24 清单，Windows 2025 用于阻塞性 Windows 契约。完整覆盖率已从计费的 Ubuntu 24.04 32 核池迁移至公司自有的自托管池（`vm-backup` 标签：一台 64 核虚拟机，运行 4 个常驻的 systemd 管理运行器实例，另有 4 个已注册备用位），仅面向可信的同仓库拉取请求；不可信的拉取请求——fork 与 Dependabot——的覆盖率仍在托管的 Ubuntu 24.04 32 核池上运行，确保依赖方提供的代码永远不会进入持久化虚拟机。公网 IP 已禁用；工作流并发仍设有边界，因为自动扩缩容上限既不会分配闲置机器，也不意味着仓库工作可以无限扩展。
 
 必需主路径依赖这些企业级运行器池。GitHub 标准托管作业保留 Node 22.19、Node 26 和 Python SDK 兼容性契约，而[可移植恢复边界](2026-07-23-portable-required-pull-request-ci.md)与[串行参考流程](2026-07-21-serial-cross-platform-ci-reference.md)则在 `master` 上持续提供完整的标准运行器证据。`suite=larger-runner-benchmark` 比较已预配规格上相互独立的关键通道，`suite=consolidated-runner-benchmark` 则比较完整聚合流程。每项基准测试都会先报告实测的处理器和内存容量，再运行仓库工作。
 
