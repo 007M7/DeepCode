@@ -119,9 +119,9 @@ describe('ConversationRoot', () => {
     // The renderSlot share as the outlet would bake it: renders a marker for
     // the ring key carrying the active-id filter (a Mock cannot satisfy the
     // generic method type directly — cast once at the prop seam).
-    const renderSlot = vi.fn((key: string, _owner: object, opts?: { only?: string }) => (
-      <div data-testid={`view-${opts?.only ?? '(all)'}`} data-slot={key} />
-    ))
+    const renderSlot = vi.fn((key: string, _owner: object, opts?: { only?: string }) => key === 'conversation.composer.controls'
+      ? <span data-testid="composer-controls" />
+      : <div data-testid={`view-${opts?.only ?? '(all)'}`} data-slot={key} />)
     const ui = render(
       <ConversationRoot
         sessionId={sid('s1')}
@@ -173,7 +173,9 @@ describe('ConversationRoot', () => {
     const { renderSlot } = bench([tab('chat', 'Chat')])
     // No owner share: views take everything from the standard kit (contract).
     expect(renderSlot).toHaveBeenCalledWith('conversation.view', {}, { only: 'chat' })
+    expect(renderSlot).toHaveBeenCalledWith('conversation.composer.controls', {})
     expect(screen.getByTestId('view-chat').getAttribute('data-slot')).toBe('conversation.view')
+    expect(screen.getByTestId('composer-controls')).toBeTruthy()
   })
 
   it('hides the tab strip with a single view; composer writes the store draft and sends it', () => {
@@ -195,6 +197,7 @@ describe('ConversationRoot', () => {
     bench([tab('chat', 'Chat')], undefined, { pending: [wait] }, renderSlotChain)
     expect(screen.getByText('question takeover')).toBeTruthy()
     expect(screen.queryByPlaceholderText(/输入消息/)).toBeNull()
+    expect(screen.queryByTestId('composer-controls')).toBeNull()
     // The owner dispatches the raw pending list (chain currency); routing
     // lives in entry selectors, not here.
     expect(renderSlotChain).toHaveBeenCalledWith(

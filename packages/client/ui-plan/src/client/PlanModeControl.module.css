@@ -1,0 +1,58 @@
+/* Quiet composer chip: an invisible native select owns interaction and
+   accessibility while the visible layer reports committed/pending state. */
+
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 20px;
+  pointer-events: none;
+}
+
+.root:hover .chip {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.chevron {
+  color: var(--dsw-alias-label-caption);
+}
+
+.select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.select:disabled {
+  cursor: default;
+}
+
+.root:has(.select:disabled) .chip {
+  opacity: 0.5;
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}

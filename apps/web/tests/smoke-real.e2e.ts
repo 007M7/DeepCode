@@ -144,10 +144,13 @@ async function detailsTrack(page: Page): Promise<number> {
   return Number(cols.split(' ').pop()!.replace('px', ''))
 }
 
-// Readiness gate: `dsh web` serves ALL nine manifest plugins; until every UI
+// Readiness gate: `dsh web` serves ALL ten manifest plugins; until every UI
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
-const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-question', 'ui-trajectory']
+const UI_PLUGIN_DIRS = [
+  'connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout',
+  'ui-sidebar', 'ui-conversation', 'ui-plan', 'ui-question', 'ui-trajectory',
+]
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')
@@ -177,6 +180,9 @@ describe('dsh web keyless CLI smoke', () => {
       const readyUrl = await waitForReadyLine(child)
       expect(readyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
       expect((await fetch(readyUrl)).status).toBe(200)
+      const created = await rpc<{ sessionId: string }>(readyUrl, 'session.create', {})
+      expect(await rpc(readyUrl, 'session.planMode', { sessionId: created.sessionId }))
+        .toEqual({ active: false })
     } finally {
       const closed = child.exitCode === null
         ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
@@ -187,7 +193,7 @@ describe('dsh web keyless CLI smoke', () => {
     }
   })
 
-  it('injects the invoking workspace AGENTS.md into the provider request', async () => {
+  it('injects workspace instructions and the active Web plan policy into the provider request', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-workspace-'))
     mkdirSync(join(workspace, '.git'))
@@ -235,6 +241,9 @@ describe('dsh web keyless CLI smoke', () => {
     try {
       const baseUrl = await waitForReadyLine(child)
       const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
+      expect(await rpc(baseUrl, 'session.setPlanMode', {
+        sessionId: created.sessionId, active: true,
+      })).toEqual({ active: false, pending: true })
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
@@ -248,6 +257,11 @@ describe('dsh web keyless CLI smoke', () => {
       ])
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
+      const systemMessage = captured.messages?.find(message => message.role === 'system')
+      expect(systemMessage?.content).toContain('Stay in plan mode until exit_plan_mode succeeds')
+      expect(systemMessage?.content).toContain('Do not edit or write files')
+      expect(await rpc(baseUrl, 'session.planMode', { sessionId: created.sessionId }))
+        .toEqual({ active: true })
       expect(workspaceMessage).toMatchInlineSnapshot(`
         {
           "content": "<system-reminder>

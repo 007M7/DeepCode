@@ -128,4 +128,11 @@ describe('error strip and variants', () => {
     expect(view.getByTestId('acc')).toBeTruthy()
     expect(view.container.querySelector('[class*="hero"]')).not.toBeNull()
   })
+
+  it('renders additive controls left of the primary action', () => {
+    const { view, button } = setup({ controls: <span data-testid="mode-control">计划</span> })
+    const control = view.getByTestId('mode-control')
+    expect(control).toBeTruthy()
+    expect(control.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  })
 })

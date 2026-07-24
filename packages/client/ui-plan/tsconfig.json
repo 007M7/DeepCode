@@ -1,0 +1,45 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../connection"
+    },
+    {
+      "path": "../ui-conversation"
+    },
+    {
+      "path": "../ui-slots"
+    },
+    {
+      "path": "../web-react"
+    },
+    {
+      "path": "../../plan/plan-mode"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../ui/user-interaction"
+    },
+    {
+      "path": "../../support/invariants"
+    }
+  ]
+}

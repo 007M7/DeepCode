@@ -2,8 +2,8 @@
 // Tab_Group + view area + composer). Pure component — everything arrives via
 // props: the framework standard kit (useSession/sessionId/useSessions), the
 // declared chat store's useStore/actions, the injected business face, and the
-// renderSlot share for the declared 'conversation.view' child slot (views are
-// slot entries; the active one renders via the list `only` filter) plus the
+// renderSlot share for the declared view and composer-control child slots
+// (views are slot entries; the active one renders via the list `only` filter) plus the
 // renderSlotChain share for the 'conversation.composer' takeover chain.
 // Breadcrumbs derive from useSessions with a pure parentId walk; the active
 // view id lives in the chat store's `view` field (per-session by store scope).
@@ -58,6 +58,7 @@ export function ConversationRoot({
   const error: InputBarError | null = promptError === null
     ? null
     : { op: promptError.op, message: `${promptError.error.message}（${promptError.error.code}）` }
+  const controls = renderSlot('conversation.composer.controls', {})
 
   // The default composer doubles as the chain's all-decline fallback: a
   // pending wait with no registered takeover must still leave the input usable.
@@ -68,6 +69,7 @@ export function ConversationRoot({
       disabled={removed}
       error={error}
       variant="composer"
+      controls={controls}
       onDraftChange={actions.setDraft}
       onSend={(mode) => { send(draft, mode) }}
       onStop={stop}

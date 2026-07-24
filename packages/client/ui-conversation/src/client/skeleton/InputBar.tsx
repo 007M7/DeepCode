@@ -26,13 +26,15 @@ export interface InputBarProps {
   placeholder?: string
   /** Optional leading accessory row content (the empty state mounts its cwd picker here). */
   accessory?: ReactNode
+  /** Optional bottom-row controls, left of the primary button. */
+  controls?: ReactNode
   onDraftChange: (text: string) => void
   onSend: (mode: 'queue' | 'steer') => void
   onStop: () => void
 }
 
 export function InputBar({
-  draft, running, disabled, error, variant, placeholder, accessory, onDraftChange, onSend, onStop,
+  draft, running, disabled, error, variant, placeholder, accessory, controls, onDraftChange, onSend, onStop,
 }: InputBarProps) {
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -116,6 +118,7 @@ export function InputBar({
           <div aria-hidden className={css.mirror}>{`${draft}\n`}</div>
         </div>
         <div className={css.row}>
+          <div className={css.controls}>{controls}</div>
           <button
             type="button"
             className={clsx(css.primary, running && css.stopping)}

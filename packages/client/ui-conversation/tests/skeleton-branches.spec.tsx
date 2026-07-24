@@ -58,7 +58,9 @@ function listHook(rows: { id: string; title: string; cwd?: string; parentId?: st
 describe('ConversationRoot branches', () => {
   const chatTab: ViewTab = { id: 'chat', label: 'Chat' }
   /** renderSlot stub in the outlet's baked shape (ring key + only filter marker). */
-  const stubRenderSlot = (() => <div data-testid="view-body" />) as unknown as ConversationRootProps['renderSlot']
+  const stubRenderSlot = ((key: string) => key === 'conversation.composer.controls'
+    ? null
+    : <div data-testid="view-body" />) as unknown as ConversationRootProps['renderSlot']
   /** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
   const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
 

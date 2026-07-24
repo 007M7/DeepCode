@@ -9,7 +9,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  PlanModeState, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -296,6 +296,9 @@ export function createFixtureApi(): ApiProxy {
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
+  const planStates = new Map<SessionId, PlanModeState>(
+    sessions.map(session => [session.sessionId, { active: false }]),
+  )
   let nextSession = 1
   let nextRpc = 1
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
@@ -469,6 +472,7 @@ export function createFixtureApi(): ApiProxy {
           sessionId: sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, cwd: '/tmp/fixture',
         }
         sessions.push(created)
+        planStates.set(created.sessionId, { active: false })
         emitHost({ type: 'host/session-added', sessionId: created.sessionId })
         return ok(request, { sessionId: created.sessionId })
       },
@@ -502,6 +506,12 @@ export function createFixtureApi(): ApiProxy {
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+        const planState = planStates.get(id)
+        if (planState?.pending !== undefined) {
+          const active = planState.pending
+          planStates.set(id, { active })
+          if (active !== planState.active) append(id, { type: 'plan/mode', data: { active } })
+        }
         append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
         startReply(
           id,
@@ -522,8 +532,32 @@ export function createFixtureApi(): ApiProxy {
         }
         return ok(request, { accepted: true as const })
       },
-      planMode: request => ok(request, null),
-      setPlanMode: request => ok(request, null),
+      planMode: (request) => {
+        const state = planStates.get(request.payload.sessionId)
+        return state === undefined
+          ? err(request, {
+            code: 'session-not-found',
+            message: `no session ${request.payload.sessionId}`,
+            details: { sessionId: request.payload.sessionId },
+          })
+          : ok(request, { ...state })
+      },
+      setPlanMode: (request) => {
+        const state = planStates.get(request.payload.sessionId)
+        if (state === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${request.payload.sessionId}`,
+            details: { sessionId: request.payload.sessionId },
+          })
+        }
+        const target = state.pending ?? state.active
+        const next = request.payload.active === target
+          ? state
+          : { active: state.active, pending: request.payload.active }
+        planStates.set(request.payload.sessionId, next)
+        return ok(request, { ...next })
+      },
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),

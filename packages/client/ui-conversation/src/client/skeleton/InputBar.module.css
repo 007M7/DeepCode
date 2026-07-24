@@ -119,12 +119,19 @@
   min-height: 84px;
 }
 
-/* figma Frame 1123 (34:11463): pad 12/0/10/10, buttons vertically centered. */
+/* figma Frame 1123 (34:11463): session controls sit bottom-left and the
+   primary action bottom-right. */
 .row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 10px 10px 12px;
+  justify-content: space-between;
+  padding: 0 10px 10px 16px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Primary send (figma IconButton 34:10465): 34px circle, #3964FE light /

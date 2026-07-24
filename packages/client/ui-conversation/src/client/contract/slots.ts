@@ -41,6 +41,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * zero owner changes.
      */
     'conversation.composer': { kind: 'chain'; scope: 'session'; owner: ComposerChainProps }
+    /**
+     * Additive controls in the default composer's bottom-left row. Entries
+     * receive the session standard kit and no owner payload.
+     */
+    'conversation.composer.controls': { kind: 'list'; scope: 'session'; owner: ComposerControlOwnerProps }
   }
 }
 
@@ -127,9 +132,17 @@ export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
 }
 
-/** Full conversation-slot component props: runtime & child-render (view ring + composer chain) & store & injected shares. */
+/** Owner seat for additive composer controls; the render site supplies no payload. */
+export interface ComposerControlOwnerProps {}
+
+/** Full props of an additive composer-control entry. */
+export type ComposerControlProps = PropsRuntime<'conversation.composer.controls'>
+
+/** Full conversation-slot component props: runtime & child-render (view ring, controls, composer chain) & store & injected shares. */
 export type ConversationSlotProps =
-  PropsRuntime<'conversation'> & PropsRenderSlots<'conversation.view' | 'conversation.composer'>
+  PropsRuntime<'conversation'> & PropsRenderSlots<
+    'conversation.view' | 'conversation.composer' | 'conversation.composer.controls'
+  >
   & PropsStore<ChatStore> & ConversationInjected
 
 /**

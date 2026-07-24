@@ -1,7 +1,7 @@
 // Keyless boot-chain smoke over the REAL carrier: startWebServer + entry
 // graph (__DSH_BOOT__ web2 shape) injection + built shell dist in a real
 // chromium. First describe: graph injection + the fail-loud half. Second
-// describe: the settled success pass — all nine REAL tsdown bundles load
+// describe: the settled success pass — all ten REAL tsdown bundles load
 // through the module system + vendored Loader chain in ?fixture mode (the
 // infrastructure four ride the immediately prefetch tier, the UI rows fetch
 // on demand), the three-column frame appears in one flip, and the resident
@@ -31,6 +31,7 @@ const REAL_PLUGINS: { id: string; dir: string; inject?: string[]; immediately?: 
   { id: LAYOUT_ID, dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: SIDEBAR_ID, dir: 'ui-sidebar', inject: [LAYOUT_ID] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: [LAYOUT_ID] },
+  { id: '@deepseek-ai/dsh-client-ui-plan', dir: 'ui-plan', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
   { id: '@deepseek-ai/dsh-client-ui-question', dir: 'ui-question', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
@@ -118,7 +119,7 @@ describe('web boot chain (keyless, real carrier)', () => {
   })
 })
 
-describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', () => {
+describe('web boot chain success pass (keyless, ten real bundles, ?fixture)', () => {
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
   let page: Page
@@ -244,6 +245,31 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
     const external = page.getByRole('link', { name: 'DeepSeek' })
     expect(await external.getAttribute('target')).toBe('_blank')
     expect(await external.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('queues plan targets without cancelling a running turn and commits them at prompt boundaries', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-plan-mode'))
+    const select = page.getByRole('combobox', { name: '协作模式' })
+    await select.waitFor({ state: 'visible', timeout: 15_000 })
+    await expect(page.getByTitle('当前为默认模式').isVisible()).resolves.toBe(true)
+
+    await select.selectOption('plan')
+    await page.getByTitle(/计划模式将在下一次模型请求时生效/).waitFor()
+    const input = page.locator('textarea[placeholder]')
+    await input.fill('commit plan mode')
+    await page.getByRole('button', { name: '发送' }).click()
+    await page.getByTitle('当前为计划模式').waitFor()
+
+    await select.selectOption('default')
+    await page.getByTitle(/默认模式将在下一次模型请求时生效/).waitFor()
+    await expect(page.getByRole('button', { name: '停止' }).isVisible()).resolves.toBe(true)
+    await page.getByRole('button', { name: '停止' }).click()
+    await page.getByTitle(/默认模式将在下一次模型请求时生效/).waitFor()
+
+    await input.fill('commit default mode')
+    await page.getByRole('button', { name: '发送' }).click()
+    await page.getByTitle('当前为默认模式').waitFor()
+    await page.getByRole('button', { name: '停止' }).click()
   })
 
   it('renders and completes the resident question through the composer slot', async () => {

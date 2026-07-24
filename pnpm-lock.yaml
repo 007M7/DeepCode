@@ -119,6 +119,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../../packages/client/ui-layout
+      '@deepseek-ai/dsh-client-ui-plan':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-plan
       '@deepseek-ai/dsh-client-ui-question':
         specifier: workspace:^
         version: link:../../packages/client/ui-question
@@ -664,6 +667,49 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
+
+  packages/client/ui-plan:
+    dependencies:
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: workspace:^
+        version: link:../ui-conversation
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:^
+        version: link:../../plan/plan-mode
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+    devDependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../connection
+      '@deepseek-ai/dsh-client-web-react':
+        specifier: workspace:^
+        version: link:../web-react
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      '@deepseek-ai/dsh-user-interaction':
+        specifier: workspace:^
+        version: link:../../ui/user-interaction
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
   packages/client/ui-primitives:
     dependencies:
