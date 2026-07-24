@@ -45,6 +45,8 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 
 > 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](../cordis-catalog/services.md)。
 
+<a id="the-map--derived-union-pattern"></a>
+
 ## `…Map → derived-union` 模式
 
 harness 中几乎所有可扩展的和类型都遵循同一形状：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包（package）。
@@ -78,6 +80,8 @@ declare module '@deepseek-ai/dsh-llm' {
 | `SessionEventMap` | dsh-session | `SessionEvent` | [session.md](session.md) |
 
 消费方最常 `switch` 的两个大型判别联合类型是：**`StreamChunk`**（流式协议）和 **`SessionEvent`**（日志条目）。按仓库约定，对标签做 `switch`——不要链式 `if`——这样每个分支都能窄化类型，拼错的标签会编译失败。
+
+<a id="branded-ids"></a>
 
 ## 品牌化 ID
 
@@ -358,6 +362,8 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及轮次封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+
+<a id="the-agent-handle"></a>
 
 ## Agent 句柄
 
