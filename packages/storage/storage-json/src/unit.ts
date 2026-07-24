@@ -56,13 +56,14 @@ class JsonKvUnit implements KvUnit {
     private readonly onClose: () => void,
   ) {}
 
-  loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown }> {
+  // eslint-disable-next-line @typescript-eslint/require-await -- async keeps the closed guard a rejection, not a synchronous throw
+  async loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown }> {
     this.assertOpen()
     const tables: Record<string, Record<string, unknown>> = {}
     for (const [table, records] of this.state.tables) {
       tables[table] = Object.fromEntries(records)
     }
-    return Promise.resolve({ tables, global: this.state.global })
+    return { tables, global: this.state.global }
   }
 
   async putRecord(table: string, key: string, value: unknown): Promise<void> {
