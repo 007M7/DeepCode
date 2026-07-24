@@ -98,12 +98,21 @@ jobs:
         with:
           persist-credentials: false
 
-      # No pnpm-store cache restore in this lane: on the self-hosted pool
-      # pnpm's persistent store lives outside /home/runner, so restoring the
-      # hosted cache here downloads ~180 MB into a path pnpm never reads
-      # (measured: 52 s restore, then a 2.8 s install straight from the
-      # persistent store). The rare hosted (untrusted-PR) run just does a
-      # cold install.
+      # Restore the pnpm-store cache only on the hosted (untrusted-PR) leg,
+      # where the VM is ephemeral and the same-region download is fast. On
+      # the self-hosted leg pnpm's persistent store lives outside
+      # /home/runner, so this restore would spend ~52 s pulling ~180 MB into
+      # a path pnpm never reads (measured; install then took 2.8 s straight
+      # from the persistent store). Condition mirrors the runs-on selector.
+      - uses: actions/cache/restore@v4
+        if: >-
+          github.event.pull_request.head.repo.full_name != github.repository
+          || github.event.pull_request.user.login == 'dependabot[bot]'
+        with:
+          path: /home/runner/.local/share/pnpm/store/v11
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - uses: actions/setup-node@v6
         with:
