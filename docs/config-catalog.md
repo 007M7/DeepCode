@@ -532,6 +532,8 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Thinking effort (only meaningful with thinking enabled). */
   reasoningEffort?: 'high' | 'max'
+  /** Positive context capacity used when the selected model has no exact value. */
+  defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
@@ -1569,7 +1571,7 @@ Source: [`packages/core/tools/src/index.ts:529`](../packages/core/tools/src/inde
 
 ## `@deepseek-ai/dsh-tui`
 
-Requires: `agents` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter`
+Requires: `agents` · `sessions` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter`
 
 ```ts config-catalog
 /** Serializable plugin configuration. */
@@ -1579,11 +1581,10 @@ export interface Config extends TuiConfig {
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
   /**
-   * Shell command template shown for resuming this session: printed on exit and
-   * listed by `/resume`, with every `{session}` occurrence replaced by the live
-   * session id. Absent disables both surfaces. Deployments set it only when a
-   * persistence backend makes the session resumable (e.g.
-   * `RESUME_SESSION_ID={session} dsh`).
+   * Shell command fallback printed on exit or after selecting a session when
+   * the host cannot hand off in place. Every `{session}` becomes the selected
+   * id; the TUI never executes this text. Absent disables only the fallback,
+   * not the interactive selector.
    */
   resumeCommand?: string
 }
@@ -1598,6 +1599,8 @@ export interface TuiConfig {
   maxQuestionOptions?: number
   /** Maximum models visible at once in the model selector. */
   maxModelOptions?: number
+  /** Maximum sessions visible at once in the resume selector. */
+  maxResumeOptions?: number
   /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
   /** User-question panel maximum height in terminal rows. */
@@ -1628,7 +1631,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:248`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:270`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
@@ -1891,6 +1894,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-client-connection` ([`packages/client/connection/src/index.ts`](../packages/client/connection/src/index.ts))
+- `@deepseek-ai/dsh-client-hmr` ([`packages/client/hmr/src/index.ts`](../packages/client/hmr/src/index.ts))
 - `@deepseek-ai/dsh-client-i18n` ([`packages/client/i18n/src/index.ts`](../packages/client/i18n/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
@@ -1938,6 +1942,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
+- `@deepseek-ai/dsh-client-modules` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-primitives` ([`packages/client/ui-primitives/src/index.ts`](../packages/client/ui-primitives/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-slots` ([`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts))
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))

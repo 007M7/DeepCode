@@ -179,18 +179,34 @@ describe.skipIf(process.platform === 'win32')('static serving', () => {
   })
 })
 
-describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injection + bundle endpoint)', () => {
-  const rows = [
-    { id: '@deepseek-ai/dsh-client-connection', url: '/plugins/@deepseek-ai/dsh-client-connection/client.js', inject: [], immediately: true },
-    { id: '@deepseek-ai/dsh-client-ui-layout', url: '/plugins/@deepseek-ai/dsh-client-ui-layout/client.js', inject: ['@deepseek-ai/dsh-client-runtime'] },
-  ]
+describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injection + bundle endpoint + events channel)', () => {
+  const FETCH_ID = '@deepseek-ai/dsh-client-ui-layout'
+  const graphValue = {
+    rev: 'graphrev00001',
+    entries: [
+      { id: '@deepseek-ai/dsh-client-connection', url: '/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=eeee2222ffff', rev: 'eeee2222ffff', immediately: true },
+      { id: FETCH_ID, url: `/plugins/${FETCH_ID}/client.js?rev=aaaa0000bbbb`, rev: 'aaaa0000bbbb', inject: [] },
+    ],
+  }
 
-  async function bootWithPlugins(): Promise<string> {
+  /** Captures the server's onRebuilt subscription so tests can fire registry notifications by hand. */
+  interface RebuiltHarness {
+    notify: (id: string, rev: string) => void
+    unsubscribed: boolean
+  }
+
+  async function bootWithPlugins(harness?: RebuiltHarness): Promise<string> {
     const { distIndex, distRoot } = makeDist()
     writeFileSync(join(distRoot, 'bundle.js'), 'window.DSHClientProxy.loadPlugin({})')
     const webPlugins = {
-      snapshot: () => rows,
-      clientPath: (id: string) => id === rows[0]?.id ? join(distRoot, 'bundle.js') : undefined,
+      graph: () => graphValue,
+      clientPath: (id: string) => id === FETCH_ID ? join(distRoot, 'bundle.js') : undefined,
+      onRebuilt: (listener: (id: string, rev: string) => void) => {
+        if (harness !== undefined) harness.notify = listener
+        return () => {
+          if (harness !== undefined) harness.unsubscribed = true
+        }
+      },
     }
     server = await startWebServer(
       { host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
@@ -198,12 +214,12 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
     return `http://127.0.0.1:${String(server.port)}`
   }
 
-  it('injects window.__DSH_BOOT__ into / and SPA fallbacks; asset requests stay verbatim', async () => {
+  it('injects the window.__DSH_BOOT__ graph into / and SPA fallbacks; asset requests stay verbatim', async () => {
     const base = await bootWithPlugins()
     const index = await (await fetch(`${base}/`)).text()
     expect(index).toContain('window.__DSH_BOOT__')
     const manifest = /window\.__DSH_BOOT__ = (.*?)<\/script>/.exec(index)?.[1]
-    expect(JSON.parse(manifest ?? '')).toEqual({ plugins: rows })
+    expect(JSON.parse(manifest ?? '')).toEqual(graphValue)
 
     const fallback = await (await fetch(`${base}/routes/deep/link`)).text()
     expect(fallback).toContain('window.__DSH_BOOT__')
@@ -213,11 +229,12 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
     expect(await (await fetch(`${base}/app.js`)).text()).toBe('console.log(1)')
   })
 
-  it('serves registered client bundles and 404s unknown ids (no SPA fallback)', async () => {
+  it('serves registered client bundles with no-cache (rev query ignored) and 404s unknown ids (no SPA fallback)', async () => {
     const base = await bootWithPlugins()
-    const bundle = await fetch(`${base}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
+    const bundle = await fetch(`${base}/plugins/${FETCH_ID}/client.js?rev=whatever`)
     expect(bundle.status).toBe(200)
     expect(bundle.headers.get('content-type')).toBe('text/javascript; charset=utf-8')
+    expect(bundle.headers.get('cache-control')).toBe('no-cache')
     expect(await bundle.text()).toContain('DSHClientProxy')
 
     expect((await fetch(`${base}/plugins/unknown/client.js`)).status).toBe(404)
@@ -226,23 +243,59 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
   it('404s a registered id whose bundle file is unreadable (unbuilt dist must fail loud, not fall back to HTML)', async () => {
     const { distIndex } = makeDist()
     const webPlugins = {
-      snapshot: () => rows,
+      graph: () => graphValue,
       clientPath: () => '/nonexistent/lib/client.js',
+      onRebuilt: () => () => undefined,
     }
     server = await startWebServer(
       { host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
     )
-    const res = await fetch(`http://127.0.0.1:${String(server.port)}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
+    const res = await fetch(`http://127.0.0.1:${String(server.port)}/plugins/${FETCH_ID}/client.js`)
     expect(res.status).toBe(404)
   })
 
-  it('keeps both surfaces off without the webPlugins option', async () => {
+  it('keeps all plugin surfaces off without the webPlugins option', async () => {
     const base = await boot()
     expect(await (await fetch(`${base}/`)).text()).toBe('<html>INDEX</html>')
-    // No plugin route: falls through to static SPA fallback semantics.
+    // No plugin routes: fall through to static SPA fallback semantics.
     const res = await fetch(`${base}/plugins/x/client.js`)
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('<html>INDEX</html>')
+    const events = await fetch(`${base}/plugins/events`)
+    expect(await events.text()).toBe('<html>INDEX</html>')
+  })
+
+  it('GET /plugins/events opens SSE with the current graph frame; a registry rebuild notification broadcasts', async () => {
+    const harness: RebuiltHarness = { notify: () => { throw new Error('onRebuilt never subscribed') }, unsubscribed: false }
+    const base = await bootWithPlugins(harness)
+    const events = await fetch(`${base}/plugins/events`)
+    expect(events.status).toBe(200)
+    expect(events.headers.get('content-type')).toBe('text/event-stream')
+    const reader = events.body?.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    async function readUntil(marker: string): Promise<void> {
+      while (!buffer.includes(marker)) {
+        const chunk = await reader?.read()
+        if (chunk?.done !== false) throw new Error('SSE stream ended early')
+        buffer += decoder.decode(chunk.value, { stream: true })
+      }
+    }
+    await readUntil('"type":"graph"')
+    expect(buffer).toContain(': connected')
+    const graphLine = /data: (.*)\n\n/.exec(buffer)?.[1]
+    expect(JSON.parse(graphLine ?? '')).toEqual({ type: 'graph', graph: graphValue })
+
+    // The registry's bundle watch observed a rebuild: the server relays it as an SSE frame.
+    harness.notify(FETCH_ID, 'cccc1111dddd')
+    await readUntil('"type":"rebuilt"')
+    expect(buffer).toContain(JSON.stringify({ type: 'rebuilt', id: FETCH_ID, rev: 'cccc1111dddd' }))
+    await reader?.cancel()
+
+    // Shutdown unsubscribes the relay (no broadcast into a closed channel).
+    await server?.close()
+    server = undefined
+    expect(harness.unsubscribed).toBe(true)
   })
 })
 

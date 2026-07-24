@@ -1,7 +1,7 @@
 /**
- * Webserver invariant companion: the boot-manifest consistency audit — every
- * registry snapshot row must resolve a clientPath, checked on fiber lifecycle
- * events against the assembly-published 'webPlugins' context key.
+ * Webserver invariant companion: the boot-graph consistency audit — every
+ * fetch-arrival graph row must resolve a clientPath, checked on fiber
+ * lifecycle events against the assembly-published 'webPlugins' context key.
  */
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
@@ -9,7 +9,7 @@ import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as WebserverInvariant from '../src/invariant.ts'
 
 interface RegistryStub {
-  snapshot(): { id: string; url: string }[]
+  graph(): { entries: { id: string; url: string }[] }
   clientPath(id: string): string | undefined
 }
 
@@ -33,18 +33,18 @@ describe('webserver manifest invariant', () => {
     expect(() => { trigger(bare) }).not.toThrow() // no 'webPlugins' key published
 
     const consistent = await setup({
-      snapshot: () => [{ id: 'p1', url: '/plugins/p1/client.js' }],
-      clientPath: () => '/tmp/p1/lib/client.js',
+      graph: () => ({ entries: [{ id: 'p1', url: '/plugins/p1/client.js?rev=abc' }] }),
+      clientPath: id => id === 'p1' ? '/tmp/p1/lib/client.js' : undefined,
     })
     expect(() => { trigger(consistent) }).not.toThrow()
   })
 
-  it('throws on a manifest row whose bundle path no longer resolves', async () => {
+  it('throws on a graph row whose bundle path no longer resolves', async () => {
     const ctx = await setup({
-      snapshot: () => [{ id: 'ghost', url: '/plugins/ghost/client.js' }],
+      graph: () => ({ entries: [{ id: 'ghost', url: '/plugins/ghost/client.js?rev=abc' }] }),
       clientPath: () => undefined,
     })
     expect(() => { trigger(ctx) })
-      .toThrow(/manifest row "ghost".*resolves no client bundle path/)
+      .toThrow(/graph row "ghost".*resolves no client bundle path/)
   })
 })

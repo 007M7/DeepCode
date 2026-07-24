@@ -10,17 +10,28 @@ export default defineConfig({
     // Workspace packages resolve to SOURCE: package.json exports point at lib
     // for Node/type consumers, but the browser bundle must compile src directly
     // so CSS rides vite's pipeline instead of the CSS-externalized lib bundle.
-    // Only the shell's static surface is aliased — UI plugin packages are NOT
-    // bundled here; they arrive as dynamic bundles through the client loader.
-    // Order matters — subpath aliases must win over bare-name prefixes.
+    // Only the shell's normal-package surface is aliased — plugin packages are
+    // NEVER bundled here (web2 shell self-sufficiency); they arrive as runtime
+    // bundles through the client module system. Order matters — subpath
+    // aliases must win over bare-name prefixes.
     alias: [
+      // Browserization of the vendored cordis Loader: its only node-only
+      // import; the two process probes are mapped by `define` below.
+      { find: /^node:module$/, replacement: src('./src/node-module-stub.ts') },
       { find: /^@deepseek-ai\/dsh-client-web$/, replacement: src('../../packages/client/web/src/boot.tsx') },
-      { find: /^@deepseek-ai\/dsh-client-web-react\/store$/, replacement: src('../../packages/client/web-react/src/store/index.ts') },
       { find: /^@deepseek-ai\/dsh-client-web-react$/, replacement: src('../../packages/client/web-react/src/index.ts') },
       { find: /^@deepseek-ai\/dsh-client-ui-slots$/, replacement: src('../../packages/client/ui-slots/src/index.ts') },
       { find: /^@deepseek-ai\/dsh-client-ui-primitives$/, replacement: src('../../packages/client/ui-primitives/src/index.ts') },
-      { find: /^@deepseek-ai\/dsh-client-runtime\/loader$/, replacement: src('../../packages/client/runtime/src/client/loader/index.ts') },
-      { find: /^@deepseek-ai\/dsh-client-runtime$/, replacement: src('../../packages/client/runtime/src/index.ts') },
+      { find: /^@deepseek-ai\/dsh-client-modules$/, replacement: src('../../packages/client/modules/src/index.ts') },
     ],
+  },
+  define: {
+    // vendored loader internal.ts: fromInternal() probes the Node major —
+    // "0.0.0" takes neither branch, returning undefined (exactly the empty
+    // internal slot the shell boot fills with the client module loader).
+    'process.versions.node': '"0.0.0"',
+    'process.execArgv': '[]',
+    // vendored loader index.ts: envData falls to its default branch.
+    'process.env.CORDIS_SHARED': 'undefined',
   },
 })

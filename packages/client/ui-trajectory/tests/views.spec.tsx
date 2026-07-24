@@ -83,6 +83,9 @@ async function bench() {
   const chatBody = vi.fn(() => <div data-testid="chat-body" />)
   slots.register(
     { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
+  // 'conversation' inject is an ordering edge; the bench declares the ring
+  // itself, so a stub satisfies the wait.
+  ctx.provide('conversation', {})
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, slots, fiber }

@@ -32,15 +32,6 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-bash-local": "workspace:^",
-    "@deepseek-ai/dsh-client-connection": "workspace:^",
-    "@deepseek-ai/dsh-client-i18n": "workspace:^",
-    "@deepseek-ai/dsh-client-runtime": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-question": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-layout": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-trajectory": "workspace:^",
     "@deepseek-ai/dsh-compact-basic": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-policy": "workspace:^",
@@ -73,8 +64,8 @@
     "@deepseek-ai/dsh-tool-workflow": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
-    "@deepseek-ai/dsh-workspace-context": "workspace:^",
-    "@deepseek-ai/dsh-workflow-workerthread": "workspace:^"
+    "@deepseek-ai/dsh-workflow-workerthread": "workspace:^",
+    "@deepseek-ai/dsh-workspace-context": "workspace:^"
   },
   "peerDependencies": {
     "cordis": "^4.0.0-rc.7",

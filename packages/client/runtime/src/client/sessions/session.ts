@@ -9,7 +9,9 @@ import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
   SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
-import { transportError } from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
   ConversationNode, ConversationSnapshot, OpenState, PromptError, RunningToolCall,

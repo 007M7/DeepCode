@@ -17,29 +17,22 @@ Status: implemented
 ```
 ┌─ Host ─────────────────────────┐   ┌─ Browser ─────────────────────────────────────────┐
 │ sessions/agents/SessionLog     │   │ client cordis root ctx                             │
-│ apiproxy: RPC + mux/host 双流  │◀─▶│  ├ loader（壳静态持有，不能经自己装载）             │
-│ webserver:                     │   │  ├ immediately 先行组: connection/runtime/         │
-│  ├ GET /plugins/<id>/client.js │   │  │   ui-theme/i18n（动态 bundle，并行先装）        │
-│  └ GET / 注入 __DSH_BOOT__     │   │  ├ 后续组: layout/sidebar/conversation/trajectory  │
-└────────────────────────────────┘   │  └ session scope ×N（观看驱动，惰性建）            │
+│ apiproxy: RPC + mux/host 双流  │◀─▶│  ├ vendored Loader + ctx.modules（内核，壳静态持有）│
+│ webserver:                     │   │  ├ immediately entries: connection/runtime/        │
+│  ├ GET /plugins/<id>/client.js │   │  │   ui-theme/i18n（fetch bundle，boot 预拉）       │
+│  └ GET / 注入 __DSH_BOOT__ 图  │   │  ├ lazy entries: layout/sidebar/                   │
+│                                │   │  │   conversation/trajectory（fetch bundle，按需） │
+└────────────────────────────────┘   │  ├ app-shell 伪行（壳内静态注册，同一治理）        │
+                                     │  └ session scope ×N（观看驱动，惰性建）            │
                                      │ React: loading 页 → settled → 整 UI 一次成型       │
                                      └────────────────────────────────────────────────────┘
 ```
 
 ## client cordis 树与装载链
 
-每个 UI 插件同时是一个 host 插件（双入口包）：node 半边住在 host 的插件树里，由 host Loader 管辖其生命周期；浏览器半边是 tsdown 闭包 bundle，挂在包的 `exports["./client"]` 下。host webserver 从带 `dshClient` manifest 字段的已加载插件推导启动清单，注入页面为 `window.__DSH_BOOT__`——HTML 到手即知要拉什么，零额外往返。
+装载链——两类包（普通包 vs dshClient 插件）、模块系统/插件治理器之分、host 独家撰写的带修订号 entry 图之上的双层 boot、热重载——归 [client 插件装载 RFC](2026-07-23-client-plugin-loading-model.md) 所有。本篇赖以立足的事实：浏览器启动与 host 相同的 vendored `@cordisjs/plugin-loader`，由 client 模块系统（`ctx.modules`，`packages/client/modules`）填上其 `internal` seam；凡带产品行为的单元都是 host 独家撰写的 `__DSH_BOOT__` 图里的 entry——全部九个插件包（含基础设施）都携带 `dshClient` 声明、以 fetch 到达的 `./client` tsdown 闭包 bundle 供给，`immediately` 行的差别仅在 boot 第一层预取，而普通包（react 家族、cordis、尚未升格的库）保持打进壳、已播种、对图不可见；bundle 执行 `window.__ModuleLoader__.load({ id, factory })`，其 `require` 由 lazy CJS 模块表应答（种子词条 + 已登记工厂，首次 require 时物化并记忆化——跨插件值 import 是构建错误，协作走 cordis 服务）；插件 CSS 内联在 bundle 里、物化时注入为 `<style data-plugin="<id>">`（CSS Modules 哈希 + 归属标记 = 隔离，重载时移除）；热重载已在 dev 图落地——webserver 对自己供给的 bundle 做 stat 轮询并广播 `rebuilt` SSE 帧，`client-hmr` 插件每帧换掉一个 fiber。settled 翻转（`loader.await()` + 一次全 ACTIVE 扫描）依旧让壳从 loading 页一次切换到真 UI——settled 意味着每个 entry 已创建、每个 fiber 都到达 ACTIVE，FAILED/PENDING 的 fiber 被大声列出；不存在部分可用模式（渐进渲染为后置工作）。
 
-装载链全程：
-
-1. `GET /` → 壳启动，挂 `ctx.loader`（loader 机件由壳静态持有——装载器不能经自己装载；其代码家在 `packages/client/runtime/src/client/loader/`，壳经 `./loader` 子路径 import，避免壳 bundle 吞掉 runtime 包其余部分），把纯库实体（react、react-dom、cordis、ui-slots、web-react、ui-primitives）播种进 require 模块表，渲染一张不依赖任何插件的 loading 页。
-2. `loader.start()` 读取 `__DSH_BOOT__`。带 `immediately` 标记的条目构成先行装载组（connection、runtime、ui-theme、i18n）：并行拉取、按组内 `inject` 拓扑序 apply，**全组就位后才开始装载其余插件**。其余插件随后按 inject 序装载。
-3. 每个 bundle 执行 `window.DSHClientProxy.loadPlugin({ id, factory })`。loader 调 `factory(require)`——bundle 是闭包工厂，external 依赖经注入的 `require` 到达，从模块表解析（无全局变量、无 import map；解析不到的标识符即刻大声失败）。factory 返回其模块导出面（含 cordis `apply`）；loader 执行 `ctx.plugin(apply)`，随后**以包名把该导出面登记进模块表**——inject 拓扑保证后装插件可 `require` 先装插件。插件 CSS 内联在 bundle 里，注入为 `<style data-plugin="<id>">`（CSS Modules 哈希 + 归属标记 = 隔离）。
-4. `await loader.settled()` → 壳从 loading 页一次切换到真 UI。单插件装载失败在 loading 页大声报错；不存在部分可用模式（渐进渲染为后置工作）。
-
-**双实例禁令**：模块表包若被内联进插件 bundle，会复制运行时身份（两份 React、两套 store 注册表——一次真实白屏 P0 的根因）。tsdown client 预设在构建期把守纯度：模块表包的裸名 import 必须解析为 external（适用时改写为其 `/client` 形态），其余任何非 inline 安全 wire/类型层的 workspace 泄漏都令构建大声失败（`packages/client/tsdown.client.ts`，由 `scripts/client-bundle-purity.spec.ts` 钉住）。
-
-dev 与 prod 同链：插件在 `tsdown --watch` 下重编译，刷新即重走同一条链；vite 只管壳（`apps/web`）。类型宇宙在聚合层拆分——`tsconfig.host.json` 是 host program、`tsconfig.client.json` 是 client program，二者由 solution 根 `tsconfig.json` 引用，因为两侧都在相同键（`sessions`、`loader`）上对 cordis `Context` 做声明合并且服务不同；client 包经纯类型子路径（`@deepseek-ai/dsh-session/types` 等）消费协议词汇，host 侧的声明合并不会搭车进入 client program。
+类型宇宙在聚合层拆分——`tsconfig.host.json` 是 host program、`tsconfig.client.json` 是 client program，二者由 solution 根 `tsconfig.json` 引用，因为两侧都在相同键（`sessions`、`loader`）上对 cordis `Context` 做声明合并且服务不同；client 包经纯类型子路径（`@deepseek-ai/dsh-session/types` 等）消费协议词汇，host 侧的声明合并不会搭车进入 client program。
 
 ## slot 体系：页面怎么拼
 
@@ -112,7 +105,7 @@ src/client/
 
 ## 怎么开发
 
-- **新 UI 功能** = 新插件包：package.json 声明 `dshClient`（+ `inject` 拓扑），浏览器半边写在 `src/client/`（apply 挂服务/建 store、注册 slot），无 host 逻辑时 node 半边保持空 apply，用共享预设构建。把插件加进 host 配置；清单与装载随之自动跟上。
+- **新 UI 功能** = 新插件包：package.json 声明 `dshClient`（+ `inject` 拓扑），浏览器半边写在 `src/client/`（apply 挂服务/建 store、注册 slot），无 host 逻辑时 node 半边保持空 apply，用共享预设构建。把插件加进 host 配置；manifest 与装载随之自动跟上。
 - **新 slot**：见 [slot 体系标准 RFC](2026-07-22-slot-type-chain-implementation.md)——契约合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
 - **消费新帧类型**：带 sessionId → Session 分发 switch 加一个分支；host 级 → Manager 路由表；UI 需要时给 `ConversationSnapshot` 加字段并守住引用纪律。
 - **状态住哪**：业务数据（事件、流式、待答）→ 永远对象层；父知道的 → renderSlot 现场的 owner props；单组件私有（滚动、搜索词、展开集）→ 组件状态；跨 entry 共享或跨重挂载存活（选中、草稿、面板宽）→ entry 声明的 store（[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)）。

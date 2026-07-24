@@ -646,13 +646,27 @@ describe('TUI terminal-state snapshots', () => {
     await disposeSnapshot(harness)
   })
 
-  it('lists this workspace\'s resumable sessions with their commands', async () => {
+  it('opens the searchable resume selector with log-backed session summaries', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-23T08:00:00.000Z'))
+    const earlier = { version: 0, id: SessionId('earlier-session'), createdAt: Date.parse('2024-01-01T00:00:00Z'), cwd: '/workspace/project' }
     const harness = await setupSnapshot({
       config: { resumeCommand: 'RESUME_SESSION_ID={session} dsh' },
-      sessionPersistence: { list: async () => [
-        { version: 0, id: SessionId('main-session'), createdAt: Date.parse('2024-01-02T03:04:00Z'), cwd: '/workspace/project' },
-        { version: 0, id: SessionId('earlier-session'), createdAt: Date.parse('2024-01-01T00:00:00Z'), cwd: '/workspace/project' },
-      ] },
+      sessionPersistence: {
+        list: async () => [earlier],
+        load: async () => ({
+          meta: earlier,
+          events: [
+            { type: 'turn/start', seq: 0, time: Date.parse('2024-01-01T00:00:01Z'), data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+            { type: 'user/message', seq: 1, time: Date.parse('2024-01-01T00:00:02Z'), data: { content: [{ type: 'text', text: 'restore the selector' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+            { type: 'step/start', seq: 2, time: Date.parse('2024-01-01T00:00:03Z'), data: { turn: 1, step: 1 } },
+            { type: 'request/header', seq: 3, time: Date.parse('2024-01-01T00:00:04Z'), data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, reason: 'initial' } },
+            { type: 'assistant/message', seq: 4, time: Date.parse('2024-01-01T00:00:05Z'), data: { turn: 1, step: 1, content: [{ type: 'text', text: 'ready' }], provenance: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, surfaceOp: 'append' },
+            { type: 'step/end', seq: 5, time: Date.parse('2024-01-01T00:00:06Z'), data: { turn: 1, step: 1 } },
+            { type: 'turn/end', seq: 6, time: Date.parse('2024-01-01T00:00:07Z'), data: { turn: 1, reason: { kind: 'completed' } } },
+            { type: 'session/title', seq: 7, time: Date.parse('2024-01-01T00:00:08Z'), data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
+          ],
+        }),
+      },
     }, { columns: 92, rows: 32 })
     harness.terminal.send('/resume')
     harness.terminal.send('\r')
@@ -662,6 +676,7 @@ describe('TUI terminal-state snapshots', () => {
     await harness.terminal.flush()
     await checkpoint('resume-sessions', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
+    dateNow.mockRestore()
   })
 
   it('pins the detailed session diagnostics card', async () => {

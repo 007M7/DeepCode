@@ -67,7 +67,7 @@ waterfall（瀑布式事件）的行为类似环绕中间件：监听器调用 `
 
 **会话**采用仅追加方式。每个普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一个已领取轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型和插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。在[下文时序](agent-lifecycle.md)中，引号标记持久事件。
 
-未提供 id 时，创建流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；拆卸过程保持静默。
+未提供 id 时会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建，而 `resumeSessionId` 要求已有历史。恢复流程会在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；其余拆卸过程保持静默。
 
 ### 轮次流程
 
@@ -147,7 +147,7 @@ forever:
 
 持久性由插件负责。后端会缓冲同步的 `session/event` 通知。语义检查点策略会在适配器分发前刷写请求，在工具分发前刷写已记录的顶层调用，并在 `agent/post-step` 刷写完整的响应与结果批次；循环仍保留最终的轮次结束检查点。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 则遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 
-`ctx.sessions.appendOutOfBand()` 会把插件所属的纯日志事件加入开放轮次，或创建一个平衡且已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq 和来源信息；其即时回退标题和唯一可选异步提供方都不会延迟 agent 响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+`ctx.sessions.appendOutOfBand()` 会把纯日志事件加入开放轮次，或创建一个已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq／来源信息；回退标题及其可选提供方都不会延迟响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 

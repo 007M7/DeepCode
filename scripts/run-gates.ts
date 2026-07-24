@@ -379,9 +379,9 @@ function coverageGate(): Gate {
   })
 }
 
-// The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
-// plugins via real exports) — CI and check-all already build, so they exercise what ships rather
-// than the tsx/source path dev uses. It therefore waits on `build`.
+// Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
+// plugins via real exports); repository-script snapshots execute their real source entry path.
+// CI and check-all already build before either class runs, so the suite waits on `build`.
 function snapshotGate(): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
     env: { DSH_EXAMPLE_MODE: 'lib' },

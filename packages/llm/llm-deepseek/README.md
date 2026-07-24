@@ -17,10 +17,10 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
     thinking: enabled        # optional; provider default is enabled
     reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
     streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
+    defaultContextWindow: 256000 # optional positive-integer fallback for models without an exact value
     models:                  # optional; defaults to V4 Flash and V4 Pro
       - id: deepseek-v4-flash
         name: DeepSeek V4 Flash
-        contextWindow: 128000
       - id: private-reasoner
         description: Company-hosted reasoning model
         contextWindow: 64000
@@ -28,7 +28,7 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
 
 The plugin registers the single provider route `deepseek`. A request selects it with `provider: deepseek`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash` and `deepseek-v4-pro`, each with a 128,000-token context window; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek')` for clients such as ACP editors, but remain advisory: unlisted model ids still pass through unchanged. An omitted entry name defaults to its id.
 
-`contextWindow` is optional per configured model and is not exposed through the advisory catalog. `ctx.llm.resolveModelContext('deepseek', model)` returns it only for an exact configured id; omission or an unlisted pass-through model returns `undefined` without invalidating routing. Pressure-sensitive plugins therefore get deployment-owned capacity without treating the model selector as authoritative. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
+`contextWindow` is optional per configured model and is not exposed through the advisory catalog. `ctx.llm.resolveModelContext('deepseek', model)` returns an exact model value first, then `defaultContextWindow` for an entry without capacity or an unlisted pass-through id. When neither value exists it returns `undefined` without invalidating routing. Pressure-sensitive plugins therefore get deployment-owned capacity without treating the model selector as authoritative. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
 
 `reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort` wire field is not sent and the server applies its own default for the model. The only accepted values are `high` and `max` (DeepSeek's official effort levels). It is meaningful only with thinking enabled (the provider default).
 
