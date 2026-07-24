@@ -187,7 +187,11 @@ export interface EmptyStateInjected {
   releaseDraftImage(id: string): void
   /** Release all service-owned image previews held by the empty state. */
   releaseDraftImages(attachments: readonly ComposerAttachment[]): void
-  /** The create → navigate → first-send chain, in one service call. */
+  /**
+   * The create → first-send → navigate chain, in one service call. Navigation
+   * happens only after the send is accepted, so a failure leaves the empty
+   * state and its draft mounted.
+   */
   startSession(opts: {
     cwd?: string
     text: string

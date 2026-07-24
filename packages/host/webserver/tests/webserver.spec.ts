@@ -435,6 +435,27 @@ describe('/api bridge', () => {
     expect(status).toBe(413)
   })
 
+  it('rejects an unterminated chunked body at the threshold without draining to EOF', async () => {
+    const base = await boot(() => undefined, 8)
+    const target = new URL(`${base}/api/echo`)
+    // The client never calls end(): the 413 must arrive the moment the limit
+    // is crossed, or a hostile stream would hold the socket open forever.
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const request = httpRequest({
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        method: 'POST',
+      }, (response) => {
+        response.resume()
+        response.on('end', () => { resolve(response.statusCode) })
+      })
+      request.on('error', reject)
+      request.write('123456789')
+    })
+    expect(status).toBe(413)
+  })
+
   it('relays a bodyless response', async () => {
     const base = await boot()
     const response = await fetch(`${base}/api/empty`, { method: 'POST' })

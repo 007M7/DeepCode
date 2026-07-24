@@ -1,4 +1,5 @@
 import { Context } from 'cordis'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,6 +33,24 @@ describe('local attachment service', () => {
       ))
       const ref = await service.saveImage({ data, mediaType: 'image/png' })
       await expect(service.readImage(ref)).resolves.toEqual({ ref, data })
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
+  it('validates without persisting: a rejected image leaves no storage root behind', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-validate-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome })
+      expect(() => { service.validateImage({ data: Uint8Array.of(1, 2, 3), mediaType: 'image/png' }) })
+        .toThrow(/Unsupported or malformed image data/)
+      const valid = Uint8Array.from(Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ))
+      expect(() => { service.validateImage({ data: valid, mediaType: 'image/png' }) }).not.toThrow()
+      // Validation is storage-free: nothing below the root may exist yet.
+      expect(existsSync(service.root)).toBe(false)
     } finally {
       await rm(dshHome, { recursive: true, force: true })
     }

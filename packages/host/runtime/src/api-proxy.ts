@@ -54,6 +54,16 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
   if (totalBytes > limits.maxMessageImageBytes) {
     throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
   }
+  // Validate the complete batch before persisting any member: the store has no
+  // garbage collection, so one malformed image must not leave the batch's
+  // valid members as published objects no message event will ever reference.
+  for (const image of images) {
+    ctx.attachments.validateImage({
+      data: image.data,
+      mediaType: image.part.mediaType,
+      ...image.part.name === undefined ? {} : { name: image.part.name },
+    })
+  }
   return Promise.all(prepared.map(async (item): Promise<ContentBlock> => {
     if (!('data' in item)) return { type: 'text', text: item.text }
     const attachment = await ctx.attachments.saveImage({

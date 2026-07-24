@@ -209,12 +209,12 @@ export class ConversationService extends Service {
 
   /**
    * Empty-state first-send chain (root-context method; does not read scope):
-   * create the session, navigate to it, then send through the new scope.
-   * The create → open ordering is safe: the manager merges the new summary
-   * synchronously before create() resolves, so the list store is projected by
-   * the time open() validates against it (manager notification batching is
-   * microtask-based; SessionsService projects on the same flush that create
-   * awaited through the RPC round trip).
+   * create the session, send through the new scope, and navigate only after
+   * the send is accepted. Navigation is the publication point — opening
+   * earlier would unmount the empty state (releasing its draft previews)
+   * while the send can still fail, leaving the failure with no surface and
+   * the user with a lost draft; on rejection here the still-mounted empty
+   * state keeps the draft and shows the error locally.
    * @param opts - project directory, prompt text, images, and send mode.
    */
   async startSession(opts: {
@@ -226,9 +226,10 @@ export class ConversationService extends Service {
     const sessions = this.requireSessions()
     const id = await sessions.create(opts.cwd === undefined ? {} : { cwd: opts.cwd })
     // The manager notifier flushes per microtask; one await guarantees the
-    // list-store projection landed before sessions.open validates against it.
+    // list-store projection landed before sessions.open validates against it
+    // (the manager merges the new summary synchronously before create()
+    // resolves; batching is microtask-based).
     await Promise.resolve()
-    sessions.open(id)
     const scoped = sessions.scope(id)
     if (scoped === undefined) throw new Error(`conversation.startSession: created session "${id}" resolved no scope`)
     // ctx.get, not scoped.conversation: property access walks the fiber
@@ -237,6 +238,7 @@ export class ConversationService extends Service {
     const scopedConversation = scoped.get('conversation')
     if (scopedConversation === undefined) throw new Error('conversation.startSession: conversation service unavailable through the new scope')
     await scopedConversation.send(opts.text, opts.mode, opts.images ?? [])
+    sessions.open(id)
   }
 
   /** Resolve the caller scope's Session or throw on root contexts. */

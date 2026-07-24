@@ -49,6 +49,8 @@ export async function runWeb(argv: string[]): Promise<void> {
       host: { type: 'string', default: LOOPBACK_HOST },
       port: { type: 'string', default: '3080' },
       'max-request-body-bytes': { type: 'string' },
+      provider: { type: 'string' },
+      model: { type: 'string' },
       dev: { type: 'boolean', default: false },
     },
     allowPositionals: false,
@@ -77,12 +79,28 @@ export async function runWeb(argv: string[]): Promise<void> {
     process.exit(1)
   }
 
-  // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
+  // Default routing: --provider deepseek (implicit) keeps the DeepSeek-only
+  // assembly; any other --provider additionally mounts that pi-ai catalog
+  // route (credentials via the provider's ambient discovery, e.g.
+  // ANTHROPIC_API_KEY) so visual-capable models are reachable from the shipped
+  // Web app. A non-default provider requires an explicit --model — this shell
+  // has no evidence for inventing another provider's default.
+  const provider = values.provider ?? 'deepseek'
+  if (provider !== 'deepseek' && values.model === undefined) {
+    process.stderr.write(`dsh web: --provider ${provider} requires an explicit --model\n`)
+    process.exit(1)
+  }
+
+  // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught
+  // by design); an unknown --provider fails the pi-ai catalog check the same way.
   const host = await startHost({
     boot: {
       persistenceRoot: './.sessions',
       workspaceContext: { maxBytes: 65_536 },
       sessionTitleLlm: true,
+      ...provider === 'deepseek' ? {} : { piAiProviders: [{ provider }] },
+      ...values.provider === undefined ? {} : { provider: values.provider },
+      ...values.model === undefined ? {} : { model: values.model },
     },
   })
   const attachments = host.ctx.get('attachments')

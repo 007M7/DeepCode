@@ -226,6 +226,10 @@ describe('PiAiAdapter provider routing', () => {
         mediaTypes: ['image/png'],
       }
 
+      validateImage(_input: SaveImageAttachment): void {
+        throw new Error('not used')
+      }
+
       saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
         return Promise.reject(new Error('not used'))
       }

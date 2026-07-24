@@ -53,6 +53,32 @@ function validateAdmission(metadata: Omit<ImageAttachmentRef, 'attachmentId' | '
 }
 
 /**
+ * Run the full admission policy for one image without touching storage.
+ * @param input - encoded bytes and declared metadata.
+ * @param limits - resolved storage policy.
+ */
+export function validateImageFile(input: SaveImageAttachment, limits: ImageAttachmentLimits): void {
+  validateAdmission(inspectMetadata(input.data, input.mediaType), limits)
+}
+
+/**
+ * Make a directory's entries durable (fsync on a read-only directory handle).
+ * A synced file alone does not survive a crash when its directory entry never
+ * reached storage, so the publication directory is synced before a durable
+ * reference is reported.
+ */
+async function syncDirectory(path: string): Promise<void> {
+  /* v8 ignore next -- Windows cannot open directory handles; NTFS metadata journaling owns entry durability there. */
+  if (process.platform === 'win32') return
+  const handle = await open(path, constants.O_RDONLY)
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
  * Save and verify immutable image bytes below a versioned attachment root.
  * @param root - absolute `DSH_HOME/attachments/v1` root.
  * @param input - encoded bytes and declared metadata.
@@ -86,6 +112,13 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
       const existing = new Uint8Array(await readFile(target))
       if (digest(existing) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
     }
+    // The synced file becomes durable only once its directory entries are: sync
+    // the bucket (the new object entry) and its parent (the possibly new bucket
+    // entry) before this reference can reach a session checkpoint. The dedup
+    // path syncs too — the earlier save that created the entry may have crashed
+    // before its own directory sync.
+    await syncDirectory(bucket)
+    await syncDirectory(join(root, 'objects'))
     await unlink(temporary)
   } catch (error) {
     /* v8 ignore next -- A descriptor can remain open only when the underlying write/sync/close operation fails. */

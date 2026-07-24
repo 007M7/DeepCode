@@ -96,6 +96,10 @@ class TestAttachmentStore extends AttachmentStore {
     mediaTypes: ['image/png'],
   }
 
+  validateImage(_input: SaveImageAttachment): void {
+    throw new Error('test invariant attachment store does not validate images')
+  }
+
   saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
     return Promise.reject(new Error('test invariant attachment store does not save images'))
   }

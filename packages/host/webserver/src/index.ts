@@ -214,21 +214,19 @@ async function bridge(
   }
   const chunks: Buffer[] = []
   let received = 0
-  let oversized = false
   for await (const chunk of req) {
     const buffer = chunk as Buffer
     received += buffer.byteLength
     if (received > maxRequestBodyBytes) {
-      oversized = true
-      chunks.length = 0
-      continue
+      // Reject the moment the threshold is crossed: draining a chunked body to
+      // EOF first would let a client without Content-Length stream
+      // indefinitely while holding the socket and this request task.
+      res.writeHead(413, { connection: 'close' })
+      res.end()
+      req.destroy()
+      return
     }
-    if (!oversized) chunks.push(buffer)
-  }
-  if (oversized) {
-    res.writeHead(413)
-    res.end()
-    return
+    chunks.push(buffer)
   }
   /* v8 ignore next 3 -- `??` arms: node:http always sets url/method on server
   requests; the fields are only optional on the client-side IncomingMessage type */

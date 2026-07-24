@@ -614,6 +614,31 @@ describe('sessions.prompt / cancel', () => {
     })
   })
 
+  it('publishes nothing when one member of a multi-image prompt is malformed', async () => {
+    const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-batch-session-'))
+    const dshHome = mkdtempSync(join(tmpdir(), 'dsh-batch-home-'))
+    host = await startHost({
+      boot: { persistenceRoot, workspaceContext: false, dshHome, provider: 'scripted', model: 'test-model' },
+    })
+    host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([textResponse('unused')]))
+    const { sessionId } = expectOk(await host.api.sessions.create(request({})))
+    const response = await host.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [
+        { type: 'image' as const, mediaType: 'image/png' as const, data: PNG_BASE64 },
+        // Canonical base64, but the bytes are not a PNG: the whole batch must
+        // be validated before any member persists, or the valid image above
+        // would become a permanently unreferenced object (this store has no GC).
+        { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQID' },
+      ],
+    }))
+    expect(response.result).toMatchObject({
+      ok: false, error: { details: { reason: 'INVALID_IMAGE' } },
+    })
+    expect(existsSync(join(dshHome, 'attachments'))).toBe(false)
+  })
+
   it('rejects images for an explicitly text-only model without creating a session event', async () => {
     const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-text-session-'))
     const dshHome = mkdtempSync(join(tmpdir(), 'dsh-text-home-'))

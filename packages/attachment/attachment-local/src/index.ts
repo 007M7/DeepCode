@@ -6,10 +6,10 @@ import z from 'schemastery'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
-import { readImageFile, saveImageFile } from './store.ts'
+import { readImageFile, saveImageFile, validateImageFile } from './store.ts'
 
 export { detectImage } from './image.ts'
-export { readImageFile, saveImageFile } from './store.ts'
+export { readImageFile, saveImageFile, validateImageFile } from './store.ts'
 export { AttachmentError } from '@deepseek-ai/dsh-attachment'
 export type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
@@ -60,6 +60,10 @@ export class LocalAttachmentStore extends AttachmentStore {
       maxImagePixels: config.maxImagePixels ?? DEFAULT_MAX_IMAGE_PIXELS,
       mediaTypes: Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const),
     })
+  }
+
+  validateImage(input: SaveImageAttachment): void {
+    validateImageFile(input, this.imageLimits)
   }
 
   async saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {

@@ -2,7 +2,7 @@
 /**
  * ConversationService orchestration half after the store-seat slimming:
  * scope-addressed send/cancel (result folding, root throw), the startSession
- * chain (create → sessions.open → scoped send), and the service-unavailable
+ * chain (create → scoped send → sessions.open), and the service-unavailable
  * loud failures. Selection/draft state left this service for the declared
  * chat store (chat-store.spec.ts / selection-survival.spec.ts); the view
  * registry left for the 'conversation.view' slot (views-type-chain.spec.tsx).
@@ -280,13 +280,23 @@ describe('image admission and URL lifecycle', () => {
 })
 
 describe('startSession chain', () => {
-  it('creates, navigates through sessions.open, then sends through the new scope', async () => {
+  it('creates, sends through the new scope, then navigates through sessions.open', async () => {
     const b = await bench()
     await b.svc.startSession({ cwd: '/proj', text: 'first', mode: 'queue' })
     expect(b.createMock).toHaveBeenCalledWith({ cwd: '/proj' })
     expect(b.openMock).toHaveBeenCalledWith(sid('new-1'))
-    expect(b.sessionDoubles.get(sid('new-1'))!.prompt).toHaveBeenCalledWith(
-      [{ type: 'text', text: 'first' }], 'queue')
+    const prompt = b.sessionDoubles.get(sid('new-1'))!.prompt
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: 'first' }], 'queue')
+    // Navigation is the publication point: it must not precede send acceptance.
+    expect(b.openMock.mock.invocationCallOrder[0]!).toBeGreaterThan(prompt.mock.invocationCallOrder[0]!)
+  })
+
+  it('does not navigate when the first send is rejected (empty state keeps the draft)', async () => {
+    const b = await bench()
+    const doomed = b.sessionsFake.manager.get(sid('new-1')) as unknown as SessionDouble
+    doomed.prompt.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'nope' } })
+    await expect(b.svc.startSession({ text: 'first', mode: 'queue' })).rejects.toThrow(/agent-busy/)
+    expect(b.openMock).not.toHaveBeenCalled()
   })
 
   it('omits cwd from create when not chosen', async () => {
