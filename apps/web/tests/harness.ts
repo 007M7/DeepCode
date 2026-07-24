@@ -230,10 +230,8 @@ export async function launchWebHarness(options: LaunchOptions = {}): Promise<Web
  * Serialize a live session back to raw session-JSONL (header + events) — the
  * in-memory record-mode harvest, so the on-disk zstd default never matters.
  * Mirrors the TUI suite's rawSessionLog.
- * @param session - the live session to serialize.
- * @returns raw JSONL text ending in one newline.
  */
-export function rawSessionLog(session: Session): string {
+function rawSessionLog(session: Session): string {
   return [
     JSON.stringify({ type: 'session', ...session.header }),
     ...session.events.map(event => JSON.stringify(event)),
@@ -333,11 +331,8 @@ export async function seedSession(harness: WebHarness, fixtureText: string, id: 
 /**
  * Normalize an aria snapshot: uuid, cwd, workspace-basename, and duration
  * volatility collapse to stable tokens.
- * @param snapshot - raw ariaSnapshot text.
- * @param workspaceCwd - the harness workspace (basename doubles as the header breadcrumb).
- * @returns tokenized snapshot text.
  */
-export function normalizeAria(snapshot: string, workspaceCwd: string): string {
+function normalizeAria(snapshot: string, workspaceCwd: string): string {
   // The header breadcrumb renders the workspace's basename, not the full
   // path, so both spellings must collapse to the token.
   const base = workspaceCwd.split('/').pop()!

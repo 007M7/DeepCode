@@ -476,6 +476,31 @@ describe('installLlmReplay (through the real LlmService)', () => {
     expect(() => { handle.assertConsumed() }).not.toThrow()
   })
 
+  it('paces a throw-entry prefix too (the recorded partial streams at the same cadence)', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: partial, message: 'boom', code: 'STREAM_CLOSED' },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, overrideFile, paceMs: 10 })
+    const started = performance.now()
+    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).rejects.toThrow('boom')
+    expect(performance.now() - started).toBeGreaterThanOrEqual(5)
+  })
+
+  it('assertConsumed names an underrunning identified session by its id', async () => {
+    writeLog(TEXT_CHUNKS, TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const handle = installLlmReplay(ctx, { file })
+    const sessionId = 'live-underrun' as NonNullable<GenerateOptions['sessionId']>
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], sessionId }))
+    expect(() => { handle.assertConsumed() }).toThrow(/session live-underrun consumed 1\/2/)
+  })
+
   it('assertConsumed reports recorded scripts no live session ever bound', async () => {
     writeLog(TEXT_CHUNKS)
     const childFile = join(dir, 'session.1.jsonl')
@@ -690,7 +715,7 @@ describe('apply (the plugin entry)', () => {
     writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }] })
+    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }], paceMs: 1 })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }])
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
