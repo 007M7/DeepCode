@@ -672,6 +672,25 @@ async listModels(provider: string): Promise<LlmModelInfo[]>
 async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>
 
 /**
+ * Resolve selectable reasoning efforts from the adapter that owns one exact
+ * route. Metadata is validated and detached; an absent result means an
+ * effort selector is unsupported for that model.
+ * @param provider - registered provider route to inspect.
+ * @param model - exact model id passed to the adapter.
+ * @returns detached reasoning metadata, or `undefined` when unsupported.
+ */
+async resolveModelReasoning( provider: string, model: string, ): Promise<LlmModelReasoningInfo | undefined>
+
+/**
+ * Validate a conversation call config against its exact model capability and
+ * materialize an adapter-configured default. Unsupported explicit efforts
+ * reject before provider I/O; no clamping or aliasing is performed.
+ * @param config - provider/model route and optional request controls.
+ * @returns a detached config only when a default must be materialized.
+ */
+async resolveCallConfig(config: LlmCallConfig): Promise<LlmCallConfig>
+
+/**
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
@@ -686,9 +705,9 @@ async resolveModelContext( provider: string, model: string, ): Promise<LlmModelC
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmModelReasoningInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:175`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1238,7 +1257,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:605`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:610`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

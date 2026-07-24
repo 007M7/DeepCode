@@ -30,6 +30,8 @@ Each provider name must exist in pi-ai's installed catalog and may appear only o
 
 The adapter exposes each configured provider's installed pi-ai models through `ctx.llm.listModels(provider)`. This is provider-neutral selector metadata derived from `getModels(provider)`; request-time resolution still performs the authoritative catalog lookup, so discovery does not create a second model registry. `ctx.llm.resolveModelContext(provider, model)` performs the same exact descriptor lookup and returns its context window, keeping capacity metadata on the route-owning adapter rather than a consuming plugin.
 
+`ctx.llm.resolveModelReasoning(provider, model)` uses pi-ai's `getSupportedThinkingLevels(model)` and returns that model's ordered levels after filtering the separate `off` control. The Harness exposes the canonical pi-ai level as an opaque ID; provider/model wire spellings remain inside pi-ai's `thinkingLevelMap`. A non-reasoning model returns `undefined`. The profile `reasoning` value is the deployment default when configured; omitting it preserves the provider default. Per-request `GenerateOptions.reasoningEffort` takes precedence, and any explicit value absent from the exact model capability fails with `UNSUPPORTED_REASONING_EFFORT` before network I/O instead of being clamped.
+
 Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, and `streamIdleTimeoutMs`. The stream-idle interval is a positive finite Node timer delay, defaults to five minutes, and covers only an outstanding provider read, not consumer think time. Harness app attribution wins a conflicting configured header name.
 
 The adapter forces pi-ai's SDK `maxRetries` to zero so one `stream()` call makes one provider request. The removed profile fields `maxRetries` and `maxRetryDelayMs` fail load instead of silently multiplying or hiding the separately composed agent-level retry budget. Idle expiry aborts the SDK's stable request signal and surfaces `TIMEOUT`; an earlier caller abort remains `ABORTED`.
@@ -47,6 +49,7 @@ If a listener rewrites assembled assistant content, the loop drops replay state 
 - pi-ai tool-call arguments are parsed objects; the harness stores raw JSON strings. The adapter parses input and re-stringifies output.
 - pi-ai reports failures as in-stream error events; these map to `finish {kind:'error'|'aborted', failure}` chunks. Provider-specific error text distinguishes terminal `QUOTA` from transient `RATE_LIMIT`, while text and usage signals evaluated against the resolved model's context window normalize overflow to `CONTEXT_WINDOW_EXCEEDED`.
 - pi-ai folds reasoning tokens into output usage; there is no separate reasoning count to map.
+- pi-ai may internally support an `off` thinking level, but the Harness reasoning-effort capability deliberately excludes mode changes.
 - `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming surface cannot guarantee it across providers.
 
 ## App attribution

@@ -7,13 +7,27 @@
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   Model,
   SimpleStreamOptions,
+  ThinkingLevel,
 } from '@earendil-works/pi-ai'
-import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import {
+  attributionHeaders,
+  LlmAdapter,
+  LlmError,
+  ReasoningEffortId,
+} from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions,
+  LlmModelContext,
+  LlmModelInfo,
+  LlmModelReasoningInfo,
+  ReasoningEffortId as ReasoningEffortIdType,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { resolveProfiles } from './config.ts'
 import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
@@ -39,10 +53,13 @@ function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api>
 }
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
-function profileOptions(profile: PiAiProviderProfile): SimpleStreamOptions {
+function profileOptions(
+  profile: PiAiProviderProfile,
+  reasoning: ThinkingLevel | undefined,
+): SimpleStreamOptions {
   return {
     ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
-    ...profile.reasoning === undefined ? {} : { reasoning: profile.reasoning },
+    ...reasoning === undefined ? {} : { reasoning },
     ...profile.thinkingBudgets === undefined ? {} : { thinkingBudgets: profile.thinkingBudgets },
     ...profile.cacheRetention === undefined ? {} : { cacheRetention: profile.cacheRetention },
     ...profile.transport === undefined ? {} : { transport: profile.transport },
@@ -51,6 +68,25 @@ function profileOptions(profile: PiAiProviderProfile): SimpleStreamOptions {
     // The agent recovery layer owns visible attempts; one adapter call is one SDK attempt.
     maxRetries: 0,
   }
+}
+
+/** Selectable pi-ai levels exclude the separate on/off control. */
+function supportedReasoningLevels(model: Model<Api>): ThinkingLevel[] {
+  return getSupportedThinkingLevels(model).filter((level): level is ThinkingLevel => level !== 'off')
+}
+
+/** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
+function resolveReasoningLevel(
+  model: Model<Api>,
+  effort: ReasoningEffortIdType | ThinkingLevel | undefined,
+): ThinkingLevel | undefined {
+  if (effort === undefined) return undefined
+  const supported = supportedReasoningLevels(model)
+  if (supported.some(level => level === effort)) return effort as ThinkingLevel
+  throw new LlmError(
+    `pi-ai provider "${model.provider}" model "${model.id}" does not support reasoning effort "${effort}"`,
+    'UNSUPPORTED_REASONING_EFFORT',
+  )
 }
 
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
@@ -103,6 +139,37 @@ export class PiAiAdapter extends LlmAdapter {
     }))
   }
 
+  override resolveModelReasoning(
+    provider: string,
+    model: string,
+  ): Promise<LlmModelReasoningInfo | undefined> {
+    const profile = this.profiles.get(provider)
+    if (profile === undefined) {
+      return Promise.reject(new LlmError(
+        `pi-ai adapter does not own provider "${provider}"`,
+        'NO_ADAPTER',
+      ))
+    }
+    return Promise.resolve().then(() => {
+      const resolvedModel = resolveModel(profile, model)
+      const levels = supportedReasoningLevels(resolvedModel)
+      if (levels.length === 0) {
+        resolveReasoningLevel(resolvedModel, profile.reasoning)
+        return undefined
+      }
+      const defaultLevel = resolveReasoningLevel(resolvedModel, profile.reasoning)
+      return {
+        efforts: levels.map(level => ({
+          id: ReasoningEffortId(level),
+          name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
+        })),
+        ...defaultLevel === undefined
+          ? {}
+          : { defaultEffort: ReasoningEffortId(defaultLevel) },
+      }
+    })
+  }
+
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
@@ -112,6 +179,10 @@ export class PiAiAdapter extends LlmAdapter {
       throw new LlmError(`pi-ai adapter does not own provider "${options.provider}"`, 'NO_ADAPTER')
     }
     const model = resolveModel(profile, options.model)
+    const reasoning = resolveReasoningLevel(
+      model,
+      options.reasoningEffort ?? profile.reasoning,
+    )
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -122,7 +193,7 @@ export class PiAiAdapter extends LlmAdapter {
 
     try {
       const events = streamSimple(model, toPiContext(options), {
-        ...profileOptions(profile),
+        ...profileOptions(profile, reasoning),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },

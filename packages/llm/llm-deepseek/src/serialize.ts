@@ -6,6 +6,7 @@
  * @module dsh-llm-deepseek/serialize
  */
 
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { WireMessage, WireRequest, WireTool } from './types.ts'
 
@@ -13,6 +14,17 @@ import type { WireMessage, WireRequest, WireTool } from './types.ts'
 export interface RequestDefaults {
   thinking?: 'enabled' | 'disabled' | undefined
   reasoningEffort?: 'high' | 'max' | undefined
+}
+
+/** Validate the adapter-owned effort before assigning its narrower wire type. */
+function reasoningEffort(options: GenerateOptions): 'high' | 'max' | undefined {
+  const effort = options.reasoningEffort
+  if (effort === undefined) return undefined
+  if (effort === 'high' || effort === 'max') return effort as 'high' | 'max'
+  throw new LlmError(
+    `DeepSeek does not support reasoning effort "${effort}"`,
+    'UNSUPPORTED_REASONING_EFFORT',
+  )
 }
 
 /** Join the text blocks of a message (used for user/tool-result content). */
@@ -121,7 +133,9 @@ export function serializeRequest(options: GenerateOptions, defaults: RequestDefa
   // A short title budget must produce visible text; conversation and
   // compaction calls continue to inherit the adapter's thinking defaults.
   const thinking = options.purpose === 'session-title' ? 'disabled' : defaults.thinking
-  const reasoningEffort = options.purpose === 'session-title' ? undefined : defaults.reasoningEffort
+  const resolvedReasoningEffort = options.purpose === 'session-title'
+    ? undefined
+    : reasoningEffort(options)
 
   return {
     model: options.model,
@@ -129,7 +143,7 @@ export function serializeRequest(options: GenerateOptions, defaults: RequestDefa
     stream: true,
     stream_options: { include_usage: true },
     ...thinking !== undefined ? { thinking: { type: thinking } } : {},
-    ...reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {},
+    ...resolvedReasoningEffort !== undefined ? { reasoning_effort: resolvedReasoningEffort } : {},
     ...tools !== undefined && tools.length > 0 ? { tools } : {},
     ...options.temperature !== undefined ? { temperature: options.temperature } : {},
     ...options.maxTokens !== undefined ? { max_tokens: options.maxTokens } : {},

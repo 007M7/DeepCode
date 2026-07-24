@@ -520,8 +520,9 @@ Requires: `llm`
 /**
  * Plugin config, validated by the same-named schemastery schema. Every field
  * is optional in yml: credentials/endpoint fall back to the environment (a
- * missing API key fails plugin load, not the first call), and omitted
- * thinking fields send nothing on the wire, so the provider default applies.
+ * missing API key fails plugin load, not the first call), omitted thinking
+ * mode uses the provider default, and omitted reasoning effort resolves to
+ * `high`.
  */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
@@ -530,7 +531,7 @@ export interface Config {
   baseURL?: string
   /** Thinking-mode default for every request (provider default: enabled). */
   thinking?: 'enabled' | 'disabled'
-  /** Thinking effort (only meaningful with thinking enabled). */
+  /** Default thinking effort when thinking is enabled (default `high`). */
   reasoningEffort?: 'high' | 'max'
   /** Positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
@@ -553,7 +554,7 @@ export interface DeepSeekCatalogModel {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:34`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:35`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 

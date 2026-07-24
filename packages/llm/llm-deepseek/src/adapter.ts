@@ -5,11 +5,12 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
   LlmModelContext,
   LlmModelInfo,
+  LlmModelReasoningInfo,
   LlmProviderInfo,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
@@ -51,6 +52,12 @@ export interface DeepSeekAdapterOptions {
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
+const HIGH_REASONING_EFFORT = ReasoningEffortId('high')
+const MAX_REASONING_EFFORT = ReasoningEffortId('max')
+const REASONING_EFFORTS = [
+  { id: HIGH_REASONING_EFFORT, name: 'High' },
+  { id: MAX_REASONING_EFFORT, name: 'Max' },
+] as const
 
 function providerRetryAfterMs(value: string | null): number | undefined {
   if (value === null) return undefined
@@ -98,6 +105,9 @@ export class DeepSeekAdapter extends LlmAdapter {
 
   constructor(private readonly options: DeepSeekAdapterOptions) {
     super()
+    if (options.defaults?.thinking === 'disabled' && options.defaults.reasoningEffort !== undefined) {
+      throw new Error('llm-deepseek: reasoningEffort cannot be configured when thinking is disabled')
+    }
     if (options.defaultContextWindow !== undefined
       && (!Number.isInteger(options.defaultContextWindow) || options.defaultContextWindow <= 0)) {
       throw new Error('llm-deepseek: defaultContextWindow must be a positive integer')
@@ -132,6 +142,19 @@ export class DeepSeekAdapter extends LlmAdapter {
     const contextWindow = this.options.models?.find(entry => entry.id === model)?.contextWindow
       ?? this.options.defaultContextWindow
     return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
+  }
+
+  override resolveModelReasoning(
+    _provider: string,
+    _model: string,
+  ): Promise<LlmModelReasoningInfo | undefined> {
+    if (this.options.defaults?.thinking === 'disabled') return Promise.resolve(undefined)
+    return Promise.resolve({
+      efforts: REASONING_EFFORTS,
+      defaultEffort: this.options.defaults?.reasoningEffort === 'max'
+        ? MAX_REASONING_EFFORT
+        : HIGH_REASONING_EFFORT,
+    })
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

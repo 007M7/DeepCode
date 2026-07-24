@@ -38,6 +38,7 @@ export const LINK_MAP: Record<string, string> = {
   HookContext: 'core.md',
   LlmCallConfig: 'core.md',
   LlmModelContext: 'core.md',
+  LlmModelReasoningInfo: 'core.md',
   LlmFailure: 'llm-streaming.md',
   LlmModelInfo: 'core.md',
   LlmProviderInfo: 'core.md',

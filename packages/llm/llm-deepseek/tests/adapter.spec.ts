@@ -8,6 +8,7 @@ import LlmService, {
   LlmError,
   ProviderRequestId,
   QUOTA_EXCEEDED_CODE,
+  ReasoningEffortId,
   userAgent,
 } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -120,6 +121,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     // The wire request carried the auth header contents we configured.
     expect(server.requests[0]).toMatchObject({
       model: 'deepseek-v4-flash',
+      reasoning_effort: 'high',
       stream: true,
       stream_options: { include_usage: true },
     })
@@ -173,9 +175,35 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(server.headers[0]?.['x-deepseek-harness-compact']).toBe('1')
   })
 
-  it('forwards thinking config onto the wire', async () => {
+  it('forwards the configured reasoning default and a dynamic request override', async () => {
+    const server = await mockServer([
+      { kind: 'sse', events: textEvents },
+      { kind: 'sse', events: textEvents },
+    ])
+    const ctx = await harness(server.url, { thinking: 'enabled', reasoningEffort: 'max' })
+
+    await assemble(ctx,{
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })
+    await assemble(ctx,{
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi again' }] }],
+    })
+    expect(server.requests[0]).toMatchObject({
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'max',
+    })
+    expect(server.requests[1]).toMatchObject({
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'high',
+    })
+  })
+
+  it('omits reasoning capability and effort when thinking is disabled', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
-    const ctx = await harness(server.url, { thinking: 'disabled', reasoningEffort: 'high' })
+    const ctx = await harness(server.url, { thinking: 'disabled' })
 
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
@@ -183,8 +211,22 @@ describe('DeepSeekAdapter against a mock server', () => {
     })
     expect(server.requests[0]).toMatchObject({
       thinking: { type: 'disabled' },
-      reasoning_effort: 'high',
     })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
+    await expect(ctx.llm.resolveModelReasoning('deepseek', 'deepseek-v4-flash'))
+      .resolves.toBeUndefined()
+  })
+
+  it('rejects a per-request effort before I/O when thinking is disabled', async () => {
+    const server = await mockServer([])
+    const ctx = await harness(server.url, { thinking: 'disabled' })
+
+    await expect(assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    expect(server.requests).toHaveLength(0)
   })
 
   it.each([
@@ -533,6 +575,34 @@ describe('plugin registration and config', () => {
     ])
     await expect(ctx.llm.resolveModelContext('deepseek', 'deepseek-v4-flash'))
       .resolves.toEqual({ contextWindow: 128_000 })
+    await expect(ctx.llm.resolveModelReasoning('deepseek', 'deepseek-v4-flash'))
+      .resolves.toEqual({
+        efforts: [
+          { id: ReasoningEffortId('high'), name: 'High' },
+          { id: ReasoningEffortId('max'), name: 'Max' },
+        ],
+        defaultEffort: ReasoningEffortId('high'),
+      })
+  })
+
+  it('rejects a configured reasoning effort when thinking is disabled', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await expect(ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      thinking: 'disabled',
+      reasoningEffort: 'high',
+    })).rejects.toThrow(/reasoningEffort cannot be configured/)
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('rejects a disabled-thinking effort at the direct constructor boundary', () => {
+    expect(() => new DeepSeekAdapter({
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      defaults: { thinking: 'disabled', reasoningEffort: 'high' },
+    })).toThrow(/reasoningEffort cannot be configured/)
   })
 
   it('uses the default model catalog when apply is called directly', async () => {

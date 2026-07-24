@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
@@ -80,11 +80,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
   it.each(['high', 'max'] as const)(
     'pro + thinking enabled (effort %s): tool-call round trip with reasoning passback',
     async (effort) => {
-      const ctx = await harness(PRO, { thinking: 'enabled', reasoningEffort: effort })
+      const ctx = await harness(PRO, { thinking: 'enabled' })
 
       // Turn 1: the model must call the tool (and think before it).
       const first = await assemble(ctx,{
         model: PRO,
+        reasoningEffort: ReasoningEffortId(effort),
         messages: ask('What is the weather in Paris right now? Use the get_weather tool.'),
         tools: [weatherTool],
         maxTokens: 2000,
@@ -99,6 +100,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
       // block in history (the official thinking+tools passback rule).
       const second = await assemble(ctx,{
         model: PRO,
+        reasoningEffort: ReasoningEffortId(effort),
         messages: [
           ...ask('What is the weather in Paris right now? Use the get_weather tool.'),
           { role: 'assistant', content: first.message.content },

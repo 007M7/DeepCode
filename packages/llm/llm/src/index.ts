@@ -12,12 +12,14 @@ import type {
   LlmFailure,
   LlmModelContext,
   LlmModelInfo,
+  LlmModelReasoningInfo,
   LlmProviderInfo,
   Message,
   StreamChunk,
 } from './types.ts'
 import type { ProviderRequestId } from './brand.ts'
-import { deepFreeze } from './call-config.ts'
+import { callConfigEquals, deepFreeze } from './call-config.ts'
+import type { LlmCallConfig } from './call-config.ts'
 import { HarnessError } from './error.ts'
 import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
 import type { AdapterFailureScope } from './adapter-failure.ts'
@@ -145,6 +147,20 @@ export abstract class LlmAdapter {
   }
 
   /**
+   * Resolve selectable reasoning efforts for one exact model. Absence means
+   * the model has no selectable reasoning-effort capability.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns adapter-owned effort metadata, or `undefined` when unsupported.
+   */
+  resolveModelReasoning(
+    _provider: string,
+    _model: string,
+  ): Promise<LlmModelReasoningInfo | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /**
    * Stream one model call as raw chunks. The only required method.
    * @param options - the fully-assembled request; implementations must honor `options.signal`.
    * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
@@ -262,6 +278,90 @@ export class LlmService extends Service {
     return { contextWindow: context.contextWindow }
   }
 
+  /**
+   * Resolve selectable reasoning efforts from the adapter that owns one exact
+   * route. Metadata is validated and detached; an absent result means an
+   * effort selector is unsupported for that model.
+   * @param provider - registered provider route to inspect.
+   * @param model - exact model id passed to the adapter.
+   * @returns detached reasoning metadata, or `undefined` when unsupported.
+   */
+  async resolveModelReasoning(
+    provider: string,
+    model: string,
+  ): Promise<LlmModelReasoningInfo | undefined> {
+    const reasoning = await this.registration(provider).adapter.resolveModelReasoning(provider, model)
+    if (reasoning === undefined) return undefined
+    if (reasoning.efforts.length === 0) {
+      throw new LlmError(
+        `adapter returned invalid reasoning metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_REASONING',
+      )
+    }
+    const seen = new Set<string>()
+    const efforts = reasoning.efforts.map((effort) => {
+      if (
+        typeof effort.id !== 'string'
+        || effort.id.length === 0
+        || typeof effort.name !== 'string'
+        || effort.name.length === 0
+        || (effort.description !== undefined && typeof effort.description !== 'string')
+        || seen.has(effort.id)
+      ) {
+        throw new LlmError(
+          `adapter returned invalid or duplicate reasoning effort metadata for provider "${provider}" model "${model}"`,
+          'INVALID_MODEL_REASONING',
+        )
+      }
+      seen.add(effort.id)
+      return {
+        id: effort.id,
+        name: effort.name,
+        ...effort.description === undefined ? {} : { description: effort.description },
+      }
+    })
+    if (reasoning.defaultEffort !== undefined && !seen.has(reasoning.defaultEffort)) {
+      throw new LlmError(
+        `adapter returned an unknown default reasoning effort for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_REASONING',
+      )
+    }
+    return {
+      efforts,
+      ...reasoning.defaultEffort === undefined ? {} : { defaultEffort: reasoning.defaultEffort },
+    }
+  }
+
+  /**
+   * Validate a conversation call config against its exact model capability and
+   * materialize an adapter-configured default. Unsupported explicit efforts
+   * reject before provider I/O; no clamping or aliasing is performed.
+   * @param config - provider/model route and optional request controls.
+   * @returns a detached config only when a default must be materialized.
+   */
+  async resolveCallConfig(config: LlmCallConfig): Promise<LlmCallConfig> {
+    const reasoning = await this.resolveModelReasoning(config.provider, config.model)
+    const requested = config.reasoningEffort
+    if (reasoning === undefined) {
+      if (requested !== undefined) {
+        throw new LlmError(
+          `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${requested}"`,
+          'UNSUPPORTED_REASONING_EFFORT',
+        )
+      }
+      return config
+    }
+    const effective = requested ?? reasoning.defaultEffort
+    if (effective === undefined) return config
+    if (!reasoning.efforts.some(effort => effort.id === effective)) {
+      throw new LlmError(
+        `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
+        'UNSUPPORTED_REASONING_EFFORT',
+      )
+    }
+    return requested === effective ? config : { ...config, reasoningEffort: effective }
+  }
+
   private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {
     const registration = this.adapters.get(provider)
     if (!registration) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
@@ -298,8 +398,14 @@ export class LlmService extends Service {
   ): AsyncGenerator<StreamChunk> {
     let iterator: AsyncIterator<StreamChunk>
     try {
-      const adapter = this.registration(options.provider).adapter
-      const stream = adapter.stream(this.forAdapter(options, adapter))
+      const resolvedConfig = await this.resolveCallConfig(options)
+      const resolvedOptions = callConfigEquals(options, resolvedConfig)
+        ? options
+        : Object.isFrozen(options)
+          ? deepFreeze({ ...options, ...resolvedConfig })
+          : { ...options, ...resolvedConfig }
+      const adapter = this.registration(resolvedOptions.provider).adapter
+      const stream = adapter.stream(this.forAdapter(resolvedOptions, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {
       throw markLlmAdapterFailure(failures, error)

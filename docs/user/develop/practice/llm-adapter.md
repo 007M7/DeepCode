@@ -110,7 +110,9 @@ async function* exampleChunks(): AsyncIterable<StreamChunk> {
 
 ## GenerateOptions
 
-`stream()` receives the exported `GenerateOptions` type. It includes the model, conversation history, system prompt, tool schemas, generation parameters, stop sequences, and abort signal; treat the TypeScript type exported by `@deepseek-ai/dsh-llm` as authoritative. Map supported fields to the provider API. If the provider cannot honor a field, throw `LlmError` with a stable code instead of silently dropping it.
+`stream()` receives the exported `GenerateOptions` type. It includes the model, adapter-owned reasoning-effort id, conversation history, system prompt, tool schemas, generation parameters, stop sequences, and abort signal; treat the TypeScript type exported by `@deepseek-ai/dsh-llm` as authoritative. Map supported fields to the provider API. If the provider cannot honor a field, throw `LlmError` with a stable code instead of silently dropping it.
+
+Override `resolveModelReasoning(provider, model)` when an exact model exposes selectable reasoning strengths. Return ordered opaque ids and display names plus an optional configured default; do not promote provider names into a core enum. The service validates the metadata and rejects unsupported explicit values before `stream()`. Returning `undefined` means that model has no selectable reasoning-effort capability.
 
 ## Register an adapter
 

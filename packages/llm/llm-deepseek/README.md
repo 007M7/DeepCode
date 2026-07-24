@@ -15,7 +15,7 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
     apiKey: !!js process.env.DEEPSEEK_API_KEY    # or rely on the env fallback
     baseURL: !!js process.env.DEEPSEEK_BASE_URL  # default: https://api.deepseek.com
     thinking: enabled        # optional; provider default is enabled
-    reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
+    reasoningEffort: high    # optional; high | max — omitted ⇒ high
     streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
     defaultContextWindow: 256000 # optional positive-integer fallback for models without an exact value
     models:                  # optional; defaults to V4 Flash and V4 Pro
@@ -30,9 +30,9 @@ The plugin registers the single provider route `deepseek`. A request selects it 
 
 `contextWindow` is optional per configured model and is not exposed through the advisory catalog. `ctx.llm.resolveModelContext('deepseek', model)` returns an exact model value first, then `defaultContextWindow` for an entry without capacity or an unlisted pass-through id. When neither value exists it returns `undefined` without invalidating routing. Pressure-sensitive plugins therefore get deployment-owned capacity without treating the model selector as authoritative. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
 
-`reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort` wire field is not sent and the server applies its own default for the model. The only accepted values are `high` and `max` (DeepSeek's official effort levels). It is meaningful only with thinking enabled (the provider default).
+`ctx.llm.resolveModelReasoning('deepseek', model)` returns the ordered `high` and `max` efforts for every pass-through model while thinking is enabled. `reasoningEffort` selects the deployment default and falls back to `high` when omitted. `agent/request` can replace it on each conversation step; the resolved value is logged in `request/header` and serialized as the official top-level `reasoning_effort` field. An unsupported value fails with `UNSUPPORTED_REASONING_EFFORT` before network I/O.
 
-`thinking`/`reasoningEffort` are adapter-level request defaults serialized as the official top-level `thinking: {type}` / `reasoning_effort` wire fields. They live in adapter config (not `GenerateOptions`) to keep the core vocabulary provider-neutral. A request with `GenerateOptions.purpose: 'session-title'` forces thinking disabled and omits `reasoning_effort`, reserving its bounded output for visible title text without changing conversation or compaction defaults.
+`thinking: disabled` removes the reasoning capability and omits `reasoning_effort`; combining it with a configured default fails plugin loading, and a per-request effort fails as unsupported. A request with `GenerateOptions.purpose: 'session-title'` also forces thinking disabled and omits the already-resolved effort, reserving its bounded output for visible title text without changing conversation or compaction defaults.
 
 `streamIdleTimeoutMs` bounds each outstanding provider read, including the initial `fetch`, without counting time the consumer spends between chunks. One stable abort signal reaches the request and body reader for the whole call; expiry stops the transport and throws `LlmError('TIMEOUT')`, while an earlier caller abort throws `LlmError('ABORTED')`. The adapter makes exactly one provider request per `stream()` call; agent-level retry is a separate plugin policy.
 
@@ -79,7 +79,7 @@ Reasoning, text, and raw-string tool arguments are translated into harness chunk
 
 #### Token effect
 
-Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input.
+Generated tokens follow the request's logged reasoning effort and `maxTokens`; only loop-retained blocks affect later input.
 
 #### KV Cache effect
 

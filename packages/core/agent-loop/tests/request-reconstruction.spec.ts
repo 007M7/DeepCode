@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -103,6 +103,81 @@ describe('request stability across the loop', () => {
     expect(adapter.requests).toHaveLength(2)
     expectPrefixExtension(adapter.requests[0]!, adapter.requests[1]!)
   })
+
+  it('logs adapter defaults, supports per-turn effort changes, and restores the effective value', async () => {
+    const reasoning = {
+      efforts: [
+        { id: ReasoningEffortId('high'), name: 'High' },
+        { id: ReasoningEffortId('max'), name: 'Max' },
+      ],
+      defaultEffort: ReasoningEffortId('high'),
+    }
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')], reasoning)
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('effort'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/request', async (_agent, turn, _step, _config, _signal, next) => {
+      const config = await next()
+      return turn === 2 ? { ...config, reasoningEffort: ReasoningEffortId('max') } : config
+    })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests.map(request => request.reasoningEffort)).toEqual([
+      ReasoningEffortId('high'),
+      ReasoningEffortId('max'),
+    ])
+    const headers = agent.session.events.filter(event => event.type === 'request/header')
+    expect(headers.map(event => event.data.header.config.reasoningEffort)).toEqual([
+      ReasoningEffortId('high'),
+      ReasoningEffortId('max'),
+    ])
+    expect(headers.map(event => event.data.reason)).toEqual(['initial', 'change'])
+
+    const resumedAdapter = new MockAdapter([textResponse('three')], reasoning)
+    const resumedCtx = await harness(resumedAdapter)
+    const resumedHandle = await resumedCtx.agents.create({
+      sessionId: SessionId('effort-resumed'),
+      seed: structuredClone(agent.session.events),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    send(resumedHandle.agent, 'third')
+    await waitForIdle(resumedCtx, resumedHandle.agent)
+
+    expect(resumedAdapter.requests[0]?.reasoningEffort).toBe(ReasoningEffortId('max'))
+    const resumedHeaders = resumedHandle.agent.session.events.filter(event => event.type === 'request/header')
+    expect(resumedHeaders.at(-1)?.data.header.config.reasoningEffort).toBe(ReasoningEffortId('max'))
+    expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
+  })
+
+  it.each(['plain error', 'LLM error'] as const)(
+    'does not swallow a %s from reasoning resolution',
+    async (kind) => {
+      const failure = kind === 'plain error'
+        ? new Error('reasoning metadata failed')
+        : new LlmError('unsupported effort', 'UNSUPPORTED_REASONING_EFFORT')
+      const adapter = new class extends MockAdapter {
+        override resolveModelReasoning(): Promise<never> {
+          return Promise.reject(failure)
+        }
+      }([])
+      const ctx = await harness(adapter)
+      const errors: Error[] = []
+      ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+      const agent = ctx.agentLoop.create(SessionId(`reasoning-${kind}`), {
+        provider: 'mock',
+        model: 'mock',
+      })
+
+      send(agent, 'go')
+      await waitForIdle(ctx, agent)
+
+      expect(errors).toContain(failure)
+      expect(adapter.requests).toHaveLength(0)
+    },
+  )
 
   it('a compaction replace rewrites the resend, and the log explains it', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
@@ -301,6 +376,7 @@ describe('request stability across the loop', () => {
       const firstChunk = events.find(e => e.type === 'assistant/chunk' && e.seq > stepStart.seq)!
       const header = foldRequestHeader(events.slice(0, firstChunk.seq))!
       expect(request.model).toBe(header.config.model)
+      expect(request.reasoningEffort).toBe(header.config.reasoningEffort)
       expect(request.system).toEqual(header.system)
       expect(structuredClone(request.tools ?? [])).toEqual(structuredClone(header.tools ?? []))
       expect(request.temperature).toBe(header.config.temperature)

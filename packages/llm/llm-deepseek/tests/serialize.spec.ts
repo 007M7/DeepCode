@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { serializeMessages, serializeRequest } from '../src/serialize.ts'
 
@@ -174,15 +174,22 @@ describe('serializeRequest', () => {
     expect(wire.tools).toBeUndefined()
   })
 
-  it('applies adapter defaults for thinking and effort', () => {
-    const wire = serializeRequest(request({ messages: history }), { thinking: 'enabled', reasoningEffort: 'max' })
+  it('maps adapter-default thinking and the request reasoning effort', () => {
+    const wire = serializeRequest(
+      request({ messages: history, reasoningEffort: ReasoningEffortId('max') }),
+      { thinking: 'enabled', reasoningEffort: 'high' },
+    )
     expect(wire.thinking).toEqual({ type: 'enabled' })
     expect(wire.reasoning_effort).toBe('max')
   })
 
   it('disables thinking for session-title requests without changing adapter defaults', () => {
     const wire = serializeRequest(
-      request({ messages: history, purpose: 'session-title' }),
+      request({
+        messages: history,
+        purpose: 'session-title',
+        reasoningEffort: ReasoningEffortId('max'),
+      }),
       { thinking: 'enabled', reasoningEffort: 'max' },
     )
     expect(wire.thinking).toEqual({ type: 'disabled' })
@@ -193,6 +200,13 @@ describe('serializeRequest', () => {
     const wire = serializeRequest(request({ messages: history }))
     expect(wire.thinking).toBeUndefined()
     expect(wire.reasoning_effort).toBeUndefined()
+  })
+
+  it('rejects an effort outside the DeepSeek capability', () => {
+    expect(() => serializeRequest(request({
+      messages: history,
+      reasoningEffort: ReasoningEffortId('medium'),
+    }))).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_REASONING_EFFORT' }))
   })
 })
 

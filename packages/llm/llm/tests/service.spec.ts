@@ -11,9 +11,15 @@ import LlmService, {
   LlmError,
   llmFailureOf,
   ProviderRequestId,
+  ReasoningEffortId,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type {
+  LlmModelContext,
+  LlmModelInfo,
+  LlmModelReasoningInfo,
+  LlmProviderInfo,
+} from '@deepseek-ai/dsh-llm'
 
 class ScriptedAdapter extends LlmAdapter {
   constructor(private script: StreamChunk[]) {
@@ -49,6 +55,7 @@ class CatalogAdapter extends ScriptedAdapter {
     private readonly provider: LlmProviderInfo,
     private readonly models: readonly LlmModelInfo[],
     private readonly contexts: Readonly<Record<string, LlmModelContext>> = {},
+    private readonly reasoning: Readonly<Record<string, LlmModelReasoningInfo>> = {},
   ) {
     super(SCRIPT)
   }
@@ -66,6 +73,13 @@ class CatalogAdapter extends ScriptedAdapter {
     model: string,
   ): Promise<LlmModelContext | undefined> {
     return Promise.resolve(this.contexts[model])
+  }
+
+  override resolveModelReasoning(
+    _provider: string,
+    model: string,
+  ): Promise<LlmModelReasoningInfo | undefined> {
+    return Promise.resolve(this.reasoning[model])
   }
 }
 
@@ -672,6 +686,117 @@ describe('LlmService', () => {
     source.contextWindow = 64_000
     expect(resolved).toEqual({ contextWindow: 32_000 })
     await expect(ctx.llm.resolveModelContext('route', 'other')).resolves.toBeUndefined()
+  })
+
+  it('resolves detached adapter-owned reasoning metadata and materializes its default', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const source = {
+      efforts: [
+        { id: ReasoningEffortId('standard'), name: 'Standard' },
+        { id: ReasoningEffortId('ultra'), name: 'Ultra', description: 'Largest budget' },
+      ],
+      defaultEffort: ReasoningEffortId('standard'),
+    }
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      { model: source },
+    ))
+
+    const resolved = await ctx.llm.resolveModelReasoning('route', 'model')
+    expect(resolved).toEqual(source)
+    source.efforts[0]!.name = 'mutated'
+    expect(resolved?.efforts[0]?.name).toBe('Standard')
+    await expect(ctx.llm.resolveCallConfig({ provider: 'route', model: 'model' })).resolves.toEqual({
+      provider: 'route',
+      model: 'model',
+      reasoningEffort: ReasoningEffortId('standard'),
+    })
+    const explicit = { provider: 'route', model: 'model', reasoningEffort: ReasoningEffortId('ultra') }
+    await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+  })
+
+  it.each([
+    [{ efforts: [] }, 'empty effort list'],
+    [{ efforts: [{ id: '', name: 'Empty' }] }, 'empty id'],
+    [{ efforts: [{ id: 'valid', name: '' }] }, 'empty name'],
+    [{ efforts: [{ id: 'valid', name: 'Valid', description: 1 }] }, 'non-string description'],
+    [{ efforts: [{ id: 'same', name: 'One' }, { id: 'same', name: 'Two' }] }, 'duplicate id'],
+    [{ efforts: [{ id: 'valid', name: 'Valid' }], defaultEffort: 'other' }, 'unknown default'],
+  ] as const)('rejects invalid model reasoning metadata (%s: %s)', async (metadata, _label) => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      { model: metadata as unknown as LlmModelReasoningInfo },
+    ))
+    await expect(ctx.llm.resolveModelReasoning('route', 'model'))
+      .rejects.toMatchObject({ code: 'INVALID_MODEL_REASONING' })
+  })
+
+  it('rejects unsupported reasoning efforts without clamping', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      { model: { efforts: [{ id: ReasoningEffortId('ultra'), name: 'Ultra' }] } },
+    ))
+
+    await expect(ctx.llm.resolveCallConfig({
+      provider: 'route',
+      model: 'model',
+      reasoningEffort: ReasoningEffortId('standard'),
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    await expect(ctx.llm.resolveCallConfig({
+      provider: 'route',
+      model: 'plain',
+      reasoningEffort: ReasoningEffortId('standard'),
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+  })
+
+  it('resolves reasoning defaults at the final adapter boundary after routing middleware', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const adapter = new class extends RecordingAdapter {
+      override resolveModelReasoning(
+        _provider: string,
+        _model: string,
+      ): Promise<LlmModelReasoningInfo> {
+        return Promise.resolve({
+          efforts: [{ id: ReasoningEffortId('standard'), name: 'Standard' }],
+          defaultEffort: ReasoningEffortId('standard'),
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['routed'], adapter)
+    const disposeRouting = ctx.on('llm/stream', (options, next) => {
+      options.provider = 'routed'
+      return next()
+    })
+
+    for await (const _chunk of ctx.llm.stream({
+      provider: 'initial',
+      model: 'model',
+      messages: [],
+    })) { /* drain */ }
+
+    expect(adapter.lastOptions?.reasoningEffort).toBe(ReasoningEffortId('standard'))
+    disposeRouting()
+
+    const frozenRequest: GenerateOptions = Object.freeze({
+      provider: 'routed',
+      model: 'model',
+      messages: [],
+    })
+    for await (const _chunk of ctx.llm.stream(frozenRequest)) { /* drain */ }
+    expect(adapter.lastOptions?.reasoningEffort).toBe(ReasoningEffortId('standard'))
+    expect(Object.isFrozen(adapter.lastOptions)).toBe(true)
   })
 
   it.each([0, -1, 1.5, Number.NaN])(

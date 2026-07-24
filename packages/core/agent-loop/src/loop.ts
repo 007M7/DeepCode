@@ -621,19 +621,43 @@ async function runStep(
 
   // Seed the first request from agent options and later requests from the logged header;
   // detach and freeze so listeners must return an attributable replacement.
-  const seedConfig: LlmCallConfig = deepFreeze(structuredClone(transmission.loggedHeader
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
-    ? session.requestHeader()!.config
-    : { provider: options.provider ?? '', model: options.model ?? '' }))
+  const loggedConfig = session.requestHeader()?.config
+  const initialProvider = options.provider ?? ''
+  const initialModel = options.model ?? ''
+  const initialConfig: LlmCallConfig = {
+    provider: initialProvider,
+    model: initialModel,
+    ...loggedConfig?.provider === initialProvider
+      && loggedConfig.model === initialModel
+      && loggedConfig.reasoningEffort !== undefined
+      ? { reasoningEffort: loggedConfig.reasoningEffort }
+      : {},
+  }
+  const seedConfig: LlmCallConfig = deepFreeze(structuredClone(
+    transmission.loggedHeader
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
+      ? session.requestHeader()!.config
+      : initialConfig,
+  ))
 
   // Listener replacements are recorded in the request header before dispatch.
-  const config = await events.waterfall(
+  const proposedConfig = await events.waterfall(
     'agent/request', turn, step, seedConfig, signal, () => Promise.resolve(seedConfig),
   )
   interruptionCheckpoint(signal)
-  if (!config.provider || !config.model) {
+  if (!proposedConfig.provider || !proposedConfig.model) {
     throw new Error(`agent "${agent.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
   }
+  let config: LlmCallConfig
+  try {
+    config = await ctx.llm.resolveCallConfig(proposedConfig)
+  } catch (error: unknown) {
+    // A waterfall listener may own and short-circuit a route with no adapter.
+    // Terminal dispatch still raises NO_ADAPTER when no listener handles it.
+    if (!(error instanceof LlmError) || error.code !== 'NO_ADAPTER') throw error
+    config = proposedConfig
+  }
+  interruptionCheckpoint(signal)
 
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
   const sessionPrefix = transmission.sessionPrefix!
@@ -651,6 +675,9 @@ async function runStep(
   const request: GenerateOptions = markAgentLoopRequest(deepFreeze({
     provider: header.config.provider,
     model: header.config.model,
+    ...header.config.reasoningEffort !== undefined
+      ? { reasoningEffort: header.config.reasoningEffort }
+      : {},
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
     ...header.system !== undefined ? { system: header.system } : {},
     ...header.tools !== undefined ? { tools: header.tools } : {},

@@ -12,6 +12,8 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 - `ctx.llm.listProviders(): LlmProviderInfo[]` Describe registered provider routes in registration order.
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` Discover the models one registered provider currently advertises.
 - `ctx.llm.resolveModelContext(provider: string, model: string): Promise<LlmModelContext | undefined>` Resolve authoritative context capacity for one exact route from its owning adapter.
+- `ctx.llm.resolveModelReasoning(provider: string, model: string): Promise<LlmModelReasoningInfo | undefined>` Resolve ordered adapter-owned reasoning efforts and an optional deployment default for one exact route.
+- `ctx.llm.resolveCallConfig(config: LlmCallConfig): Promise<LlmCallConfig>` Validate an explicit effort and materialize an adapter-configured default without clamping.
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
 `LlmService` preserves errors from final adapter selection, synchronous dispatch, iterator construction, and iteration, and binds their provenance to the exact stream handle returned for that model call. `isLlmAdapterFailure(stream, value)` reports only errors from that call's final adapter boundary; `llmFailureOf(stream, value)` returns the adjacent immutable `LlmFailure`. Nested model calls, `llm/stream` middleware, and downstream consumer failures remain unclassified for the outer call. Classification never replaces or mutates the adapter's original coded `Error`.
@@ -19,6 +21,8 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 Provider and model metadata is a discovery surface, not a routing whitelist. `registerAdapter()` still owns provider exclusivity, while an adapter may accept model ids absent from `listModels()`; consumers must not reject a request because its model is unlisted. Returned metadata is detached and invalid or duplicate adapter entries fail with `INVALID_ADAPTER` or `INVALID_CATALOG`.
 
 Context capacity is a separate correctness query, not a catalog decoration or global LLM setting. `resolveModelContext()` asks the adapter that owns the exact provider/model route; an adapter can describe an unlisted dynamic model, and `undefined` means only that capacity is unavailable. Invalid returned capacity fails with `INVALID_MODEL_CONTEXT`.
+
+Reasoning effort is also an exact-route capability, but its identifiers are opaque adapter-owned strings rather than a core enum. `resolveModelReasoning()` validates and detaches the ordered display metadata; `undefined` means the model has no selectable effort. `resolveCallConfig()` accepts only an exact advertised identifier, materializes `defaultEffort` when present, and otherwise preserves the provider default. Invalid capability metadata fails with `INVALID_MODEL_REASONING`; an unsupported explicit or configured effort fails with `UNSUPPORTED_REASONING_EFFORT` before provider I/O.
 
 ### Events
 
@@ -28,7 +32,7 @@ Context capacity is a separate correctness query, not a catalog decoration or gl
 
 ### Extension points
 
-- Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically. Override `providerInfo()` and asynchronous `listModels()` to expose selector metadata, and `resolveModelContext()` when exact capacity is known; the defaults use the route id as its name, advertise no models, and return no capacity.
+- Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically. Override `providerInfo()` and asynchronous `listModels()` to expose selector metadata, `resolveModelContext()` when exact capacity is known, and `resolveModelReasoning()` when a model exposes selectable efforts; the defaults use the route id as its name, advertise no models, and return neither capacity nor reasoning metadata.
 - Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, logging, or routing. A wrapper that retries after emitting a chunk has no durable attempt boundary; shipped agent retry policy therefore uses `agent/request-error` instead.
 
 ### Content-block vocabulary (`types.ts`)
@@ -39,7 +43,7 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 
 ### Call configuration (`call-config.ts`)
 
-`LlmCallConfig` is the provider + model + sampling scalars of one conversation's requests (`provider`, `model`, `temperature`, `maxTokens`, `stop` — each mapping 1:1 onto the same-named `GenerateOptions` field). It is per-conversation state recorded in the session log as part of the request header (see the dsh-session `request/header` events), never a silently-adjustable per-call knob: the `agent/request` waterfall proposes a replacement and the loop logs a real change. `callConfigEquals(a, b)` is the field-wise real-change detector; `deepFreeze(value)` is the ownership helper the loop applies to every built request before dispatch (`llm/stream` listeners and adapters read, never rewrite). `markAgentLoopRequest()` gives that exact object process-local loop provenance, and `isAgentLoopRequest()` lets observers distinguish it from independently logged auxiliary calls that may also be frozen and session-associated. `GenerateOptions.purpose` classifies logged auxiliary compaction and session-title calls so adapters can apply purpose-specific transport policy without changing ordinary conversation requests.
+`LlmCallConfig` is the provider, model, optional adapter-owned reasoning effort, and sampling scalars of one conversation's requests (`provider`, `model`, `reasoningEffort`, `temperature`, `maxTokens`, `stop` — each mapping 1:1 onto the same-named `GenerateOptions` field). It is per-conversation state recorded in the session log as part of the request header (see the dsh-session `request/header` events), never a silently-adjustable per-call knob: the `agent/request` waterfall proposes a replacement, `resolveCallConfig()` validates and defaults it, and the loop logs the effective value before dispatch. `callConfigEquals(a, b)` is the field-wise real-change detector; `deepFreeze(value)` is the ownership helper the loop applies to every built request before dispatch (`llm/stream` listeners and adapters read, never rewrite). `markAgentLoopRequest()` gives that exact object process-local loop provenance, and `isAgentLoopRequest()` lets observers distinguish it from independently logged auxiliary calls that may also be frozen and session-associated. `GenerateOptions.purpose` classifies logged auxiliary compaction and session-title calls so adapters can apply purpose-specific transport policy without changing ordinary conversation requests.
 
 ### App attribution (`attribution.ts`)
 
@@ -61,7 +65,7 @@ Two adapters implement `LlmAdapter` on different internals: [`@deepseek-ai/dsh-l
 
 ## Model Experience
 
-None, as this adapter registry forwards an already assembled request without adding or changing any model-bound text, schema, or message.
+None, as the service adds no model-bound text, schema, or message; it only materializes and logs an adapter-configured reasoning effort.
 
 #### KV Cache effect
 
