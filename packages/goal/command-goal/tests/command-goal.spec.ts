@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
@@ -26,7 +26,7 @@ function nextTurn(session: Session): number {
 }
 
 /** Append one idle injection using the public Agent contract's balanced shape. */
-function appendInjection(session: Session, content: ContentBlock[], options?: AliasSendOptions): void {
+function appendInjection(session: Session, content: ContentBlock[], options?: InjectOptions): void {
   const source: MessageSource = options?.source ?? { kind: 'plugin', plugin: '' }
   const turn = nextTurn(session)
   session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
@@ -49,7 +49,7 @@ function stubAgent(id: string): { agent: Agent; session: Session } {
     ctx: new Context(),
     get status() { return status },
     send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content, options) { appendInjection(session, content, options); return AgentMessageId('stub') },
     cancel() { status = 'idle' },

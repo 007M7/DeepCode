@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
 import { HarnessError, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import GoalService, {
@@ -15,7 +15,7 @@ import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-
 
 interface DeferredInjection {
   content: ContentBlock[]
-  options: AliasSendOptions | undefined
+  options: InjectOptions | undefined
 }
 
 interface StubAgent {
@@ -33,7 +33,7 @@ function nextTurn(session: Session): number {
 }
 
 /** Mirror the public Agent.inject idle/open-turn contract for domain tests. */
-function appendInjection(session: Session, content: ContentBlock[], options?: AliasSendOptions): void {
+function appendInjection(session: Session, content: ContentBlock[], options?: InjectOptions): void {
   const source: MessageSource = options?.source ?? { kind: 'plugin', plugin: '' }
   const context = {
     content,
@@ -65,7 +65,7 @@ function stubAgentForSession(session: Session): StubAgent {
     ctx: new Context(),
     get status() { return status },
     send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content, options) {
       if (shouldDefer) deferred.push({ content, options })

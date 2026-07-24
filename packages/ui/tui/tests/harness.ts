@@ -155,7 +155,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       sentOptions.push(options)
       return AgentMessageId('stub')
     },
-    followup(content, options) {
+    queue(content, options) {
       sent.push(content)
       sentOptions.push(options)
       return AgentMessageId('stub')

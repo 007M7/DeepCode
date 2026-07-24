@@ -35,7 +35,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   const scope = ctx.plugin(() => {})
   return {
     id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
-    send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+    send: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 

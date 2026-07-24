@@ -178,7 +178,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     session,
     status: 'idle',
     send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content, options) {
       session.append('user/message', {

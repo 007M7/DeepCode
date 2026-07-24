@@ -481,11 +481,11 @@ describe('same-session goal driving', () => {
 
   it('blocks the goal when a custom agent rejects the otherwise valid send', async () => {
     const test = await harness([])
-    // inject shares send, so reject only the round send (a goal-sourced
-    // next-turn item), not the goal state-change injection that precedes it.
+    // Reject only the goal-sourced round send, not the state-change injection
+    // that precedes it.
     const realSend = test.agent.send.bind(test.agent)
     vi.spyOn(test.agent, 'send').mockImplementation((content, options) => {
-      if (options?.source?.kind === 'goal' && (options.target ?? 'next-turn') === 'next-turn') {
+      if (options?.source?.kind === 'goal') {
         throw new Error('queue rejected')
       }
       return realSend(content, options)
@@ -506,7 +506,7 @@ describe('same-session goal driving', () => {
     const test = await harness([])
     const realSend = test.agent.send.bind(test.agent)
     vi.spyOn(test.agent, 'send').mockImplementation((content, options) => {
-      if (options?.source?.kind === 'goal' && (options.target ?? 'next-turn') === 'next-turn') {
+      if (options?.source?.kind === 'goal') {
         test.ctx.goals.disarm(test.agent)
         throw new Error('queue rejected after disarm')
       }

@@ -3,32 +3,47 @@ import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
-  Agent,
   AgentMessageId,
   agentEvents,
   agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
 
-import type { AgentCancelCause, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type {
+  Agent,
+  AgentCancelCause,
+  AgentFactory,
+  ContinuationStop,
+  CreateAgentOptions,
+  InjectOptions,
+  ResumeAgentOptions,
+  SendOptions,
+} from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
-  // Agent is an abstract class, so its alias methods live on the prototype and
-  // object spread would drop them; build the full literal and merge overrides.
-  return Object.assign(Object.create(Agent.prototype) as Agent, {
+  return {
     id,
     options: {},
     session: new Session(id),
     status: 'idle',
     ctx: new Context(),
     send: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
     ...overrides,
-  })
+  }
 }
 
 describe('AgentRegistry', () => {
+  it('keeps concrete delivery routing out of public options', () => {
+    expectTypeOf<'target' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'wakeup' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'contexts' extends keyof InjectOptions ? true : false>().toEqualTypeOf<false>()
+  })
+
   it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {
     type TurnStopListener = Events['agent/turn-stop']
     type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>

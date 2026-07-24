@@ -43,7 +43,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     status: 'running',
     ctx: new Context(),
     send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content, options) {
       session.append('user/message', {

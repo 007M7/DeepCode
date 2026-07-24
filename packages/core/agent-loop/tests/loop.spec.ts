@@ -539,7 +539,7 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }], { target: 'next-turn', wakeup: true, meta: { prompt: 1 } })
+    agent.send([{ type: 'text', text: 'go' }], { meta: { prompt: 1 } })
     await waitForIdle(ctx, agent)
 
     const user = agent.session.events.find(e => e.type === 'user/message')
