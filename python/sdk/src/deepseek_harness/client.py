@@ -445,7 +445,7 @@ class HarnessClient:
             self._notification_subscribers.pop(subscription_id, None)
 
     def _record_session_relationship_locked(self, notification: Notification) -> None:
-        if notification.method not in {"subagent.started", "subagent.finished"}:
+        if notification.method != "subagent.started":
             return
         parent_id = notification.payload.get("parentSessionId")
         child_id = notification.payload.get("childSessionId")
@@ -461,15 +461,18 @@ class HarnessClient:
     def _notification_belongs_to_session_tree(self, session_id: str) -> NotificationFilter:
         def belongs(notification: Notification) -> bool:
             payload = notification.payload
-            related_ids = (
-                payload.get("sessionId"),
-                payload.get("parentSessionId"),
-                payload.get("childSessionId"),
-            )
-            return any(
+            if notification.method in {"subagent.started", "subagent.finished"}:
+                parent_id = payload.get("parentSessionId")
+                if (
+                    isinstance(parent_id, str)
+                    and self._session_is_descendant_of(parent_id, session_id)
+                ):
+                    return True
+                return payload.get("childSessionId") == session_id
+            related_id = payload.get("sessionId")
+            return (
                 isinstance(related_id, str)
                 and self._session_is_descendant_of(related_id, session_id)
-                for related_id in related_ids
             )
 
         return belongs

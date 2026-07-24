@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-24-recursive-python-sdk-session-notifications.md: c608cfa584e568602d599c7e18ffc36fabbd0186
-2026-07-24-recursive-python-sdk-session-notifications.zh.md: 397669cc13a5c77dabce55209be3cd2f0c7a82ea
+2026-07-24-recursive-python-sdk-session-notifications.md: c90213659391b565acd043a1be64e225f8babd31
+2026-07-24-recursive-python-sdk-session-notifications.zh.md: 214a5ef924dcc9da3a97aab6385837acd2b364d9

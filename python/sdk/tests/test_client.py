@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig
+from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, Notification
 
 
 def test_high_level_sdk_runs_turn_and_collects_final_response(tmp_path: Path) -> None:
@@ -439,6 +439,65 @@ def test_session_subscription_keeps_descendant_relationships_across_subscription
         assert second.next().payload["childSessionId"] == "grandchild"
         assert second.next().payload["sessionId"] == "grandchild"
 
+    assert client._notifications.qsize() == 0
+
+
+def test_session_subscription_preserves_reused_child_ancestry_after_late_finish() -> None:
+    client = HarnessClient()
+    old_seen: list[Notification] = []
+    new_seen: list[Notification] = []
+    with (
+        client.subscribe_session_notifications("old-parent") as old_subscription,
+        client.subscribe_session_notifications("new-parent") as new_subscription,
+    ):
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.started",
+            "params": {"parentSessionId": "old-parent", "childSessionId": "reused-child"},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+        assert [notification.method for notification in old_seen] == ["subagent.started"]
+        assert new_seen == []
+
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.started",
+            "params": {"parentSessionId": "new-parent", "childSessionId": "reused-child"},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+        assert [notification.method for notification in new_seen] == ["subagent.started"]
+
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.finished",
+            "params": {"parentSessionId": "old-parent", "childSessionId": "reused-child"},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+        assert [notification.method for notification in old_seen] == [
+            "subagent.started",
+            "subagent.finished",
+        ]
+        assert [notification.method for notification in new_seen] == ["subagent.started"]
+
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "session.event",
+            "params": {"sessionId": "reused-child", "event": {"type": "assistant/message"}},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+
+    assert [notification.method for notification in old_seen] == [
+        "subagent.started",
+        "subagent.finished",
+    ]
+    assert [notification.method for notification in new_seen] == [
+        "subagent.started",
+        "session.event",
+    ]
     assert client._notifications.qsize() == 0
 
 
