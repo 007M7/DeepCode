@@ -14,9 +14,9 @@ trajectory 标签页需要可复用的步骤行与轮次列表 chrome，以展�
 
 - [`TrajectoryCell`](../../../../packages/client/ui-trajectory/src/client/TrajectoryCell.tsx) — 高 38px 的步骤行，类型为 User / Message / Tool（无 Think、Call、Result 行）。reasoning 块跳过（无块级时钟）。每对 `tool-call` + `tool-result` 折成一行 Tool（`name ·` 加截断参数），Time 在两端皆知时为 `result.time − callTime`。Message 行携带来自 `assistant.usage` 的 Input/Output/Think token 列。自身耗时 Time 使用 `+Ns` / `+N.1s`，缺失时为 `—`。选中态绘制 2px 内嵌的 `--dsw-alias-brand-primary-new-colorprimary-new-color` 环（`selected` prop），且未接线到 chat 选中。
 - [`TrajectoryTurn`](../../../../packages/client/ui-trajectory/src/client/TrajectoryTurn.tsx) / header / group header — 粘性 Turn 条背景通栏铺 `ghost-active-fill`；标题／列标与 Message/Step 主体落在居中的 `max-width: 880px` 内容道。单元格右侧列与 Turn 标头共用几何（`320 = 4×71 + 3×12`）；cell pad 20/8。
-- [`deriveTrajectoryLayout`](../../../../packages/client/ui-trajectory/src/client/layout.ts) 将 assistant `blocks[]` 展开为单元格，按 `callId` 将 tool-call 与 tool-result 配对为 Tool，折叠 `partial` 与 `runningCalls`（去重），仅将用量挂在 Message 上，并以墙钟跨度 + 工具直方图构建分组描述（`1.5s bash×6`）。
+- [`deriveTrajectoryLayout`](../../../../packages/client/ui-trajectory/src/client/layout.ts) 将 assistant `blocks[]` 展开为单元格，按 `callId` 将 tool-call 与 tool-result 配对为 Tool，折叠 `partial` 与 `runningCalls`（去重），仅将用量挂在 Message 上（含无 text 块时的空回退行），并以墙钟跨度 + 工具直方图构建分组描述（`1.5s bash×6`）。`user/message` 无线上 turn，故每条 User 行归入下一 assistant/steering 的 turn，否则归入进行中的 `partial` turn，否则为 `lastAssistantTurn + 1`（或 `1`）。context 节点不产出单元格，但仍推进 Message 耗时游标。
 
-[`ConversationNode`](../../../../packages/client/runtime/src/client/sessions/conversation.ts) 携带来自 `SessionEvent.time` 的 `time`；`ToolResultNode.callTime` 与 `RunningToolCall.time` 来自配对的 `tool/call`。耗时规则：User 为 `+0s`；Message = assistant.time − 上一表面时间；Tool = 在两者皆知时 result.time − callTime；进行中 Tool = `—`。分组标头耗时为组内最早→最晚绝对时间（墙钟跨度；Tool 贡献起点与起点+自身耗时）。
+[`ConversationNode`](../../../../packages/client/runtime/src/client/sessions/conversation.ts) 携带来自 `SessionEvent.time` 的 `time`；`ToolResultNode.callTime` 与 `RunningToolCall.time` 来自配对的 `tool/call`。耗时规则：User 为 `+0s`；Message = assistant.time − 上一表面时间（含跳过的 context）；Tool = 在两者皆知时 result.time − callTime；进行中 Tool = `—`。分组标头耗时为组内最早→最晚绝对时间（墙钟跨度；Tool 贡献起点与起点+自身耗时）。
 
 ## Alternatives considered
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-23-trajectory-step-cell.md: edf31dcc72baa980caf0aa90fb8d5ec53d44346d
-2026-07-23-trajectory-step-cell.zh.md: dbe813d48c3f3ac1c0926e45137624d758109c55
+2026-07-23-trajectory-step-cell.md: 414c3aac856fb5e60f0e4cf42f8e7b410cdf3413
+2026-07-23-trajectory-step-cell.zh.md: aa76b422f165ebf6918b3781fdfe38797a34ba51

@@ -140,4 +140,67 @@ describe('deriveTrajectoryLayout', () => {
     const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
     expect(turns[0]?.groups[0]?.description).toBe('2.9s bash×2')
   })
+
+  it('assigns each user message to its enclosing turn instead of pooling into Turn 1', () => {
+    const nodes = [
+      { kind: 'user', seq: 1, time: 1_000, content: [{ type: 'text', text: 'first' }], source: null },
+      {
+        kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 0,
+        blocks: [{ kind: 'text', text: 'ok1' }],
+      },
+      { kind: 'user', seq: 3, time: 3_000, content: [{ type: 'text', text: 'second' }], source: null },
+      {
+        kind: 'assistant', seq: 4, time: 4_000, turn: 2, step: 0,
+        blocks: [{ kind: 'text', text: 'ok2' }],
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    expect(turns.map((t) => t.turn)).toEqual([1, 2])
+    expect(turns[0]?.groups.flatMap((g) => g.cells.map((c) => c.text))).toEqual(['first', 'ok1'])
+    expect(turns[1]?.groups.flatMap((g) => g.cells.map((c) => c.text))).toEqual(['second', 'ok2'])
+  })
+
+  it('keeps usage on the fallback Message row when assistant has no text block', () => {
+    const nodes = [
+      {
+        kind: 'assistant', seq: 1, time: 5_000, turn: 1, step: 0,
+        blocks: [{ kind: 'reasoning', text: '…' }],
+        usage: { inputTokens: 11, outputTokens: 22, reasoningTokens: 3 },
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const message = turns[0]?.groups.flatMap((g) => g.cells).find((c) => c.kind === 'message')
+    expect(message).toMatchObject({
+      text: '', input: 11, output: 22, think: 3,
+    })
+  })
+
+  it('advances the duration cursor over context nodes', () => {
+    const nodes = [
+      { kind: 'user', seq: 1, time: 1_000, content: [{ type: 'text', text: 'hi' }], source: null },
+      {
+        kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1,
+        blocks: [{ kind: 'tool-call', callId: 'c1', name: 'bash', argsRaw: '{}' }],
+      },
+      {
+        kind: 'tool-result', seq: 3, time: 3_000, callId: 'c1',
+        call: { name: 'bash', argsRaw: '{}' }, callTime: 2_100,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+      {
+        kind: 'context', seq: 4, time: 9_000,
+        content: [{ type: 'text', text: 'extra' }], source: null,
+      },
+      {
+        kind: 'assistant', seq: 5, time: 10_000, turn: 1, step: 0,
+        blocks: [{ kind: 'text', text: 'done' }],
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const message = turns[0]?.groups
+      .flatMap((g) => g.cells)
+      .find((c) => c.kind === 'message' && c.text === 'done')
+    // From context at 9s, not from the earlier user/tool surfaces.
+    expect(message?.timeSeconds).toBe(1)
+  })
 })

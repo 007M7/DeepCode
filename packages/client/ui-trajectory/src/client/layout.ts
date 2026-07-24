@@ -54,6 +54,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   const turns = new Map<number, { message: LaidCell[]; steps: Map<number, LaidCell[]> }>()
   let index = 0
   let prevAbsTime: number | null = null
+  let lastAssistantTurn: number | null = null
 
   const bucket = (turn: number) => {
     let entry = turns.get(turn)
@@ -74,9 +75,16 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     steps.set(step, list)
   }
 
-  for (const node of nodes) {
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    /* v8 ignore next -- dense-array guard: i stays within nodes.length, so the undefined arm needs a sparse array no caller builds. */
+    if (node === undefined) continue
     if (node.kind === 'user' || node.kind === 'steering') {
-      const turn = node.kind === 'steering' ? node.turn : 0
+      // user/message has no turn on the wire; enclose it in the next assistant
+      // (or partial) turn, else open the turn after the last assistant.
+      const turn = node.kind === 'steering'
+        ? node.turn
+        : enclosingUserTurn(nodes, i, partial, lastAssistantTurn)
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
@@ -95,6 +103,12 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       }
       const last = laidList[laidList.length - 1]
       if (last !== undefined) index = last.cell.index
+      prevAbsTime = finiteTime(node.time) ?? prevAbsTime
+      lastAssistantTurn = node.turn
+      continue
+    }
+    if (node.kind === 'context') {
+      // No trajectory cell, but the surface still advances the duration cursor.
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
       continue
     }
@@ -149,6 +163,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     })
   }
 
+  // Orphan turn-0 cells (orphaned tools / steering turn 0) fold into Turn 1.
   const prologue = turns.get(0)
   if (prologue !== undefined) {
     turns.delete(0)
@@ -269,11 +284,9 @@ function expandAssistant(
         index: ++index, kind: 'message', text: summarizeText(block.text),
         timeSeconds: messageDuration,
       }
-      if (!usageAttached && usage !== undefined) {
-        if (usage.inputTokens !== undefined) cell.input = usage.inputTokens
-        if (usage.outputTokens !== undefined) cell.output = usage.outputTokens
-        if (usage.reasoningTokens !== undefined) cell.think = usage.reasoningTokens
-        usageAttached = true
+      if (!usageAttached) {
+        attachUsage(cell, usage)
+        usageAttached = usage !== undefined
       }
       out.push({ absTime: nodeAbs, cell })
       continue
@@ -302,12 +315,43 @@ function expandAssistant(
   }
 
   if (out.length === 0 && !streaming) {
-    out.push({
-      absTime: nodeAbs,
-      cell: { index: ++index, kind: 'message', text: '', timeSeconds: messageDuration },
-    })
+    // Reasoning-only / empty success still owns provider usage on the Message row.
+    const cell: TrajectoryCellProps = {
+      index: ++index, kind: 'message', text: '', timeSeconds: messageDuration,
+    }
+    attachUsage(cell, usage)
+    out.push({ absTime: nodeAbs, cell })
   }
   return out
+}
+
+/**
+ * Turn that encloses a user/message: next assistant/steering turn, else the
+ * in-flight partial, else the turn after the last finalized assistant (or 1).
+ */
+function enclosingUserTurn(
+  nodes: ConversationSnapshot['nodes'],
+  userIndex: number,
+  partial: ConversationSnapshot['partial'],
+  lastAssistantTurn: number | null,
+): number {
+  for (let i = userIndex + 1; i < nodes.length; i++) {
+    const n = nodes[i]
+    /* v8 ignore next -- dense-array guard: i stays within nodes.length, so the undefined arm needs a sparse array no caller builds. */
+    if (n === undefined) continue
+    if (n.kind === 'assistant' || n.kind === 'steering') return n.turn
+  }
+  if (partial !== null) return partial.turn
+  if (lastAssistantTurn !== null) return lastAssistantTurn + 1
+  return 1
+}
+
+/** Copy provider usage onto a Message cell when present. */
+function attachUsage(cell: TrajectoryCellProps, usage: UsageLike | undefined): void {
+  if (usage === undefined) return
+  if (usage.inputTokens !== undefined) cell.input = usage.inputTokens
+  if (usage.outputTokens !== undefined) cell.output = usage.outputTokens
+  if (usage.reasoningTokens !== undefined) cell.think = usage.reasoningTokens
 }
 
 function indexResults(nodes: ConversationSnapshot['nodes']): Map<string, ToolResultNode> {
