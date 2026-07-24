@@ -42,7 +42,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.send([{
+    agent.followup([{
       type: 'text',
       text: 'Use cordis_mount to mount a plugin that listens to the \'agent/status\' '
         + 'cordis event and logs every change with console.log. Reply "mounted" once done.',
@@ -58,7 +58,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     })
     expect(resultText(mid)).toContain('dyn-')
 
-    agent.send([{ type: 'text', text: 'Now unmount the plugin you just mounted.' }])
+    agent.followup([{ type: 'text', text: 'Now unmount the plugin you just mounted.' }])
     await waitForIdle(ctx, agent)
 
     const after = await ctx.tools.execute({
@@ -72,7 +72,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-selftool'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.send([{
+    agent.followup([{
       type: 'text',
       text: 'Give yourself a new tool: use cordis_mount to mount a plugin with '
         + 'inject ["tools"] that calls harness.registerTool(ctx, harness.defineTool({...})) '
@@ -119,7 +119,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.send([{
+    agent.followup([{
       type: 'text',
       text: 'Mount TWO separate plugins with cordis_mount. First a provider: apply calls '
         + 'ctx.provide(\'shouter\', { shout: (s) => s.toUpperCase() }). Second a consumer with '
@@ -144,7 +144,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
       .flatMap(event => event.data.content.filter(block => block.type === 'text').map(block => block.text))
     expect(shoutResults.some(text => text.includes('QUIET'))).toBe(true)
 
-    agent.send([{ type: 'text', text: 'Now unmount ONLY the provider plugin (the one that provided shouter).' }])
+    agent.followup([{ type: 'text', text: 'Now unmount ONLY the provider plugin (the one that provided shouter).' }])
     await waitForIdle(ctx, agent)
 
     // The consumer must have been parked by cordis itself: service gone,

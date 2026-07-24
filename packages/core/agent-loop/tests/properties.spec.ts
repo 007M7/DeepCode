@@ -115,7 +115,7 @@ describe('agent loop scheduling properties', () => {
           const { seen: trace } = recordStatus(ctx, agent)
           const idle = nextIdle(ctx, agent)
           // Send all in one synchronous tick: they queue before the loop wakes.
-          for (const text of texts) agent.send([{ type: 'text', text }])
+          for (const text of texts) agent.followup([{ type: 'text', text }])
           await idle
 
           // No message lost: every send appears as a user/message, in order.
@@ -142,7 +142,7 @@ describe('agent loop scheduling properties', () => {
           const agent = ctx.agentLoop.create(SessionId('a'), { provider: 'mock', model: 'mock' })
           for (const text of texts) {
             const idle = nextIdle(ctx, agent)
-            agent.send([{ type: 'text', text }])
+            agent.followup([{ type: 'text', text }])
             await idle
           }
           // Each send was drained at a separate turn start: N turns, 1..N.
@@ -171,7 +171,7 @@ describe('agent loop scheduling properties', () => {
           for (const step of steps) {
             const idle = nextIdle(ctx, agent)
             lastIdle = idle
-            agent.send([{ type: 'text', text: step.text }])
+            agent.followup([{ type: 'text', text: step.text }])
             if (step.settle) await idle
           }
           await lastIdle

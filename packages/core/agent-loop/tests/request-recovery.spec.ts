@@ -114,7 +114,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent): void {
-  agent.send([{ type: 'text', text: 'go' }])
+  agent.followup([{ type: 'text', text: 'go' }])
 }
 
 function contextError(message = 'context too large'): LlmError {

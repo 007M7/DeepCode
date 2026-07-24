@@ -75,7 +75,7 @@ describe('plan mode through the agent loop', () => {
     // the first prompt-submit, BEFORE the first assembly.
     ctx.planMode.set(agent, true)
 
-    agent.send([{ type: 'text', text: 'explore the repo' }])
+    agent.followup([{ type: 'text', text: 'explore the repo' }])
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -103,14 +103,14 @@ describe('plan mode through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-flip'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'hello' }])
+    agent.followup([{ type: 'text', text: 'hello' }])
     await waitForIdle(ctx, agent)
     expect(foldPlanMode(agent.session.events)).toBe(false)
     const first = findEvent(agent.session.events, 'request/header')
     expect(first.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
 
     ctx.planMode.set(agent, true)
-    agent.send([{ type: 'text', text: 'now plan' }])
+    agent.followup([{ type: 'text', text: 'now plan' }])
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -146,7 +146,7 @@ describe('plan mode through the agent loop', () => {
     })
 
     const idle = waitForIdle(ctx, agent)
-    agent.send([{ type: 'text', text: 'plan after the transient failure' }])
+    agent.followup([{ type: 'text', text: 'plan after the transient failure' }])
     await recoveryEntered.promise
     ctx.planMode.set(agent, true)
     releaseRecovery.resolve(true)

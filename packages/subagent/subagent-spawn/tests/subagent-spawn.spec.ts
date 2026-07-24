@@ -95,7 +95,7 @@ describe('dsh-subagent-spawn', () => {
   it('a fresh child does NOT inherit the parent conversation (its log starts empty before the prompt)', async () => {
     // Drive the parent through one real turn so it has history, THEN spawn.
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('child sees nothing')])
-    parent.send([{ type: 'text', text: 'parent prompt' }])
+    parent.followup([{ type: 'text', text: 'parent prompt' }])
     await parent.whenIdle()
     const parentEventCount = parent.session.events.length
     expect(parentEventCount).toBeGreaterThan(0)
@@ -372,7 +372,7 @@ describe('dsh-subagent-spawn', () => {
         textResponse('parent answer'),
         textResponse('child answer'),
       ])
-      parent.send([{ type: 'text', text: 'hi' }])
+      parent.followup([{ type: 'text', text: 'hi' }])
       await parent.whenIdle()
 
       const run = await start(ctx, 'spawn', {

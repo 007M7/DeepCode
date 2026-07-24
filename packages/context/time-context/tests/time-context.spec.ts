@@ -42,8 +42,8 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     session,
     status: 'running',
     ctx: new Context(),
-    send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content, options) {
       session.append('user/message', {
@@ -52,6 +52,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -373,7 +374,7 @@ describe('real agent-loop request history', () => {
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'start' }])
+    agent.followup([{ type: 'text', text: 'start' }])
     await agent.whenIdle()
 
     expect(laterSawReading).toBe(true)
@@ -399,7 +400,7 @@ describe('real agent-loop request history', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('loop'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'start' }])
+    agent.followup([{ type: 'text', text: 'start' }])
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(2)

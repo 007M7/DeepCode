@@ -2474,7 +2474,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { color: false }, { terminal, exit: vi.fn() })
@@ -2498,7 +2498,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -2532,14 +2532,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', ctx,
-      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -2569,7 +2569,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -2611,7 +2611,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', ctx,
-      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

@@ -61,6 +61,8 @@ describe('cordis_inspect', () => {
     // generated TYPE_API — a consumer can see field types, not just names).
     expect(report).toContain('type shapes (referenced by the signatures above')
     expect(report).toContain('export interface ToolExecution')
+    expect(report).toContain('export class Session')
+    expect(report).toContain('export interface SessionSurface')
     // A type only reachable through a NOT-live service (e.g. bash) is scoped out.
     expect(report).not.toContain('export interface BashRunResult')
     // The inherited ctx surface closes the section.

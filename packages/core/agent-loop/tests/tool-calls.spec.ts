@@ -105,7 +105,7 @@ describe('tool-call scheduler: grouping and barriers', () => {
     ctx.tools.register(gated.tool)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 3)
     expect(gated.started).toEqual(['1', '2', '3'])
     gated.release('1'); gated.release('2'); gated.release('3')
@@ -133,7 +133,7 @@ describe('tool-call scheduler: grouping and barriers', () => {
       async execute(args) { order.push(`w-${args.id}`); return [{ type: 'text', text: 'w' }] },
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(order).toEqual(['r-start-A1', 'r-end-A1', 'w-A2', 'r-start-A3', 'r-end-A3'])
@@ -169,7 +169,7 @@ describe('tool-call scheduler: grouping and barriers', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => replacement.started.length === 1)
     await new Promise(r => setTimeout(r, 5))
     expect(replacement.started).toEqual(['1'])
@@ -200,7 +200,7 @@ describe('tool-call scheduler: grouping and barriers', () => {
     })
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => initial.started.length === 2)
     initial.release('1')
     await until(() => events(agent).some(event =>
@@ -226,7 +226,7 @@ describe('tool-call scheduler: model-order results despite out-of-order settleme
     ctx.tools.register(gated.tool)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
     gated.release('2')
     await new Promise(r => setTimeout(r, 5))
@@ -248,7 +248,7 @@ describe('tool-call scheduler: model-order results despite out-of-order settleme
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
     gated.release('2'); gated.release('1')
     await waitForIdle(ctx, agent)
@@ -295,7 +295,7 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     ctx.tools.register(gated.tool)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
     await new Promise(r => setTimeout(r, 5))
     expect(gated.started).toEqual(['1', '2'])
@@ -324,7 +324,7 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 1)
     await new Promise(r => setTimeout(r, 5))
     expect(gated.started).toEqual(['1'])
@@ -350,7 +350,7 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 1)
     await new Promise(r => setTimeout(r, 5))
     expect(gated.started).toEqual(['1'])
@@ -377,7 +377,7 @@ describe('tool-call scheduler: ordered middleware and additional contexts', () =
     ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => { post.push(String(exec.callId)); return next() })
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 3)
     gated.release('3'); gated.release('2'); gated.release('1')
     await waitForIdle(ctx, agent)
@@ -398,7 +398,7 @@ describe('tool-call scheduler: ordered middleware and additional contexts', () =
       ({ kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } }] }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
     gated.release('2'); gated.release('1')
     await waitForIdle(ctx, agent)
@@ -436,7 +436,7 @@ describe('tool-call scheduler: ordered middleware and additional contexts', () =
     })
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 1)
     gated.release('1')
     await waitForIdle(ctx, agent)
@@ -466,7 +466,7 @@ describe('tool-call scheduler: abort handling', () => {
       }
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(gated.started).toEqual([])
@@ -498,7 +498,7 @@ describe('tool-call scheduler: abort handling', () => {
       return next()
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(gated.started).toEqual([])
@@ -528,7 +528,7 @@ describe('tool-call scheduler: abort handling', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
     agent.cancel({ kind: 'user' })
     gated.release('1')
@@ -575,7 +575,7 @@ describe('tool-call scheduler: abort handling', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
     agent.cancel({ kind: 'user' })
     gated.release('1')
