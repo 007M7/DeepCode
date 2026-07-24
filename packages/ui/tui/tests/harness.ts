@@ -150,7 +150,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     steered,
     steeredOptions,
     cancelled,
-    send(content, options) {
+    followup(content, options) {
       sent.push(content)
       sentOptions.push(options)
       return AgentMessageId('stub')
@@ -166,7 +166,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       return AgentMessageId('stub')
     },
     inject: () => AgentMessageId('stub'),
-    acceptInput: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel(cause = { kind: 'user' }) {
       cancelled.push(cause)
     },

@@ -131,7 +131,7 @@ forever:
 
 ### Agent 句柄
 
-`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`、`queue()`、`steer()` 和 `inject()`；调用方可以使用各字段均为必填项的 `acceptInput()`（[决策](../.agents/notes/implemented/architecture/2026-07-24-intent-named-agent-delivery.md)）。`cancel()` 和 `whenIdle()` 控制生命周期。调用方、提供方和句柄共同拥有拆卸过程。
+`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件使用按意图命名的辅助方法 `followup()`、`queue()`、`steer()` 和 `inject()`；持有确切路由信息的调用方使用各字段均为必填项的 `send()`（[决策](../.agents/notes/implemented/architecture/2026-07-24-intent-named-agent-delivery.md)）。`cancel()` 和 `whenIdle()` 控制生命周期。调用方、提供方和句柄共同拥有拆卸过程。
 
 ### Agent 作用域
 

@@ -31,7 +31,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     session,
     get status() { return status },
     ctx: new Context(),
-    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
     queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content: ContentBlock[], options?: InjectOptions) {
@@ -43,7 +43,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
-    acceptInput: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

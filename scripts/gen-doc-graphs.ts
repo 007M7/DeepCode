@@ -918,7 +918,7 @@ function renderLifecycle(): string {
     '  participant Session',
     '  participant Persistence',
     '  participant SDK as UI or SDK listener',
-    '  User->>Agent: send(content)',
+    '  User->>Agent: followup(content)',
     `  Agent-->>SDK: ${mermaidCode('agent/inbox/enqueue')}`,
     '  Agent->>Driver: queued work wakes driver',
     `  Driver-->>SDK: ${mermaidCode('agent/status')} running`,

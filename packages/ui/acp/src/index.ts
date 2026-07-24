@@ -1056,7 +1056,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         const { text } = referencedPrompt
         let preparedContent: ContentBlock[] = [{ type: 'text', text }]
-        let preparedContexts: NonNullable<Parameters<Agent['send']>[1]>['contexts'] = []
+        let preparedContexts: NonNullable<Parameters<Agent['followup']>[1]>['contexts'] = []
         if (referencedPrompt.references.length > 0) {
           const sessionReferences = ctx.get('sessionReferences')
           if (sessionReferences === undefined) {
@@ -1081,14 +1081,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
           }
           assertOpen()
         }
-        // Install the in-flight slot BEFORE send() (send does not synchronously
+        // Install the in-flight slot BEFORE followup() (followup does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
         // A turn that ends in error rejects this promise (the codec never
         // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
-          rec.agent.send(preparedContent, { contexts: preparedContexts })
+          rec.agent.followup(preparedContent, { contexts: preparedContexts })
         })
         return { stopReason }
       },

@@ -146,7 +146,7 @@ Source: [`packages/core/agent/src/types.ts:340`](../../packages/core/agent/src/t
 
 ### `agent/inbox/enqueue` — emit
 
-A detached, frozen item entered the agent's inbox (queued or steering FIFO). Source defaults are already applied, so `message` holds the exact accepted values. This is the enqueue-time live signal; the durable record is the eventual `user/message`/`steering/message`. Injection through `agent.inject()` or equivalent `acceptInput()` routing bypasses the FIFOs and does not emit this.
+A detached, frozen item entered the agent's inbox (queued or steering FIFO). Source defaults are already applied, so `message` holds the exact accepted values. This is the enqueue-time live signal; the durable record is the eventual `user/message`/`steering/message`. Injection through `agent.inject()` or equivalent `send()` routing bypasses the FIFOs and does not emit this.
 
 ```ts cordis-catalog
 /**
@@ -154,7 +154,7 @@ A detached, frozen item entered the agent's inbox (queued or steering FIFO). Sou
  * FIFO). Source defaults are already applied, so `message` holds the exact
  * accepted values. This is the enqueue-time live signal; the durable record
  * is the eventual `user/message`/`steering/message`. Injection through
- * `agent.inject()` or equivalent `acceptInput()` routing bypasses the FIFOs
+ * `agent.inject()` or equivalent `send()` routing bypasses the FIFOs
  * and does not emit this.
  * @param agent - the agent whose inbox received the item.
  * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).

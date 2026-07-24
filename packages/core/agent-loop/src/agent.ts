@@ -232,7 +232,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   /** Accept one fully resolved agent input through the concrete driver's routing matrix. */
-  acceptInput(input: ResolvedAgentInput): AgentMessageId {
+  send(input: ResolvedAgentInput): AgentMessageId {
     this.assertNotDisposed()
     const id = AgentMessageId(randomUUID())
     const { target, wakeup } = input
@@ -251,8 +251,8 @@ export class ReactLoopAgent implements Agent {
     return id
   }
 
-  send(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.acceptInput({
+  followup(content: ContentBlock[], options?: SendOptions): AgentMessageId {
+    return this.send({
       content,
       target: 'next-turn',
       wakeup: true,
@@ -263,7 +263,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   queue(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.acceptInput({
+    return this.send({
       content,
       target: 'next-turn',
       wakeup: false,
@@ -274,7 +274,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   steer(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.acceptInput({
+    return this.send({
       content,
       target: 'next-step',
       wakeup: true,
@@ -285,7 +285,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId {
-    return this.acceptInput({
+    return this.send({
       content,
       target: 'next-step',
       wakeup: false,
@@ -488,9 +488,9 @@ export class ReactLoopAgent implements Agent {
     if (this._status !== 'disposed') {
       // Snapshot any still-pending inbox items, then CLEAR and mark disposed
       // BEFORE emitting the discard — mirroring cancel()'s snapshot→clear→emit
-      // order so a re-entrant send()/cancel() from a discard listener throws
+      // order so a re-entrant followup()/cancel() from a discard listener throws
       // `disposed` (or finds an empty inbox) instead of leaking or double-
-      // discarding an id. `send()` emits enqueue unconditionally, so the discard
+      // discarding an id. `followup()` emits enqueue unconditionally, so the discard
       // is unconditional too (even on an unpublished rollback) to keep every
       // enqueued id matched.
       const discarded = this.#inbox.pending()

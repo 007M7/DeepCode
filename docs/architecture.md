@@ -131,7 +131,7 @@ Session events are turn-enclosed; reload closes an interrupted tail with a synth
 
 ### Agent Handles
 
-`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins use `send()`, `queue()`, `steer()`, and `inject()`; callers may use mandatory-field `acceptInput()` ([decision](../.agents/notes/implemented/architecture/2026-07-24-intent-named-agent-delivery.md)). `cancel()` and `whenIdle()` control lifecycle. Caller, provider, and handle co-own teardown.
+`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins use intent helpers `followup()`, `queue()`, `steer()`, and `inject()`; callers with exact routing facts use mandatory-field `send()` ([decision](../.agents/notes/implemented/architecture/2026-07-24-intent-named-agent-delivery.md)). `cancel()` and `whenIdle()` control lifecycle. Caller, provider, and handle co-own teardown.
 
 ### Agent Scope
 

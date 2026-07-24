@@ -361,7 +361,7 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 
 ```ts type-equiv
 /**
- * Options for {@link Agent.send}, {@link Agent.queue}, and {@link Agent.steer}.
+ * Options for {@link Agent.followup}, {@link Agent.queue}, and {@link Agent.steer}.
  * An omitted source attests direct human input as `{ kind: 'user' }` and may
  * authorize policy consumers, so non-human producers must label their content.
  */
@@ -392,7 +392,7 @@ The advanced acceptance form makes every default explicit and rules out attached
 
 ```ts type-equiv
 /**
- * Fully specified input for {@link Agent.acceptInput}. Unlike the intent-named
+ * Fully specified input for {@link Agent.send}. Unlike the intent-named
  * helpers, this form applies no defaults: callers provide content, source,
  * contexts, metadata (including explicit `undefined`), target, and wakeup.
  * The union excludes attached contexts from non-waking next-step injection.
@@ -423,7 +423,7 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
 ```ts type-equiv
 /**
  * One accepted FIFO message, carried by the `agent/inbox/*` live events. `id`
- * is the value returned by the accepting helper or {@link Agent.acceptInput},
+ * is the value returned by the accepting helper or {@link Agent.send},
  * stable across this message's enqueue, dequeue, and discard events. Source
  * defaults, when applicable, are already applied, so these are the exact values
  * the item was accepted with.
@@ -433,7 +433,7 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
  * `steering/message`, not live-event routing data.
  */
 interface AgentMessage {
-  /** The id returned by the accepting helper or {@link Agent.acceptInput}. */
+  /** The id returned by the accepting helper or {@link Agent.send}. */
   id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
@@ -489,7 +489,7 @@ interface Agent {
    * @param options - source, attached contexts, and durable model-hidden meta.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(content: ContentBlock[], options?: SendOptions): AgentMessageId
+  followup(content: ContentBlock[], options?: SendOptions): AgentMessageId
 
   /**
    * Queue an ordinary message without waking an idle driver. The item retains
@@ -539,7 +539,7 @@ interface Agent {
    * @param input - the resolved content, attribution, context, metadata, and routing facts.
    * @returns the accepted input's {@link AgentMessageId}, carried by FIFO lifecycle events when applicable.
    */
-  acceptInput(input: ResolvedAgentInput): AgentMessageId
+  send(input: ResolvedAgentInput): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active

@@ -152,7 +152,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
-      orphanHandle.agent.send([{ type: 'text', text: 'outside the sdk session map' }])
+      orphanHandle.agent.followup([{ type: 'text', text: 'outside the sdk session map' }])
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)

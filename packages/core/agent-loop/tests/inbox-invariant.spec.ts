@@ -55,7 +55,7 @@ describe('inbox FIFO-conservation invariant', () => {
       return { action: 'continue' as const, reason: { content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'loop' } } }
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(2)
@@ -80,7 +80,7 @@ describe('inbox FIFO-conservation invariant', () => {
       return { action: 'continue' as const, reason: { content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'loop' } } }
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(warn.mock.calls.flat().some(arg => String(arg).includes('agent/inbox'))).toBe(false)
@@ -110,7 +110,7 @@ describe('inbox FIFO-conservation invariant', () => {
       return { action: 'stop' as const }
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     expect(discards).toEqual([1]) // the dropped steering item was reported
@@ -142,7 +142,7 @@ describe('inbox FIFO-conservation invariant', () => {
       agent.steer([{ type: 'text', text: 'late' }], { source: { kind: 'plugin', plugin: 'late' } })
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     // The prompt plus the late steer both enqueued; both are matched (the prompt

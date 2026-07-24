@@ -41,7 +41,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
       sessionId: SESSION_ID,
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })).agent
-    first.send([{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }])
+    first.followup([{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }])
     await waitForIdle(ctx, first)
     await ctx.fiber.dispose()
     ctx = undefined
@@ -58,7 +58,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // The prior user turn is in the rehydrated log before the model is asked.
     expect(JSON.stringify(resumed.session.deriveMessages())).toContain(SECRET)
 
-    resumed.send([{ type: 'text', text: 'What was the code I asked you to remember? Reply with just the code.' }])
+    resumed.followup([{ type: 'text', text: 'What was the code I asked you to remember? Reply with just the code.' }])
     await waitForIdle(ctx, resumed)
 
     // The model recalls it — only possible from the resumed history.

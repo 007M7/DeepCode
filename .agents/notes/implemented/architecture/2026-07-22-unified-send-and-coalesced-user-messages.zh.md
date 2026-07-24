@@ -12,7 +12,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 ## 决策
 
-**一种接受机制，四种意图辅助方法。** 具体循环把 `send`、`queue`、`steer` 和 `inject` 解析到同一个（`target` × `wakeup`）接受机制中。`send` 是 `next-turn`/wakeup，`queue` 是 `next-turn`/no-wakeup，`steer` 是 `next-step`/wakeup，`inject` 是 `next-step`/no-wakeup。公开的结构化接口还将该机制暴露为 `acceptInput(ResolvedAgentInput)`；调用方若已持有完全解析的路由信息，即可使用该方法。使用时必须提供所有字段，可辨识输入类型也不允许注入携带附加上下文。取代旧接口的选择由[按意图命名的投递决策](2026-07-24-intent-named-agent-delivery.md)负责说明。内部的 `wakeup` 表示「让模型运行」：为一条普通消息唤醒处于停泊状态的驱动器，或强制运行中的 steering 继续执行。
+**一种接受机制，四种意图辅助方法。** 具体循环把 `followup`、`queue`、`steer` 和 `inject` 解析到同一个（`target` × `wakeup`）接受机制中。`followup` 是 `next-turn`/wakeup，`queue` 是 `next-turn`/no-wakeup，`steer` 是 `next-step`/wakeup，`inject` 是 `next-step`/no-wakeup。公开的结构化接口将该机制暴露为 `send(ResolvedAgentInput)`；调用方若已持有完全解析的路由信息，即可使用该方法。使用时必须提供所有字段，可辨识输入类型也不允许注入携带附加上下文。取代旧接口的选择由[按意图命名的投递决策](2026-07-24-intent-named-agent-delivery.md)负责说明。内部的 `wakeup` 表示「让模型运行」：为一条普通消息唤醒处于停泊状态的驱动器，或强制运行中的 steering 继续执行。
 
 **inject 保留其机制。** `inject` 在当前日志位置追加持久、面向模型的上下文（在执行中的工具批处理之后延迟处理），或在空闲时开启一个一次性的 `injection` 轮次。它完全绕过 FIFO，不接受附加上下文，并把来源默认设为 `{ kind: 'plugin', plugin: '' }`，绝不是 `{ kind: 'user' }`。
 
@@ -34,9 +34,9 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 ## 后果
 
-具体驱动器只有一个投递机制。四种常用辅助方法以调用方意图封装其（`target` × `wakeup`）矩阵，而 `acceptInput` 则向高级调用方暴露完全解析后的矩阵。一种持久消息类型同时服务提示词、注入的上下文和 goal 轮次，因此对外接口的投影和每一处「是否人类提示词？」检查都简化为一次 `source` 判断。goal 折叠的通道区分从事件类型改到 `source.round`，此前过滤 `context/message` 的每个消费方都改为按来源过滤 `user/message`。轮次封闭与重建的不变量保持不变：空闲状态下的一次注入仍然封装成一个一次性轮次，只是现在发出 `user/message` 而非 `context/message`。
+具体驱动器只有一个投递机制。四种常用辅助方法以调用方意图封装其（`target` × `wakeup`）矩阵，而 `send` 则向高级调用方暴露完全解析后的矩阵。一种持久消息类型同时服务提示词、注入的上下文和 goal 轮次，因此对外接口的投影和每一处「是否人类提示词？」检查都简化为一次 `source` 判断。goal 折叠的通道区分从事件类型改到 `source.round`，此前过滤 `context/message` 的每个消费方都改为按来源过滤 `user/message`。轮次封闭与重建的不变量保持不变：空闲状态下的一次注入仍然封装成一个一次性轮次，只是现在发出 `user/message` 而非 `context/message`。
 
-在内部，`wakeup` 是“模型是否应当运行”的信号，因此 inbox 区分 `hasWakingQueued`（驱动 loop 以及空闲/静默判定）与 `hasQueued`（是否有任何可 dequeue 的项）：一个孤立的 `queue()` 项会停泊在空闲状态，并随下一次唤醒 send 一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算静默（一个孤立的静默项走 `whenIdle` 的快速路径，因此不会让任何等待者悬而未决）。排队消息或 steering 消息上的 `SendOptions.meta` 会被带到持久的 `user/message`/`steering/message` 上，与注入保持一致；它有意不放在实时的 `AgentMessage` 上，后者只携带路由事实。每个已入队的 id 都恰好得到一个终止性生命周期事件：一次会丢弃待处理 steering 项的终止性停止会为它发出 `agent/inbox/discard`，既在轮次内的停止点，也在轮次结束后对迟到 steering 的清空时；dispose（资源释放）会在 loop 退出前丢弃所有仍在等待的项。`agent/inbox/*` 的事件载荷已被冻结，因此监听器无法在分发中途修改共享的关联对象，而由 loop 生成的继续原因会像公开 steering 一样被快照并冻结。注入会在打开空闲状态的一次性轮次之前校验其载荷；`InjectOptions` 不包含附加上下文，而 `ResolvedAgentInput` 中不唤醒的下一步变体要求使用空上下文元组。
+在内部，`wakeup` 是“模型是否应当运行”的信号，因此 inbox 区分 `hasWakingQueued`（驱动 loop 以及空闲/静默判定）与 `hasQueued`（是否有任何可 dequeue 的项）：一个孤立的 `queue()` 项会停泊在空闲状态，并随下一条会唤醒驱动器的后续消息一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算静默（一个孤立的静默项走 `whenIdle` 的快速路径，因此不会让任何等待者悬而未决）。排队消息或 steering 消息上的 `SendOptions.meta` 会被带到持久的 `user/message`/`steering/message` 上，与注入保持一致；它有意不放在实时的 `AgentMessage` 上，后者只携带路由事实。每个已入队的 id 都恰好得到一个终止性生命周期事件：一次会丢弃待处理 steering 项的终止性停止会为它发出 `agent/inbox/discard`，既在轮次内的停止点，也在轮次结束后对迟到 steering 的清空时；dispose（资源释放）会在 loop 退出前丢弃所有仍在等待的项。`agent/inbox/*` 的事件载荷已被冻结，因此监听器无法在分发中途修改共享的关联对象，而由 loop 生成的继续原因会像公开 steering 一样被快照并冻结。注入会在打开空闲状态的一次性轮次之前校验其载荷；`InjectOptions` 不包含附加上下文，而 `ResolvedAgentInput` 中不唤醒的下一步变体要求使用空上下文元组。
 
 ## 相关
 

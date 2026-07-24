@@ -64,7 +64,7 @@ function stubAgentForSession(session: Session): StubAgent {
     session,
     ctx: new Context(),
     get status() { return status },
-    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
     queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content, options) {
@@ -72,7 +72,7 @@ function stubAgentForSession(session: Session): StubAgent {
       else appendInjection(session, content, options)
       return AgentMessageId('stub')
     },
-    acceptInput: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

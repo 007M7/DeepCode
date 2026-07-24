@@ -2524,7 +2524,7 @@ export function createTuiChat(
     } else if (agent.status === 'running') {
       agent.steer(content, { contexts })
     } else {
-      agent.send(content, { contexts })
+      agent.followup(content, { contexts })
     }
   }
 

@@ -58,7 +58,7 @@ export class Inbox {
    * True while a queued message wants to wake the driver — the "should the loop
    * run" signal read by the idle wait's fast path, the loop's idle-publish
    * check, and `whenIdle`. A `wakeup:false` (quiet) item alone leaves this
-   * false, so the driver stays parked until a waking send (or a waking item
+   * false, so the driver stays parked until a waking follow-up (or a waking item
    * ahead of it in FIFO order) drives the loop; the quiet item then rides along.
    */
   get hasWakingQueued(): boolean {

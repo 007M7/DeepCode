@@ -28,11 +28,11 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     session: new Session(id),
     status: 'idle',
     ctx: new Context(),
-    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
     queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject: () => AgentMessageId('stub'),
-    acceptInput: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
     ...overrides,
@@ -50,7 +50,7 @@ describe('AgentRegistry', () => {
     expectTypeOf<'target' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
     expectTypeOf<'wakeup' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
     expectTypeOf<'contexts' extends keyof InjectOptions ? true : false>().toEqualTypeOf<false>()
-    expectTypeOf<Parameters<Agent['acceptInput']>[0]>().toEqualTypeOf<ResolvedAgentInput>()
+    expectTypeOf<Parameters<Agent['send']>[0]>().toEqualTypeOf<ResolvedAgentInput>()
     expectTypeOf<OptionalInputKey>().toEqualTypeOf<never>()
     expectTypeOf<Extract<ResolvedAgentInput, { target: 'next-step'; wakeup: false }>['contexts']>()
       .toEqualTypeOf<[]>()

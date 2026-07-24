@@ -48,7 +48,7 @@ function waitForStatus(ctx: Context, agent: Agent, expected: Agent['status']): P
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('Agent', () => {
@@ -83,7 +83,7 @@ describe('Agent', () => {
     await ctx.fiber.dispose()
   })
 
-  it('acceptInput exposes the fully resolved delivery path without applying helper defaults', async () => {
+  it('send exposes the fully resolved delivery path without applying helper defaults', async () => {
     const adapter = new MockAdapter([textResponse('accepted')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -92,7 +92,7 @@ describe('Agent', () => {
       if (subject === agent) enqueued.resolve(message)
     })
 
-    const id = agent.acceptInput({
+    const id = agent.send({
       content: [{ type: 'text', text: 'advanced input' }],
       source: { kind: 'plugin', plugin: 'advanced-caller' },
       contexts: [],
@@ -117,7 +117,7 @@ describe('Agent', () => {
     await ctx.fiber.dispose()
   })
 
-  it('send() throws after disposal', async () => {
+  it('followup() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: Agent
@@ -129,7 +129,7 @@ describe('Agent', () => {
     await fiber.dispose()
     await driverDone(agent)
 
-    expect(() => { agent.send([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
+    expect(() => { agent.followup([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
   })
 
   it('disposal discards still-pending inbox items so every id gets a terminal event', async () => {
@@ -490,7 +490,7 @@ describe('Agent', () => {
     const { agent } = prepared
     prepared.markPublished()
     const dispose = prepared.startDriver()
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 

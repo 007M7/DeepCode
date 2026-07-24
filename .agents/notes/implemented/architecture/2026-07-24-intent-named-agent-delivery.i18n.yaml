@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-24-intent-named-agent-delivery.md: 54ea6353a516830795d51c395706241a4570260d
-2026-07-24-intent-named-agent-delivery.zh.md: 0d903a0d5dd383a154ade02ee8bed607d1f986b1
+2026-07-24-intent-named-agent-delivery.md: 32b0502350063610efff746cbef779e8225055eb
+2026-07-24-intent-named-agent-delivery.zh.md: ce8860b397497f4de587a9373d1cd300cf7dab29
