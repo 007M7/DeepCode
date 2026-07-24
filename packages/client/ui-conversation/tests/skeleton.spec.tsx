@@ -33,8 +33,27 @@ beforeEach(() => {
 
 /** Minimal conversation snapshot slice the skeleton reads. */
 interface FakeSnapshot {
-  nodes: readonly { kind: string; callId?: string; call?: { name: string; argsRaw: string } | null; content?: readonly { type: string; text?: string }[]; isError?: boolean }[]
-  runningCalls: readonly { callId: string; name: string; argsRaw: string }[]
+  nodes: readonly {
+    kind: string
+    seq?: number
+    time?: number
+    callId?: string
+    call?: { name: string; argsRaw: string } | null
+    callTime?: number | null
+    content?: readonly { type: string; text?: string }[]
+    isError?: boolean
+    callView?: null
+    resultView?: null
+  }[]
+  runningCalls: readonly {
+    callId: string
+    name: string
+    argsRaw: string
+    turn?: number
+    step?: number
+    time?: number
+    callView?: null
+  }[]
   running: boolean
   removed: boolean
   promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null
