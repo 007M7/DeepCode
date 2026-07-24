@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { z } from 'zod'
-import { apply as applyStorage } from '@deepseek-ai/dsh-storage'
+import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility, defineDomain, domainTable } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import type { DomainChanged } from '../src/events.ts'
@@ -28,7 +28,7 @@ const bareSpec = defineDomain({
 /** Boot a context with the storage hub, one memory backend, and a facility over it. */
 async function harness(options?: { pool?: MemoryMediaPool; config?: Partial<Config> }) {
   const ctx = new Context()
-  await ctx.plugin({ apply: applyStorage })
+  await ctx.plugin(Storage)
   const backend = new MemoryStorageBackend(options?.pool)
   ctx.storage.backend.register('memory', backend)
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {}, ...options?.config })
@@ -146,6 +146,41 @@ describe('KvTable writes', () => {
       { domain: 'demo', table: 'items', key: 'a', operation: 'deleted' },
       { domain: 'demo', table: '', key: '', operation: 'put', value: { theme: 'dark' } },
     ])
+  })
+})
+
+describe('durability failure', () => {
+  it('leaves memory untouched and emits nothing when the backend rejects a write', async () => {
+    const pool = new MemoryMediaPool()
+    const { facility, changes } = await harness({ pool })
+    const domain = await facility.open(spec)
+    const table = domain.table('items')
+    await table.put('a', { label: 'x', count: 1 })
+    const seen = changes.length
+
+    pool.failNextWrites = 3
+    await expect(table.put('a', { label: 'x', count: 99 })).rejects.toThrow(/injected/)
+    await expect(table.update('a', (c) => ({ ...c, count: c.count + 1 }))).rejects.toThrow(/injected/)
+    await expect(table.delete('a')).rejects.toThrow(/injected/)
+
+    // Reads still serve the pre-failure record; no events leaked.
+    expect(table.get('a')).toEqual({ label: 'x', count: 1 })
+    expect(pool.media.get('demo')!.tables.get('items')!.get('a')).toEqual({ label: 'x', count: 1 })
+    expect(changes).toHaveLength(seen)
+
+    // The chain survives rejections: the next write lands cleanly with no residue.
+    await table.update('a', (c) => ({ ...c, count: c.count + 1 }))
+    expect(table.get('a')).toEqual({ label: 'x', count: 2 })
+  })
+
+  it('keeps serving initial when the first global set fails durability', async () => {
+    const pool = new MemoryMediaPool()
+    const { facility } = await harness({ pool })
+    const domain = await facility.open(spec)
+    pool.failNextWrites = 1
+    await expect(domain.global.set({ theme: 'dark' })).rejects.toThrow(/injected/)
+    expect(domain.global.get()).toEqual({ theme: 'plain' })
+    expect(pool.media.get('demo')!.global).toBeNull()
   })
 })
 

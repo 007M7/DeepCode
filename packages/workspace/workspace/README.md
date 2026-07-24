@@ -6,10 +6,10 @@ Design rationale, the path/uniqueness canon, and the consistency rules live in t
 
 ## Shape
 
-- `ctx.workspace.create(path, title?)` — canonicalizes `path` via `fs.realpath` (trailing slashes, `..`, symlinks), rejects a nonexistent directory (the original `ENOENT`) and a canonical path another workspace already owns. Title defaults to `basename(path)`.
+- `ctx.workspace.create(path, title?)` — canonicalizes `path` via `fs.realpath` (trailing slashes, `..`, symlinks), rejects a nonexistent path (the original `ENOENT`), a path resolving to anything but a directory, and a canonical path another workspace already owns. Title defaults to `basename(path)`.
 - `ctx.workspace.get(id)` / `list()` / `resolveByPath(path)` — cache-served lookups; `resolveByPath` is async because it runs the same `realpath` canon first.
 - `Workspace.attachSession(id)` — idempotent; validates that the session's stored header `cwd`, canonicalized the same way, equals the workspace path. A missing persistence service, unknown session, absent or unresolvable `cwd`, or mismatch rejects without writing (what cannot be validated is not recorded). `detachSession` removes from the account only, never touching the session's own log.
-- `Workspace.sessionIds` — the ordered ownership account (array order is display order). Accounted ids whose session no longer exists are filtered from the projection and pruned durably on the next mutation; a medium accounting one session under two workspaces rejects at startup (external edit — the attach check makes it unwritable).
+- `Workspace.sessionIds` — the ordered ownership account (array order is display order). Accounted ids whose session no longer exists are filtered from the projection and pruned durably on the next mutation. A medium accounting one session under two workspaces, or claiming one canonical path from two records, rejects at startup (external edit — the write side makes both unreachable). Attach/detach idempotence is decided on the domain write chain, so unawaited concurrent calls settle in call order.
 - `Workspace.status()` — uncached directory check, `'ok' | 'missing-dir'`; a missing directory never mutates the record.
 
 Session persistence is an optional peer resolved with `ctx.get`: absent, attach rejects and projections serve the account unfiltered.

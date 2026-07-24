@@ -40,6 +40,8 @@ export async function openJsonUnit(
 
 class JsonKvUnit implements KvUnit {
   private closed = false
+  /** In-flight publishes; close() drains them before releasing the unit. */
+  private readonly inFlight = new Set<Promise<void>>()
 
   constructor(
     private readonly descriptor: KvUnitDescriptor,
@@ -59,15 +61,29 @@ class JsonKvUnit implements KvUnit {
 
   async putRecord(table: string, key: string, value: unknown): Promise<void> {
     this.assertOpen()
-    this.records(table).set(key, value)
-    await this.publish()
+    const records = this.records(table)
+    const hadKey = records.has(key)
+    const previous = records.get(key)
+    records.set(key, value)
+    // Roll back on a failed publish: memory is authoritative, so a rejected
+    // write must not survive in memory (or ride along with the next publish).
+    await this.publish().catch(async (error) => {
+      if (hadKey) records.set(key, previous)
+      else records.delete(key)
+      throw error
+    })
   }
 
   async deleteRecord(table: string, key: string): Promise<void> {
     this.assertOpen()
-    if (this.records(table).delete(key)) {
-      await this.publish()
-    }
+    const records = this.records(table)
+    if (!records.has(key)) return
+    const previous = records.get(key)
+    records.delete(key)
+    await this.publish().catch(async (error) => {
+      records.set(key, previous)
+      throw error
+    })
   }
 
   async setGlobal(value: unknown): Promise<void> {
@@ -75,13 +91,21 @@ class JsonKvUnit implements KvUnit {
     if (!this.descriptor.hasGlobal) {
       throw new Error(`unit '${this.descriptor.name}' does not declare a global slot`)
     }
+    const previous = this.state.global
     this.state.global = value
-    await this.publish()
+    await this.publish().catch(async (error) => {
+      this.state.global = previous
+      throw error
+    })
   }
 
   async close(): Promise<void> {
-    if (this.closed) return
+    if (this.closed) {
+      await Promise.allSettled(this.inFlight)
+      return
+    }
     this.closed = true
+    await Promise.allSettled(this.inFlight)
     this.onClose()
   }
 
@@ -100,6 +124,11 @@ class JsonKvUnit implements KvUnit {
   }
 
   private publish(): Promise<void> {
-    return writeAtomic(this.path, serialize(this.descriptor.name, this.state))
+    const write = writeAtomic(this.path, serialize(this.descriptor.name, this.state))
+    this.inFlight.add(write)
+    // Swallow only on the tracking branch: the caller still awaits `write`
+    // itself, so rejections stay observed exactly once.
+    write.catch(() => {}).finally(() => this.inFlight.delete(write))
+    return write
   }
 }

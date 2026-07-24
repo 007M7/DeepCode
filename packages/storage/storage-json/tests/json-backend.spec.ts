@@ -70,11 +70,49 @@ describe('json backend specifics', () => {
     await backend.close()
   })
 
-  it('rejects double-open of one unit', async () => {
+  it('rejects double-open of one unit as a plain caller error', async () => {
     const root = await freshRoot()
     const backend = new JsonStorageBackend(root)
     await backend.kv.open(descriptor)
-    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
+    await expect(backend.kv.open(descriptor)).rejects.toThrowError(/already open/)
     await backend.close()
+  })
+
+  it('rolls back memory when a publish fails', async () => {
+    const root = await freshRoot()
+    const backend = new JsonStorageBackend(root)
+    const unit = await backend.kv.open(descriptor)
+    await unit.putRecord('t', 'k', { v: 'committed' })
+    // Make the next publish fail: replace the unit file's parent with an
+    // unwritable directory path via chmod.
+    const { chmod } = await import('node:fs/promises')
+    await chmod(root, 0o500)
+    await expect(unit.putRecord('t', 'k', { v: 'rejected' })).rejects.toThrow()
+    await expect(unit.putRecord('t', 'k2', { v: 'also rejected' })).rejects.toThrow()
+    await chmod(root, 0o700)
+    const snapshot = await unit.loadAll()
+    expect(snapshot.tables['t']).toEqual({ k: { v: 'committed' } })
+    // The next successful publish must not carry rejected writes to disk.
+    await unit.putRecord('t', 'k3', { v: 'later' })
+    const text = await readFile(join(root, 'shape.json'), 'utf8')
+    expect(text).not.toContain('rejected')
+    await backend.close()
+  })
+
+  it('close drains in-flight writes and blocks in-flight opens', async () => {
+    const root = await freshRoot()
+    const backend = new JsonStorageBackend(root)
+    const unit = await backend.kv.open(descriptor)
+    const bigWrite = unit.putRecord('t', 'big', { blob: 'x'.repeat(4 * 1024 * 1024) })
+    await unit.close()
+    await expect(bigWrite).resolves.toBeUndefined()
+    const onDisk = JSON.parse(await readFile(join(root, 'shape.json'), 'utf8'))
+    expect(onDisk.tables.t.big).toBeDefined()
+
+    const backend2 = new JsonStorageBackend(root)
+    const opening = backend2.kv.open(descriptor)
+    const closing = backend2.close()
+    await expect(opening.then((u) => u.putRecord('t', 'x', {}))).rejects.toMatchObject({ code: 'closed' })
+    await closing
   })
 })

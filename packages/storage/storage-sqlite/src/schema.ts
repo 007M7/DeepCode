@@ -81,10 +81,6 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       `storage database at "${path}" has schema version ${onDisk}, incompatible with this build (${STORAGE_SQLITE_SCHEMA_VERSION})`,
     )
   }
-  if (onDisk === 0) {
-    // Stamp fresh databases.
-    db.exec(`PRAGMA user_version = ${STORAGE_SQLITE_SCHEMA_VERSION}`)
-  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS units (
       name    TEXT PRIMARY KEY,
@@ -97,6 +93,12 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       value TEXT NOT NULL
     ) STRICT
   `)
+  if (onDisk === 0) {
+    // Stamp fresh databases LAST: the stamp asserts the layout is complete,
+    // so a failure above must leave the medium unstamped (a re-open after
+    // the obstruction is cleared retries materialization from scratch).
+    db.exec(`PRAGMA user_version = ${STORAGE_SQLITE_SCHEMA_VERSION}`)
+  }
 }
 
 /**

@@ -55,7 +55,10 @@ export class Storage extends Service {
     }
     this.forms.set(form, facility)
     return () => {
-      this.forms.delete(form)
+      // Same stale-disposer guard as BackendRegistry.register.
+      if (this.forms.get(form) === facility) {
+        this.forms.delete(form)
+      }
     }
   }
 
@@ -77,10 +80,7 @@ export class Storage extends Service {
   }
 }
 
-/**
- * Mount the storage hub service.
- * @param ctx - Plugin context.
- */
-export function apply(ctx: Context) {
-  ctx.plugin(Storage)
-}
+// Service packages default-export their service class and nothing else
+// plugin-shaped (packages/AGENTS.md): mixing a default export with a
+// function-plugin `apply` makes the Loader drop the plugin namespace.
+export default Storage

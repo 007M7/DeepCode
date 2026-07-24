@@ -28,13 +28,29 @@ export interface MemoryMedium {
  * Shared media pool. Construct one and hand it to several
  * {@link MemoryStorageBackend} instances to simulate reopening the same
  * medium after a restart; `versions` holds the stamped unit versions and is
- * writable by tests to inject a mismatching on-medium version.
+ * writable by tests to inject a mismatching on-medium version, and
+ * `failNextWrites` injects write-primitive failures.
  */
 export class MemoryMediaPool {
   /** Unit name → its records; a missing entry is a never-materialized unit. */
   readonly media = new Map<string, MemoryMedium>()
   /** Unit name → stamped version; tests may pre-stamp to force `version-mismatch`. */
   readonly versions = new Map<string, number>()
+  /**
+   * When positive, that many subsequent write primitives (putRecord /
+   * deleteRecord / setGlobal) reject without touching the medium, decrementing
+   * per rejection. Negative-path seam: callers assert their state is
+   * untouched after a durability failure.
+   */
+  failNextWrites = 0
+
+  /** Consume one injected failure, throwing in a rejected write's place. */
+  consumeInjectedFailure(): void {
+    if (this.failNextWrites > 0) {
+      this.failNextWrites -= 1
+      throw new Error('injected write failure')
+    }
+  }
 }
 
 /** In-memory KV unit over one pooled medium. */
@@ -42,6 +58,7 @@ class MemoryKvUnit implements KvUnit {
   private closed = false
 
   constructor(
+    private readonly pool: MemoryMediaPool,
     private readonly medium: MemoryMedium,
     private readonly descriptor: KvUnitDescriptor,
     private readonly onClose: () => void,
@@ -64,6 +81,7 @@ class MemoryKvUnit implements KvUnit {
 
   async putRecord(table: string, key: string, value: unknown): Promise<void> {
     this.assertOpen()
+    this.pool.consumeInjectedFailure()
     let records = this.medium.tables.get(table)
     if (records === undefined) {
       records = new Map()
@@ -74,11 +92,13 @@ class MemoryKvUnit implements KvUnit {
 
   async deleteRecord(table: string, key: string): Promise<void> {
     this.assertOpen()
+    this.pool.consumeInjectedFailure()
     this.medium.tables.get(table)?.delete(key)
   }
 
   async setGlobal(value: unknown): Promise<void> {
     this.assertOpen()
+    this.pool.consumeInjectedFailure()
     this.medium.global = value
   }
 
@@ -128,7 +148,7 @@ export class MemoryStorageBackend implements StorageBackend {
           this.pool.media.set(descriptor.name, medium)
         }
         this.openUnits.add(descriptor.name)
-        return new MemoryKvUnit(medium, descriptor, () => this.openUnits.delete(descriptor.name))
+        return new MemoryKvUnit(this.pool, medium, descriptor, () => this.openUnits.delete(descriptor.name))
       },
     }
   }

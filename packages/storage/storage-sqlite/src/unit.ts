@@ -66,18 +66,33 @@ export class SqliteKvUnit implements KvUnit {
     this.ensureOpen()
     const tables: Record<string, Record<string, unknown>> = {}
     for (const [name, statements] of this.tables) {
-      const records: Record<string, unknown> = {}
+      // Null prototype: record keys are arbitrary strings, so '__proto__'
+      // must land as an own property instead of mutating the prototype.
+      const records: Record<string, unknown> = Object.create(null) as Record<string, unknown>
       for (const row of statements.selectAll.all() as unknown as Array<{ key: string; value: string }>) {
-        records[row.key] = JSON.parse(row.value)
+        records[row.key] = this.parseValue(row.value, `table '${name}' key '${row.key}'`)
       }
       tables[name] = records
     }
     let global: unknown = null
     if (this.globalSelect !== undefined) {
       const row = this.globalSelect.get(this.descriptor.name) as { value: string } | undefined
-      if (row !== undefined) global = JSON.parse(row.value)
+      if (row !== undefined) global = this.parseValue(row.value, 'global slot')
     }
     return { tables, global }
+  }
+
+  /** Parse one stored value column, mapping bad JSON to `malformed-medium`. */
+  private parseValue(text: string, slot: string): unknown {
+    try {
+      return JSON.parse(text)
+    } catch (error) {
+      throw new StorageError(
+        'malformed-medium',
+        `kv unit '${this.descriptor.name}' holds unparsable JSON at ${slot}`,
+        { cause: error },
+      )
+    }
   }
 
   async putRecord(table: string, key: string, value: unknown): Promise<void> {

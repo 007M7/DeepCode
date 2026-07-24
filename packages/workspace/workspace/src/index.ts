@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { Context, Service } from 'cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
@@ -88,12 +89,22 @@ export class WorkspaceRegistry extends Service {
     if (persistence !== undefined) {
       this.known = new Set<string>((await persistence.list()).map(header => header.id))
     }
-    // Rebuild entities, rejecting a double account: one session recorded
-    // under two workspaces means the medium was edited externally (the attach
-    // check makes it structurally impossible to write), and hiding it would
-    // silently pick a winner.
+    // Rebuild entities, rejecting states the write side makes structurally
+    // impossible (an external medium edit is the only way in, and hiding it
+    // would silently pick a winner): one session accounted under two
+    // workspaces, or two records claiming one canonical path (plain string
+    // equality — stored paths are already canonical, so no realpath here).
     const accounted = new Map<string, WorkspaceId>()
+    const paths = new Map<string, WorkspaceId>()
     for (const [id, record] of this.table.entries()) {
+      const pathHolder = paths.get(record.path)
+      if (pathHolder !== undefined) {
+        throw new Error(
+          `workspace domain is inconsistent: path '${record.path}' is claimed `
+          + `by both workspace '${pathHolder}' and workspace '${id}'`,
+        )
+      }
+      paths.set(record.path, id)
       for (const sessionId of record.sessionIds) {
         const holder = accounted.get(sessionId)
         if (holder !== undefined) {
@@ -110,9 +121,10 @@ export class WorkspaceRegistry extends Service {
 
   /**
    * Create a workspace over an existing directory. The path is canonicalized
-   * through `fs.realpath` first — a nonexistent directory rejects with the
-   * original `ENOENT`, and a canonical path already owned by another
-   * workspace (including a symlink resolving to it) rejects.
+   * through `fs.realpath` first — a nonexistent path rejects with the
+   * original `ENOENT`, a path resolving to anything but a directory rejects,
+   * and a canonical path already owned by another workspace (including a
+   * symlink resolving to it) rejects.
    * @param path - Directory the workspace points at; canonicalized before storing.
    * @param title - Display title; defaults to `basename` of the canonical path.
    * @returns the created workspace after durability.
@@ -120,6 +132,9 @@ export class WorkspaceRegistry extends Service {
   async create(path: string, title?: string): Promise<Workspace> {
     const table = this.requireTable()
     const canonical = await realpathNormalize(path)
+    if (!(await stat(canonical)).isDirectory()) {
+      throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`)
+    }
     for (const entity of this.entities.values()) {
       if (entity.path === canonical) {
         throw new Error(`a workspace for '${canonical}' already exists ('${entity.id}')`)

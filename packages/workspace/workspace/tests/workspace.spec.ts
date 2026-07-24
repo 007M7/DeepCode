@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { Context } from 'cordis'
-import { apply as applyStorage } from '@deepseek-ai/dsh-storage'
+import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-domain'
 import type { DomainChanged } from '@deepseek-ai/dsh-domain'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -26,7 +26,7 @@ async function harness(options?: {
   sessions?: SessionHeader[] | 'absent'
 }) {
   const ctx = new Context()
-  await ctx.plugin({ apply: applyStorage })
+  await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', new MemoryStorageBackend(options?.pool))
   ctx.storage.mount('domain', new DomainFacility(ctx, { backend: 'memory', routes: {} }))
   let listed = options?.sessions === 'absent' ? undefined : options?.sessions ?? []
@@ -103,6 +103,15 @@ describe('WorkspaceRegistry.create', () => {
     const dir = await makeDir('exists')
     const { registry } = await harness()
     await expect(registry.create(join(dir, 'nope'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(registry.list()).toEqual([])
+  })
+
+  it('rejects a path resolving to a plain file', async () => {
+    const dir = await makeDir('has-file')
+    const file = join(dir, 'plain.txt')
+    await writeFile(file, 'not a directory')
+    const { registry } = await harness()
+    await expect(registry.create(file)).rejects.toThrow(/not a directory/)
     expect(registry.list()).toEqual([])
   })
 
@@ -187,6 +196,22 @@ describe('Workspace.attachSession', () => {
     await workspace.detachSession(SessionId('absent'))
     expect(changes.length).toBe(written)
   })
+
+  it('decides membership at the write-chain slot: unawaited detach then attach re-attaches', async () => {
+    const dir = await makeDir('race')
+    const { registry } = await harness({ sessions: [header('s1', dir)] })
+    const workspace = await registry.create(dir)
+    await workspace.attachSession(SessionId('s1'))
+    // Both fire before either lands. Snapshot-based idempotence would see
+    // 's1' still on the account and turn the attach into a no-op, losing it;
+    // chain-slot decisions replay detach → attach in order. (The attach skips
+    // re-validation off the same stale snapshot — the cwd fact is immutable —
+    // and enqueues immediately, keeping the chain order deterministic here.)
+    const detached = workspace.detachSession(SessionId('s1'))
+    const attached = workspace.attachSession(SessionId('s1'))
+    await Promise.all([detached, attached])
+    expect(workspace.sessionIds).toEqual(['s1'])
+  })
 })
 
 describe('consistency projections', () => {
@@ -214,15 +239,28 @@ describe('consistency projections', () => {
   })
 
   it('rejects startup over a medium accounting one session twice', async () => {
-    const dir = await makeDir('double')
-    const pool = pooledRecord('00000000-0000-4000-8000-000000000003', record(dir, ['dup']))
+    const dirA = await makeDir('double-a')
+    const dirB = await makeDir('double-b')
+    const pool = pooledRecord('00000000-0000-4000-8000-000000000003', record(dirA, ['dup']))
     pool.media.get('workspace')!.tables.get('workspaces')!
-      .set('00000000-0000-4000-8000-000000000004', record(dir, ['dup']))
+      .set('00000000-0000-4000-8000-000000000004', record(dirB, ['dup']))
     const ctx = new Context()
-    await ctx.plugin({ apply: applyStorage })
+    await ctx.plugin(Storage)
     ctx.storage.backend.register('memory', new MemoryStorageBackend(pool))
     ctx.storage.mount('domain', new DomainFacility(ctx, { backend: 'memory', routes: {} }))
     await expect(Promise.resolve(ctx.plugin(WorkspaceRegistry))).rejects.toThrow(/accounted/)
+  })
+
+  it('rejects startup over a medium where two records claim one path', async () => {
+    const dirA = await makeDir('claimed')
+    const pool = pooledRecord('00000000-0000-4000-8000-000000000005', record(dirA, []))
+    pool.media.get('workspace')!.tables.get('workspaces')!
+      .set('00000000-0000-4000-8000-000000000006', record(dirA, []))
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend(pool))
+    ctx.storage.mount('domain', new DomainFacility(ctx, { backend: 'memory', routes: {} }))
+    await expect(Promise.resolve(ctx.plugin(WorkspaceRegistry))).rejects.toThrow(/claimed/)
   })
 })
 

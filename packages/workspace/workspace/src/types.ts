@@ -53,13 +53,15 @@ export interface Workspace {
 
   /**
    * Record a session under this workspace. Idempotent: a session already on
-   * the account resolves without writing. Otherwise the session's stored
-   * header is read from session persistence and its `cwd`, normalized through
-   * the same `fs.realpath` canon as workspace paths, must equal this
-   * workspace's {@link path} — a missing persistence service, an unknown
-   * session id, a header without `cwd`, a `cwd` that no longer resolves, or a
-   * mismatched `cwd` all reject without touching the account (what cannot be
-   * validated is not recorded).
+   * the account resolves without writing (membership is decided on the
+   * domain write chain, so unawaited concurrent attach/detach calls settle
+   * in call order). For a session not yet on the account, its stored header
+   * is read from session persistence and its `cwd`, normalized through the
+   * same `fs.realpath` canon as workspace paths, must equal this workspace's
+   * {@link path} — a missing persistence service, an unknown session id, a
+   * header without `cwd`, a `cwd` that no longer resolves, or a mismatched
+   * `cwd` all reject without touching the account (what cannot be validated
+   * is not recorded).
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */
@@ -67,8 +69,8 @@ export interface Workspace {
 
   /**
    * Remove a session from this workspace's account. Idempotent: an id not on
-   * the account resolves without writing. Never touches the session's own
-   * stored log.
+   * the account resolves without writing (decided on the domain write chain,
+   * like attach). Never touches the session's own stored log.
    * @param sessionId - The session to remove.
    * @returns resolution after durability.
    */

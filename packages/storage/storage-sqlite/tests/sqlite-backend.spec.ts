@@ -106,4 +106,85 @@ describe('sqlite backend specifics', () => {
     await backend.close()
     await expect(backend.kv.open(DESCRIPTOR)).rejects.toMatchObject({ code: 'closed' })
   })
+
+  it('round-trips prototype-polluting keys as own properties', async () => {
+    const backend = backendAt(':memory:')
+    const unit = await backend.kv.open(DESCRIPTOR)
+    await unit.putRecord('records', '__proto__', { evil: true })
+    await unit.putRecord('records', 'constructor', { n: 1 })
+    const { tables } = await unit.loadAll()
+    const records = tables['records']!
+    expect(Object.hasOwn(records, '__proto__')).toBe(true)
+    expect(records['__proto__']).toEqual({ evil: true })
+    expect(records['constructor']).toEqual({ n: 1 })
+    expect(Object.getPrototypeOf({})).not.toHaveProperty('evil')
+    await backend.close()
+  })
+
+  it('leaves a failed materialization unstamped so a repaired medium reopens', async () => {
+    const path = await freshDbPath()
+    // Obstruct table creation: an index squatting on the unit_globals name
+    // makes CREATE TABLE IF NOT EXISTS throw AFTER the units table exists.
+    const setup = new DatabaseSync(path)
+    setup.exec('CREATE TABLE squatter (x TEXT)')
+    setup.exec('CREATE INDEX unit_globals ON squatter(x)')
+    setup.close()
+
+    const broken = backendAt(path)
+    await expect(broken.kv.open(DESCRIPTOR)).rejects.toThrow(/already an index/)
+    await broken.close()
+
+    // Clear the obstruction; the medium must still be version 0, not a
+    // half-materialized database stamped as current.
+    const repair = new DatabaseSync(path)
+    expect((repair.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(0)
+    repair.exec('DROP INDEX unit_globals')
+    repair.close()
+
+    const backend = backendAt(path)
+    const unit = await backend.kv.open(DESCRIPTOR)
+    await unit.putRecord('records', 'k', { n: 1 })
+    await backend.close()
+  })
+
+  it('rejects unparsable stored JSON with malformed-medium', async () => {
+    const path = await freshDbPath()
+    const backend = backendAt(path)
+    const unit = await backend.kv.open(DESCRIPTOR)
+    await unit.putRecord('records', 'good', { n: 1 })
+    await unit.setGlobal({ g: 1 })
+    await backend.close()
+
+    const db = new DatabaseSync(path)
+    db.prepare('UPDATE u_specimen_records SET value = ? WHERE key = ?').run('{not json', 'good')
+    db.close()
+
+    const reopened = backendAt(path)
+    const damaged = await reopened.kv.open(DESCRIPTOR)
+    await expect(damaged.loadAll()).rejects.toMatchObject({
+      name: 'StorageError',
+      code: 'malformed-medium',
+    })
+    await reopened.close()
+  })
+
+  it('rejects an unparsable global slot with malformed-medium', async () => {
+    const path = await freshDbPath()
+    const backend = backendAt(path)
+    const unit = await backend.kv.open(DESCRIPTOR)
+    await unit.setGlobal({ g: 1 })
+    await backend.close()
+
+    const db = new DatabaseSync(path)
+    db.prepare('UPDATE unit_globals SET value = ? WHERE unit = ?').run('][', 'specimen')
+    db.close()
+
+    const reopened = backendAt(path)
+    const damaged = await reopened.kv.open(DESCRIPTOR)
+    await expect(damaged.loadAll()).rejects.toMatchObject({
+      name: 'StorageError',
+      code: 'malformed-medium',
+    })
+    await reopened.close()
+  })
 })

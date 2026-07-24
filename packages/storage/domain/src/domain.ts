@@ -1,9 +1,11 @@
 /**
  * Runtime of one open domain: authoritative in-memory state, the single
  * per-domain write chain, and change-event emission. Reads are synchronous
- * from memory; every write queues on the chain, mutates memory, awaits
- * backend durability, then emits `domain/changed` — so events carry values
- * that equal the in-memory state at emission and arrive in write order.
+ * from memory; every write queues on the chain, awaits backend durability
+ * FIRST, then mutates memory, then emits `domain/changed` — a rejected
+ * backend write leaves memory untouched (no divergence between reads and the
+ * medium), and events carry values that equal the in-memory state at
+ * emission, in write order.
  * @module @deepseek-ai/dsh-domain/src/domain
  */
 
@@ -175,8 +177,8 @@ export class DomainImpl {
           return this.globalValue
         },
         set: (value) => this.enqueue(async () => {
-          this.globalValue = value
           await this.unit.setGlobal(value)
+          this.globalValue = value
           host.emitChanged({ domain: this.name, table: '', key: '', operation: 'put', value })
         }),
       }
@@ -271,8 +273,8 @@ class KvTableImpl<K extends string, V> implements KvTable<K, V> {
 
   put(key: K, value: V): Promise<void> {
     return this.host.enqueue(async () => {
-      this.records.set(key, value)
       await this.host.unit.putRecord(this.tableName, key, value)
+      this.records.set(key, value)
       this.emitPut(key, value)
     })
   }
@@ -282,8 +284,8 @@ class KvTableImpl<K extends string, V> implements KvTable<K, V> {
       // Existence is decided at this job's chain slot, not at call time: an
       // earlier queued put of the same key makes this delete observe it.
       if (!this.records.has(key)) return false
-      this.records.delete(key)
       await this.host.unit.deleteRecord(this.tableName, key)
+      this.records.delete(key)
       this.host.emitChanged({
         domain: this.host.domainName,
         table: this.tableName,
@@ -303,8 +305,8 @@ class KvTableImpl<K extends string, V> implements KvTable<K, V> {
         )
       }
       const next = fn(this.records.get(key) as V)
-      this.records.set(key, next)
       await this.host.unit.putRecord(this.tableName, key, next)
+      this.records.set(key, next)
       this.emitPut(key, next)
       return next
     })

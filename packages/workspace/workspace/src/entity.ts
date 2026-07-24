@@ -45,6 +45,9 @@ export interface WorkspaceEntityHost {
   readSessionHeader(id: SessionId): Promise<SessionHeader>
 }
 
+/** Chain-slot abort sentinel thrown by the update fn when the record needs no change; only `mutate` observes it. */
+const unchangedSentinel = new Error('workspace record unchanged (internal sentinel)')
+
 /** The single {@link Workspace} implementation; constructed only by the registry. */
 export class WorkspaceEntity implements Workspace {
   private record: WorkspaceRecord
@@ -81,29 +84,34 @@ export class WorkspaceEntity implements Workspace {
   }
 
   async attachSession(sessionId: SessionId): Promise<void> {
-    if (this.record.sessionIds.includes(sessionId)) return
-    const header = await this.host.readSessionHeader(sessionId)
-    if (header.cwd === undefined) {
-      throw new Error(
-        `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
-        + 'its stored header carries no cwd to validate against',
-      )
-    }
-    let cwd: string
-    try {
-      cwd = await realpathNormalize(header.cwd)
-    } catch (error) {
-      throw new Error(
-        `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
-        + `its cwd '${header.cwd}' does not resolve, so it cannot be validated`,
-        { cause: error },
-      )
-    }
-    if (cwd !== this.record.path) {
-      throw new Error(
-        `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
-        + `its cwd resolves to '${cwd}'`,
-      )
+    // Validation is skipped when the settled snapshot already accounts the
+    // id: the cwd fact was checked when it first attached and both inputs
+    // (stored header cwd, workspace path) are immutable. Membership itself is
+    // decided on the write chain inside `mutate`, never on this snapshot.
+    if (!this.record.sessionIds.includes(sessionId)) {
+      const header = await this.host.readSessionHeader(sessionId)
+      if (header.cwd === undefined) {
+        throw new Error(
+          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+          + 'its stored header carries no cwd to validate against',
+        )
+      }
+      let cwd: string
+      try {
+        cwd = await realpathNormalize(header.cwd)
+      } catch (error) {
+        throw new Error(
+          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+          + `its cwd '${header.cwd}' does not resolve, so it cannot be validated`,
+          { cause: error },
+        )
+      }
+      if (cwd !== this.record.path) {
+        throw new Error(
+          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+          + `its cwd resolves to '${cwd}'`,
+        )
+      }
     }
     await this.mutate(record => record.sessionIds.includes(sessionId)
       ? record
@@ -111,11 +119,9 @@ export class WorkspaceEntity implements Workspace {
   }
 
   async detachSession(sessionId: SessionId): Promise<void> {
-    if (!this.record.sessionIds.includes(sessionId)) return
-    await this.mutate(record => ({
-      ...record,
-      sessionIds: record.sessionIds.filter(id => id !== sessionId),
-    }))
+    await this.mutate(record => record.sessionIds.includes(sessionId)
+      ? { ...record, sessionIds: record.sessionIds.filter(id => id !== sessionId) }
+      : record)
   }
 
   async status(): Promise<'ok' | 'missing-dir'> {
@@ -133,18 +139,31 @@ export class WorkspaceEntity implements Workspace {
    * `table.update`, stamping `updatedAt` and pruning accounted ids whose
    * session no longer exists (consistency rule: dead ids are dropped on the
    * next mutation, whatever that mutation is), then swap the snapshot.
+   *
+   * `fn` sees the value current at its chain slot, so membership decisions
+   * (attach/detach idempotence) are race-free against queued writes; a fn
+   * signalling no change by returning `current` verbatim aborts the slot
+   * through the sentinel when pruning also finds nothing, so a no-op neither
+   * rewrites the medium nor emits a change event.
    */
   private async mutate(fn: (record: WorkspaceRecord) => WorkspaceRecord): Promise<void> {
     const known = this.host.knownSessionIds()
-    this.record = await this.host.table().update(this.id, (current) => {
-      const next = fn(current)
-      return {
-        ...next,
-        sessionIds: known === undefined
-          ? next.sessionIds
-          : next.sessionIds.filter(id => known.has(id)),
-        updatedAt: new Date().toISOString(),
-      }
-    })
+    let next: WorkspaceRecord
+    try {
+      next = await this.host.table().update(this.id, (current) => {
+        const changed = fn(current)
+        const sessionIds = known === undefined
+          ? changed.sessionIds
+          : changed.sessionIds.filter(id => known.has(id))
+        if (changed === current && sessionIds.length === current.sessionIds.length) {
+          throw unchangedSentinel
+        }
+        return { ...changed, sessionIds, updatedAt: new Date().toISOString() }
+      })
+    } catch (error) {
+      if (error === unchangedSentinel) return
+      throw error
+    }
+    this.record = next
   }
 }

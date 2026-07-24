@@ -35,20 +35,25 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       return
     }
     const current = domain.table(change.table).get(change.key)
-    if (change.operation === 'deleted') {
-      if (current !== undefined) {
-        return fail(
-          `domain/changed deletion of '${change.domain}'.'${change.table}'['${change.key}'] `
-          + 'emitted while the record is still in memory',
-        )
-      }
-      return
-    }
-    if (current !== change.value) {
-      return fail(
-        `domain/changed value for '${change.domain}'.'${change.table}'['${change.key}'] `
-        + 'differs from the in-memory record',
-      )
+    switch (change.operation) {
+      case 'deleted':
+        if (current !== undefined) {
+          return fail(
+            `domain/changed deletion of '${change.domain}'.'${change.table}'['${change.key}'] `
+            + 'emitted while the record is still in memory',
+          )
+        }
+        return
+      case 'put':
+        if (current !== change.value) {
+          return fail(
+            `domain/changed value for '${change.domain}'.'${change.table}'['${change.key}'] `
+            + 'differs from the in-memory record',
+          )
+        }
+        return
+      default:
+        change satisfies never
     }
   }, { global: true })
 }, { inject: ['storage'] })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { BackendRegistry, Storage, apply } from '../src/index.ts'
+import Storage, { BackendRegistry } from '../src/index.ts'
 import type { StorageBackend } from '../src/index.ts'
 
 const fakeBackend = (): StorageBackend => ({ close: async () => {} })
@@ -27,7 +27,7 @@ describe('BackendRegistry', () => {
 describe('Storage service', () => {
   it('mounts on the context and exposes registry plus form mounting', async () => {
     const ctx = new Context()
-    await ctx.plugin({ apply })
+    await ctx.plugin(Storage)
     expect(ctx.storage).toBeInstanceOf(Storage)
 
     const facility = { marker: true }

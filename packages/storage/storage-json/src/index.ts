@@ -37,31 +37,48 @@ export const Config: z<Config> = z.object({
 /** JSON backend: owns the file-tree root and serves the `kv` facet. */
 export class JsonStorageBackend implements StorageBackend {
   private readonly open = new Map<string, KvUnit>()
+  // Reserved synchronously at open() entry so a concurrent open of the same
+  // unit fails, and close() can await opens still in flight.
+  private readonly opening = new Map<string, Promise<KvUnit>>()
   private closed = false
 
   constructor(private readonly root: string) {}
 
   readonly kv: KvFacet = {
-    open: async (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
-      if (this.closed) throw new StorageError('closed', 'json backend is closed')
+    open: (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
+      if (this.closed) return Promise.reject(new StorageError('closed', 'json backend is closed'))
       validateDescriptor(descriptor)
-      if (this.open.has(descriptor.name)) {
-        throw new StorageError(
-          'malformed-medium',
-          `unit '${descriptor.name}' is already open; a unit has exactly one live handle`,
+      if (this.open.has(descriptor.name) || this.opening.has(descriptor.name)) {
+        // Double-open is a caller bug, not a medium condition.
+        return Promise.reject(
+          new Error(`unit '${descriptor.name}' is already open; a unit has exactly one live handle`),
         )
       }
-      await mkdir(this.root, { recursive: true, mode: 0o700 })
-      const path = join(this.root, `${descriptor.name}.json`)
-      const unit = await openJsonUnit(descriptor, path, () => this.open.delete(descriptor.name))
-      this.open.set(descriptor.name, unit)
-      return unit
+      const opening = this.openUnit(descriptor)
+      this.opening.set(descriptor.name, opening)
+      return opening.finally(() => this.opening.delete(descriptor.name))
     },
   }
 
+  private async openUnit(descriptor: KvUnitDescriptor): Promise<KvUnit> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 })
+    const path = join(this.root, `${descriptor.name}.json`)
+    const unit = await openJsonUnit(descriptor, path, () => this.open.delete(descriptor.name))
+    if (this.closed) {
+      // The backend closed while this open was in flight: do not hand out a
+      // live unit past close().
+      await unit.close()
+      throw new StorageError('closed', 'json backend is closed')
+    }
+    this.open.set(descriptor.name, unit)
+    return unit
+  }
+
   async close(): Promise<void> {
-    if (this.closed) return
-    this.closed = true
+    if (!this.closed) {
+      this.closed = true
+    }
+    await Promise.allSettled([...this.opening.values()])
     for (const unit of [...this.open.values()]) {
       await unit.close()
     }
