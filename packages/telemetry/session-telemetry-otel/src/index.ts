@@ -147,7 +147,7 @@ export class TelemetryOtel extends Telemetry {
     })
   }
 
-  /** The latest turn-boundary flush, retained so {@link shutdown} can order behind it. */
+  /** Every not-yet-settled turn-boundary flush, retained so {@link shutdown} can order behind ALL of them. */
   private inflightFlush: Promise<void> = Promise.resolve()
 
   /** Forward the turn-boundary hint to the SDK's flush, fire-and-forget. */
@@ -157,15 +157,17 @@ export class TelemetryOtel extends Telemetry {
     // this once the fiber is disposed — a rejection would be SDK drift. The
     // settled promise is retained (not awaited): the SDK's concurrent-flush
     // guard makes a flush that overlaps another return WITHOUT draining, so
-    // shutdown must wait this one out before trusting its own flush.
+    // an overlapping hint resolves instantly and must JOIN the outstanding
+    // one, not displace it — shutdown orders behind the whole set.
     /* v8 ignore next -- unreachable guard: forceFlush does not reject while the provider is alive */
-    this.inflightFlush = this.provider.forceFlush().catch(() => {})
+    const flush = this.provider.forceFlush().catch(() => {})
+    this.inflightFlush = Promise.all([this.inflightFlush, flush]).then(() => undefined)
   }
 
   /**
    * Delegate disposal to the SDK's shutdown contract: flush the queue and
-   * quiesce. Orders behind the last turn-boundary flush first — shutdown's
-   * internal flush is a no-op while one is in flight (the SDK's
+   * quiesce. Orders behind every outstanding turn-boundary flush first —
+   * shutdown's internal flush is a no-op while one is in flight (the SDK's
    * concurrent-flush guard), which would silently drop everything enqueued
    * after that flush snapshot, including the coordinator's dispose-time
    * `shutdown` markers. Awaited (and error-contained) by the coordinator's

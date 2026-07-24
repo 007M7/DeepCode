@@ -113,15 +113,19 @@ export class TelemetryCoordinator {
    * @param session - the live session to adopt; a second adoption is a no-op.
    */
   private adopt(session: Session): void {
-    this.contain(() => {
-      if (this.adopted.has(session)) return
-      this.adopted.add(session)
-      const cursor = handoffCursor.get(session) ?? -1
-      for (const event of session.events) {
+    if (this.adopted.has(session)) return
+    this.adopted.add(session)
+    const cursor = handoffCursor.get(session) ?? -1
+    // Containment is PER EVENT, matching the firehose: one rejected record
+    // is withheld fail-closed while the rest of the historical replay
+    // proceeds — wrapping the whole loop would let a single failure silently
+    // skip the remainder of the log on an already-adopted session.
+    for (const event of session.events) {
+      this.contain(() => {
         if (event.seq <= cursor) this.track(session, event)
         else this.capture(session, event)
-      }
-    })
+      })
+    }
   }
 
   /** Feed the chunk projection without handing off — the ≤cursor half of re-adoption. */

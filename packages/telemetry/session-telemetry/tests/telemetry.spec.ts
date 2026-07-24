@@ -26,11 +26,15 @@ class FakeBackend implements TelemetryBackend {
   records: TelemetryRecord[] = []
   calls: string[] = []
   emitError: Error | undefined
+  rejectSeq: number | undefined
   shutdownError: Error | undefined
   shutdownResolved = false
 
   emit(record: TelemetryRecord): void {
     if (this.emitError) throw this.emitError
+    if (this.rejectSeq !== undefined && record.attributes['event.seq'] === this.rejectSeq) {
+      throw new Error(`backend rejected seq ${this.rejectSeq}`)
+    }
     this.records.push(record)
     this.calls.push(`emit:${String(record.attributes['event.seq'] ?? record.attributes['telemetry.op'])}`)
   }
@@ -211,6 +215,28 @@ describe('TelemetryCoordinator adoption', () => {
     // Only the window events past the cursor are re-handed, and the mid-step
     // continuation is re-dropped because ≤cursor events rebuilt the projection.
     expect(second.ledger().map(r => r.attributes['event.type'])).toEqual(['turn/end'])
+  })
+
+  it('replays past a record the backend rejects: one event withheld, the rest adopted', async () => {
+    const backend = new FakeBackend()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const session = liveSession(ctx, 'partial')
+    appendTurn(session)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    // The backend rejects exactly the middle historical event: fail-closed
+    // must withhold THAT record only — an adoption replay that dies on the
+    // first contained failure would silently skip the rest of the log while
+    // the session stays marked adopted.
+    backend.rejectSeq = 1
+    await ctx.plugin({
+      name: 'fake-telemetry',
+      inject: ['sessions'],
+      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+    })
+    expect(backend.ledger().map(r => r.attributes['event.seq'])).toEqual([0, 2])
+    expect(warn).toHaveBeenCalled()
   })
 
   it('re-hands the full log when no cursor survived (fresh session object)', async () => {

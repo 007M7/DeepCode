@@ -155,6 +155,39 @@ describe('TelemetryOtel wire', () => {
     expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
   })
 
+  it('orders shutdown behind the OLDEST in-flight flush when hints overlap', async () => {
+    // The SDK's concurrent-flush guard resolves an overlapping forceFlush()
+    // immediately; if the backend RETAINS only the latest flush promise, two
+    // back-to-back turn flushes leave shutdown awaiting the instantly-resolved
+    // second one while the first still exports — reopening the same silent
+    // drop the single-flush race test pins.
+    const gate = Promise.withResolvers<boolean>()
+    const arrived = Promise.withResolvers<boolean>()
+    const { url, captures } = await mockCollector(async (index) => {
+      if (index === 0) {
+        arrived.resolve(true)
+        await gate.promise
+      }
+    })
+    const { ctx, fiber } = await boot(url)
+    const session = ctx.sessions.create(SessionId('race2'), { meta: {} })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    ctx.telemetry.flush!()
+    await arrived.promise
+    // Second hint while the first export is held open: resolves immediately
+    // under the SDK's guard and must not displace the outstanding one.
+    ctx.telemetry.flush!()
+
+    const disposal = fiber.dispose()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    gate.resolve(true)
+    await disposal
+
+    const ops = allRecords(captures).filter(r => r.scope === '@deepseek-ai/dsh-session-telemetry-otel/ops')
+    expect(ops).toHaveLength(1)
+    expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
+  })
+
   it('passes exporter options beyond url and headers through to the SDK exporter', async () => {
     const { url, captures } = await mockCollector()
     const ctx = new Context()
