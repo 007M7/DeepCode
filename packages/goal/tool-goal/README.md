@@ -6,7 +6,7 @@ The model-facing control surface for [`ctx.goals`](../goal/README.md): `get_goal
 
 - `get_goal()` returns the current goal or `null`, including the compare-and-set id/revision, durable phase, admitted/capped goal rounds, any blocker reason, and current process-local activation.
 - `create_goal(objective, max_goal_rounds?)` creates one goal from a direct top-level human turn. The model may infer long-running goal intent without an exact command phrase; non-human turns and subagents are rejected at execution.
-- `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` supports `edit`, `pause`, `resume`, `complete`, and `blocked`. Replacements belong only to `edit`; `blocked_reason` is required only for `blocked` and is persisted with the stable code `model-reported`.
+- `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` supports `edit`, `pause`, `resume`, `complete`, and `blocked`. `edit` consumes replacement fields, `blocked` requires and persists `blocked_reason` with the stable code `model-reported`, and every action ignores fields it does not consume so providers that populate every schema property cannot prevent a valid transition.
 
 All calls are exclusive, so a model-ordered batch observes earlier mutations and their new revisions. ACP and other clients receive pure generic cards: read for `get_goal`, other for mutations.
 

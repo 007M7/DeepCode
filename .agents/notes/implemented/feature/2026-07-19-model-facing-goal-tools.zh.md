@@ -16,7 +16,7 @@ Status: implemented
 
 ### 工具与模型契约
 
-`get_goal()` 返回当前目标或 `null`。非空结果包含用于比较并交换的 id 与修订号、目标描述、持久阶段、已接纳和最大目标回合数、可能存在的阻塞原因，以及进程本地激活态观察。`create_goal(objective, max_goal_rounds?)` 创建一个长时间运行的同会话目标。`update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` 支持 `edit`、`pause`、`resume`、`complete` 和 `blocked`；替换字段仅对 `edit` 有效，非空的 `blocked_reason` 仅在 `blocked` 时必填，并以稳定代码 `model-reported` 持久化。
+`get_goal()` 返回当前目标或 `null`。非空结果包含用于比较并交换的 id 与修订号、目标描述、持久阶段、已接纳和最大目标回合数、可能存在的阻塞原因，以及进程本地激活态观察。`create_goal(objective, max_goal_rounds?)` 创建一个长时间运行的同会话目标。`update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` 支持 `edit`、`pause`、`resume`、`complete` 和 `blocked`；每个动作只消费自己的字段并忽略其他字段，而 `blocked` 仍要求非空的 `blocked_reason`，并以稳定代码 `model-reported` 持久化。尽管 JSON Schema 将动作专用字段标记为可选，严格模式提供方仍可能填充所有已声明属性，因此需要这种容忍行为。
 
 提示词告诉模型：它可以从任何措辞或语言的直接人类请求中推断目标意图，但不应把常规单轮工作转换为目标。更新前必须读取当前目标，并复制准确的 id 和修订号。对于恢复或派生后处于活跃但未激活状态的目标，人类在语义上要求继续即可成为执行 `resume` 的依据。只有目标已经实现时才能标记完成，困难或不确定性本身不构成阻塞；阻塞报告必须说明具体条件。
 
@@ -38,7 +38,7 @@ Status: implemented
 
 ## 测试
 
-单元测试固定注册与释放、独占调度、生成的提示词策略、通用展示、非英语轮次中的直接人类创建、精确/陈旧/非运行中智能体与驱动检查、实时子智能体拒绝、恢复后派生根的权限、steering、发起者不匹配、读取/创建/编辑/暂停/恢复行为、条件式阻塞说明、会话启动边沿后的重新激活、权限先于条件参数失败、准确目标回合的完成、仅自主回合触发终止、可配置阻塞阈值，以及人类立即阻塞。无密钥回放快照把目标领域和工具挂载到真实的 headless 单次运行应用中，通过随附循环与持久化栈驱动 `create_goal` 和 `get_goal`，固定 stream-json 转录，并检查外部持久化的目标变更。这里有意不把 echo-agent 测试夹具当作应用 UX 的替代品。
+单元测试固定注册与释放、独占调度、生成的提示词策略、通用展示、非英语轮次中的直接人类创建、精确/陈旧/非运行中智能体与驱动检查、实时子智能体拒绝、恢复后派生根的权限、steering、发起者不匹配、读取/创建/编辑/暂停/恢复行为、必需的阻塞说明、严格模式提供方填充字段、会话启动边沿后的重新激活、权限先于参数失败、准确目标回合的完成、仅自主回合触发终止、可配置阻塞阈值，以及人类立即阻塞。无密钥回放快照把目标领域和工具挂载到真实的 headless 单次运行应用中，通过随附循环与持久化栈驱动 `create_goal` 和 `get_goal`，固定 stream-json 转录，并检查外部持久化的目标变更。这里有意不把 echo-agent 测试夹具当作应用 UX 的替代品。
 
 ## 考虑过的替代方案
 
