@@ -3,18 +3,18 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { BootPluginEntry } from '@deepseek-ai/dsh-client-runtime/client'
+import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules'
 import { bootWebShell } from '@deepseek-ai/dsh-client-web'
 
-const PLUGINS: readonly (BootPluginEntry & { dir: string })[] = [
-  { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', url: '/plugins/runtime.js', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', url: '/plugins/ui-theme.js', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', url: '/plugins/i18n.js', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', inject: ['@deepseek-ai/dsh-client-runtime'] },
-  { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
+const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
+  { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
+  { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', url: '/plugins/runtime.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
+  { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', url: '/plugins/ui-theme.js', rev: 'fx', inject: [], immediately: true },
+  { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', url: '/plugins/i18n.js', rev: 'fx', inject: [], immediately: true },
+  { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
+  { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
 const bundles = new Map(PLUGINS.map(plugin => [
@@ -27,8 +27,8 @@ interface FixtureTiming {
 }
 
 interface FixtureWindow extends Window {
-  __DSH_BOOT__?: { plugins: BootPluginEntry[] }
-  DSHClientProxy?: unknown
+  __DSH_BOOT__?: { rev: string; entries: WebBootEntry[] }
+  __ModuleLoader__?: unknown
 }
 
 class ResizeObserverStub {
@@ -51,7 +51,7 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
     setTimeout(() => { callback(0) }, 0) as unknown as number)
   vi.stubGlobal('cancelAnimationFrame', (id: number) => { clearTimeout(id) })
-  win.__DSH_BOOT__ = { plugins: PLUGINS.map(({ dir: _dir, ...plugin }) => plugin) }
+  win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ dir: _dir, ...plugin }) => plugin) }
 })
 
 afterEach(() => {
@@ -59,7 +59,7 @@ afterEach(() => {
   unmount = undefined
   cleanup()
   delete win.__DSH_BOOT__
-  delete win.DSHClientProxy
+  delete win.__ModuleLoader__
   delete (globalThis as Record<string, unknown>).__fxTiming
   document.body.innerHTML = ''
   document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })

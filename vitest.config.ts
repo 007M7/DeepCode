@@ -104,6 +104,8 @@ export default defineConfig({
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
         'packages/host/webserver/src/*',
+        'packages/client/modules/src/loader.ts',
+        'packages/client/hmr/src/client/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Real tsdown artifact shape: lib/client.js hands off through
- * window.DSHClientProxy.loadPlugin, resolves externals through the injected
+ * window.__ModuleLoader__.load, resolves externals through the injected
  * require, returns the export surface (apply + inject), and a mounted apply
  * registers both view tabs into a real SlotsService ring. Skips when dist/ is
  * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
@@ -15,7 +15,7 @@ import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-trajectory'
 
 interface Handoff { id: string; factory: (require: (spec: string) => unknown) => Record<string, unknown> }
-type Win = { DSHClientProxy?: { loadPlugin(h: Handoff): void } }
+type Win = { __ModuleLoader__?: { load(h: Handoff): void } }
 
 function readBundle(): string | undefined {
   try {
@@ -28,7 +28,7 @@ function readBundle(): string | undefined {
 }
 
 afterEach(() => {
-  delete (window as Win).DSHClientProxy
+  delete (window as Win).__ModuleLoader__
   for (const el of document.querySelectorAll('style')) el.remove()
 })
 
@@ -37,7 +37,7 @@ describe('tsdown client artifact', () => {
 
   async function loadArtifact() {
     let handoff: Handoff | undefined
-    ;(window as Win).DSHClientProxy = { loadPlugin: (h) => { handoff = h } }
+    ;(window as Win).__ModuleLoader__ = { load: (h) => { handoff = h } }
     // Same execution form the loader uses (inline script eval, window scope) —
     // the implied-eval ban targets accidental string execution, not this
     // deliberate bundle-execution fixture.
@@ -59,7 +59,7 @@ describe('tsdown client artifact', () => {
     const { handoff, surface } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['slots'])
+    expect(surface.inject).toEqual(['slots', 'conversation'])
   })
 
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers both view tabs on the real ring', async () => {
@@ -71,6 +71,10 @@ describe('tsdown client artifact', () => {
       name: 'root',
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
+    // The plugin injects 'conversation' as an ordering edge (the declaring
+    // plugin provides it after declaring the ring); the bench declares the
+    // ring itself, so a stub satisfies the wait.
+    ctx.provide('conversation', {})
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory', 'waterfall'])
