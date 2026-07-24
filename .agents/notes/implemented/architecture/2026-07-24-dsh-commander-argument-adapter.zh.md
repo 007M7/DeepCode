@@ -12,7 +12,7 @@ Status: implemented
 
 argv 只在 `apps/cli/src/args.ts` 中解析一次，通过一个 Commander 适配器（即 SDK bin，如 `create-sdk`、`dsh-scripts`，已经统一采用的那个解析器）。`parseDshArgs(argv, version)` 将调用解析为一个判别式 `DshInvocation` 联合类型：`{ mode: 'tui', config?, resume? }`、`{ mode: 'headless', prompt }`、`{ mode: 'web', host, port }`、`{ mode: 'help' | 'version', text }` 或 `{ mode: 'error', message }`。Commander 在 `exitOverride()` 下运行并捕获输出，因此它自身从不写出或退出：`--help`、`--version` 和每个解析错误都以数据形式返回。
 
-`bin.ts` 调用一次适配器，并对 `mode` 做分支切换（封闭联合类型，默认分支为 `satisfies never`），只动态导入所选模式对应的模块。每个模式模块现在只消费已解析好的值：`runTui(config, resume)`、`runHeadless(task)`、`runWeb(host, port)`，都不会再次读取 argv。`web` 是一个真正的 `program.command('web')` 子命令；`--host` 是 Commander 的 `.choices([LOOPBACK_HOST, ALL_INTERFACES_HOST])`，`--port` 是一个对 0–65535 做范围检查的 `argParser`，二者都从内联的 `runWeb` 检查移入了解析器。`--resume` 使用一个 `argParser`，同时拒绝空 id（`--resume=`）和重复出现的标志（`--resume a --resume b`），`--prompt` 则拒绝空任务，保留旧有的「绝不静默重新开始」不变式（已删除的 `parseResumeArg` 在相同情形下也会显式报错）。程序设置了 `enablePositionalOptions()`，且 `web` 动作会拒绝置于其前的根级 `--prompt`/`--resume`，因此位置错误的标志（`dsh web -p x`、`dsh -p x web`）会显式报错，而不会静默地以默认值提供服务。`--version` 读取本应用的 `package.json`。
+`bin.ts` 调用一次适配器，并对 `mode` 做分支切换（封闭联合类型，默认分支为 `satisfies never`），只动态导入所选模式对应的模块。每个模式模块现在只消费已解析好的值：`runTui(config, resume)`、`runHeadless(task)`、`runWeb(host, port)`，都不会再次读取 argv。`web` 是一个**保留的首个 token**：`parseDshArgs` 将开头的 `web` 分发给它自己的 Commander 解析器，其余一切分发给默认的 TUI/headless 解析器，因此根级标志与 `web` 标志从不共用同一套语法——`dsh web -p x` 会显式报错（`web` 没有 `-p`），而 `dsh -p x web` 只是一个 headless prompt，其第二个位置参数被丢弃，无需防范任何跨命令泄漏。每个解析器都在 `parse()` 之后读取 Commander 的 `opts()`/`processedArgs`，而不是通过 action 闭包。`--host` 是一个 `.choices([LOOPBACK_HOST, ALL_INTERFACES_HOST])`，`--port` 是一个对 0–65535 做范围检查的 `argParser`，二者都从内联的 `runWeb` 检查移入了解析器。两处解析后的检查保留了「绝不静默重新开始」不变式：空的 `--resume=` id 和空的 `-p` 任务各自变为 `mode: 'error'`，因为 agent-loop 把空的 resume id 视为不恢复，而空的 prompt 没有任何内容可运行。重复出现的 `--resume` 采用 Commander 天然的后者胜出（旧的定制扫描器会拒绝它；后者胜出是标准的 CLI 行为，无需特殊处理）。`--version` 读取本应用的 `package.json`。
 
 `parseResumeArg` 从 `dsh-app-boot` 中删除（包括其导出、README 中的对应行以及单元测试块）；预发布阶段的立场允许这次删除。`dsh-app-boot` 保留其 boot/env/config/个人覆盖辅助函数，只有 argv 扫描器被移除。
 
@@ -26,11 +26,13 @@ argv 只在 `apps/cli/src/args.ts` 中解析一次，通过一个 Commander 适�
 
 **保留 `parseResumeArg` 作为共享辅助函数，并向它喂入 Commander 的残余参数。** 已否决：整件事的核心就是要退役这个定制扫描器。Commander 原生解析 `--resume`（空格和 `=` 形式、缺值、位置无关性）；为这一个标志保留一条平行的手写路径，只会保留这次变更要终结的重复。
 
+**把 `web` 做成单个根程序的 Commander 子命令。** 已否决：一个程序若把根级 `-p`/`--resume` 语法与 `web` 子命令混在一起，除非再加上 `enablePositionalOptions()` 和一个父级选项守卫，否则根级选项会泄漏到 `web` 上——而这正是这次变更要移除的那类特殊处理机制。把 `web` 作为保留的首个 token 分发给第二个解析器更小巧，且让两套语法完全独立。
+
 **把参数解析做成 `packages/*` 的 seam。** 已否决：`dsh` 之外没有任何消费方使用它，而能力 seam 不应被提前拆分。这个 Commander 适配器是 `apps/cli` 自身的事务。
 
 ## 测试
 
-`apps/cli/tests/args.spec.ts`（新增；`apps/*/tests` 加入 vitest include，`apps/cli/tests` 加入 `tsconfig.host.json`）直接驱动适配器：TUI 默认值、config 位置参数、`--resume` 的空格/内联形式及其位置无关性、对空值/无值/重复 `--resume` 的拒绝、`-p`/`--prompt` 路由及对空 prompt 和游离位置参数的拒绝、`web` 的 host/port 默认值与校验（含 `--host`/`--port` 诊断信息）、围绕 `web` 位置错误的根级标志会显式报错、对多余参数的拒绝，以及 `--help`/`web --help`/`--version`/未知选项的处理结果。`examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` 中的 `dsh CLI keyless smoke` 组通过 PTY 端到端地运行真实的 `bin.ts` 分发（默认启动、个人覆盖、无效配置、`--resume` 失败、源路径 prompt），且保持绿色不变。`packages/ui/app-boot/tests/app-boot.spec.ts` 移除其 `parseResumeArg` 测试块。
+`apps/cli/tests/args.spec.ts`（新增；`apps/*/tests` 加入 vitest include，`apps/cli/tests` 加入 `tsconfig.host.json`）在关键层面覆盖适配器：按形态进行的模式路由、显式报错检查（空 resume/prompt、错误的 host/port、未知选项），以及 `--help`/`--version` 以数据形式呈现。`examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` 中的 `dsh CLI keyless smoke` 组通过 PTY 端到端地运行真实的 `bin.ts` 分发（默认启动、个人覆盖、无效配置、`--resume` 失败、源路径 prompt），且保持绿色不变。`packages/ui/app-boot/tests/app-boot.spec.ts` 移除其 `parseResumeArg` 测试块。
 
 ## 影响
 
