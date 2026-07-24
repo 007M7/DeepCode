@@ -574,8 +574,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('— Enter sends steering, Esc cancels')
     expect(result.terminal.output).not.toContain('queued')
 
-    const queueSteering = (text: string): void => {
-      result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text }], source: { kind: 'user' }, steering: true, wakeup: true })
+    const submitSteering = (text: string): void => {
+      result.terminal.send(text)
+      result.terminal.send('\r')
     }
     const drainSteering = (text: string): void => {
       result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -584,20 +585,19 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as unknown as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' }, steering: true, wakeup: true })
+    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' } })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
     // Two steering messages queue while the turn runs.
-    queueSteering('first')
+    submitSteering('first')
     result.terminal.output = ''
-    queueSteering('second')
+    submitSteering('second')
     await tick()
     expect(result.terminal.output).toContain('2 queued · Enter sends steering, Esc cancels')
 
-    // A non-steering queue (an idle-style send) leaves the badge untouched.
+    // Draining one submitted message decrements the badge.
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'sent' }], source: { kind: 'user' }, steering: false, wakeup: true })
     drainSteering('first')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -613,7 +613,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A drain with no matching queued entry is ignored rather than underflowing.
     result.terminal.output = ''
     drainSteering('continuation')
-    queueSteering('after')
+    submitSteering('after')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
 
@@ -649,9 +649,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('derives the fine-grained turn phase from session lifecycle events', async () => {
     // A live event before the turn runs has no status controller to move.
     const idle = await setup()
-    // A steering queue arriving while idle has no status line to badge, so the
-    // refresh is a no-op beyond requesting a render.
-    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' }, steering: true, wakeup: true })
+    // Inbox notifications do not affect the status phase while idle.
+    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' } })
     idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
     await tick()
     expect(idle.terminal.output).not.toContain('Executing tools')

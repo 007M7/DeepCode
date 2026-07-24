@@ -2,23 +2,6 @@
  * Public agent types and live-runtime events. Durable transcript facts and
  * turn/step boundaries remain `@deepseek-ai/dsh-session` events.
  *
- * The agent is a naive message machine over the session log: prompts queue
- * (one turn each), steering/context ride the outbox (taken whole at every
- * step boundary), and the log re-derives the request history each step — so
- * "edit history between steps" needs no dedicated seam. The extension surface
- * is deliberately small:
- *
- * - `agent/prompt-submit` (waterfall): veto/rewrite a claimed prompt.
- * - `agent/request` (waterfall): replace the call config per request.
- * - `agent/step` (serial): awaited before every request is built — inject
- *   context, steer, or edit the log here; the request derives after it.
- * - `agent/stopping` (serial): the turn is about to close — steer to object.
- * - a tool result carrying `concludesTurn` ends the turn at its step (data,
- *   not a hook): the terminal-tool pattern.
- * - `agent/idle` (emit): one per turn close, carrying why it ended. Error
- *   recovery is a consumer loop: observe an error idle, fix (edit the log,
- *   wait out a rate limit), then `agent.retry()`.
- *
  * @module @deepseek-ai/dsh-agent/types
  */
 
@@ -100,19 +83,13 @@ export function AgentMessageId(id: string): AgentMessageId {
  * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
  * events. `id` is the value `send` returned to the caller, stable across this
  * message's enqueue, dequeue, and discard events. Source defaults are already
- * applied, so these are the exact values the item was accepted with. `steering`
- * is true for a `next-step` item drained between steps; a `next-turn` item is
- * claimed at a turn boundary.
+ * applied, so these are the exact values the item was accepted with.
  */
 export interface AgentMessage {
   /** The id `send` returned for this message. */
   id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
-  /** Whether the item joined the steering FIFO (`next-step`) rather than the queued FIFO. */
-  steering: boolean
-  /** Whether the item is marked to wake the driver or force a continuation. */
-  wakeup: boolean
 }
 
 /** Options for {@link Agent.cancel}. */
@@ -319,7 +296,7 @@ declare module 'cordis' {
     /**
      * A frozen item entered the queued or steering inbox.
      * @param agent - the owning agent.
-     * @param message - accepted routing data and correlation identity.
+     * @param message - accepted content, source, and correlation identity.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */

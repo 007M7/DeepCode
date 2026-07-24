@@ -426,20 +426,13 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
  * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
  * events. `id` is the value `send` returned to the caller, stable across this
  * message's enqueue, dequeue, and discard events. Source defaults are already
- * applied, so these are the exact values the item was accepted with. `steering`
- * is true for a `next-step` item drained between steps; a `next-turn` item is
- * claimed at a turn boundary.
+ * applied, so these are the exact values the item was accepted with.
  */
 interface AgentMessage {
   /** The id `send` returned for this message. */
   id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
-  contexts: HookContext[]
-  /** Whether the item joined the steering FIFO (`next-step`) rather than the queued FIFO. */
-  steering: boolean
-  /** Whether the item is marked to wake the driver or force a continuation. */
-  wakeup: boolean
 }
 ```
 

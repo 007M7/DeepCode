@@ -12,7 +12,6 @@ import { Agent, AgentMessageId, agentCarrier, agentInterruptReasonOf, assembleCo
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
-  AgentMessage,
   AgentMessageId as AgentMessageIdType,
   CancelOptions,
   AgentInterruptReason,
@@ -48,20 +47,6 @@ interface OutboxItem extends PromptMessageData {
   steering?: PendingMessage
 }
 
-/** Build one live inbox event payload from a pending message. */
-function inboxMessage(message: PendingMessage, steering: boolean): AgentMessage {
-  return {
-    id: message.id,
-    content: message.content,
-    source: message.source,
-    steering,
-    wakeup: message.wakeup,
-  }
-}
-
-/** Stable runtime-only reason used when lifecycle teardown interrupts a turn. */
-export const DISPOSED_INTERRUPT_REASON = Object.freeze({ kind: 'disposed' } as const)
-
 /** Normalize thrown values while preserving an existing error code. */
 function toError(error: unknown): Error & { code?: string } {
   return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
@@ -69,12 +54,7 @@ function toError(error: unknown): Error & { code?: string } {
 
 /** Rebuild the live {@link LlmError} for serializable provider facts; `cause` keeps the foreign original. */
 function llmError(facts: LlmFailure, cause?: Error): LlmError {
-  return new LlmError(facts.message, facts.code, {
-    ...facts.status === undefined ? {} : { status: facts.status },
-    ...facts.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: facts.providerRetryAfterMs },
-    ...facts.requestId === undefined ? {} : { requestId: facts.requestId },
-    ...cause === undefined ? {} : { cause },
-  })
+  return new LlmError(facts.message, facts.code, { ...facts, cause })
 }
 
 function withoutToolCalls(message: Message): Message {
@@ -154,7 +134,7 @@ export class ReactLoopAgent extends Agent {
     } else {
       this.queued.push(message)
     }
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', inboxMessage(message, steering))
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message)
     if (!steering && wakeup) this.kick()
     return id
   }
@@ -174,8 +154,8 @@ export class ReactLoopAgent extends Agent {
     }
     if (!options.keepInbox) {
       const discarded = [
-        ...this.queued.map(message => inboxMessage(message, false)),
-        ...this.outbox.flatMap(item => item.steering === undefined ? [] : [inboxMessage(item.steering, true)]),
+        ...this.queued,
+        ...this.outbox.map(item => item.steering).filter(steering => steering !== undefined),
       ]
       // Clear before abort observers run: replacement work belongs to the next turn.
       this.queued.length = 0
@@ -212,7 +192,7 @@ export class ReactLoopAgent extends Agent {
     const message = this.queued.shift()
     if (message === undefined) return
 
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(message, false))
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
     const admission = new AbortController()
     this.abort = admission
     this.done = this.loopCtx.agents.withInitiator(this, async () => {
@@ -472,7 +452,7 @@ export class ReactLoopAgent extends Agent {
         continue
       }
       steered = true
-      emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(message, true))
+      emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
       this.session.append('steering/message', { turn, ...data }, { surfaceOp: 'append' })
     }
     return steered

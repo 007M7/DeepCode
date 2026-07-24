@@ -1592,15 +1592,10 @@ export function createTuiChat(
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
-  // Steering messages queued during the running turn (`agent/inbox/enqueue`
-  // with `info.steering`) that the loop has not yet drained, shown as a badge on
-  // the status line. Each entry is the queued message's serialized source: a
-  // drain (`steering/message`) removes one MATCHING entry, so a loop-authored
-  // continuation reason (which enqueues and drains under its own source) pushes
-  // and pops its own slot and cannot consume a pending user message's slot.
-  // Cleared on leaving `running`, which also absorbs a cancellation that
-  // discards the queue without logging drains; the status line exists only
-  // while running, so idle carries no badge to keep current.
+  // TUI steering submissions that the loop has not yet drained, shown as a
+  // badge on the status line. Each entry is the submitted message's serialized
+  // source, so an unrelated steering/message cannot consume its slot. Leaving
+  // `running` clears entries discarded by cancellation.
   const pendingSteering: string[] = []
   let disposed = false
   let shuttingDown: Promise<void> | undefined
@@ -2505,7 +2500,10 @@ export function createTuiChat(
     if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
-      agent.steer(content, { source: { kind: 'user' } })
+      const source = { kind: 'user' } as const
+      agent.steer(content, { source })
+      pendingSteering.push(JSON.stringify(source))
+      refreshStatus()
     } else {
       agent.followup(content, { source: { kind: 'user' } })
     }
@@ -2751,11 +2749,6 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
-  const disposeQueued = ctx.on('agent/inbox/enqueue', (subject, info) => {
-    if (subject !== agent || !info.steering) return
-    pendingSteering.push(JSON.stringify(info.source))
-    refreshStatus()
-  })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
     // Leaving 'running' ends the turn's status line; clear any badge so the
@@ -2784,7 +2777,6 @@ export function createTuiChat(
     disposeCommandChanges()
     stopBannerReveal()
     disposeSessionEvents()
-    disposeQueued()
     disposeStatus()
     disposeError()
     disposeAgent()

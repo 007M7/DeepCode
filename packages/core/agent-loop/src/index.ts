@@ -24,7 +24,7 @@ import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { DISPOSED_INTERRUPT_REASON, ReactLoopAgent } from './agent.ts'
+import { ReactLoopAgent } from './agent.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
@@ -362,7 +362,7 @@ export class AgentLoop extends Service implements AgentFactory {
         // sent after this point is the sender's bug — the registries are about
         // to drop the agent, so nothing should still hold it.
         if (machine !== undefined) {
-          machine.cancel(DISPOSED_INTERRUPT_REASON)
+          machine.cancel({ kind: 'disposed' })
           await Promise.allSettled([machine.done])
           await machine.scope.dispose()
         }
