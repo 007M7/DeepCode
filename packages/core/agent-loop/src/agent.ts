@@ -248,14 +248,22 @@ export class ReactLoopAgent extends Agent {
 
   /** The `next-step`/no-wakeup injection path: durable context, no FIFO, no run. */
   private injectContext(content: ContentBlock[], options?: SendOptions): void {
+    // Injection is synthetic durable context, not an inbox message: attached
+    // contexts belong only to queued/steering sends, so reject them rather than
+    // silently dropping a value the option type structurally permits.
+    if (options?.contexts !== undefined && options.contexts.length > 0) {
+      throw new TypeError('agent inject (next-step/no-wakeup) does not accept attached contexts')
+    }
     const source = options?.source ?? { kind: 'plugin', plugin: '' }
-    const context = {
+    // Detach and validate the payload BEFORE any append, so malformed input
+    // throws without opening a one-shot turn or mutating the session (the
+    // unified send contract: invalid input throws before any append).
+    const accepted = this.acceptContext({
       content,
       source,
       ...options?.meta !== undefined ? { meta: options.meta } : {},
-    }
+    })
     if (isTurnOpen(this.session)) {
-      const accepted = this.acceptContext(context)
       // Provider protocols require every assistant tool-call batch to be
       // followed only by its tool results. Historical interrupted batches do
       // not own new context; only the currently executing batch may defer it.
@@ -267,39 +275,35 @@ export class ReactLoopAgent extends Agent {
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
-    // turn-enclosed (the durability/replay boundary is the turn).
+    // turn-enclosed (the durability/replay boundary is the turn). The payload is
+    // validated above, so both appends commit together; the finally still owes
+    // a turn/end (the turn-enclosure invariant) even if a post-commit observer
+    // throws after turn/start.
     const turn = lastTurnNumber(this.session) + 1
-    // Once turn/start enters the log, a turn/end is owed even if the message
-    // append fails acceptance or pre-commit validation. The finally re-checks
-    // the log and closes only a turn that actually opened; post-commit observers
-    // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('user/message', context, { surfaceOp: 'append' })
+      this.session.append('user/message', accepted, { surfaceOp: 'append' })
     } finally {
-      // Close the turn if turn/start made it into the log. A pre-commit veto
-      // must escape rather than being mistaken for a committed turn/end.
+      // Close the turn if turn/start committed. With the payload validated up
+      // front both appends commit together, so the turn is always open here;
+      // the guard remains the turn-enclosure backstop.
+      /* v8 ignore next -- unopened turn is unreachable after up-front validation; kept as the enclosure backstop. */
       if (isTurnOpen(this.session)) {
         this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
       }
-      // Decide the durability checkpoint from the log: an accepted one-shot
-      // turn must be flushed even when its message append was the failing step.
-      const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
-      // Keep inject() synchronous: report checkpoint failures live instead of
-      // rejecting the caller, and track the task so disposal still drains it.
-      if (turnRecorded) {
-        // Through the store's flush (the carrier owner), never a raw parallel.
-        const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
-          const rendered = errorChain(error)
-          const err = error instanceof Error ? error : new Error(rendered)
-          this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
-          agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
-        })
-        this.pendingIdleFlushes.add(flush)
-        // Retire on either settlement path.
-        const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
-        void flush.then(retire, retire)
-      }
+      // Flush the one-shot turn through the store (the carrier owner), never a
+      // raw parallel. Keep inject() synchronous: report checkpoint failures live
+      // instead of rejecting the caller, and track the task so disposal drains it.
+      const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
+        const rendered = errorChain(error)
+        const err = error instanceof Error ? error : new Error(rendered)
+        this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
+        agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
+      })
+      this.pendingIdleFlushes.add(flush)
+      // Retire on either settlement path.
+      const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
+      void flush.then(retire, retire)
     }
   }
 
@@ -434,6 +438,18 @@ export class ReactLoopAgent extends Agent {
    */
   private [stopDriver](): Promise<void> | void {
     if (this._status !== 'disposed') {
+      // Discard any still-pending inbox items before disposal so every enqueued
+      // id gets a terminal lifecycle event; a disposed agent never dequeues
+      // them. Emitted while still published (before the status flip below), and
+      // only when there is a public lifecycle to observe it.
+      if (this.published) {
+        const discarded = this.#inbox.pending()
+        if (discarded.length > 0) {
+          const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
+          agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
+        }
+      }
+      this.#inbox.clear()
       this._status = 'disposed'
       this.resolveDisposed()
       // Release whenIdle waiters BEFORE the (guarded) event emit — they are

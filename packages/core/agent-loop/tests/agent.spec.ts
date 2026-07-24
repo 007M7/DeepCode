@@ -98,6 +98,27 @@ describe('Agent', () => {
     expect(() => { agent.send([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
   })
 
+  it('disposal discards still-pending inbox items so every id gets a terminal event', async () => {
+    const adapter = new MockAdapter(['hang'])
+    const ctx = await harness(adapter)
+    let agent!: Agent
+    const discarded: string[] = []
+    ctx.on('agent/inbox/discard', (subject, messages) => {
+      if (subject === agent) discarded.push(...messages.map(m => m.id))
+    })
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+
+    // A quiet (non-waking) item stays parked in the inbox; disposal must drop it
+    // WITH a discard so its enqueued id is not left dangling forever.
+    const id = agent.send([{ type: 'text', text: 'never runs' }], { target: 'next-turn', wakeup: false })
+    await fiber.dispose()
+    await driverDone(agent)
+
+    expect(discarded).toEqual([id])
+  })
+
   it('steer() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
@@ -177,24 +198,22 @@ describe('Agent', () => {
     warn.mockRestore()
   })
 
-  it('idle inject() closes its one-shot turn AND still checkpoints even if the append throws', async () => {
+  it('idle inject() validates its payload BEFORE opening a turn, so invalid input appends nothing', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    // Non-serializable injected content makes Session.append throw AFTER
-    // turn/start was recorded. The turn/end must still be appended (finally),
-    // AND the durability checkpoint must still fire — the balanced turn is in
-    // memory and a crash before the next turn/dispose would otherwise lose it.
+    // Non-serializable injected content is rejected by the up-front snapshot
+    // BEFORE any append (the unified send contract: invalid input throws before
+    // mutating the log). No one-shot turn opens and no durability checkpoint fires.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
-    }).toThrow(/non-JSON-serializable/)
-    const types = agent.session.events.map(e => e.type)
-    expect(types).toEqual(['turn/start', 'turn/end']) // balanced, no open turn
-    await new Promise(r => setTimeout(r, 10)) // let the fire-and-forget flush run
-    expect(flushes).toBe(1) // checkpoint fired despite the throw
+    }).toThrow(/losslessly JSON-serializable/)
+    expect(agent.session.events).toHaveLength(0)
+    await new Promise(r => setTimeout(r, 10)) // give any (erroneous) flush a chance
+    expect(flushes).toBe(0) // nothing was appended, so no checkpoint
   })
 
   it('idle inject() still checkpoints when a listener throws on the synthetic turn/end', async () => {
@@ -244,13 +263,27 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // A non-serializable source makes the turn/start append throw BEFORE the
-    // event is pushed (Session.append validates before push), so NO turn opens.
-    // The finally's isTurnOpen() guard sees no open turn and appends nothing —
-    // the log stays empty, not left with a dangling turn/start.
+    // A non-serializable source is rejected by the up-front snapshot BEFORE any
+    // append, so NO turn opens and the log stays empty.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
-    }).toThrow(/non-JSON-serializable/)
+    }).toThrow(/losslessly JSON-serializable/)
+    expect(agent.session.events).toHaveLength(0)
+  })
+
+  it('inject() rejects attached contexts (they belong to inbox messages, not injection)', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    // contexts structurally compile on AliasSendOptions but injection cannot
+    // carry them, so they are rejected rather than silently dropped.
+    expect(() => {
+      agent.inject([{ type: 'text', text: 'x' }], {
+        source: { kind: 'plugin', plugin: 'p' },
+        contexts: [{ content: [{ type: 'text', text: 'ctx' }], source: { kind: 'plugin', plugin: 'p' } }],
+      } as never)
+    }).toThrow(/does not accept attached contexts/)
     expect(agent.session.events).toHaveLength(0)
   })
 
