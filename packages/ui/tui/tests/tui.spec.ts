@@ -1073,7 +1073,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }
     const result = await setup({
       beforeMount(session) {
-        session.append('context/message', {
+        session.append('user/message', {
           content: renderGoalChange(change),
           source: { kind: 'goal', goalId: change.goal.id, revision: change.goal.revision, round: 0 },
           meta: change as unknown as JsonValue,
