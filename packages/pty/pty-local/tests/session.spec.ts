@@ -298,13 +298,28 @@ describe('LocalPtySession readiness and output', () => {
     void operation.done.then(() => { settled = true })
     inspector.pgid = 789
     terminal.emitData('\x1b]133;D;0\x07dsh> ')
-    await vi.advanceTimersByTimeAsync(60)
+    await vi.advanceTimersByTimeAsync(40)
     expect(settled).toBe(false)
 
     inspector.pgid = 456
     await vi.advanceTimersByTimeAsync(10)
     expect(settled).toBe(true)
     expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
+  it('falls back to inferred idle when a foreground child emits an inherited prompt marker', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    await initialize(session, terminal)
+
+    const operation = session.startSend({ text: 'bash -i', submit: true })
+    inspector.pgid = 789
+    terminal.emitData('\x1b]133;D;0\x07child> ')
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect((await operation.done).waitReason).toBe('inferred_idle')
   })
 })
 

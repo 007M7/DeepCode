@@ -129,6 +129,13 @@ interface WebPluginRecord {
   clientPath: string
 }
 
+interface WatchedBundle {
+  path: string
+  mtimeMs: number
+  size: number
+  dirty: boolean
+}
+
 /** Narrow an unknown parsed JSON value to the dshClient declaration, throwing on malformed fields. */
 function parseDshClient(name: string, value: unknown): DshClientDeclaration | undefined {
   if (value === undefined) return undefined
@@ -203,8 +210,32 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
     throw new Error(`web-plugins: watch.intervalMs must be a positive integer (got ${String(deps.watch?.intervalMs)})`)
   }
 
+  const stageWatches = (
+    candidateTable: Map<string, WebPluginRecord>,
+    currentWatches: Map<string, WatchedBundle>,
+  ): Map<string, WatchedBundle> => {
+    const candidateWatches = new Map<string, WatchedBundle>()
+    if (watchInterval === undefined) return candidateWatches
+    for (const [id, record] of candidateTable) {
+      const current = currentWatches.get(id)
+      if (current?.path === record.clientPath) {
+        candidateWatches.set(id, { ...current })
+        continue
+      }
+      const baseline = statSync(record.clientPath)
+      candidateWatches.set(id, {
+        path: record.clientPath,
+        mtimeMs: baseline.mtimeMs,
+        size: baseline.size,
+        dirty: false,
+      })
+    }
+    return candidateWatches
+  }
+
   let table = scan(deps)
   let graph = composeGraph(table)
+  let watched = stageWatches(table, new Map())
   const rebuildListeners = new Set<(id: string, rev: string) => void>()
 
   const rebuilt = (id: string): string | undefined => {
@@ -220,21 +251,6 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
   // registry is returned, then poll those baselines. fs.watchFile establishes
   // its first baseline asynchronously, so an immediate rebuild can otherwise
   // become the baseline and disappear without an observed delta.
-  const watched = new Map<string, { path: string; mtimeMs: number; size: number }>()
-  const syncWatches = (): void => {
-    if (watchInterval === undefined) return
-    for (const [id, watch] of watched) {
-      if (table.get(id)?.clientPath === watch.path) continue
-      watched.delete(id)
-    }
-    for (const [id, record] of table) {
-      if (watched.has(id)) continue
-      const baseline = statSync(record.clientPath)
-      watched.set(id, { path: record.clientPath, mtimeMs: baseline.mtimeMs, size: baseline.size })
-    }
-  }
-  syncWatches()
-
   const pollWatches = (): void => {
     for (const [id, watch] of watched) {
       let current: Stats
@@ -242,18 +258,24 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
         current = statSync(watch.path)
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT') continue // mid-rename window; retry against the retained baseline
+        if (code === 'ENOENT') {
+          watch.dirty = true
+          continue
+        }
         deps.onError(error instanceof Error ? error : new Error(String(error)))
         continue
       }
-      if (current.mtimeMs === watch.mtimeMs && current.size === watch.size) continue
+      if (!watch.dirty && current.mtimeMs === watch.mtimeMs && current.size === watch.size) continue
       const before = table.get(id)?.entry.rev
       let rev: string | undefined
       try {
         rev = rebuilt(id)
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT') continue // mid-rename window; retry against the retained baseline
+        if (code === 'ENOENT') {
+          watch.dirty = true
+          continue
+        }
         watch.mtimeMs = current.mtimeMs
         watch.size = current.size
         deps.onError(error instanceof Error ? error : new Error(String(error)))
@@ -261,6 +283,7 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
       }
       watch.mtimeMs = current.mtimeMs
       watch.size = current.size
+      watch.dirty = false
       if (rev === undefined || rev === before) continue
       for (const notify of rebuildListeners) {
         // A throwing subscriber must not skip later subscribers or escape the
@@ -283,9 +306,12 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
     queueMicrotask(() => {
       pending = false
       try {
-        table = scan(deps)
-        graph = composeGraph(table)
-        syncWatches()
+        const candidateTable = scan(deps)
+        const candidateGraph = composeGraph(candidateTable)
+        const candidateWatches = stageWatches(candidateTable, watched)
+        table = candidateTable
+        graph = candidateGraph
+        watched = candidateWatches
       } catch (error) {
         // Keep serving the previous graph: a mid-flight rescan failure must not
         // take down the boot manifest for plugins that were fine.
