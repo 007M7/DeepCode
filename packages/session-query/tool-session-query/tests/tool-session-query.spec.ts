@@ -1194,13 +1194,16 @@ describe('workspace authority and lineage redaction', () => {
 
   it('rejects a default self read when its same-id observation moved after caller capture', async () => {
     const mounted = await mount()
-    const secret = mounted.caller.append(
+    const appendLegacy = mounted.caller.append.bind(mounted.caller) as unknown as (
+      type: string,
+      data: unknown,
+    ) => Session['events'][number]
+    const secret = appendLegacy(
       'context/message',
       {
         content: [{ type: 'text', text: 'same-id moved secret' }],
         source: { kind: 'plugin', plugin: 'test' },
       },
-      { surfaceOp: 'append' },
     )
     const window = await mounted.ctx.sessionQuery.readEvent({
       sessionId: mounted.caller.id,
@@ -1963,7 +1966,7 @@ describe('trace and exact read rendering', () => {
     expect(text(result)).toContain(new Date(session.events[0]?.time ?? 0).toISOString())
   })
 
-  it('renders unabridged fenced target JSON and readable semantic neighbor summaries', async () => {
+  it('renders unabridged fenced target JSON and readable semantic or log-only neighbor summaries', async () => {
     const mounted = await mount()
     const session = createSession(mounted.ctx, 'read', '/work')
     session.append(
@@ -1981,10 +1984,13 @@ describe('trace and exact read rendering', () => {
       },
       { surfaceOp: 'append' },
     )
-    session.append(
+    const appendLegacy = session.append.bind(session) as unknown as (
+      type: string,
+      data: unknown,
+    ) => Session['events'][number]
+    appendLegacy(
       'context/message',
       { content: [{ type: 'text', text: 'after semantic text' }], source: { kind: 'plugin', plugin: 'test' } },
-      { surfaceOp: 'append' },
     )
     const result = await mounted.call('session_event_read', {
       session_id: session.id,
@@ -1996,7 +2002,9 @@ describe('trace and exact read rendering', () => {
     expect(output).toContain('```json')
     expect(output).toContain('"text": "target full text"')
     expect(output).toContain('before semantic text')
-    expect(output).toContain('after semantic text')
+    expect(output).toContain('seq 2 | context/message')
+    expect(output).toContain('(no semantic text)')
+    expect(output).not.toContain('after semantic text')
     expect(output).not.toContain('truncated')
   })
 

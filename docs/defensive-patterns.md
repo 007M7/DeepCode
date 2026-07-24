@@ -12,7 +12,7 @@ When an interface documents two valid ways to signal something — an adapter ma
 
 ## Async state is not synchronous state
 
-`agent.send()` does not flip status before returning; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only just requested — drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and observe the transition (saw `running` THEN `idle`) instead of treating status as a per-send result: several queued sends run as consecutive turns under one `running` interval, while cancellation or disposal can discard unstarted items. The guard cuts both ways: if the awaited transition can never occur (EOF with no work submitted → never `running`), the wait hangs — handle the "nothing to wait for" branch explicitly.
+`agent.followup()` does not flip status before returning; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only just requested — drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and observe the transition (saw `running` THEN `idle`) instead of treating status as a per-follow-up result: several queued follow-ups run as consecutive turns under one `running` interval, while cancellation or disposal can discard unstarted items. The guard cuts both ways: if the awaited transition can never occur (EOF with no work submitted → never `running`), the wait hangs — handle the "nothing to wait for" branch explicitly.
 
 ## Dispose must reach quiescence, not just request it
 

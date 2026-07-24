@@ -63,7 +63,7 @@
 {"type":"hook/invoked","seq":61,"time":1783352229622,"data":{"turn":1,"point":"PostToolUse","dialect":"codex","handlerId":"codex:PostToolUse:1","matcher":"bash"}}
 {"type":"hook/result","seq":62,"time":1783352229632,"data":{"turn":1,"point":"PostToolUse","handlerId":"codex:PostToolUse:1","decision":"pass","exitCode":0,"durationMs":9.27664199999981}}
 {"type":"tool/result","seq":63,"time":1783352229632,"data":{"turn":1,"step":1,"callId":"call_00_Q6wHtakaip2QNfIXaVJY5458","content":[{"type":"text","text":"HELLO\n"}],"isError":false},"sourceEventSeqs":[60],"surfaceOp":"append"}
-{"type":"context/message","seq":64,"time":1783352229633,"data":{"content":[{"type":"text","text":"Note: command output has been verified against the audit log."}],"source":{"kind":"plugin","plugin":"hooks-codex"}},"surfaceOp":"append"}
+{"type":"user/message","seq":64,"time":1783352229633,"data":{"content":[{"type":"text","text":"Note: command output has been verified against the audit log."}],"source":{"kind":"plugin","plugin":"hooks-codex"}},"surfaceOp":"append"}
 {"type":"step/end","seq":65,"time":1783352229633,"data":{"turn":1,"step":1}}
 {"type":"step/start","seq":66,"time":1783352229633,"data":{"turn":1,"step":2}}
 {"type":"assistant/chunk","seq":67,"time":1783352230757,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}

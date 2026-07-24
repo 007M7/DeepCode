@@ -56,6 +56,20 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
+/* Dialog Cancel (figma 451:18655): bordered capsule on transparent fill. */
+.outline {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+}
+
+.outline:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.outline:disabled {
+  border-color: var(--dsw-alias-border-l1);
+}
+
 .toolbar {
   background: var(--dsw-alias-button-tool-bar-fill);
 }

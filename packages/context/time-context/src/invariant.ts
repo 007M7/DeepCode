@@ -48,7 +48,7 @@ function preparationPosition(history: readonly SessionEvent[], fail: InvariantFa
 /** Validate one plugin-attributed time reading against its session position and timestamp. */
 function validateReading(
   history: readonly SessionEvent[],
-  event: SessionEvent<'context/message'>,
+  event: SessionEvent<'user/message'>,
   fail: InvariantFailure,
 ): void {
   const [block] = event.data.content
@@ -84,7 +84,7 @@ function validateReading(
 /** Validate all package-owned readings already present in one session. */
 function validateSession(session: Session, fail: InvariantFailure): void {
   for (const [index, event] of session.events.entries()) {
-    if (event.type !== 'context/message'
+    if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) continue
     validateReading(session.events.slice(0, index), event, fail)
@@ -97,7 +97,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
-    if (event.type !== 'context/message'
+    if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) return
     validateReading(session.events, event, fail)

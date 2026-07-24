@@ -1884,14 +1884,15 @@ export function createTuiChat(
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
-  // Steering messages queued during the running turn (`agent/queued`) that the
-  // loop has not yet drained, shown as a badge on the status line. Each entry is
-  // the queued message's serialized source: a drain (`steering/message`) removes
-  // one MATCHING entry, so loop-authored steering — continuation reasons enter
-  // the inbox without an `agent/queued` event — cannot consume a pending user
-  // message's slot. Cleared on leaving `running`, which also absorbs a
-  // cancellation that discards the queue without logging drains; the status
-  // line exists only while running, so idle carries no badge to keep current.
+  // Steering messages queued during the running turn (`agent/inbox/enqueue`
+  // with `info.steering`) that the loop has not yet drained, shown as a badge on
+  // the status line. Each entry is the queued message's serialized source: a
+  // drain (`steering/message`) removes one MATCHING entry, so a loop-authored
+  // continuation reason (which enqueues and drains under its own source) pushes
+  // and pops its own slot and cannot consume a pending user message's slot.
+  // Cleared on leaving `running`, which also absorbs a cancellation that
+  // discards the queue without logging drains; the status line exists only
+  // while running, so idle carries no badge to keep current.
   const pendingSteering: string[] = []
   let disposed = false
   let shuttingDown: Promise<void> | undefined
@@ -2238,6 +2239,29 @@ export function createTuiChat(
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
+        // Injected context (plugin/goal source) renders as a dim context card,
+        // not a human bubble; only a direct human prompt is a user message. The
+        // boolean avoids narrowing `source`, so the label keeps its full union.
+        const source = event.data.source
+        if (source.kind !== 'user') {
+          const references = sessionReferenceCard(event.data.meta)
+          if (references !== undefined) {
+            chat.addChild(new Spacer(1))
+            chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+            break
+          }
+          const text = displayText(contentText(event.data.content).trim())
+          if (text) {
+            // The tui type view lacks plugin-augmented source kinds (e.g. goal),
+            // so read the display label without narrowing on `kind`.
+            const labelled = source as { kind: string; plugin?: string }
+            const label = labelled.plugin ?? labelled.kind
+            chat.addChild(new Spacer(1))
+            chat.addChild(new Text(palette.dim(`Context · ${displayText(label)}`), 1, 0))
+            chat.addChild(new Text(palette.muted(text), 1, 0))
+          }
+          break
+        }
         const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
@@ -2259,22 +2283,6 @@ export function createTuiChat(
         for (const references of promptReferenceCards(event)) {
           chat.addChild(new Spacer(1))
           chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
-        }
-        break
-      }
-      case 'context/message': {
-        const references = sessionReferenceCard(event.data.meta)
-        if (references !== undefined) {
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
-          break
-        }
-        const text = displayText(contentText(event.data.content).trim())
-        if (text) {
-          const source = event.data.source.kind === 'plugin' ? event.data.source.plugin : event.data.source.kind
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Context · ${displayText(source)}`), 1, 0))
-          chat.addChild(new Text(palette.muted(text), 1, 0))
         }
         break
       }
@@ -2362,7 +2370,6 @@ export function createTuiChat(
       const isSurface = event.type === 'user/message'
         || event.type === 'assistant/message'
         || event.type === 'tool/result'
-        || event.type === 'context/message'
         || event.type === 'steering/message'
       if (isSurface && !active.has(event.seq)) continue
       if (event.type === 'tool/call' && !activeCalls.has(event.data.callId)) continue
@@ -2804,7 +2811,7 @@ export function createTuiChat(
     } else if (agent.status === 'running') {
       agent.steer(content, { contexts })
     } else {
-      agent.send(content, { contexts })
+      agent.followup(content, { contexts })
     }
   }
 
@@ -3148,9 +3155,9 @@ export function createTuiChat(
     advanceTurnPhase(event)
     if (event.type === 'steering/message') {
       // A queued steering message reached the model as it drained; drop its
-      // entry from the badge. Matching by source keeps loop-authored steering
-      // (e.g. continuation reasons), which logs here without a matching
-      // `agent/queued` increment, from consuming a pending user slot.
+      // entry from the badge. Matching by source keeps a loop-authored
+      // continuation reason popping its own enqueued slot rather than a pending
+      // user message's slot.
       const drained = pendingSteering.indexOf(JSON.stringify(event.data.source))
       if (drained >= 0) {
         pendingSteering.splice(drained, 1)
@@ -3164,7 +3171,7 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
-  const disposeQueued = ctx.on('agent/queued', (subject, _content, info) => {
+  const disposeQueued = ctx.on('agent/inbox/enqueue', (subject, info) => {
     if (subject !== agent || !info.steering) return
     pendingSteering.push(JSON.stringify(info.source))
     refreshStatus()

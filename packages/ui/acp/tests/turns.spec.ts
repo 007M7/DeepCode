@@ -285,10 +285,10 @@ describe('acp bridge — turn outcomes', () => {
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     // On the queued prompt, synchronously inject a one-shot context turn (idle
-    // inject writes turn/start{injection} → context/message → turn/end). Fire
+    // inject writes turn/start{injection} → user/message → turn/end). Fire
     // once so it lands between install and the prompt turn.
     let injected = false
-    harness.ctx.on('agent/queued', (subject) => {
+    harness.ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject === agent && !injected) {
         injected = true
         agent.inject([{ type: 'text', text: 'ctx note' }], { source: { kind: 'plugin', plugin: 'test' } })

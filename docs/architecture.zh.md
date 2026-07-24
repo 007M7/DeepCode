@@ -49,7 +49,7 @@
 
 ## 事件
 
-事件构成服务的扩展 API；完整清单见[事件目录](cordis-catalog/events.md)和[生产方与消费方映射](event-producer-consumer.md)。
+事件构成服务的扩展 API；参见[事件目录](cordis-catalog/events.md)和[生产方与消费方映射](event-producer-consumer.md)。
 
 ### 事件域
 
@@ -63,11 +63,11 @@ waterfall（瀑布式事件）的行为类似环绕中间件：监听器调用 `
 
 ## 默认循环生命周期
 
-已交付的循环通过插件服务和事件，处理从提示词到检查点的工作。
+循环通过插件服务和事件运行。
 
-**会话**采用仅追加方式。每个普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一个已领取轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型和插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。在[下文时序](agent-lifecycle.md)中，引号标记持久事件。
+**会话**采用仅追加方式。每个普通**轮次**领取一条已排队的消息；注入不领取消息。后续轮次会等待前一个检查点，但可以与前一轮次共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。一个**步骤**包含一次模型请求及其工具；在[下文时序](agent-lifecycle.md)中，引号标记持久事件。
 
-未提供 id 时会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建，而 `resumeSessionId` 要求已有历史。恢复流程会在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；其余拆卸过程保持静默。
+未提供 id 时，创建流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；拆卸过程保持静默。
 
 ### 轮次流程
 
@@ -115,39 +115,39 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定，循环则提供 `model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
+各步骤会组装有序提示词片段、工具 schema 和变量；未知引用会使轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `model` 和 `cwd`（[归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-工具执行阶段的上下文，包括异步 `inject()` 和工具执行后的 `additionalContexts`，会在结果产生后稳定。steering（中途引导）会在 `agent/post-step` 前排空；该事件会观察持久输出、结果、上下文和 steering。余留内容进入队列。终止型 `agent/turn-stop` 在关闭和刷写期间始终具有最终决定权；后续 steering 会被丢弃，排队提示词仍予保留。
+异步 `inject()` 和工具执行后的 `additionalContexts` 会在结果产生后稳定；steering（中途引导）会在 `agent/post-step` 前排空。余留内容进入队列。终止型 `agent/turn-stop` 在关闭和刷写期间始终具有最终决定权，会丢弃后续 steering，而不丢弃排队提示词。
 
-裁剪先于摘要；溢出重试必须取得持久进展。有界的瞬态重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
+裁剪先于摘要；溢出重试必须取得持久进展。有界重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 
 ### 失败边界
 
-适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
+适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交任何内容。
 
-其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会发出原因、清空队列并中止；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
-会话事件均位于轮次边界内。重新加载会用合成的 `interrupted` 轮次结束事件闭合中断的日志尾部。关闭后的故障只通过 `agent/error` 报告；此时已没有安全的轮次内位置。每个轮次有一个 `TurnEndReason`；各变体由 [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) 统一定义。
+会话事件均位于轮次边界内；重新加载会用合成的 `interrupted` 轮次结束事件闭合中断的日志尾部。关闭后的故障使用 `agent/error`。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
 
 ### Agent 句柄
 
-`ctx.agents` 拥有活跃 agent，并返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`、`steer()`、`inject()`、`cancel()` 和 `whenIdle()`。调用方 fiber、工厂提供方和消费方句柄通过同一个需等待完成的 disposer 共同拥有拆卸过程。
+`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件使用按意图命名的辅助方法 `followup()`、`queue()`、`steer()` 和 `inject()`；持有确切路由信息的调用方使用各字段均为必填项的 `send()`（[决策](../.agents/notes/implemented/architecture/2026-07-24-intent-named-agent-delivery.md)）。`cancel()` 和 `whenIdle()` 控制生命周期。调用方、提供方和句柄共同拥有拆卸过程。
 
 ### Agent 作用域
 
-每个 agent 都拥有一个作用域化的 `agent.ctx`；共享存储会在全局工具、提示词和命令条目之上叠加作用域条目，同时保留各领域视图（[决策](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)）。作用域监听器会过滤分派，每项作用域贡献都会在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，而轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
+每个 agent 都拥有一个作用于全局工具、提示词和命令存储的作用域化 `agent.ctx`（[决策](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)）；作用域监听器会过滤分派，各项贡献会在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合；类型化解析器从 `Events` 和 `scopeTarget` 推导载体检查（[门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，而轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。
 
 ## 状态
 
 ### 会话日志
 
-会话日志是权威依据。`deriveMessages()` 投影出模型历史；原始 `assistant/chunk` 事件留在日志中，以保证回放和 UI 保真。fork、恢复、transcript（文本记录）渲染、遥测和持久化均派生自同一个事件流。
+会话日志是权威依据。`deriveMessages()` 投影出模型历史；原始 `assistant/chunk` 事件保留回放和 UI 保真。fork、恢复、transcript（文本记录）、遥测和持久化共用该事件流。
 
-**模型可见 ⟺ 已记录**：日志可以重建每个请求，包括由请求头会话前缀置于开头的 `step/start` 时消息，以及通过折叠 `request/header` 得到的请求头；开发期不变量会断言这一点（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
+**模型可见 ⟺ 已记录**：`step/start` 消息、请求头中的会话前缀和折叠后的 `request/header` 共同重建每个请求；`dsh-agent-loop/invariant` 通过 `ctx.invariants` 断言这一点（[决策](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
-持久性由插件负责。后端会缓冲同步的 `session/event` 通知。语义检查点策略会在适配器分发前刷写请求，在工具分发前刷写已记录的顶层调用，并在 `agent/post-step` 刷写完整的响应与结果批次；循环仍保留最终的轮次结束检查点。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 则遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
+持久性由插件负责；后端会缓冲同步的 `session/event` 通知。检查点会在适配器分发前排空，在工具分发前刷写已记录的顶层工具调用，在 `agent/post-step` 刷写完整的响应与结果批次，并刷写最终的轮次结束。`SessionPersistence` 存储 `SessionEvent` 和 `SessionHeader` 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 则遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 
-`ctx.sessions.appendOutOfBand()` 会把纯日志事件加入开放轮次，或创建一个已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq／来源信息；回退标题及其可选提供方都不会延迟响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+`ctx.sessions.appendOutOfBand()` 会把插件所属的纯日志事件加入开放轮次，或创建一个平衡且已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq 和来源信息；其即时回退标题和唯一可选异步提供方都不会延迟 agent 响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 

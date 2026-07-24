@@ -471,7 +471,7 @@ describe('TUI terminal-state snapshots', () => {
         session.append('todo/write', {
           todos: [{ content: `Unsafe todo ${CONTROL_PROBE}`, status: 'in_progress' }],
         })
-        session.append('context/message', {
+        session.append('user/message', {
           content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
           source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
         }, { surfaceOp: 'append' })
@@ -587,7 +587,7 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('surface-before-compaction', harness.terminal, { includeScrollback: true })
 
     await renderAfter(harness, () => {
-      harness.session.append('context/message', {
+      harness.session.append('user/message', {
         content: [{ type: 'text', text: 'Compacted summary: the prior command completed and its details were retired from the active surface.' }],
         source: { kind: 'plugin', plugin: 'compact' },
       }, {

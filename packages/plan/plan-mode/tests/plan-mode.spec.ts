@@ -95,7 +95,7 @@ function header(session: Session): void {
 
 function noticeTexts(session: Session): string[] {
   return session.events
-    .filter(event => event.type === 'context/message')
+    .filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     .map(event => (event.data as { content: { type: string; text?: string }[] }).content.map(block => block.text ?? '').join(''))
 }
 

@@ -6,7 +6,7 @@ English | [中文](architecture.zh.md)
 
 ## Overview
 
-Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute services, typed events, and disposable registrations.
+Harnesses are [Cordis](cordis-primer.md) contexts with package-contributed services, typed events, and disposable registrations.
 
 `packages/core/` groups the default agent flow; capabilities remain plugins.
 
@@ -49,7 +49,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute serv
 
 ## Event
 
-Events form the service extension API; see the exhaustive [events catalog](cordis-catalog/events.md) and [producer/consumer map](event-producer-consumer.md).
+Events form the service extension API; see the [catalog](cordis-catalog/events.md) and [producer/consumer map](event-producer-consumer.md).
 
 ### Event Domains
 
@@ -63,11 +63,11 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop runs prompt-to-checkpoint work through plugin services and events.
+The loop runs through plugin services and events.
 
-A **session** is append-only. Each ordinary **turn** claims one queued `send()` item; injection claims none. A successor awaits the preceding claimed turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it; a **step** is one model request plus tools. In the [sequence below](agent-lifecycle.md), quotes mark durable events.
+A **session** is append-only. Each ordinary **turn** claims one queued message; injection claims none. Successors await the preceding checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A **step** is one model request plus tools; quotes in the [sequence below](agent-lifecycle.md) mark durable events.
 
-Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` restores-or-creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication. Startup failures emit `agent-loop/config-start-failed`; teardown is otherwise silent.
+Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication. Setup failures emit `agent-loop/config-start-failed`; teardown is silent.
 
 ### Turn Flow
 
@@ -115,39 +115,39 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona, while the loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Steps assemble ordered prompt sections, tool schemas, and variables; unknown references fail turns. `dsh-system-prompt` owns identity and persona; the loop supplies `model` and `cwd` ([ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Tool-time context—including async `inject()` and post-tool `additionalContexts`—settles after results. Steering drains before `agent/post-step`, which sees durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` remains authoritative through close/flush; later steering is discarded while queued prompts remain.
+Async `inject()` and post-tool `additionalContexts` settle after results; steering drains before `agent/post-step`. Leftovers queue. Terminal `agent/turn-stop` remains authoritative through close/flush and discards later steering, not queued prompts.
 
-Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
+Pruning precedes summaries; overflow retries require durable progress. Bounded retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
 ### Failure Boundaries
 
-Adapter failures close the step before `agent/request-error` with exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
+Adapter failures close the step before `agent/request-error` with exact `Error`, `LlmFailure`, and history. Retries open steps; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit nothing.
 
-Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The turn signal retires before `turn/end`. Effective `cancel()` emits its typed cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The signal retires before `turn/end`. Effective `cancel()` emits its cause, clears queues, and aborts; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Session events are turn-enclosed. Reload closes an interrupted tail with a synthetic `interrupted` turn end. Post-close failures report only through `agent/error`; no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
+Session events are turn-enclosed; reload closes an interrupted tail with a synthetic `interrupted` turn end. Post-close failures use `agent/error`. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send()`, `steer()`, `inject()`, `cancel()`, and `whenIdle()`. The caller fiber, factory provider, and consumer handle co-own teardown through one awaited disposer.
+`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins use intent helpers `followup()`, `queue()`, `steer()`, and `inject()`; callers with exact routing facts use mandatory-field `send()` ([decision](../.agents/notes/implemented/architecture/2026-07-24-intent-named-agent-delivery.md)). `cancel()` and `whenIdle()` control lifecycle. Caller, provider, and handle co-own teardown.
 
 ### Agent Scope
 
-Each agent owns a scoped `agent.ctx`; shared storage overlays global tool, prompt, and command entries while preserving domain views ([decision](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)). Scoped listeners filter dispatch, and every scoped contribution unwinds with awaited cleanup. `CreateAgentOptions.setup(agentCtx)` composes before publication. Typed resolvers derive carrier checks from merged `Events` and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`, while turn, step, signal, cwd, and authority remain explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+Each agent owns a scoped `agent.ctx` over global tool, prompt, and command storage ([decision](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)); scoped listeners filter and contributions unwind with awaited cleanup. `CreateAgentOptions.setup(agentCtx)` composes before publication; typed resolvers derive carrier checks from `Events` and `scopeTarget` ([gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). `AgentLoop` runs inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`, while turn, step, signal, cwd, and authority stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
 
 ## State
 
 ### Session Log
 
-The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events remain for replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from the same stream.
+The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcripts, telemetry, and persistence share that stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, and headers by folding `request/header` — and the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: `step/start` messages plus the header's session prefix and folded `request/header` reconstruct every request; `dsh-agent-loop/invariant` asserts this through `ctx.invariants` ([decision](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
-Durability is a plugin concern. Backends buffer synchronous `session/event` notifications. The semantic checkpoint policy drains requests before adapter dispatch, recorded top-level calls before tool dispatch, and complete response/result batches at `agent/post-step`; the loop retains the final turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
+Durability is a plugin concern; backends buffer synchronous `session/event` notifications. Checkpoints drain before adapter dispatch, recorded top-level tool calls before tool dispatch, complete response/result batches at `agent/post-step`, and final turn ends. `SessionPersistence` stores `SessionEvent` plus `SessionHeader` metadata; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
-`ctx.sessions.appendOutOfBand()` joins log-only events to an open turn or creates a flushed zero-step turn. `session/title` folds latest-wins with source seqs/provenance; fallback and its optional provider never delay responses. Forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
+`ctx.sessions.appendOutOfBand()` joins plugin-owned log-only events to an open turn or creates a balanced, flushed zero-step turn. `session/title` folds latest-wins with source seqs and provenance; its immediate fallback and sole optional async provider never delay the agent response. Forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
 ### Model Content
 

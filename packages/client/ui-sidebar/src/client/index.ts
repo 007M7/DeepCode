@@ -27,9 +27,15 @@ export function apply(ctx: ClientContext): void {
     // list snapshot); layout keeps only panel geometry.
     onOpen: (id) => { ctx.sessions.open(id) },
     onCreate: (cwd) => {
-      // Create-then-open: the sidebar's three creation entries all land
-      // in the new session (empty-state first-send stays with ui-conversation).
-      void ctx.sessions.create(cwd === undefined ? {} : { cwd })
+      // Top-level New Session / New Workspace: clear selection so AppFrame
+      // shows conversation.empty (EmptyState + shared InputBar). Per-project
+      // "+" still create-then-opens into that cwd until workspace seeding
+      // reaches the empty-state picker.
+      if (cwd === undefined) {
+        ctx.sessions.clear()
+        return
+      }
+      void ctx.sessions.create({ cwd })
         .then((id: SessionId) => { ctx.sessions.open(id) })
     },
     onToggleSidebar: () => { ctx.layout.toggleSidebar() },
