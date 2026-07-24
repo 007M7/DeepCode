@@ -189,6 +189,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'clientModuleHost',
+    summary: 'The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap.',
+    methods: [
+      {
+        signature: 'graph(): WebBootGraph',
+        jsDoc: '/**\n * Current composed entry graph (stable object between changes).\n * @returns the graph served as `window.__DSH_BOOT__`.\n */',
+      },
+      {
+        signature: 'clientPath(id: string): string | undefined',
+        jsDoc: '/**\n * Absolute path of an entry\'s client bundle.\n * @param id - entry id (package name).\n * @returns the path, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'rebuilt(id: string): string | undefined',
+        jsDoc: '/**\n * Re-hash one bundle (the HMR watch\'s registration hook — the only entry\n * point through which bundle content changes reach the graph).\n * @param id - entry id (package name).\n * @returns the new rev, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'onRebuilt(listener: (id: string, rev: string) => void): () => void',
+        jsDoc: '/**\n * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.\n * @param listener - receives the entry id and its new bundle rev.\n * @returns the unsubscriber.\n */',
+      },
+      {
+        signature: 'onGraphChanged(listener: () => void): () => void',
+        jsDoc: '/**\n * Fires after any flush that recomposed the graph (row added/removed, or a\n * rebuilt rev change). Pull model: listeners re-read {@link graph}.\n * @param listener - notified with no payload.\n * @returns the unsubscriber.\n */',
+      },
+    ],
+  },
+  {
     key: 'codeRuntime',
     summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
@@ -311,6 +337,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
         jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
+      },
+    ],
+  },
+  {
+    key: 'httpServer',
+    summary: 'The web-shape HTTP carrier service.',
+    methods: [
+      {
+        signature: 'register(route: WebRoute): () => void',
+        jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
+      },
+      {
+        signature: 'tapIndex(transform: (html: string) => string): () => void',
+        jsDoc: '/**\n * Register an index.html transform, applied to every index response in\n * registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
       },
     ],
   },
@@ -2290,6 +2330,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebFetchResult',
     declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'WebRoute',
+    declaration: 'export interface WebRoute {\n    kind: WebRouteKind;\n    path: string;\n    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;\n}',
+  },
+  {
+    name: 'WebRouteKind',
+    declaration: 'export type WebRouteKind = \'exact\' | \'prefix\';',
   },
   {
     name: 'WebSearchProvider',

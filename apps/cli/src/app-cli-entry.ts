@@ -18,6 +18,8 @@ import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
 import { assertEntriesLoaded, installFailLoud, loadEnv } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+// Empty type import carries the httpServer Context merge for the port read below.
+import type {} from '@deepseek-ai/dsh-host-webserver'
 
 /** Profile file under the invoking directory (read-only this round; never created — see the design's profile ruling). */
 const PROFILE_DIR = '.dsh-tmp-profile'
@@ -36,7 +38,7 @@ interface ProfileMapping {
  * loud (a typo silently ignored would read as "setting has no effect").
  * Developers extend deployments by adding rows here.
  */
-export const PROFILE_MAPPINGS: ProfileMapping[] = [
+const PROFILE_MAPPINGS: ProfileMapping[] = [
   { jsonPath: 'provider', entryId: 'api-gateway', configKey: 'provider' },
   { jsonPath: 'model', entryId: 'api-gateway', configKey: 'model' },
   { jsonPath: 'persistenceRoot', entryId: 'session-persistence-jsonl', configKey: 'root' },
@@ -141,7 +143,7 @@ export class AppCLIEntry {
     this.patches = [...overrides.entries()].map(([id, bag]) => {
       const yml = rows.get(id)
       if (yml === undefined) throw new Error(`dsh web: patch target row "${id}" not found in ${this.options.configPath}`)
-      return { id, config: { ...yml.config as Record<string, unknown> ?? {}, ...bag } }
+      return { id, config: { ...(yml.config ?? {}) as Record<string, unknown>, ...bag } }
     })
   }
 

@@ -192,7 +192,7 @@ export class ClientModuleHostService extends Service {
     for (const entry of ctx.loader.entries()) this.dirty.add(entry.options.name)
     this.composed = this.compose()
     const failures: Error[] = []
-    this.flush((err) => failures.push(err))
+    this.flush(err => failures.push(err))
     if (failures.length > 0) {
       throw new AggregateError(
         failures,

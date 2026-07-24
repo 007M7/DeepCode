@@ -276,6 +276,20 @@ Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) ·
 
 Source: [`packages/examples/cli-demo/src/index.ts:26`](../packages/examples/cli-demo/src/index.ts)
 
+## `@deepseek-ai/dsh-client-hmr`
+
+Requires: `clientModuleHost` · `httpServer`
+
+```ts config-catalog
+/** Plugin config, validated by the same-named schemastery schema. */
+export interface Config {
+  /** Bundle stat-poll interval in milliseconds (default 500, the build-side watcher's polling default). */
+  pollIntervalMs?: number
+}
+```
+
+Source: [`packages/client/hmr/src/index.ts:30`](../packages/client/hmr/src/index.ts)
+
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
 ```ts config-catalog
@@ -473,6 +487,38 @@ export interface Config {
 ```
 
 Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
+
+## `@deepseek-ai/dsh-host-apiproxy`
+
+Requires: `agents` · `sessions` · `tools` · `userInteraction`
+
+```ts config-catalog
+/** Gateway plugin config: the host-level default agent routing. */
+export interface Config {
+  /** Default provider route for created/resumed agents. */
+  provider: string
+  /** Default model id. */
+  model: string
+}
+```
+
+Source: [`packages/host/apiproxy/src/index.ts:32`](../packages/host/apiproxy/src/index.ts)
+
+## `@deepseek-ai/dsh-host-webserver`
+
+```ts config-catalog
+/** Gateway config: listen address plus the static dist anchor (injected by the composing app, never self-resolved). */
+export interface Config {
+  /** Listen host; the two supported values are loopback and all-interfaces. */
+  host: '127.0.0.1' | '0.0.0.0'
+  /** Listen port; zero requests an OS-assigned port. */
+  port: number
+  /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
+  distIndex: string
+}
+```
+
+Source: [`packages/host/webserver/src/index.ts:39`](../packages/host/webserver/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
@@ -1893,9 +1939,9 @@ Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/cont
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
-- `@deepseek-ai/dsh-client-connection` ([`packages/client/connection/src/index.ts`](../packages/client/connection/src/index.ts))
-- `@deepseek-ai/dsh-client-hmr` ([`packages/client/hmr/src/index.ts`](../packages/client/hmr/src/index.ts))
+- `@deepseek-ai/dsh-client-connection` — requires `httpServer` · `apiProxy` ([`packages/client/connection/src/index.ts`](../packages/client/connection/src/index.ts))
 - `@deepseek-ai/dsh-client-i18n` ([`packages/client/i18n/src/index.ts`](../packages/client/i18n/src/index.ts))
+- `@deepseek-ai/dsh-client-modules` — requires `httpServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
@@ -1942,16 +1988,13 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
-- `@deepseek-ai/dsh-client-modules` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-primitives` ([`packages/client/ui-primitives/src/index.ts`](../packages/client/ui-primitives/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-slots` ([`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts))
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
-- `@deepseek-ai/dsh-host-apiproxy` ([`packages/host/apiproxy/src/index.ts`](../packages/host/apiproxy/src/index.ts))
 - `@deepseek-ai/dsh-host-runtime` ([`packages/host/runtime/src/index.ts`](../packages/host/runtime/src/index.ts))
-- `@deepseek-ai/dsh-host-webserver` ([`packages/host/webserver/src/index.ts`](../packages/host/webserver/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))

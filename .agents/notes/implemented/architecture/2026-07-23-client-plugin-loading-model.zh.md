@@ -56,11 +56,11 @@ vendored Loader 经其 `internal` seam 消费模块系统——唯一调用点�
 
 **host 侧——组合这张图。**
 
-1. 负责组合的 app（`apps/cli`）经 `mountWebPlugins` 把名册挂载为内存中的 Loader entry。名册是插件包的一张平铺清单，`--dev` 下外加 `client-hmr` 行。名册里 import 失败的包在挂载时大声抛错。
-2. 注册表（`createHostWebPluginRegistry`）扫描已挂载 entry 的 package.json `dshClient` 声明，组合出 `window.__DSH_BOOT__`：`{ rev, entries: [{ id, url, rev, inject?, immediately? }] }`。`inject` 边与 `immediately` 标记都来自 manifest，永不人肉抄写。它拒绝声明了插件却没有已构建 `./client` bundle 的包，也拒绝任何畸形的声明字段——装载期大声失败。
-3. 注册表在 cordis `internal/plugin` 上重扫，微任务去抖；重扫失败则继续供给上一张图。每个 bundle 的内容哈希进其 `rev`（缓存失效 + HMR diff 锚点），行集合哈希进 `graph.rev`。每一行都经 fetch 供给：`/plugins/<id>/client.js?rev=…`。图的类型是两侧各持一份的 wire 契约，因为 webserver 保持零 workspace 依赖。
+1. 负责组合的 app（`apps/cli`）把名册作为普通行放进它的 `cordis.yml` 配置树——client 插件包与每个 host 插件一样是 entry 行，`--dev` 由代码（`AppCLIEntry`）在 settle/sweep 之前追加 `client-hmr` 行，使 fail-loud 三件套一并覆盖它。名册行 import 失败由 boot 的 `assertEntriesLoaded` 捕获。
+2. `dsh-client-modules` 的 node 半（该包是双面的：浏览器半就是模块表）扫描 loader entry 的 package.json `dshClient` 声明，组合出 `window.__DSH_BOOT__`：`{ rev, entries: [{ id, url, rev, inject?, immediately? }] }`。`inject` 边与 `immediately` 标记都来自 manifest，永不人肉抄写。它拒绝声明了插件却没有已构建 `./client` bundle 的包，也拒绝任何畸形的声明字段——激活期大声失败（FAILED fiber，由 sweep 上报）。
+3. 扫描是单包增量——不存在全量重扫代码路径。每次 cordis `internal/plugin` 发射把该 fiber 的 entry 名标脏（无 entry 的 fiber O(1) 丢弃）；微任务 flush 把每个脏名对账 live loader entries，包元数据（含「非 client 包」的否定结论）按名永久缓存，bundle 重哈希只经 `rebuilt(id)` 可达。激活趟从当前 entries 灌同一脏集合并同步 flush，初扫与稳态共享一条实现。每个 bundle 的内容哈希是其 `rev`（缓存失效 + HMR diff 锚点），行集合哈希进 `graph.rev`，每一行都经 fetch 供给：`/plugins/<id>/client.js?rev=…`。图类型单源在 modules 包的 `./client` 出口——webserver 对图一无所知（它是朴素路由注册插件；bundle 路由和 index 渲染 tap 都由 modules 自己注册）。
 
-为什么名册是手写清单而不是扫描？因为哪些插件组合进一次部署是组合决策，不是包属性——一个 dshClient 包存在于仓库里，不代表这次部署要挂载它，扫描发现无从替人做这个决定。名册住在 `apps/cli/web.ts` 而非 cordis.yml，只是因为 `dsh web` 的 host 还是一个手工装配的 `bootHost`，没有 Loader 配置树。
+为什么名册是 yml 行而不是扫描？因为哪些插件组合进一次部署是组合决策，不是包属性——一个 dshClient 包存在于仓库里，不代表这次部署要挂载它，扫描发现无从替人做这个决定；node 半只扫描配置树实际挂载了的东西。
 
 **第一层——模块面。**壳在图之上建起模块系统，然后并行预取每个 `immediately` 行。预取即 fetch + 执行，只登记工厂。单行预取失败在这里被吞下：第二层 import 时会重试 fetch 并拥有那次大声失败，因此一个坏行藏不住其他行。`immediately` 是预取标记——不是屏障，不是身份。包声明它，注册表把它带进图行。基础设施插件（connection、runtime、ui-theme、i18n，外加 hmr）声明它；UI 插件则径直按需到达。
 
@@ -74,9 +74,9 @@ vendored Loader 经其 `internal` seam 消费模块系统——唯一调用点�
 
 ### 热重载：一个驱动插件，自行监视的 bundle
 
-热重载是否启用是一项组合决策：dev 图包含 `client-hmr` 行（一个常规的插件包）并开启 bundle 监视；prod 图两者皆无。
+热重载是否启用是一项组合决策：dev 组合挂载 `client-hmr` 行（一个常规的插件包，由 `--dev` 追加），其 node 半带来 bundle 监视与 SSE 通道；prod 组合不挂载，两者皆无。
 
-重建好的 bundle 怎么变成重载信号？webserver 自己观察——没有构建器来通知它。注册表扫描本就握有每个插件的 bundle 路径（`clientPath`），因此 dev 模式下注册表用 `fs.watchFile` 对每个已扫描的 bundle 文件做 stat 轮询。轮询是刻意选择：inotify 在 weka 网络挂载上不触发，构建侧监视器需要 `--poll` 也是同一原因。mtime/size 一变，注册表就重哈希该行（`rebuilt(id)`）；当 `rev` 真的变了，才在 `GET /plugins/events` 上广播 `rebuilt` 帧——这是一条系统级 SSE（Server-Sent Events）通道，连接即发全量图，变更时发 `rebuilt` 帧，仅供呈现的 wire，永不进会话日志。监视集合的成员随表走：重扫为新行添加监视、为消失的行撤下监视，dispose（资源释放）撤掉全部。轮询间隔是一个经校验的配置字段（默认 500ms），不是常量。重建 bundle 则是任意一个 tsdown watch 进程的事——`scripts/dev-web.ts` 仍作为 watch 构建入口保留，其包清单在启动时扫描 `packages/*/*/package.json` 按 dshClient 发现——构建器与 host 共享零协议。写一半的 bundle 被撕裂读取会自愈：写入完成期间 stat 持续变化，下一个轮询节拍会再次重哈希并广播最终的 rev。
+重建好的 bundle 怎么变成重载信号？hmr 的 node 半自己观察——没有构建器来通知它。它从 `ctx.clientModuleHost.clientPath(id)` 读取图上各行的 bundle 路径并用 `fs.watchFile` 逐一 stat 轮询，监视集合的成员随 `onGraphChanged` 走（boot 窗口内晚到的行补上监视、消失的行撤下监视，生命周期全部收 `ctx.effect`）。轮询是刻意选择：inotify 在 weka 网络挂载上不触发，构建侧监视器需要 `--poll` 也是同一原因。mtime/size 一变，它调用 `clientModuleHost.rebuilt(id)`——重哈希的唯一入口；当 `rev` 真的变了，才在 `GET /plugins/events` 上广播 `rebuilt` 帧——这是一条系统级 SSE（Server-Sent Events）通道，连接即发全量图，变更时发 `rebuilt` 帧，仅供呈现的 wire，永不进会话日志。轮询间隔是一个经校验的配置字段（默认 500ms），不是常量。重建 bundle 则是任意一个 tsdown watch 进程的事——`scripts/dev-web.ts` 仍作为 watch 构建入口保留，其包清单在启动时扫描 `packages/*/*/package.json` 按 dshClient 发现——构建器与 host 共享零协议。写一半的 bundle 被撕裂读取会自愈：写入完成期间 stat 持续变化，下一个轮询节拍会再次重哈希并广播最终的 rev。
 
 浏览器侧，驱动插件每帧重载一个插件，串行执行：
 
@@ -116,7 +116,7 @@ wire 两侧跑着同一份治理实现；浏览器特有的表面只是一套模
 
 接受的代价：vendored Loader 在浏览器里背着闲置机件（EntryTree 持久化是 no-op，分组/隔离未用）；开发期每次修改插件都要付一次 bundle 重建加 fiber 重挂；图中 `inject` 行仅是信息性说明——激活的真相在服务层——因此不匹配会在 settled 扫描时浮出，而不是在图校验时被拦下；三个尚未升格的库在各自的 DI 转换落地之前保持静态 import 的导出面。
 
-名册的终局：当 `dsh web` 迁到配置树 boot，名册落进 cordis.yml——client 插件包变成普通的配置树 entry 行，`mountWebPlugins` 与 `CLIENT_PACKAGES` 常量消失，重组一次部署等于换 yml/overlay。注册表为这次迁移零改动，因为它的 `internal/plugin` 订阅本就发现配置树挂载的任何 entry。
+名册的终局（2026-07-25 随配置树 boot 迁移落地）：名册住 `apps/cli/cordis.yml`，`mountWebPlugins` 与 `CLIENT_PACKAGES` 常量已消失，重组一次部署等于换 yml/overlay。图的组合器从 webserver 侧的注册表迁进 `dsh-client-modules` 的 node 半（该包按本 note 的升级法则升格为双面——其消费方现经 cordis DI 到达），传输拆分同轮落地：webserver 变为朴素路由注册插件，`/api/*` 绑定迁到 connection 的 node 半、走升格后的 `api-gateway` 插件（`dsh-host-apiproxy` 提供 `ctx.apiProxy`），dev 的 bundle 监视与 SSE 通道迁到 hmr 的 node 半。
 
 ## Alternatives considered
 

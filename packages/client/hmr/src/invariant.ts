@@ -30,7 +30,10 @@ function statWatchers(): number {
  */
 const install: InvariantInstaller = (ctx, fail) => {
   const baselines = new WeakMap<Fiber, number>()
-  ctx.on('internal/plugin', (fiber) => {
+  // Async listener by design: emitPluginDisposed awaits-and-logs returned
+  // promises, so a violation surfaces loudly instead of unhandled.
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  ctx.on('internal/plugin', async (fiber) => {
     if (fiber.name !== 'client-hmr') return
     if (fiber.uid !== null) {
       baselines.set(fiber, statWatchers())
@@ -38,16 +41,12 @@ const install: InvariantInstaller = (ctx, fail) => {
     }
     const baseline = baselines.get(fiber)
     if (baseline === undefined) return
-    // Returned to the emitter: emitPluginDisposed awaits-and-logs async
-    // listener failures, so a violation surfaces loudly instead of unhandled.
-    return (async () => {
-      await Promise.resolve()
-      await fiber.await()
-      const remaining = statWatchers()
-      if (remaining > baseline) {
-        fail(`client-hmr fiber disposed but ${remaining - baseline} bundle stat watcher(s) survived teardown`)
-      }
-    })()
+    await Promise.resolve()
+    await fiber.await()
+    const remaining = statWatchers()
+    if (remaining > baseline) {
+      fail(`client-hmr fiber disposed but ${remaining - baseline} bundle stat watcher(s) survived teardown`)
+    }
   }, { global: true })
 }
 

@@ -118,6 +118,12 @@ flowchart LR
   svc_spillStore["ctx.spillStore<br/>Spill storage seam"]
   pkg_spill_local["spill-local"]
   pkg_spill_policy["spill-policy"]
+  pkg_webserver["webserver"]
+  svc_httpServer["ctx.httpServer<br/>HTTP route registration"]
+  pkg_connection["connection"]
+  pkg_modules["modules"]
+  pkg_hmr["hmr"]
+  svc_clientModuleHost["ctx.clientModuleHost<br/>Client plugin graph host"]
   pkg_workflow["workflow"]
   svc_workflows["ctx.workflows<br/>Workflow script engine"]
   pkg_workflow_workerthread["workflow-workerthread"]
@@ -145,6 +151,7 @@ flowchart LR
   pkg_llm_deepseek --> svc_llm
   pkg_llm_pi_ai --> svc_llm
   pkg_llm_replay --> svc_llm
+  pkg_modules --> svc_clientModuleHost
   pkg_permission --> svc_permission
   pkg_plan_mode --> svc_planMode
   pkg_pty --> svc_pty
@@ -183,6 +190,7 @@ flowchart LR
   pkg_web_search_deepseek --> svc_web
   pkg_web_search_exa --> svc_web
   pkg_web_search_perplexity --> svc_web
+  pkg_webserver --> svc_httpServer
   pkg_workflow --> svc_workflows
   pkg_workflow_workerthread --> svc_workflows
   svc_agentLoop --> pkg_agent_spine_demo
@@ -196,11 +204,15 @@ flowchart LR
   svc_bash --> pkg_hooks_claude
   svc_bash --> pkg_hooks_codex
   svc_bash --> pkg_tool_bash
+  svc_clientModuleHost --> pkg_hmr
   svc_codeRuntime --> pkg_tools
   svc_commands --> pkg_acp
   svc_commands --> pkg_tui
   svc_compact --> pkg_compact_basic
   svc_fs --> pkg_tool_fs
+  svc_httpServer --> pkg_connection
+  svc_httpServer --> pkg_hmr
+  svc_httpServer --> pkg_modules
   svc_invariants --> pkg_agent
   svc_invariants --> pkg_agent_loop
   svc_invariants --> pkg_scope
@@ -303,6 +315,8 @@ flowchart LR
 | `ctx.tasks` | `core` | [`tasks`](../packages/tasks/tasks) | - | [`tool-bash`](../packages/bash/tool-bash), [`tool-pty`](../packages/pty/tool-pty), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-tasks`](../packages/tasks/tool-tasks) | - | Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it. |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-local`](../packages/web/web-fetch-local) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill. |
+| `ctx.httpServer` | `core` | `webserver` | - | `connection`, `modules`, `hmr` | - | Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes. |
+| `ctx.clientModuleHost` | `core` | `modules` | - | `hmr` | - | Composes the __DSH_BOOT__ entry graph from an incremental dshClient scan, serves plugin bundles, and notifies rebuilt/graph-changed subscribers. |
 | `ctx.workflows` | `seam` | [`workflow`](../packages/workflow/workflow) | [`workflow-workerthread`](../packages/workflow/workflow-workerthread) | [`tool-workflow`](../packages/workflow/tool-workflow), [`tool-ralph`](../packages/workflow/tool-ralph) | - | One engine per context (bash shape, no named-provider registry); the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents. |
 
 Maintenance mode: hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard.

@@ -61,7 +61,9 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.sessions = api.sessions
     this.host = api.host
     this.events = api.events
-    this.respond = api.respond
+    // createApiProxy returns closures (no `this` capture); bind only satisfies
+    // the unbound-method lint without changing behavior.
+    this.respond = api.respond.bind(api)
   }
 }
 
