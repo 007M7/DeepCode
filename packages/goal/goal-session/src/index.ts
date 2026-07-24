@@ -215,9 +215,7 @@ export function apply(ctx: Context): void {
     }
     state.attempt = reservation
     try {
-      agent.followup(content, {
-        source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
-      })
+      agent.followup({ content: content, source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round } })
     } catch (error: unknown) {
       state.attempt = undefined
       ctx.logger.warn(`goal-session: could not queue round ${round} for agent "${agent.id}": ${renderThrown(error)}`)
@@ -308,7 +306,6 @@ export function apply(ctx: Context): void {
     ctx.on('agent/cancel-requested', (agent, cause) => {
       const state = stateFor(agent)
       const attempt = state.attempt
-      state.attempt = undefined
       state.competingQueued = false
       const goal = currentGoal(state)
       if (goal?.phase === 'active' && goal.activation === 'armed') {
@@ -316,6 +313,12 @@ export function apply(ctx: Context): void {
           disarm(state)
           return
         }
+        // An admitted round closes durably as aborted; retain it so the normal
+        // turn outcome path appends pause after cancellation reaches idle.
+        // Pausing here would stage context into the active outbox only for this
+        // same cancel() call to discard it.
+        if (attempt.turn !== undefined || attempt.phase === 'admitted') return
+        state.attempt = undefined
         try {
           applyOutcome(state, goal, { kind: 'pause', reason: cause.kind })
         } catch (error: unknown) {

@@ -97,14 +97,12 @@ export function apply(ctx: Context, config: Config): void {
       { includeBaselineScopes: false, signal },
     )
     if (update !== undefined) {
-      agent.inject(update.context.content, {
-        source: update.context.source,
-      })
+      agent.inject({ content: update.context.content, source: update.context.source })
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
     if (instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
-      agent.inject(baselineMessage.content, { source: { kind: 'plugin', plugin: 'workspace-context' } })
+      agent.inject({ content: baselineMessage.content, source: { kind: 'plugin', plugin: 'workspace-context' } })
     }
     baselineLoaded.add(agent.session)
   })

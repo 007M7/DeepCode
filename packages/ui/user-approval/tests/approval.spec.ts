@@ -365,7 +365,9 @@ describe('approval policy (the approval/policy fold)', () => {
     const agent = {
       id,
       session,
-      inject: (content: { type: string; text: string }[]) => { injected.push(content[0]?.text ?? '') },
+      inject: (input: { content: Array<{ type: string; text: string }> }) => {
+        injected.push(input.content[0]?.text ?? '')
+      },
     } as unknown as Agent
     return { agent, session, injected }
   }

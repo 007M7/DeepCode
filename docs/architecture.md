@@ -178,8 +178,8 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
-| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stop` is the serial terminal stop |
-| Add a session-stable prefix outside history | compose `agent/session-prefix`; the request header logs it |
+| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/stopping` is the stop boundary |
+| Add model-facing context | call `agent.inject()`; it appends a sourced `user/message` without creating a turn |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event`; terminal-only overlays use `ctx.tui` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Add asynchronous session-title generation | register the sole provider on `ctx.sessionTitle` |

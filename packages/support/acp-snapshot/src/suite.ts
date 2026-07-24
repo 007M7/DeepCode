@@ -53,9 +53,7 @@ export interface Scenario {
    * Whether the run persists a comparable session log to diff against the
    * `session.jsonl` fixture. Defaults to {@link hasModelTurn} (a model turn
    * always produces a log worth comparing). Set it independently for a scenario
-   * that produces a non-trivial log WITHOUT a model turn — e.g. a prompt blocked
-   * by a `UserPromptSubmit` hook, which opens a `rejected` turn carrying `hook/*`
-   * events but never calls the model.
+   * that produces a non-trivial durable log without calling the model.
    */
   comparesLog?: boolean
   /**
@@ -701,8 +699,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           await expect(stdout, `${expected.file} mismatch`).toMatchFileSnapshot(join(dir, expected.file))
         }
 
-        // A model turn always produces a log worth comparing; a hook scenario can
-        // produce one without a model turn (a `rejected` turn carrying `hook/*`).
+        // A model turn always produces a log worth comparing; an explicitly
+        // authored non-model scenario may opt in independently.
         if (comparesLog) {
           // The harvested logs (primary-first) must match their committed fixtures 1:1.
           expect(result.sessionLogs.length, 'this scenario must persist one log per session fixture').toBe(fixtureFiles.length)

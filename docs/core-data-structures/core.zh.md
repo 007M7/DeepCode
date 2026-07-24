@@ -218,8 +218,7 @@ interface GenerateOptions {
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
    * the `system` slot). A loop-built request assembles them as
-   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
-   * hand-built one-shot passes any list.
+   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
    */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */
@@ -289,11 +288,11 @@ interface ToolSchema {
 
 ### 请求信封：`LlmCallConfig` 与记录的 header
 
-循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的提示词、权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）以及会话前缀。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的提示词和权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型或采样参数。`agent/session-prefix` 为每个循环实例组合一次仅用于请求的 prefix 消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
+`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型或采样参数。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
-在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的提示词组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
+在协议格式上，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。开发不变式针对每个循环构建的请求精确重算此等式。
 
 FIXME(call-config-shape)：重新审视此类型的精确定义——出于缓存目的，哪些字段确实属于 epoch 层级（`model` 肯定属于；采样标量目前出于谨慎放在这里），以及适配器需要时，提供方特有的额外项（推理选项、额外 body 参数）应归属何处。
 
@@ -355,7 +354,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-十三种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及轮次封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+十二种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及轮次封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 
 ## Agent 句柄
 
@@ -380,8 +379,7 @@ type SendTarget = 'next-turn' | 'next-step'
  * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
  * {@link Agent.inject} (`next-step`/no-wakeup).
  *
- * The object is complete so routing and provenance are explicit; callers that
- * want the ordinary user-message preset use {@link Agent.followup}.
+ * The object is complete so routing policy is explicit.
  */
 interface SendOptions {
   /** Queue the item joins. */
@@ -394,20 +392,10 @@ interface SendOptions {
    * (the injection preset).
    */
   wakeup: boolean
-  /** Producer provenance; direct human input uses `{ kind: 'user' }`. */
-  source: MessageSource
 }
 ```
 
-固定预设别名拥有 `target` 和 `wakeup`，因此只接受其余字段：
-
-```ts type-equiv
-/** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
-interface AliasSendOptions {
-  /** Producer provenance; each alias supplies its documented default when omitted. */
-  source?: MessageSource
-}
-```
+固定预设别名拥有 `target` 与 `wakeup`；它们的 `UserMessageData` 输入同时携带内容与来源。
 
 `send` 返回被接受消息的不透明 `AgentMessageId`，并在该消息的 `agent/inbox/*` 事件中保持稳定：
 
@@ -425,8 +413,8 @@ type AgentMessageId = Branded<'AgentMessageId'>
 /**
  * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
  * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. Source defaults are already
- * applied, so these are the exact values the item was accepted with.
+ * message's enqueue, dequeue, and discard events. Its content and source are
+ * the exact input values accepted by the agent.
  */
 interface AgentMessage extends UserMessageData {
   /** The id `send` returned for this message. */
@@ -482,11 +470,11 @@ interface Agent {
    *   without running the model: an open turn stages it for the next safe log
    *   position, while an idle injection appends it immediately without opening
    *   a turn.
-   * @param content - the model-facing content blocks to deliver.
-   * @param options - target queue, wakeup decision, and source.
+   * @param input - model-facing content and its producer provenance.
+   * @param options - target queue and wakeup decision.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(content: ContentBlock[], options: SendOptions): AgentMessageId
+  send(input: UserMessageData, options: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -506,11 +494,10 @@ interface Agent {
    * Queue an ordinary follow-up turn and wake the driver — the
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
-   * @param content - the prompt content blocks.
-   * @param options - message source.
+   * @param input - prompt content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  followup(input: UserMessageData): AgentMessageId
 
   /**
    * Submit steering into the running turn — the `next-step`/wakeup preset of
@@ -519,23 +506,20 @@ interface Agent {
    * remainder stays staged without waking the agent; retry or a later prompt
    * takes it. Idle steering falls back to a woken follow-up turn, while
    * cancellation or disposal may discard pending steering.
-   * @param content - the steering content blocks.
-   * @param options - message source.
+   * @param input - steering content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  steer(input: UserMessageData): AgentMessageId
 
   /**
    * Append model-facing context without running the model — the
    * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
    * at the next safe log position; an idle injection appends immediately
-   * without opening a turn. An omitted source defaults to
-   * `{ kind: 'plugin', plugin: '' }`.
-   * @param content - the injected context content blocks.
-   * @param options - context source.
+   * without opening a turn.
+   * @param input - injected context and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  inject(input: UserMessageData): AgentMessageId
 
   /**
    * Re-open a turn on the current session log without a new prompt — the
@@ -560,14 +544,9 @@ cause 是必选且由 TypeScript 强制约束的同进程输入。活跃持有�
 
 ## 拦截决策
 
-提示词决策与工具后决策共享 `AdditionalContext`，它与持久用户角色输入使用相同的 `UserMessageData` content/source 形状。每个 `additionalContexts` 项都会成为一条单独的 `user/message`，并保留其来源信息。钩子桥接层会把原生决策字段映射到这些类型化结果。
+提示词决策与工具后决策直接使用 `UserMessageData`，即持久用户角色输入使用的 content/source 形状。每个 `additionalContexts` 项都会成为一条单独的 `user/message`，并保留其来源信息。钩子桥接层会把原生决策字段映射到这些类型化结果。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
-
-```ts type-equiv
-/** Additional model-facing context produced beside a prompt or tool result. */
-type AdditionalContext = UserMessageData
-```
 
 `agent/prompt-submit` 在轮次打开前返回 `PromptDecision`。`allow` 可以改写已领取的提示词或附加 `additionalContexts`；`block` 会拒绝接纳，且不创建轮次事件：
 
@@ -579,7 +558,7 @@ type AdditionalContext = UserMessageData
  * `next()` preserves both fields unless it intentionally replaces them.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: AdditionalContext[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessageData[] }
   | { kind: 'block'; reason: string }
 ```
 

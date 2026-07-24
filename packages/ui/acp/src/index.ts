@@ -54,14 +54,13 @@ import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   installAgentLlmTarget,
-  type AdditionalContext,
   type Agent,
   type AgentLlmTarget as LlmTarget,
   type AgentLlmTargetRef as LlmTargetRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
-import { SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
+import { SessionId, type JsonValue, type UserMessageData } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -1056,7 +1055,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         const { text } = referencedPrompt
         let preparedContent: ContentBlock[] = [{ type: 'text', text }]
-        let additionalContext: AdditionalContext | undefined
+        let additionalContext: UserMessageData | undefined
         if (referencedPrompt.references.length > 0) {
           const sessionReferences = ctx.get('sessionReferences')
           if (sessionReferences === undefined) {
@@ -1083,15 +1082,22 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
-        // number and settle/rejects it). Capture the log length now as the
-        // A turn that ends in error rejects this promise (the codec never
-        // produces an error stop reason).
+        // number and settles or rejects it). Admission may also finish without
+        // opening a turn; the idle waiter closes that RPC without inventing a
+        // durable turn boundary. A turn that ends in error rejects this promise
+        // because the codec has no error stop reason.
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
-          rec.inflight = { resolve, reject, turn: undefined }
+          const inflight: NonNullable<SessionRecord['inflight']> = { resolve, reject, turn: undefined }
+          rec.inflight = inflight
           if (additionalContext !== undefined) {
-            rec.agent.inject(additionalContext.content, { source: additionalContext.source })
+            rec.agent.inject({ content: additionalContext.content, source: additionalContext.source })
           }
-          rec.agent.followup(preparedContent, { source: { kind: 'user' } })
+          rec.agent.followup({ content: preparedContent, source: { kind: 'user' } })
+          void rec.agent.whenIdle().then(() => {
+            if (rec.inflight !== inflight || inflight.turn !== undefined) return
+            rec.inflight = undefined
+            inflight.resolve('cancelled')
+          })
         })
         return { stopReason }
       },

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { HarnessError, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type UserMessageData } from '@deepseek-ai/dsh-session'
 import GoalService, {
   GoalError,
   GoalId,
@@ -13,10 +13,7 @@ import GoalService, {
 } from '@deepseek-ai/dsh-goal'
 import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 
-interface DeferredInjection {
-  content: ContentBlock[]
-  options: AliasSendOptions | undefined
-}
+type DeferredInjection = UserMessageData
 
 interface StubAgent {
   agent: Agent
@@ -32,23 +29,9 @@ function nextTurn(session: Session): number {
   return session.events.reduce((max, event) => event.type === 'turn/start' ? Math.max(max, event.data.turn) : max, 0) + 1
 }
 
-/** Mirror the public Agent.inject idle/open-turn contract for domain tests. */
-function appendInjection(session: Session, content: ContentBlock[], options?: AliasSendOptions): void {
-  const source: MessageSource = options?.source ?? { kind: 'plugin', plugin: '' }
-  const context = {
-    content,
-    source,
-  }
-  const last = session.events.at(-1)
-  const open = last !== undefined && last.type !== 'turn/end'
-  if (open) {
-    session.append('user/message', context, { surfaceOp: 'append' })
-    return
-  }
-  const turn = nextTurn(session)
-  session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-  session.append('user/message', context, { surfaceOp: 'append' })
-  session.append('turn/end', { turn, reason: { kind: 'completed' } })
+/** Mirror the public Agent.inject contract for domain tests. */
+function appendInjection(session: Session, input: UserMessageData): void {
+  session.append('user/message', input, { surfaceOp: 'append' })
 }
 
 /** Build a registry-compatible agent around one concrete session. */
@@ -66,9 +49,9 @@ function stubAgentForSession(session: Session): StubAgent {
     send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content, options) {
-      if (shouldDefer) deferred.push({ content, options })
-      else appendInjection(session, content, options)
+    inject(input) {
+      if (shouldDefer) deferred.push(input)
+      else appendInjection(session, input)
       return AgentMessageId('stub')
     },
     cancel() {},
@@ -83,7 +66,7 @@ function stubAgentForSession(session: Session): StubAgent {
     setStatus(value) { status = value },
     drain() {
       shouldDefer = false
-      for (const injection of deferred.splice(0)) appendInjection(session, injection.content, injection.options)
+      for (const injection of deferred.splice(0)) appendInjection(session, injection)
     },
   }
 }
@@ -112,7 +95,7 @@ function appendRound(session: Session, ref: GoalRef, round: number): void {
 }
 
 describe('GoalService creation and replay', () => {
-  it('applies the configured default and writes one balanced verbatim context snapshot', async () => {
+  it('applies the configured default and writes one verbatim context snapshot', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_700_000_000_000)
     const { ctx, agent, session } = await harness({ defaultMaxGoalRounds: 17 })
@@ -133,8 +116,8 @@ describe('GoalService creation and replay', () => {
     })
     expect(goal.id).toMatch(/^goal-/)
     expect(seen).toEqual(['create'])
-    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
-    const context = session.events[1]
+    expect(session.events.map(event => event.type)).toEqual(['user/message'])
+    const context = session.events[0]
     expect(context?.type).toBe('user/message')
     if (context?.type !== 'user/message') throw new Error('expected goal context')
     expect(context.data.source).toMatchObject({ kind: 'goal', goalId: goal.id, revision: 1, round: 0 })
@@ -438,7 +421,7 @@ describe('GoalService mutations', () => {
     expect(deferred).toHaveLength(3)
     expect(session.events).toHaveLength(0)
 
-    appendInjection(session, [{ type: 'text', text: 'unrelated' }], { source: { kind: 'plugin', plugin: 'test' } })
+    appendInjection(session, { content: [{ type: 'text', text: 'unrelated' }], source: { kind: 'plugin', plugin: 'test' } })
     expect(ctx.goals.get(agent)).toMatchObject({ revision: 3, phase: 'paused' })
     test.drain()
     expect(deferred).toHaveLength(0)
@@ -472,9 +455,9 @@ describe('GoalService mutations', () => {
     const stub = stubAgent('goal-rejected-injection')
     const append = stub.agent.inject.bind(stub.agent)
     let reject = true
-    stub.agent.inject = (content, options) => {
+    stub.agent.inject = (input) => {
       if (reject) throw new Error('injection rejected')
-      return append(content, options)
+      return append(input)
     }
     ctx.agents.register(stub.agent)
 
@@ -493,7 +476,7 @@ describe('GoalService mutations', () => {
     test.ctx.goals.edit(test.agent, created, { objective: 'ordered edit' })
     const second = test.deferred[1]
     if (second === undefined) throw new Error('expected a second deferred goal mutation')
-    appendInjection(test.session, second.content, second.options)
+    appendInjection(test.session, second)
     expect(() => test.ctx.goals.get(test.agent)).toThrow('advance the current goal')
   })
 
@@ -548,10 +531,10 @@ describe('GoalService mutations', () => {
       createdAt: 12,
       updatedAt: 12,
     }
-    appendInjection(session, renderGoalChange(change), {
+    appendInjection(session, { content: renderGoalChange(change),
       source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0, change },
     })
-    appendInjection(session, [{ type: 'text', text: 'corrupt' }], {
+    appendInjection(session, { content: [{ type: 'text', text: 'corrupt' }],
       source: {
         kind: 'goal', goalId: change.goal.id, revision: 2, round: 0,
         change: { ...change, operation: 'edit', extra: true } as never,
@@ -645,7 +628,7 @@ describe('goal replay validation', () => {
     expect(decodeGoalChange(undefined)).toBeUndefined()
     expect(decodeGoalChange({ kind: 'other' })).toBeUndefined()
     const session = new Session(SessionId('unrelated'))
-    appendInjection(session, [{ type: 'text', text: 'other' }], {
+    appendInjection(session, { content: [{ type: 'text', text: 'other' }],
       source: { kind: 'plugin', plugin: 'test' },
     })
     expect(foldGoal(session.events)).toEqual({ roundsStarted: 0 })

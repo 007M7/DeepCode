@@ -62,7 +62,7 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 
 ### Request-header reconstruction (`request-header.ts`)
 
-`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
+`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 A `user/message` renders its `content` verbatim as a user-role message whether it is a direct human prompt, a synthetic injection, or an admitted goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. Turn execution remains enclosed by `turn/start` and `turn/end`, while an idle injection may append and flush a `user/message` between turns without running the model.
 

@@ -14,7 +14,6 @@ import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
   AgentMessage,
   Agent,
-  AliasSendOptions,
   CancelOptions,
   AgentInterruptReason,
   AgentOptions,
@@ -27,9 +26,7 @@ import type {
 import {
   BlockAssembler, LlmError, assertNever, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
-import type {
-  ContentBlock, GenerateOptions, LlmCallConfig, LlmFailure, Message,
-} from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { Session, SessionId, TurnEndReason, TurnTrigger, UserMessageData } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -89,10 +86,11 @@ export class ReactLoopAgent implements Agent {
 
   /** Accept and route one unified send item. */
   send(
-    content: ContentBlock[],
+    input: UserMessageData,
     options: SendOptions,
   ): AgentMessageId {
-    const { target, wakeup, source } = options
+    const { content, source } = input
+    const { target, wakeup } = options
     const id = AgentMessageId(randomUUID())
     if (target === 'next-step' && !wakeup) {
       if (this.turnOpen) {
@@ -120,29 +118,26 @@ export class ReactLoopAgent implements Agent {
   }
 
   /** Queue one ordinary prompt turn and wake the driver. */
-  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, {
+  followup(input: UserMessageData): AgentMessageId {
+    return this.send(input, {
       target: 'next-turn',
       wakeup: true,
-      source: options?.source ?? { kind: 'user' },
     })
   }
 
   /** Steer the open turn, falling back to a waking prompt while idle. */
-  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, {
+  steer(input: UserMessageData): AgentMessageId {
+    return this.send(input, {
       target: 'next-step',
       wakeup: true,
-      source: options?.source ?? { kind: 'user' },
     })
   }
 
   /** Append model-facing context without waking the driver. */
-  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, {
+  inject(input: UserMessageData): AgentMessageId {
+    return this.send(input, {
       target: 'next-step',
       wakeup: false,
-      source: options?.source ?? { kind: 'plugin', plugin: '' },
     })
   }
 

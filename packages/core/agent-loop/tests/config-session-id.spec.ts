@@ -98,7 +98,7 @@ describe('config-driven session id', () => {
       first = ctx.agents.get(SessionId('config-exact-reload'))
     }
     expect(first).toBeDefined()
-    first!.followup([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
+    first!.followup({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } })
     await waitForIdle(ctx, first!)
     await firstLoop.dispose()
 
@@ -110,7 +110,7 @@ describe('config-driven session id', () => {
     }
     expect(second).toBeDefined()
     expect(JSON.stringify(second!.session.deriveMessages())).toContain('remember me')
-    second!.followup([{ type: 'text', text: 'continue' }], { source: { kind: 'user' } })
+    second!.followup({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } })
     await waitForIdle(ctx, second!)
     await ctx.sessions.flush(second!.session)
     const loaded = await ctx.sessionPersistence.load(SessionId('config-exact-reload'))
@@ -137,9 +137,7 @@ describe('config-driven session id', () => {
       cleanupStarted.resolve(undefined)
       await cleanupGate.promise
     })
-    first.inject([{ type: 'text', text: 'persist before replacement' }], {
-      source: { kind: 'plugin', plugin: 'test' },
-    })
+    first.inject({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'plugin', plugin: 'test' } })
     await ctx.sessions.flush(first.session)
     expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
       .toContain('persist before replacement')
@@ -183,9 +181,7 @@ describe('config-driven session id', () => {
       cleanupStarted.resolve(undefined)
       await cleanupGate.promise
     })
-    first.inject([{ type: 'text', text: 'persist before cancellation' }], {
-      source: { kind: 'plugin', plugin: 'test' },
-    })
+    first.inject({ content: [{ type: 'text', text: 'persist before cancellation' }], source: { kind: 'plugin', plugin: 'test' } })
     await ctx.sessions.flush(first.session)
     expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
       .toContain('persist before cancellation')
@@ -349,7 +345,7 @@ describe('config-driven session id', () => {
     expect(a1.id).toBe(a1.session.id)
     expect(a1.session.id).toMatch(idPattern)
     expect(ctx1.agents.get(SessionId('cfg'))).toBeUndefined()
-    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -368,7 +364,7 @@ describe('config-driven session id', () => {
     expect(a2.id).toBe(a2.session.id)
     expect(a2.session.id).toMatch(idPattern)
     expect(a2.session.id).not.toBe(a1.session.id)
-    a2.followup([{ type: 'text', text: 'q2' }], { source: { kind: 'user' } })
+    a2.followup({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } })
     await waitForIdle(ctx2, a2)
     await ctx2.fiber.dispose()
   })
@@ -389,7 +385,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sticky-1') })).agent
-    a1.followup([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 

@@ -20,7 +20,7 @@ Before enqueueing an item, `send()` checks the agent state and makes a detached,
 
 If messages A and B are both processed, B's turn starts only after A records `turn/end` and A's durability checkpoint settles. B's request therefore sees whatever closed result A left in the same session log. A checkpoint error is reported, but settlement only releases this ordering barrier; it does not make a failed write durable. Broad `cancel()`, disposal, or a failure before `turn/start` can instead discard an unstarted item without opening an empty turn.
 
-Prompt admission decides one message at a time. An allowed prompt becomes that turn's `user/message`; a blocked prompt records one durable `prompt/blocked` and closes its one-message turn as `rejected`. Mixed-batch and all-blocked-batch branches do not exist.
+Prompt admission decides one message at a time before a turn opens. An allowed prompt becomes that turn's `user/message`; a blocked prompt is discarded without opening a turn or writing session history. Mixed-batch and all-blocked-batch branches do not exist.
 
 The no-batching rule applies only to ordinary `send()`. Running `steer()` puts input in the outbox. While a turn remains open, the loop records that input at the next step boundary and steering makes another step the default. A failure before that boundary leaves the steering staged without waking the agent; `retry()` or a later prompt takes it, while cancellation or disposal can discard it. When the agent is idle, `steer()` delegates to `send()`, so it creates an independent ordinary queue item.
 
@@ -35,7 +35,7 @@ The no-batching rule applies only to ordinary `send()`. Running `steer()` puts i
 - Unit and property tests submit sends from the same stack, neighboring microtasks, different producers, and reentrant callbacks; every message gets its own FIFO-ordered turn.
 - A built-stdio test submits two lines and observes two model requests and two turn boundaries.
 - Delayed and rejected first-turn checkpoints keep the next turn waiting and prove that its request sees the preceding assistant result.
-- Failure-path tests cover prompt veto, listener failure, broad cancellation, disposal, and failure before `turn/start`; recorded turns stay balanced, messages do not merge, and surviving queued work still drains.
+- Failure-path tests cover prompt veto, listener failure, broad cancellation, disposal, and failure before `turn/start`; rejected admission creates no turn, recorded turns stay balanced, messages do not merge, and surviving queued work still drains.
 - Separate tests cover open-turn, failed-turn, and idle `steer()`, plus `inject()`, whole-agent status, and `whenIdle()`.
 
 ## Consequences

@@ -46,21 +46,19 @@ describe('session-query semantic extraction', () => {
       { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: messageContent, provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
       { type: 'user/message', seq: 2, time: 3, data: { content: messageContent, source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: 'append' },
       { type: 'steering/message', seq: 3, time: 4, data: { turn: 1, content: messageContent, source: { kind: 'user' } }, surfaceOp: 'append' },
-      { type: 'prompt/blocked', seq: 4, time: 5, data: { content: [{ type: 'text', text: 'unsafe' }], source: { kind: 'user' }, reason: 'policy' } },
-      { type: 'tool/call', seq: 5, time: 6, data: { turn: 1, step: 1, callId, name: 'bash', arguments: '{"cmd":"pwd"}' } },
-      { type: 'tool/result', seq: 6, time: 7, data: { turn: 1, step: 1, callId, content: [{ type: 'text', text: 'failed' }], isError: true, error: { name: 'Oops', code: 'E_OOPS' } }, surfaceOp: 'append' },
-      { type: 'tool/result', seq: 7, time: 8, data: { turn: 1, step: 1, callId, content: [], isError: false }, surfaceOp: 'append' },
-      { type: 'todo/write', seq: 8, time: 9, data: { todos: [{ status: 'in_progress', content: 'ship search' }] } },
+      { type: 'tool/call', seq: 4, time: 5, data: { turn: 1, step: 1, callId, name: 'bash', arguments: '{"cmd":"pwd"}' } },
+      { type: 'tool/result', seq: 5, time: 6, data: { turn: 1, step: 1, callId, content: [{ type: 'text', text: 'failed' }], isError: true, error: { name: 'Oops', code: 'E_OOPS' } }, surfaceOp: 'append' },
+      { type: 'tool/result', seq: 6, time: 7, data: { turn: 1, step: 1, callId, content: [], isError: false }, surfaceOp: 'append' },
+      { type: 'todo/write', seq: 7, time: 8, data: { todos: [{ status: 'in_progress', content: 'ship search' }] } },
     ]
 
     for (const event of events.slice(0, 4)) {
       expect(extractSessionEventText(event)).toBe('visible\nthought\nread\n{"path":"a"}\nnested')
     }
-    expect(extractSessionEventText(events[4]!)).toBe('unsafe\npolicy')
-    expect(extractSessionEventText(events[5]!)).toBe('bash\n{"cmd":"pwd"}')
-    expect(extractSessionEventText(events[6]!)).toBe('failed\nOops\nE_OOPS')
-    expect(extractSessionEventText(events[7]!)).toBe('')
-    expect(extractSessionEventText(events[8]!)).toBe('in_progress\nship search')
+    expect(extractSessionEventText(events[4]!)).toBe('bash\n{"cmd":"pwd"}')
+    expect(extractSessionEventText(events[5]!)).toBe('failed\nOops\nE_OOPS')
+    expect(extractSessionEventText(events[6]!)).toBe('')
+    expect(extractSessionEventText(events[7]!)).toBe('in_progress\nship search')
   })
 
   it('extracts meaningful turn outcomes and skips structural or unknown events', () => {
@@ -69,7 +67,6 @@ describe('session-query semantic extraction', () => {
       [{ kind: 'error', step: 2, message: 'boom' }, 'error\nboom'],
       [{ kind: 'error', step: 2, failure: { message: 'provider boom', code: 'SERVER' } }, 'error\nprovider boom\nSERVER'],
       [{ kind: 'aborted' }, 'aborted'],
-      [{ kind: 'rejected', reason: 'denied' }, 'rejected\ndenied'],
       [{ kind: 'disposed' }, 'disposed'],
       [{ kind: 'max-tokens' }, 'max-tokens'],
       [{ kind: 'interrupted' }, 'interrupted'],

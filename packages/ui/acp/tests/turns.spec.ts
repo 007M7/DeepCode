@@ -51,11 +51,50 @@ describe('acp bridge — turn outcomes', () => {
 
   it('rejects an ordinary plugin turn failure through the same ACP boundary', async () => {
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('must not run')] })
-    harness.ctx.on('agent/step', () => { throw new Error('plugin pre-step failed') })
+    harness.ctx.on('agent/step', () => { throw new Error('plugin step failed') })
     const sessionId = await newSession(harness)
 
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .rejects.toThrow(/turn failed: plugin pre-step failed/)
+      .rejects.toThrow(/turn failed: plugin step failed/)
+  })
+
+  it('settles a prompt rejected during admission without opening a turn', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('must not run')] })
+    harness.ctx.on('agent/prompt-submit', async () => ({ kind: 'block', reason: 'policy veto' }))
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({
+      sessionId,
+      prompt: [{ type: 'text', text: 'blocked' }],
+    })).resolves.toEqual({ stopReason: 'cancelled' })
+    const agent = harness.ctx.agents.get(SessionId(sessionId))
+    expect(agent?.session.events.some(event => event.type === 'turn/start')).toBe(false)
+  })
+
+  it('does not classify an asynchronous allowed admission as a no-turn rejection', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('ok')] })
+    const entered = Promise.withResolvers<true>()
+    const release = Promise.withResolvers<true>()
+    harness.ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(true)
+      await release.promise
+      return { kind: 'allow' }
+    })
+    const sessionId = await newSession(harness)
+    let settled = false
+    const prompt = harness.client.prompt({
+      sessionId,
+      prompt: [{ type: 'text', text: 'allowed' }],
+    }).then((result) => {
+      settled = true
+      return result
+    })
+
+    await entered.promise
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    release.resolve(true)
+    await expect(prompt).resolves.toEqual({ stopReason: 'end_turn' })
   })
 
   it('streams a tool call as tool_call then tool_call_update', async () => {
@@ -291,7 +330,7 @@ describe('acp bridge — turn outcomes', () => {
     harness.ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject === agent && !injected) {
         injected = true
-        agent.inject([{ type: 'text', text: 'ctx note' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject({ content: [{ type: 'text', text: 'ctx note' }], source: { kind: 'plugin', plugin: 'test' } })
       }
     })
     const res = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })

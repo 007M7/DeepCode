@@ -40,7 +40,7 @@ describe('agent/request-error', () => {
       recoveries += 1
     })
 
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(recoveries).toBe(0)
@@ -75,7 +75,7 @@ describe('agent/request-error', () => {
       subject.retry()
     })
 
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(seen.map(item => ({
@@ -113,7 +113,7 @@ describe('agent/request-error', () => {
       subject.cancel({ kind: 'user' })
     })
 
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(1)
@@ -136,7 +136,7 @@ describe('agent/request-error', () => {
       throw new Error('recovery failed')
     })
 
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(1)

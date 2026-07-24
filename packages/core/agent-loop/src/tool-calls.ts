@@ -11,8 +11,7 @@
 
 import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
-import type { AdditionalContext } from '@deepseek-ai/dsh-agent'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, UserMessageData } from '@deepseek-ai/dsh-session'
 import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 /** One tool call after argument parsing, ready to schedule. */
@@ -58,7 +57,7 @@ export async function executeToolCalls(
   step: number,
   toolCalls: ToolCallBlock[],
   signal: AbortSignal,
-  acceptContext: (context: AdditionalContext) => void,
+  acceptContext: (context: UserMessageData) => void,
 ): Promise<{ concluded: boolean }> {
   const agent = ctx.agents.requireInitiator()
   const { session } = agent
@@ -120,7 +119,7 @@ async function runGroup(
   group: PlannedCall[],
   mode: ToolExecutionMode['kind'],
   signal: AbortSignal,
-  acceptContext: (context: AdditionalContext) => void,
+  acceptContext: (context: UserMessageData) => void,
 ): Promise<GroupOutcome> {
   const { session } = ctx.agents.requireInitiator()
   const { maxParallelToolCalls } = ctx.agentLoop.config

@@ -42,7 +42,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup([{ type: 'text', text }])
+  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 }
 
 function events(agent: Agent): SessionEvent[] {
@@ -151,7 +151,7 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    agent.followup([{ type: 'text', text: 'do something' }])
+    agent.followup({ content: [{ type: 'text', text: 'do something' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     // the model was never called
@@ -252,7 +252,7 @@ describe('agent/session-start', () => {
     const ctx = await harness(adapter)
 
     ctx.on('agent/session-start', (agent) => {
-      agent.inject([{ type: 'text', text: 'session preamble' }], { source: { kind: 'plugin', plugin: 'test' } })
+      agent.inject({ content: [{ type: 'text', text: 'session preamble' }], source: { kind: 'plugin', plugin: 'test' } })
     })
 
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -396,10 +396,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     apply(ctx: Context) {
       // 1. SessionStart: seed a standing instruction.
       ctx.on('agent/session-start', (agent, source) => {
-        agent.inject(
-          [{ type: 'text', text: `policy active (started: ${source})` }],
-          { source: { kind: 'plugin', plugin: 'native-guard' } },
-        )
+        agent.inject({ content: [{ type: 'text', text: `policy active (started: ${source})` }], source: { kind: 'plugin', plugin: 'native-guard' } })
       })
       // 2. PromptSubmit: block a forbidden prompt, annotate the rest.
       ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next): Promise<PromptDecision> => {

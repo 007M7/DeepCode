@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import AgentRegistry, { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -34,12 +34,8 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content: ContentBlock[], options?: AliasSendOptions) {
-      const source = options?.source ?? { kind: 'plugin', plugin: '' }
-      session.append('user/message', {
-        content,
-        source,
-      }, { surfaceOp: 'append' })
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
     cancel() {},

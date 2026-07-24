@@ -463,7 +463,7 @@ describe('in-process structured output', () => {
       textResponse('parent answer'),
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
     ])
-    parent.followup([{ type: 'text', text: 'hello' }])
+    parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
     await parent.whenIdle()
     expect(adapter.requests[0]!.system ?? '').not.toContain(STRUCTURED_OUTPUT_INSTRUCTION)
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
@@ -479,7 +479,7 @@ describe('in-process structured output', () => {
   describe('scoped registration (each child owns its capture tool)', () => {
     it('a plain agent never sees the tool: nothing is registered globally at all', async () => {
       const { ctx, parent, adapter } = await setup([textResponse('parent answer')])
-      parent.followup([{ type: 'text', text: 'hello' }])
+      parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
       await parent.whenIdle()
       // Scoped registration: the global view has no capture tool, ever.
       expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
@@ -493,7 +493,7 @@ describe('in-process structured output', () => {
         // Child turn: must see it, with the run's schema.
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 42 }),
       ])
-      parent.followup([{ type: 'text', text: 'hello' }])
+      parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
       await parent.whenIdle()
       expect(toolNames(adapter.requests[0]!)).not.toContain(STRUCTURED_OUTPUT_TOOL)
 
@@ -571,7 +571,7 @@ describe('in-process structured output', () => {
 
     it('a non-structured agent request keeps tools ABSENT when it had none (no tools: [] materialized)', async () => {
       const { parent, adapter } = await setup([textResponse('plain')])
-      parent.followup([{ type: 'text', text: 'q' }])
+      parent.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
       await parent.whenIdle()
       const request = adapter.requests[0]!
       expect(request.tools).toBeUndefined()

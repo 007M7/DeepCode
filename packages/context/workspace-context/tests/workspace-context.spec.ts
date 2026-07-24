@@ -6,8 +6,8 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, AgentMessageId, type AdditionalContext, type Agent } from '@deepseek-ai/dsh-agent'
+import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent, type UserMessageData } from '@deepseek-ai/dsh-session'
+import AgentRegistry, { agentEvents, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -179,11 +179,8 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     status: 'idle',
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content, options) {
-      session.append('user/message', {
-        content,
-        source: options?.source ?? { kind: 'user' },
-      }, { surfaceOp: 'append' })
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
     send: () => AgentMessageId('stub'),
@@ -204,12 +201,12 @@ function blocksText(blocks: { type: string; text?: string }[] | undefined): stri
   return blocks?.map(block => block.type === 'text' ? block.text ?? '' : '').join('\n') ?? ''
 }
 
-function workspaceContextOf(result: { additionalContexts?: AdditionalContext[] }): AdditionalContext | undefined {
+function workspaceContextOf(result: { additionalContexts?: UserMessageData[] }): UserMessageData | undefined {
   return result.additionalContexts?.find(context =>
     context.source.kind === 'workspace-instructions')
 }
 
-function workspaceChangeContext(scope: string, digest: string): AdditionalContext {
+function workspaceChangeContext(scope: string, digest: string): UserMessageData {
   return {
     content: [{ type: 'text', text: `instructions for ${scope}` }],
     source: {
@@ -219,7 +216,7 @@ function workspaceChangeContext(scope: string, digest: string): AdditionalContex
   }
 }
 
-function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: AdditionalContext[] }): number | undefined {
+function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: UserMessageData[] }): number | undefined {
   let lastSeq: number | undefined
   for (const context of result.additionalContexts ?? []) {
     lastSeq = agent.session.append('user/message', {
@@ -1013,9 +1010,7 @@ describe('workspace context request injection', () => {
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       ctx.on('agent/step', (agent) => {
-        agent.inject([{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }], {
-          source: { kind: 'plugin', plugin: 'test-skills' },
-        })
+        agent.inject({ content: [{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }], source: { kind: 'plugin', plugin: 'test-skills' } })
       })
 
       const prefix = await composeBaselinePrefix(ctx, stubAgent(root))
@@ -1514,7 +1509,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('cleans up its agent/session-prefix listener when the plugin fiber is disposed', async () => {
+  it('cleans up its agent/step listener when the plugin fiber is disposed', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1711,13 +1706,13 @@ describe('dynamic nested workspace context injection', () => {
         },
       }))
 
-      agent.followup([{ type: 'text', text: 'read and abort' }])
+      agent.followup({ content: [{ type: 'text', text: 'read and abort' }], source: { kind: 'user' } })
       await agent.whenIdle()
       expect(agent.session.events.filter(event =>
         event.type === 'user/message' && event.data.source.kind !== 'user',
       )).toHaveLength(0)
 
-      agent.followup([{ type: 'text', text: 'retry the read' }])
+      agent.followup({ content: [{ type: 'text', text: 'retry the read' }], source: { kind: 'user' } })
       await agent.whenIdle()
 
       const contexts = agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')

@@ -417,7 +417,6 @@ describe('resume command and /resume', () => {
     [{ kind: 'error', step: 1, message: 'failed' }, 'error'],
     [{ kind: 'disposed' }, 'disposed'],
     [{ kind: 'max-tokens' }, 'max tokens'],
-    [{ kind: 'rejected', reason: 'policy' }, 'rejected'],
     [{ kind: 'interrupted' }, 'interrupted'],
     [{ kind: 'future-result' } as unknown as TurnEndReason, 'unknown result'],
   ] as const)('renders the last turn result %s', async (reason, label) => {
@@ -1182,7 +1181,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A non-plugin injected source (goal) has no `plugin` field, so its context
     // card label falls back to the source kind.
     result.session.append('user/message', { content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0 } as never }, { surfaceOp: 'append' })
-    result.session.append('prompt/blocked', { content: [{ type: 'text', text: 'blocked' }], source: { kind: 'user' }, reason: 'test policy' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
     result.session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
@@ -1263,7 +1261,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Steering')
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Context · goal') // goal-sourced injected context labels by kind
-    expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
     expect(result.terminal.progress).toContain(true)
 
@@ -2610,12 +2607,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
     events.session.append('turn/start', { turn: 5, trigger: { kind: 'message', source: { kind: 'user' } } })
-    events.session.append('turn/end', { turn: 5, reason: { kind: 'rejected', reason: 'policy' } })
+    events.session.append('turn/end', { turn: 5, reason: { kind: 'interrupted' } })
     events.session.append('turn/start', { turn: 6, trigger: { kind: 'message', source: { kind: 'user' } } })
-    events.session.append('turn/end', { turn: 6, reason: { kind: 'interrupted' } })
-    events.session.append('turn/start', { turn: 7, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', {
-      turn: 7,
+      turn: 6,
       reason: { kind: 'error', step: 1, failure: { message: 'structured provider failure', code: 'SERVER' } },
     })
     agentEvents(events.ctx, events.agent).emit('agent/disposed')
@@ -2625,7 +2620,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(events.terminal.output).toContain('Turn cancelled')
     expect(events.terminal.output).toContain('structured provider failure')
     expect(events.terminal.output).toContain('output-token limit')
-    expect(events.terminal.output).toContain('Turn rejected')
     expect(events.terminal.output).toContain('previous process ended')
     expect(events.terminal.output).toContain('was disposed')
     await dispose(events)

@@ -4,7 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
+import GoalService, { foldGoal, GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -273,7 +273,7 @@ describe('same-session goal driving', () => {
       ? Promise.resolve({ kind: 'block', reason: 'stop this round' })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
-      if (change.operation === 'block') agent.followup([{ type: 'text', text: 'inspect the blocker' }])
+      if (change.operation === 'block') agent.followup({ content: [{ type: 'text', text: 'inspect the blocker' }], source: { kind: 'user' } })
     })
     test.ctx.goals.create(test.agent, { objective: 'stop and inspect' })
 
@@ -314,13 +314,17 @@ describe('same-session goal driving', () => {
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
 
     expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    expect(foldGoal(test.agent.session.events)).toMatchObject({
+      goal: { phase: 'paused', revision: 2 },
+      roundsStarted: 1,
+    })
     expect(test.adapter.requests).toHaveLength(1)
   })
 
   it('lets already-queued human work finish before reserving the next round', async () => {
     const test = await harness([textResponse('human answer'), textResponse('goal answer')])
     test.ctx.goals.create(test.agent, { objective: 'continue after the human', maxGoalRounds: 1 })
-    test.agent.followup([{ type: 'text', text: 'human goes first' }])
+    test.agent.followup({ content: [{ type: 'text', text: 'human goes first' }], source: { kind: 'user' } })
 
     await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
@@ -361,7 +365,7 @@ describe('same-session goal driving', () => {
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
       inserted = true
-      agent.followup([{ type: 'text', text: 'human joined the pending batch' }])
+      agent.followup({ content: [{ type: 'text', text: 'human joined the pending batch' }], source: { kind: 'user' } })
     })
     test.ctx.goals.create(test.agent, { objective: 'yield to nested human input', maxGoalRounds: 1 })
 
@@ -444,11 +448,11 @@ describe('same-session goal driving', () => {
     // Reject only the goal-sourced round follow-up, not the state-change injection
     // that precedes it.
     const realFollowup = test.agent.followup.bind(test.agent)
-    vi.spyOn(test.agent, 'followup').mockImplementation((content, options) => {
-      if (options?.source?.kind === 'goal') {
+    vi.spyOn(test.agent, 'followup').mockImplementation((input) => {
+      if (input.source.kind === 'goal') {
         throw new Error('queue rejected')
       }
-      return realFollowup(content, options)
+      return realFollowup(input)
     })
     test.ctx.goals.create(test.agent, { objective: 'handle queue failure' })
 
@@ -465,12 +469,12 @@ describe('same-session goal driving', () => {
   it('preserves a custom agent side effect when followup disarms before throwing', async () => {
     const test = await harness([])
     const realFollowup = test.agent.followup.bind(test.agent)
-    vi.spyOn(test.agent, 'followup').mockImplementation((content, options) => {
-      if (options?.source?.kind === 'goal') {
+    vi.spyOn(test.agent, 'followup').mockImplementation((input) => {
+      if (input.source.kind === 'goal') {
         test.ctx.goals.disarm(test.agent)
         throw new Error('queue rejected after disarm')
       }
-      return realFollowup(content, options)
+      return realFollowup(input)
     })
     test.ctx.goals.create(test.agent, { objective: 'preserve the newer activation state' })
 
@@ -548,9 +552,7 @@ describe('same-session goal driving', () => {
 
   it('blocks forged goal attribution without touching an absent reservation', async () => {
     const test = await harness([])
-    test.agent.followup([{ type: 'text', text: 'forged automatic work' }], {
-      source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 },
-    })
+    test.agent.followup({ content: [{ type: 'text', text: 'forged automatic work' }], source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 } })
     await test.agent.whenIdle()
 
     expect(test.adapter.requests).toHaveLength(0)
@@ -559,7 +561,7 @@ describe('same-session goal driving', () => {
 
   it('does not invent goal state when ordinary queued work is cancelled', async () => {
     const test = await harness([])
-    test.agent.followup([{ type: 'text', text: 'cancel ordinary work' }])
+    test.agent.followup({ content: [{ type: 'text', text: 'cancel ordinary work' }], source: { kind: 'user' } })
     test.agent.cancel({ kind: 'user' })
     await test.agent.whenIdle()
 
@@ -569,7 +571,7 @@ describe('same-session goal driving', () => {
 
   it('disarms without durably pausing when cancellation belongs to unrelated human work', async () => {
     const test = await harness(['hang'])
-    test.agent.followup([{ type: 'text', text: 'inspect something first' }])
+    test.agent.followup({ content: [{ type: 'text', text: 'inspect something first' }], source: { kind: 'user' } })
     await waitForRequests(test.adapter, 1)
     const created = test.ctx.goals.create(test.agent, { objective: 'continue after inspection' })
 

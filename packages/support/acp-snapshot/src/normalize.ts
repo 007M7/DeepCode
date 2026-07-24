@@ -2,7 +2,7 @@
  * Pure ACP transcript and session-log normalizers. They scrub session ids, run cwd, RPC ids,
  * timestamps, and hook duration while preserving deterministic event sequence numbers.
  * Request-header scrubbers stay composable so one scenario per header class can pin prompt and
- * tool-schema sidecars while retaining any model-visible prefix in the session log.
+ * tool-schema sidecars.
  * @module @deepseek-ai/dsh-acp-snapshot/normalize
  */
 
@@ -10,7 +10,6 @@ const SESSION_ID = '{{sessionId}}'
 const CWD = '{{cwd}}'
 const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
-const MESSAGE_PREFIX = '{{messagePrefix}}'
 const UPDATED_AT = '{{updatedAt}}'
 
 /** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
@@ -221,14 +220,13 @@ export function scrubToolSchemas(rawLog: string): string {
  * @returns The JSONL with all header bulk tokenized, other lines byte-identical.
  */
 export function scrubRequestHeaders(rawLog: string): string {
-  return scrubHeaderContent(rawLog, { system: true, tools: true, prefix: true })
+  return scrubHeaderContent(rawLog, { system: true, tools: true })
 }
 
 /** Which independent request-header payloads a scrubber replaces. */
 interface HeaderScrubOptions {
   system?: boolean
   tools?: boolean
-  prefix?: boolean
 }
 
 /** Transform the selected request-header payloads. */
@@ -245,10 +243,6 @@ function scrubHeaderContent(rawLog: string, options: HeaderScrubOptions): string
       let touched = false
       if (options.system === true && 'system' in header) { header.system = SYSTEM; touched = true }
       if (options.tools === true && 'tools' in header) { header.tools = TOOLS; touched = true }
-      if (options.prefix === true && Array.isArray(header.messagePrefix)) {
-        header.messagePrefix = header.messagePrefix.map(() => MESSAGE_PREFIX)
-        touched = true
-      }
       return touched ? JSON.stringify(record) : line
     }
     return line

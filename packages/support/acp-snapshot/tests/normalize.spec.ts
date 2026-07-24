@@ -339,25 +339,6 @@ describe('scrubRequestHeaders', () => {
     expect(toolsOnly).not.toContain('{{system}}')
   })
 
-  it('scrubs the header session prefix to one token per message, keeping the count', () => {
-    const ev = headerEvent({
-      config: { model: 'm' },
-      messagePrefix: [
-        { role: 'user', content: [{ type: 'text', text: 'workspace AGENTS digest' }] },
-        { role: 'user', content: [{ type: 'text', text: 'skills catalog' }] },
-      ],
-    })
-    const out = scrubRequestHeaders(`${headerLine}\n${ev}\n`)
-    expect(out).toContain('"messagePrefix":["{{messagePrefix}}","{{messagePrefix}}"]')
-    expect(out).not.toContain('AGENTS digest')
-    expect(out).not.toContain('skills catalog')
-    // Absence stays absent — a prefix-less header gains no token…
-    expect(scrubRequestHeaders(`${headerLine}\n${headerEvent({ system: 's' })}\n`)).not.toContain('{{messagePrefix}}')
-    // …and a non-array shape passes through untouched.
-    const odd = JSON.stringify({ type: 'request/header', seq: 4, time: 9, data: { header: { config: { model: 'm' }, messagePrefix: 'weird' }, reason: 'initial' } })
-    expect(scrubRequestHeaders(`${headerLine}\n${odd}\n`)).toContain('"messagePrefix":"weird"')
-  })
-
   it('leaves malformed headers with no scrubbable payload byte-identical', () => {
     const headerless = JSON.stringify({ type: 'request/header', seq: 10, time: 9, data: { reason: 'initial' } })
     const nullData = JSON.stringify({ type: 'request/header', seq: 11, time: 9, data: null })
@@ -376,14 +357,13 @@ describe('scrubRequestHeaders', () => {
 })
 
 describe('scrubSystemPrompts', () => {
-  it('scrubs only system prompt payloads while keeping tools and prefixes verbatim', () => {
+  it('scrubs only system prompt payloads while keeping tools verbatim', () => {
     const header = JSON.stringify({
       type: 'request/header', seq: 1, time: 2,
       data: {
         header: {
           system: 'full prompt',
           tools: [{ name: 'read', description: 'full schema' }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'full prefix' }] }],
         },
         reason: 'initial',
       },
@@ -394,7 +374,6 @@ describe('scrubSystemPrompts', () => {
         header: {
           system: 'new prompt',
           tools: [{ name: 'read', description: 'changed schema' }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
         },
         reason: 'change',
       },
@@ -409,23 +388,20 @@ describe('scrubSystemPrompts', () => {
     expect(out).not.toContain('full prompt')
     expect(out).not.toContain('new prompt')
     expect(out).toContain('full schema')
-    expect(out).toContain('full prefix')
     expect(out).toContain('changed schema')
-    expect(out).toContain('changed prefix')
     expect(out.split('\n')[2]).toBe(toolsOnly)
     expect(scrubSystemPrompts(out)).toBe(out)
   })
 })
 
 describe('scrubToolSchemas', () => {
-  it('scrubs only tool-schema payloads while keeping prompts and prefixes verbatim', () => {
+  it('scrubs only tool-schema payloads while keeping prompts verbatim', () => {
     const header = JSON.stringify({
       type: 'request/header', seq: 1, time: 2,
       data: {
         header: {
           system: 'full prompt',
           tools: [{ name: 'read', description: 'full schema', parameters: { type: 'object' } }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'full prefix' }] }],
         },
         reason: 'initial',
       },
@@ -436,7 +412,6 @@ describe('scrubToolSchemas', () => {
         header: {
           system: 'new prompt',
           tools: [{ name: 'grep', description: 'new schema' }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
         },
         reason: 'change',
       },
@@ -452,8 +427,6 @@ describe('scrubToolSchemas', () => {
     expect(out).not.toContain('new schema')
     expect(out).toContain('full prompt')
     expect(out).toContain('new prompt')
-    expect(out).toContain('full prefix')
-    expect(out).toContain('changed prefix')
     expect(out.split('\n')[2]).toBe(systemOnly)
     expect(scrubToolSchemas(out)).toBe(out)
   })

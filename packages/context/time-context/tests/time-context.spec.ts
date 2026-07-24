@@ -44,11 +44,8 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     ctx: new Context(),
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content, options) {
-      session.append('user/message', {
-        content,
-        source: options?.source ?? { kind: 'user' },
-      }, { surfaceOp: 'append' })
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
     send: () => AgentMessageId('stub'),
@@ -374,7 +371,7 @@ describe('real agent-loop request history', () => {
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'start' }])
+    agent.followup({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(laterSawReading).toBe(false)
@@ -400,7 +397,7 @@ describe('real agent-loop request history', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('loop'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'start' }])
+    agent.followup({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(2)

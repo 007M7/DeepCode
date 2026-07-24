@@ -372,7 +372,7 @@ describe('runOneShot and executeCli', () => {
     ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject !== agent || injected) return
       injected = true
-      agent.inject([{ type: 'text', text: 'startup injection' }], { source: { kind: 'plugin', plugin: 'test' } })
+      agent.inject({ content: [{ type: 'text', text: 'startup injection' }], source: { kind: 'plugin', plugin: 'test' } })
       other.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } })
       other.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
@@ -473,7 +473,7 @@ describe('runOneShot and executeCli', () => {
     startup.ctx.on('session/event', (session, event) => {
       if (session === startup.agent.session && event.type === 'assistant/chunk') started()
     })
-    startup.agent.followup([{ type: 'text', text: 'first' }])
+    startup.agent.followup({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } })
     await running
     const startupAbort = new AbortController()
     const waiting = runOneShot(startup.ctx, { task: 'second', signal: startupAbort.signal })

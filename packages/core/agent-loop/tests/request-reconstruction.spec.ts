@@ -41,7 +41,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup([{ type: 'text', text }])
+  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 }
 
 /** Assert `previous` is a strict value-prefix of `current`. */
@@ -170,7 +170,7 @@ describe('request stability across the loop', () => {
     ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       if (!injected) {
         injected = true
-        agent.inject([{ type: 'text', text: '[late context]' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject({ content: [{ type: 'text', text: '[late context]' }], source: { kind: 'plugin', plugin: 'test' } })
       }
       return next()
     })

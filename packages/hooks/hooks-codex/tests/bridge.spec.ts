@@ -73,7 +73,7 @@ describe('hooks-codex bridge', () => {
     let ran = false
     ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'no' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'run ls' }])
+    agent.followup({ content: [{ type: 'text', text: 'run ls' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     expect(ran).toBe(false)
@@ -94,7 +94,7 @@ describe('hooks-codex bridge', () => {
     const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer after goal')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(2)
@@ -111,7 +111,7 @@ describe('hooks-codex bridge', () => {
     const adapter = new MockAdapter([textResponse('must not run')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('cancel-prompt-hook'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'cancel the hook' }])
+    agent.followup({ content: [{ type: 'text', text: 'cancel the hook' }], source: { kind: 'user' } })
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
 
@@ -122,7 +122,7 @@ describe('hooks-codex bridge', () => {
     expect(() => process.kill(pid, 0)).toThrow()
     expect(adapter.requests).toHaveLength(0)
     expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
-    expect(events(agent).some(event => event.type === 'hook/result' && event.data.point === 'UserPromptSubmit')).toBe(true)
+    expect(events(agent).some(event => event.type === 'hook/invoked' || event.type === 'hook/result')).toBe(false)
   })
 
   it('only the five bridge-supported Codex events are honored — a SubagentStop entry is ignored', async () => {
@@ -133,7 +133,7 @@ describe('hooks-codex bridge', () => {
     const adapter = new MockAdapter([textResponse('fine')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
   })
@@ -143,7 +143,7 @@ describe('hooks-codex bridge', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
   })
@@ -163,7 +163,7 @@ describe('hooks-codex bridge', () => {
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone
     expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false) // no hook ran

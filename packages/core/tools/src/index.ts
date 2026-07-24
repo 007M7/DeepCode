@@ -10,9 +10,9 @@ import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } fr
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { AdditionalContext, Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue, UserMessageData } from '@deepseek-ai/dsh-session'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
@@ -306,7 +306,7 @@ export interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: AdditionalContext): void
+  deferContext(context: UserMessageData): void
   /** Mark a successful final result as terminal for the current agent turn. */
   concludeTurn(): void
 }
@@ -440,7 +440,7 @@ export interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: AdditionalContext[]
+  readonly additionalContexts?: UserMessageData[]
   /** The agent loop stops after committing this successful result batch. */
   readonly concludesTurn?: true
 }
@@ -452,7 +452,7 @@ export interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: AdditionalContext[]
+  readonly additionalContexts?: UserMessageData[]
   readonly concludesTurn?: never
 }
 
@@ -475,9 +475,9 @@ export type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: AdditionalContext[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: AdditionalContext[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: AdditionalContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessageData[] }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -652,7 +652,7 @@ export class ToolRegistry extends Service {
   }
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
-  private deferredContexts = new WeakMap<ToolRunContext, AdditionalContext[]>()
+  private deferredContexts = new WeakMap<ToolRunContext, UserMessageData[]>()
   /** Successful executions whose tool body declared the current turn complete. */
   private concludingExecutions = new WeakSet<ToolExecution>()
   /** Enclosing transport tokens marked terminal by a successful nested call. */
@@ -969,7 +969,7 @@ export class ToolRegistry extends Service {
   }
 
   private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: MutableToolRunContext } {
-    const deferredContexts: AdditionalContext[] = []
+    const deferredContexts: UserMessageData[] = []
     const token = createExecutionToken()
     const callId = exec.callId
     const name = exec.name
@@ -987,7 +987,7 @@ export class ToolRegistry extends Service {
       signal,
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
-      deferContext(context: AdditionalContext): void {
+      deferContext(context: UserMessageData): void {
         deferredContexts.push(context)
       },
       concludeTurn(): void {

@@ -101,7 +101,7 @@ describe('real Loader composition', () => {
     const adapter = new TransientOnceAdapter()
     loaded.llm.registerAdapter(['mock'], adapter)
     const agent = loaded.agentLoop.create(SessionId('loader-retry'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'recover' }])
+    agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(adapter.requests).toBe(2)

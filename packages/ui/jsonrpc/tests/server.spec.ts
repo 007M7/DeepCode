@@ -152,7 +152,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
-      orphanHandle.agent.followup([{ type: 'text', text: 'outside the sdk session map' }])
+      orphanHandle.agent.followup({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } })
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)
@@ -227,15 +227,12 @@ describe('HarnessSdkServer', () => {
     const session = ctx.sessions.create(SessionId('message-outcome'))
     const agent = ({
       session,
-      followup(content: { type: 'text'; text: string }[]) {
+      followup(input: { content: { type: 'text'; text: string }[]; source: { kind: 'user' } }) {
         session.append('turn/start', {
           turn: 1,
-          trigger: { kind: 'message', source: { kind: 'user' } },
+          trigger: { kind: 'message', source: input.source },
         })
-        session.append('user/message', {
-          content,
-          source: { kind: 'user' },
-        }, { surfaceOp: 'append' })
+        session.append('user/message', input, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
         session.append('turn/start', {
           turn: 2,

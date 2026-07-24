@@ -178,8 +178,8 @@ idle inject:
 | 添加后台工作 | 在 `ctx.tasks` 上注册；通用 `task_*` 工具负责收集或停止 |
 | 添加文件系统访问或策略 | 实现 `ctx.fs` 提供方，或监听 `fs/*` 策略事件 |
 | 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成进程前包装 argv |
-| 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stop` 是串行终止判定点 |
-| 添加历史记录之外的会话稳定前缀 | 组合 `agent/session-prefix`；请求头会记录该前缀 |
+| 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/stopping` 是停止边界 |
+| 添加模型可见上下文 | 调用 `agent.inject()`；它会追加带来源的 `user/message`，但不创建轮次 |
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染；仅终端可用的浮层使用 `ctx.tui` |
 | 添加持久会话状态 | 添加一个 `SessionEventMap` 成员，并从日志渲染和回放 |
 | 添加异步会话标题生成 | 在 `ctx.sessionTitle` 上注册唯一提供方 |

@@ -2781,11 +2781,10 @@ export function createTuiChat(
     if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
-      const source = { kind: 'user' } as const
-      pendingSteering.add(agent.steer(content, { source }))
+      pendingSteering.add(agent.steer({ content, source: { kind: 'user' } }))
       refreshStatus()
     } else {
-      agent.followup(content, { source: { kind: 'user' } })
+      agent.followup({ content, source: { kind: 'user' } })
     }
   }
 
@@ -3073,7 +3072,7 @@ export function createTuiChat(
       editor.addToHistory(text)
       if (editor.getText() === value) editor.setText('')
       if (prepared.additionalContext !== undefined) {
-        agent.inject(prepared.additionalContext.content, { source: prepared.additionalContext.source })
+        agent.inject({ content: prepared.additionalContext.content, source: prepared.additionalContext.source })
       }
       dispatchMessage(prepared.content)
     }, (error: unknown) => {

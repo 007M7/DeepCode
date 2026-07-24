@@ -21,7 +21,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
 }
 
 function send(agent: Agent, text: string): void {
-  agent.followup([{ type: 'text', text }])
+  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 }
 
 describe('Agent', () => {
@@ -32,7 +32,7 @@ describe('Agent', () => {
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    agent.inject([{ type: 'text', text: 'context' }], { source: { kind: 'plugin', plugin: 'p' } })
+    agent.inject({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'p' } })
 
     expect(agent.session.events.map(event => event.type)).toEqual(['user/message'])
     expect(agent.status).toBe('idle')
@@ -41,11 +41,11 @@ describe('Agent', () => {
     expect(flushes).toBe(0)
   })
 
-  it('inject() defaults its source to an empty plugin, never user', async () => {
+  it('inject() preserves an explicitly empty plugin source', async () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.inject([{ type: 'text', text: 'no explicit source' }])
+    agent.inject({ content: [{ type: 'text', text: 'empty plugin source' }], source: { kind: 'plugin', plugin: '' } })
 
     const injected = agent.session.events.at(-1)
     expect(injected?.type === 'user/message' && injected.data.source)
@@ -57,10 +57,7 @@ describe('Agent', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     expect(() => {
-      agent.inject(
-        [{ type: 'text', text: 'x', bad: 1n } as never],
-        { source: { kind: 'plugin', plugin: 'p' } },
-      )
+      agent.inject({ content: [{ type: 'text', text: 'x', bad: 1n } as never], source: { kind: 'plugin', plugin: 'p' } })
     }).toThrow(/non-JSON-serializable/)
     expect(agent.session.events).toHaveLength(0)
   })
@@ -70,10 +67,7 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.steer(
-      [{ type: 'text', text: 'steer idle' }],
-      { source: { kind: 'plugin', plugin: 'test' } },
-    )
+    agent.steer({ content: [{ type: 'text', text: 'steer idle' }], source: { kind: 'plugin', plugin: 'test' } })
     await agent.whenIdle()
 
     expect(agent.session.events.some(event => event.type === 'user/message')).toBe(true)

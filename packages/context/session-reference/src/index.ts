@@ -7,9 +7,9 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { AdditionalContext, Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessageData } from '@deepseek-ai/dsh-session'
 import type { SessionSurfaceSnapshot } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_CANDIDATE_LIMIT,
@@ -192,7 +192,7 @@ export class SessionReferenceService extends Service {
         inputIndex: index,
       })),
     }
-    const additionalContext: AdditionalContext = {
+    const additionalContext: UserMessageData = {
       source,
       content: [{ type: 'text', text: prompt }],
     }

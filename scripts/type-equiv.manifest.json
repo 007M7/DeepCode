@@ -153,16 +153,6 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "AliasSendOptions",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.zh.md",
-      "symbol": "AliasSendOptions",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
       "symbol": "AgentMessageId",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -209,16 +199,6 @@
     {
       "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "Agent",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "AdditionalContext",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.zh.md",
-      "symbol": "AdditionalContext",
       "source": "packages/core/agent/src/types.ts"
     },
     {

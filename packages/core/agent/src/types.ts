@@ -40,8 +40,7 @@ export type SendTarget = 'next-turn' | 'next-step'
  * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
  * {@link Agent.inject} (`next-step`/no-wakeup).
  *
- * The object is complete so routing and provenance are explicit; callers that
- * want the ordinary user-message preset use {@link Agent.followup}.
+ * The object is complete so routing policy is explicit.
  */
 export interface SendOptions {
   /** Queue the item joins. */
@@ -54,14 +53,6 @@ export interface SendOptions {
    * (the injection preset).
    */
   wakeup: boolean
-  /** Producer provenance; direct human input uses `{ kind: 'user' }`. */
-  source: MessageSource
-}
-
-/** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
-export interface AliasSendOptions {
-  /** Producer provenance; each alias supplies its documented default when omitted. */
-  source?: MessageSource
 }
 
 /**
@@ -82,8 +73,8 @@ export function AgentMessageId(id: string): AgentMessageId {
 /**
  * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
  * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. Source defaults are already
- * applied, so these are the exact values the item was accepted with.
+ * message's enqueue, dequeue, and discard events. Its content and source are
+ * the exact input values accepted by the agent.
  */
 export interface AgentMessage extends UserMessageData {
   /** The id `send` returned for this message. */
@@ -108,9 +99,6 @@ export interface CancelOptions {
  */
 export type AgentStatus = 'idle' | 'running'
 
-/** Additional model-facing context produced beside a prompt or tool result. */
-export type AdditionalContext = UserMessageData
-
 /**
  * Prompt interception result. `allow.content` replaces the prompt, while
  * `additionalContexts` appends model-facing context before the turn starts.
@@ -118,7 +106,7 @@ export type AdditionalContext = UserMessageData
  * `next()` preserves both fields unless it intentionally replaces them.
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: AdditionalContext[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessageData[] }
   | { kind: 'block'; reason: string }
 
 /** Model-request failure with an optional machine-routable provider code. */
@@ -171,11 +159,11 @@ export interface Agent {
    *   without running the model: an open turn stages it for the next safe log
    *   position, while an idle injection appends it immediately without opening
    *   a turn.
-   * @param content - the model-facing content blocks to deliver.
-   * @param options - target queue, wakeup decision, and source.
+   * @param input - model-facing content and its producer provenance.
+   * @param options - target queue and wakeup decision.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(content: ContentBlock[], options: SendOptions): AgentMessageId
+  send(input: UserMessageData, options: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -195,11 +183,10 @@ export interface Agent {
    * Queue an ordinary follow-up turn and wake the driver — the
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
-   * @param content - the prompt content blocks.
-   * @param options - message source.
+   * @param input - prompt content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  followup(input: UserMessageData): AgentMessageId
 
   /**
    * Submit steering into the running turn — the `next-step`/wakeup preset of
@@ -208,23 +195,20 @@ export interface Agent {
    * remainder stays staged without waking the agent; retry or a later prompt
    * takes it. Idle steering falls back to a woken follow-up turn, while
    * cancellation or disposal may discard pending steering.
-   * @param content - the steering content blocks.
-   * @param options - message source.
+   * @param input - steering content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  steer(input: UserMessageData): AgentMessageId
 
   /**
    * Append model-facing context without running the model — the
    * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
    * at the next safe log position; an idle injection appends immediately
-   * without opening a turn. An omitted source defaults to
-   * `{ kind: 'plugin', plugin: '' }`.
-   * @param content - the injected context content blocks.
-   * @param options - context source.
+   * without opening a turn.
+   * @param input - injected context and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  inject(input: UserMessageData): AgentMessageId
 
   /**
    * Re-open a turn on the current session log without a new prompt — the
@@ -325,8 +309,9 @@ declare module 'cordis' {
     // ---- the machine's extension seams ----
     /**
      * Allow, rewrite, or block one claimed prompt before it becomes a user
-     * message. Call `next()` for the unchanged default. The signal controls only this turn;
-     * listeners may cooperate with it but must not retain it for another turn.
+     * message or opens a turn. Call `next()` for the unchanged default. The
+     * signal controls only this admission attempt; listeners may cooperate with
+     * it but must not retain it for a later attempt or turn.
      * @param agent - the agent whose turn claimed the message.
      * @param content - the claimed message's blocks, as queued.
      * @param source - the message's resolved source.

@@ -50,7 +50,7 @@ Editors can create, load, prompt, cancel, render, ask, and reconfigure multiple 
 
 The bridge deliberately does not implement session list/delete/resume/close capabilities, MCP passthrough, additional directories, image/audio/embedded-resource prompts, plans, slash commands, usage updates, editor filesystem delegation, or the ACP terminal execution sub-protocol. Runtime model selection was added later through standard session config options by the [LLM catalog and ACP selection Agent Note](../architecture/2026-07-15-llm-model-catalog-and-acp-selection.md).
 
-An idle config selection is truthful in the live response but not durable until the next `agent/prompt-submit` anchors it inside the open turn. Crashing before that boundary loses the pending selection; this is the cost of keeping session events turn-enclosed and replay-safe.
+An idle config selection is truthful in the live response but not durable until the next `agent/step` anchors it inside the open turn. Crashing before that boundary loses the pending selection; this is the cost of keeping session events turn-enclosed and replay-safe.
 
 ## Verification
 

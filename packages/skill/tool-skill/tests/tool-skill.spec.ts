@@ -48,11 +48,8 @@ function agentForCwd(cwd: string): Agent {
     send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content, options) {
-      session.append('user/message', {
-        content,
-        source: options?.source ?? { kind: 'user' },
-      }, { surfaceOp: 'append' })
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
     cancel() {},
@@ -147,9 +144,7 @@ describe('dsh-tool-skill', () => {
       content: 'A body.',
     })
     ctx.on('agent/step', (agent) => {
-      agent.inject([{ type: 'text', text: 'later contribution' }], {
-        source: { kind: 'plugin', plugin: 'later-contribution' },
-      })
+      agent.inject({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } })
     })
 
     const prefix = await composePrefix(ctx, '/workspace')

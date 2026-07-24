@@ -213,7 +213,7 @@ export class PlanModeService extends Service {
             return { kind: 'success', text: 'Plan mode is already inactive.' }
           }
           this.set(agent, true)
-          if (message !== '') agent.steer([{ type: 'text', text: message }])
+          if (message !== '') agent.steer({ content: [{ type: 'text', text: message }], source: { kind: 'user' } })
           return {
             kind: 'success',
             text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',

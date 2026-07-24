@@ -4,14 +4,13 @@ import AgentRegistry, {
   AgentMessageId,
   type Agent,
   type AgentCancelCause,
-  type AliasSendOptions,
   type AgentOptions,
   type AgentStatus,
   type SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionHeader, type UserMessageData } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -21,12 +20,12 @@ import { TestSessionQueryService } from './session-query.ts'
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
-  sentOptions: (SendOptions | AliasSendOptions | undefined)[]
+  sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
   steeredIds: AgentMessageId[]
-  steeredOptions: (AliasSendOptions | undefined)[]
+  steeredOptions: UserMessageData[]
   injected: ContentBlock[][]
-  injectedOptions: (AliasSendOptions | undefined)[]
+  injectedOptions: UserMessageData[]
   cancelled: AgentCancelCause[]
 }
 
@@ -163,10 +162,10 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
   const steeredIds: AgentMessageId[] = []
-  const sentOptions: (SendOptions | AliasSendOptions | undefined)[] = []
-  const steeredOptions: (AliasSendOptions | undefined)[] = []
+  const sentOptions: (SendOptions | undefined)[] = []
+  const steeredOptions: UserMessageData[] = []
   const injected: ContentBlock[][] = []
-  const injectedOptions: (AliasSendOptions | undefined)[] = []
+  const injectedOptions: UserMessageData[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
@@ -182,26 +181,26 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     injected,
     injectedOptions,
     cancelled,
-    send(content, options) {
-      sent.push(content)
+    send(input, options) {
+      sent.push(input.content)
       sentOptions.push(options)
       return AgentMessageId('stub')
     },
-    followup(content, options) {
-      sent.push(content)
-      sentOptions.push(options)
+    followup(input) {
+      sent.push(input.content)
+      sentOptions.push(undefined)
       return AgentMessageId('stub')
     },
-    steer(content, options) {
-      steered.push(content)
-      steeredOptions.push(options)
+    steer(input) {
+      steered.push(input.content)
+      steeredOptions.push(input)
       const id = AgentMessageId(`steering-${steeredIds.length + 1}`)
       steeredIds.push(id)
       return id
     },
-    inject(content, options) {
-      injected.push(content)
-      injectedOptions.push(options)
+    inject(input) {
+      injected.push(input.content)
+      injectedOptions.push(input)
       return AgentMessageId('stub')
     },
     cancel(cause) {

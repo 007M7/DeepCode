@@ -298,7 +298,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   try {
     /* v8 ignore next -- skips send only when cancellation wins the listener-registration race above */
     if (!firstTurnEnded) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
-      agent.followup([{ type: 'text', text: options.task }])
+      agent.followup({ content: [{ type: 'text', text: options.task }], source: { kind: 'user' } })
     }
     await turnEnded
   } finally {

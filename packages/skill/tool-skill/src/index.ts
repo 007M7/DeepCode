@@ -29,7 +29,7 @@ export const Config: z<Config> = z.object({
 
 /**
  * Register the model-facing skill loader and its visibility-matched
- * session-prefix catalog. The catalog is emitted only when the calling agent
+ * durable session catalog. The catalog is emitted only when the calling agent
  * resolves this plugin's exact tool registration; a restriction or scoped
  * same-name shadow therefore removes both the schema and its call guidance.
  */
@@ -126,7 +126,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
     if (skills.length > 0) {
       const catalog = renderCatalogMessage(skills, catalogDescriptionMaxLength)
-      agent.inject(catalog.content, { source: { kind: 'plugin', plugin: 'dsh-tool-skill' } })
+      agent.inject({ content: catalog.content, source: { kind: 'plugin', plugin: 'dsh-tool-skill' } })
     }
     catalogLoaded.add(agent.session)
   })

@@ -50,7 +50,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup([{ type: 'text', text }])
+  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 }
 
 describe('assistant replay provenance', () => {
@@ -85,7 +85,7 @@ describe('abort during tool execution ends the turn', () => {
       description: '',
       parameters: {},
       async execute() {
-        agent.inject([{ type: 'text', text: 'accepted before abort' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject({ content: [{ type: 'text', text: 'accepted before abort' }], source: { kind: 'plugin', plugin: 'test' } })
         agent.cancel({ kind: 'user' })
         return [{ type: 'text', text: 'done' }]
       },
@@ -185,7 +185,7 @@ describe('abort during tool execution ends the turn', () => {
       description: '',
       parameters: {},
       async execute(_args, exec) {
-        agent.inject([{ type: 'text', text: 'accepted before disposal' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject({ content: [{ type: 'text', text: 'accepted before disposal' }], source: { kind: 'plugin', plugin: 'test' } })
         started.resolve(undefined)
         const signal = exec.signal
         if (!signal) throw new Error('tool execution signal is missing')
@@ -254,7 +254,7 @@ describe('abort during tool execution ends the turn', () => {
     await waitForIdle(ctx, agent)
     ctx.on('agent/step', (subject, turn) => {
       if (subject === agent && turn === 2) {
-        agent.inject([{ type: 'text', text: 'new turn context' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject({ content: [{ type: 'text', text: 'new turn context' }], source: { kind: 'plugin', plugin: 'test' } })
       }
     })
     send(agent, 'start a text-only turn')
@@ -282,7 +282,7 @@ describe('steering from late extension points is never stranded', () => {
     ctx.on('agent/stopping', () => {
       if (!steeredOnce) {
         steeredOnce = true
-        agent.steer([{ type: 'text', text: 'one more thing' }])
+        agent.steer({ content: [{ type: 'text', text: 'one more thing' }], source: { kind: 'user' } })
       }
     })
 
@@ -307,7 +307,7 @@ describe('steering from late extension points is never stranded', () => {
     ctx.on('session/event', (subject, event) => {
       if (subject !== agent.session || event.type !== 'step/end' || steeredOnce) return
       steeredOnce = true
-      agent.steer([{ type: 'text', text: 'goal reminder from step/end' }])
+      agent.steer({ content: [{ type: 'text', text: 'goal reminder from step/end' }], source: { kind: 'user' } })
     })
 
     send(agent, 'go')
@@ -338,7 +338,7 @@ describe('steering from late extension points is never stranded', () => {
       if (event.type === 'turn/start') turns.push(event.data.turn)
       if (event.type === 'turn/end' && !steeredOnce) {
         steeredOnce = true
-        agent.steer([{ type: 'text', text: 'too late for this turn' }])
+        agent.steer({ content: [{ type: 'text', text: 'too late for this turn' }], source: { kind: 'user' } })
       }
     })
 
@@ -493,7 +493,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       description: '',
       parameters: {},
       async execute() {
-        agent.steer([{ type: 'text', text: 's' }], { source: { kind: 'plugin', plugin: 'goal' } })
+        agent.steer({ content: [{ type: 'text', text: 's' }], source: { kind: 'plugin', plugin: 'goal' } })
         return []
       },
     }))
@@ -550,7 +550,7 @@ describe('turn numbering continues across seeded sessions', () => {
 
     const turns: number[] = []
     ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
-    forked.followup([{ type: 'text', text: 'continue' }])
+    forked.followup({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } })
     await new Promise<void>((resolve) => {
       ctx2.on('agent/status', (subject, status) => {
         if (subject === forked && status === 'idle') resolve()

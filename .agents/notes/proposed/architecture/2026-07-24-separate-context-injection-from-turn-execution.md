@@ -18,7 +18,7 @@ Idle `inject()` exposes a second mismatch. Injection does not request model exec
 
 Make `inject()` the only caller-facing operation for adding supplementary model-facing input, and define a turn exclusively as one execution of the model loop.
 
-Remove `SendOptions.contexts`. A caller that owns context delivers it with `inject()` and independently submits the direct message with `send()` or `steer()`. Rename `HookContext` to `AdditionalContext`; retain only `content` and `source`, and remove placement and model-hidden metadata from this shared shape.
+Remove `SendOptions.contexts`. A caller that owns context delivers it with `inject()` and independently submits the direct message with `send()` or `steer()`. Use the existing `UserMessageData` content/source shape directly for additional model-facing context instead of creating another name for it.
 
 Prompt and tool extension points may still return `additionalContexts`. These values are outputs of the extension point, not attachments captured from a caller's inbox item. Prompt admission runs before `run()` opens a turn. An allowed prompt enters the outbox together with its returned additional contexts; a blocked prompt writes neither and opens no turn. Tool-produced additional contexts enter the same outbox after the corresponding tool results.
 
@@ -59,7 +59,7 @@ This proposal preserves the caller-owned framing decision from [unwrapped inject
 ## Acceptance criteria
 
 - `SendOptions` and steering inbox records contain no attached contexts; `agent/queued` reports only the retained message and steering facts.
-- `AdditionalContext` replaces `HookContext` across prompt interception, tool execution, hook bridges, guards, and context producers, with only `content` and `source`.
+- `UserMessageData` replaces `HookContext` across prompt interception, tool execution, hook bridges, guards, and context producers.
 - Prompt-prefix placement, prompt envelopes, and `context/message` are absent from public types, durable events, projection, and UI replay.
 - Idle `inject()` appends and flushes one sourced `user/message` without a turn or model call; `whenIdle()` and disposal await the flush.
 - Active-turn injection and hook-produced contexts drain at safe boundaries after complete tool-result batches and before the request that consumes them.

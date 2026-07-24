@@ -1,8 +1,7 @@
 /** Public session-reference request, candidate, and preparation records. */
 
-import type { AdditionalContext } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessageData } from '@deepseek-ai/dsh-session'
 
 /** Durable provenance for one prepared cross-session context. */
 export interface SessionReferenceSource {
@@ -53,7 +52,7 @@ export interface PreparedReferencedMessage {
   /** Readable message content after host mention tokens are removed. */
   content: ContentBlock[]
   /** Aggregated untrusted snapshot, absent when the message has no references. */
-  additionalContext?: AdditionalContext
+  additionalContext?: UserMessageData
 }
 
 /** Text-only projected conversation item. */

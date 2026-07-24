@@ -516,7 +516,10 @@ describe('/plan', () => {
       text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
     })
     expect(ctx.planMode.get(messageAgent)).toEqual({ active: false, pending: true })
-    expect(messageSteer).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text: 'draft the migration' }])
+    expect(messageSteer).toHaveBeenCalledExactlyOnceWith({
+      content: [{ type: 'text', text: 'draft the migration' }],
+      source: { kind: 'user' },
+    })
   })
 
   it('leaves active plan mode, cancels a pending entry, and treats inactive exit as idempotent', async () => {

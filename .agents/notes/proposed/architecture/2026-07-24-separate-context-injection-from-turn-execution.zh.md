@@ -18,7 +18,7 @@ agent API 目前用三种相互重叠的方式表示面向模型的补充输入�
 
 将 `inject()` 设为调用方添加补充模型输入的唯一操作，并把轮次严格定义为一次模型循环执行。
 
-移除 `SendOptions.contexts`。拥有上下文的调用方通过 `inject()` 交付上下文，再独立使用 `send()` 或 `steer()` 提交直接消息。将 `HookContext` 重命名为 `AdditionalContext`；这个共享结构只保留 `content` 和 `source`，移除放置方式与模型不可见元数据。
+移除 `SendOptions.contexts`。拥有上下文的调用方通过 `inject()` 交付上下文，再独立使用 `send()` 或 `steer()` 提交直接消息。附加的模型可见上下文直接使用已有的 `UserMessageData` content/source 形状，不再为同一结构创建另一个名字。
 
 提示词和工具扩展点仍可返回 `additionalContexts`。这些值是扩展点的输出，而不是从调用方收件箱条目捕获的附件。提示词准入在 `run()` 打开轮次之前执行。提示词获准后，它与返回的额外上下文一同进入 outbox；提示词被阻止时，两者都不写入，也不打开轮次。工具产生的额外上下文则在对应工具结果之后进入同一个 outbox。
 
@@ -59,7 +59,7 @@ agent API 目前用三种相互重叠的方式表示面向模型的补充输入�
 ## 验收标准
 
 - `SendOptions` 与 steering 收件箱记录不再包含附加上下文；`agent/queued` 只报告保留的消息和 steering 事实。
-- `AdditionalContext` 在提示词拦截、工具执行、hook bridge、guard 和上下文生产方中取代 `HookContext`，且只包含 `content` 与 `source`。
+- `UserMessageData` 在提示词拦截、工具执行、hook bridge、guard 和上下文生产方中取代 `HookContext`。
 - 公共类型、持久事件、投影和 UI 回放中均不存在 prompt-prefix 放置方式、提示词封套与 `context/message`。
 - 空闲 `inject()` 在不产生轮次或模型调用的情况下，追加并刷新一条带来源的 `user/message`；`whenIdle()` 和 dispose 会等待该刷新。
 - 活跃轮次注入和钩子产生的上下文会在完整工具结果批次之后的安全边界排空，并在消费它们的请求之前进入日志。

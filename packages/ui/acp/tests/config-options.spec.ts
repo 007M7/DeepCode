@@ -406,7 +406,7 @@ describe('acp bridge — session config options', () => {
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const agent = h.ctx.agents.list()[0]
     if (agent === undefined) throw new Error('expected an agent')
-    agent.inject([{ type: 'text', text: 'checkpoint' }], { source: { kind: 'plugin', plugin: 'test' } })
+    agent.inject({ content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'plugin', plugin: 'test' } })
     await agent.whenIdle()
     await h.dispose()
     h = undefined

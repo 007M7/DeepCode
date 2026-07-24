@@ -490,7 +490,8 @@ export class GoalService extends Service {
     const pending: PendingGoalChange = { change, activation, applied: false }
     cache.pending.push(pending)
     try {
-      agent.inject(renderGoalChange(change), {
+      agent.inject({
+        content: renderGoalChange(change),
         source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
       })
     } catch (error: unknown) {

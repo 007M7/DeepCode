@@ -4,9 +4,9 @@
  * @module @deepseek-ai/dsh-workspace-context/state
  */
 
-import type { AdditionalContext, Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, UserMessageData } from '@deepseek-ai/dsh-session'
 import type { FileSystem, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
@@ -77,14 +77,11 @@ export interface InstructionVersionUpdate {
 
 /** Rendered reconciliation plus cache transitions awaiting final policy. */
 export interface ReconciledInstructionContext {
-  context: WorkspaceAdditionalContext
+  context: UserMessageData
   versionUpdates: InstructionVersionUpdate[]
 }
 
-/** Plugin-owned workspace context. */
-export type WorkspaceAdditionalContext = AdditionalContext
-
-function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): WorkspaceAdditionalContext {
+function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): UserMessageData {
   return {
     content: [{ type: 'text', text }],
     source: { kind: 'workspace-instructions', changes },
@@ -329,7 +326,7 @@ export function observeInstructionSessionEvent(
  */
 export function commitPendingInstructionContexts(
   agent: Agent,
-  contexts: readonly AdditionalContext[] | undefined,
+  contexts: readonly UserMessageData[] | undefined,
   pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
 ): WorkspaceInstructionChange[] {
   const committed: WorkspaceInstructionChange[] = []

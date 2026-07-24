@@ -1,10 +1,10 @@
 # @deepseek-ai/dsh-workspace-context
 
-Per-session workspace instruction loading for `AGENTS.md`-compatible files. The plugin freezes the initial user-global and project instruction chain into the request prefix, then discovers nested files and reports later changes or removals through durable context messages after successful filesystem tool calls.
+Per-session workspace instruction loading for `AGENTS.md`-compatible files. The plugin injects the initial user-global and project instruction chain into durable history, then discovers nested files and reports later changes or removals after successful filesystem tool calls.
 
 ## Lifecycle
 
-The baseline is composed once per agent-loop instance on `agent/session-prefix`. It reads `$DSH_HOME/AGENTS.md` followed by, in each directory from the project root to `agent.session.header.cwd`, every existing base candidate and then every existing local-overlay candidate. Within one directory, candidates whose content is byte-identical after trimming leading and trailing whitespace collapse to the earliest candidate in configured order, so a `CLAUDE.md` that merely duplicates its sibling `AGENTS.md` is rendered once. The prefix is placed before all derived history, recorded in `EpochHeader.messagePrefix`, and reused verbatim for that loop instance. Because the plugin prepends its contribution before delegating, a later-registered skills catalog appears after workspace instructions.
+The baseline is injected at the first `agent/step` of each live session. It reads `$DSH_HOME/AGENTS.md` followed by, in each directory from the project root to `agent.session.header.cwd`, every existing base candidate and then every existing local-overlay candidate. Within one directory, candidates whose content is byte-identical after trimming leading and trailing whitespace collapse to the earliest candidate in configured order, so a `CLAUDE.md` that merely duplicates its sibling `AGENTS.md` is rendered once. The durable sourced `user/message` enters the same request as the claimed prompt.
 
 The plugin also listens on `tools/post-execute` for successful first-party `read`, `write`, and `edit` calls. Each touch checks newly reached descendant scopes and every previously loaded scope. Each configured candidate name is an independent scope in its directory: a newly present file is attached through the result's `additionalContexts`; a changed file appends a replacement; a file that disappears or becomes a per-directory duplicate of an earlier candidate appends a removal notice. Native calls and Code Mode sub-dispatches share this path: `run_code` defers each nested context until its outer result, so the loop still appends updates after tool-call/result adjacency is complete. This follows structured filesystem activity rather than shell `cd`, because each local bash call starts a fresh shell and parsing arbitrary shell syntax would be unreliable.
 
@@ -12,7 +12,7 @@ Instruction reads use the optional `ctx.fs` provider. The plugin does not static
 
 ## Prompt Shape
 
-Baseline instructions are request-only user-role prefix messages framed with the familiar system-reminder pattern:
+Baseline instructions are durable user-role messages framed with the familiar system-reminder pattern:
 
 ```md
 <system-reminder>
@@ -28,7 +28,7 @@ Instructions from: AGENTS.md
 </system-reminder>
 ```
 
-Newly reached scopes use a durable raw `context/message`:
+Newly reached scopes use a durable sourced `user/message`:
 
 ```md
 <system-reminder>
@@ -42,7 +42,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 A same-file edit starts with `Updated instructions from: <path>` and says to use the new content instead of the previously loaded content. When a candidate disappears or becomes a per-directory duplicate of an earlier candidate, the message is `Instructions removed: <path>` followed by `The previously loaded instructions from this file no longer apply.` Literal `</system-reminder>` text inside an instruction file is escaped so file content cannot close the plugin-owned frame.
 
-The plugin owns the complete `<system-reminder>` framing, and every `context/message` (from this plugin or any other) reaches the model verbatim as a user-role message with no wrapping.
+The plugin owns the complete `<system-reminder>` framing, and every injected `user/message` reaches the model verbatim with no core wrapper.
 
 ## State And Refresh
 
@@ -50,7 +50,7 @@ Model-visible text contains no hidden state markers. Each dynamic context event 
 
 An unchanged path and SHA-1 content digest is not injected again. A per-session, per-scope provider cache stores only `{ path, version, digest, trimmedDigest }`: when the provider's opaque `FsVersion` and the effective visible state both match, reconciliation skips the content read; a changed version triggers a bounded read and SHA-1 confirmation before any model-visible update. The `trimmedDigest` — SHA-1 over the whitespace-trimmed content — is the per-directory duplicate key, so an unchanged file can still be removed when an earlier candidate converges on its content. Resume works because SHA-1 state is persisted in the typed source, while an empty in-memory version cache merely causes one confirming read. Compaction re-arms a scope after its context event leaves the visible surface even when the cached version is unchanged. A removal is a tombstone, so a later candidate reappearance is loaded again. Only model-visible changes actually rendered within the byte budget enter the source, pending state, and version cache; an omitted change remains eligible for a later touch, while a same-digest version refresh updates only the provider cache.
 
-The frozen baseline itself is not rewritten mid-instance. Its initial path/digest map is retained as comparison state; the next successful filesystem touch appends any baseline replacement or removal. A resumed loop recomposes the current baseline and also reconciles still-visible dynamic scopes during prefix composition. There is no file watcher, so an on-disk change becomes visible at the next successful `read`, `write`, or `edit` touch, or when a resumed loop composes its prefix.
+The initial baseline event itself is not rewritten. Its path/digest map is retained as comparison state; the next successful filesystem touch appends any baseline replacement or removal. A resumed loop recomposes the current baseline and also reconciles still-visible dynamic scopes before its first request. There is no file watcher, so an on-disk change becomes visible at the next successful `read`, `write`, or `edit` touch, or when a resumed loop prepares its baseline.
 
 ## Configuration
 
@@ -77,11 +77,11 @@ Instruction content is read through `streamText()` under `maxSourceBytes`, even 
 
 ## Model Experience
 
-### Baseline session prefix
+### Baseline context
 
 #### What the model sees
 
-At the first request of each loop instance, the model receives one user-role prefix message containing the bounded user-global and project instruction chain in broad-to-specific order.
+At the first request of each loop instance, the model receives one durable user-role message containing the bounded user-global and project instruction chain in broad-to-specific order.
 
 ##### Baseline instruction template
 
@@ -101,17 +101,17 @@ Instructions from: AGENTS.md
 
 #### Token effect
 
-The rendered baseline is frozen and resent on every request in that loop instance. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
+The rendered baseline is appended once and remains in derived history until compaction. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
 
 #### KV Cache effect
 
-Prefix-stable within one loop instance because the baseline is frozen. A new or resumed instance recomposes it, so instruction, precedence, cwd, candidate, or byte-budget changes may invalidate reuse from the first changed baseline token.
+Append-only after the existing reusable prefix. A new or resumed instance may append a recomposed baseline, so instruction, precedence, cwd, candidate, or byte-budget changes affect cache reuse from that history position.
 
 ### Newly discovered scope context
 
 #### What the model sees
 
-After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained raw `context/message` with the newly applicable instruction file.
+After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained sourced `user/message` with the newly applicable instruction file.
 
 ##### Additional instruction template
 
@@ -160,7 +160,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **Discovery follows structured fs tools, not shell navigation** — a `bash` command that changes directories does not trigger nested instruction discovery because shell syntax and per-call shell state are not a reliable filesystem seam.
-- **Refresh is touch-driven** — there is no watcher; external edits become visible on the next successful first-party `read`, `write`, or `edit`, or when a resumed loop recomposes its prefix.
+- **Refresh is touch-driven** — there is no watcher; external edits become visible on the next successful first-party `read`, `write`, or `edit`, or when a resumed loop prepares its baseline.
 - **Candidate semantics stay intentionally small** — lowercase names, `.claude/rules/`, and `@path` imports are not interpreted; project scopes load `AGENTS.local.md`/`CLAUDE.local.md` overlays by default, but the user-global `$DSH_HOME` scope has no local overlay and other custom names require explicit candidate configuration.
 - **Per-directory dedup is content-based** — sibling candidates collapse only when byte-identical after trimming leading and trailing whitespace; a `CLAUDE.md` that symlinks its sibling `AGENTS.md` resolves to the same content and collapses like any duplicate, while a distinct real copy that has drifted from `AGENTS.md` loads in full alongside it.
 - **Symlinked instruction files are followed across the trust boundary** — a candidate whose final component is a symlink is resolved and its target loaded, so a cloned repository can surface off-tree file content as lower-authority workspace guidance (it never overrides system, developer, or direct user instructions). Confine `ctx.fs` with the filesystem policy gate or an OS sandbox when loading untrusted repositories.

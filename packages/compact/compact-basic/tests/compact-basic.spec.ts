@@ -546,7 +546,7 @@ describe('pressure measurement and retention', () => {
     expect(session.surface.nodes.length).toBeLessThan(8)
   })
 
-  it('counts the durable routed request envelope without putting its prefix on the surface', async () => {
+  it('counts the durable routed request envelope without putting it on the surface', async () => {
     const compact = service({
       auto: false,
       thresholdRatio: 0.9,
@@ -555,22 +555,15 @@ describe('pressure measurement and retention', () => {
     const session = conversation(2, 'x'.repeat(600))
     expect(await compactIfNeeded(compact, session)).toBeNull()
 
-    const prefix = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'p'.repeat(600) }] }]
     session.append('request/header', {
       header: {
         config: { provider: MODEL, model: MODEL },
-        system: 's'.repeat(600),
-        messagePrefix: prefix,
+        system: 's'.repeat(2_000),
       },
       reason: 'resume',
     })
     const result = await compactIfNeeded(compact, session)
     expect(result).not.toBeNull()
-    expect(prefix).toHaveLength(1)
-    // The routed request prefix must not reach the surface as its own message
-    // (the compaction summary itself is an expected plugin-sourced checkpoint).
-    expect(session.events.some(event => event.type === 'user/message'
-      && event.data.content.some(block => block.type === 'text' && block.text.includes('p'.repeat(600))))).toBe(false)
   })
 
   it('uses the latest logged request envelope without an AgentOptions override', async () => {
@@ -800,13 +793,12 @@ describe('compaction region transaction', () => {
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
   })
 
-  it('replays the latest routed header prefix so the summarizer reuses the cache', async () => {
+  it('replays the latest routed header so the summarizer reuses the cache', async () => {
     const compact = service()
     const session = conversation(3)
     const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]
-    const messagePrefix: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'SESSION PREFIX' }] }]
     session.append('request/header', {
-      header: { config: { provider: MODEL, model: MODEL }, system: 'CONVERSATION SYSTEM', tools, messagePrefix },
+      header: { config: { provider: MODEL, model: MODEL }, system: 'CONVERSATION SYSTEM', tools },
       reason: 'resume',
     })
     const nodes = session.surface.nodes
@@ -815,7 +807,6 @@ describe('compaction region transaction', () => {
     const { input } = compact.calls[0]!
     expect(input.system).toBe('CONVERSATION SYSTEM')
     expect(input.tools).toEqual(tools)
-    expect(input.messages[0]).toEqual(messagePrefix[0])
     expect(summarizedText(input)).toContain('fixture user 1')
   })
 

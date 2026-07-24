@@ -225,7 +225,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
-    handle.agent.followup([{ type: 'text', text: 'recover' }])
+    handle.agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
     await waitForIdle(ctx, handle.agent)
 
     expect(adapter.requests).toBe(2)
@@ -325,7 +325,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
       const agent = handle.agent
 
-      agent.followup([{ type: 'text', text: 'hi' }])
+      agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
       await waitForIdle(ctx, agent)
 
       const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
@@ -354,7 +354,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup([{ type: 'text', text: 'hi' }])
+      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
       await waitForIdle(ctx, handle.agent)
 
       expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
@@ -444,7 +444,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup([{ type: 'text', text: 'hi' }])
+      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
       await waitForIdle(ctx, handle.agent)
 
       expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')

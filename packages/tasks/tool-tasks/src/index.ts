@@ -221,13 +221,13 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
     try {
-      owner.inject(
-        [{
+      owner.inject({
+        content: [{
           type: 'text',
           text: fitCompletionNotice(snapshot),
         }],
-        { source: { kind: 'plugin', plugin: 'tool-tasks' } },
-      )
+        source: { kind: 'plugin', plugin: 'tool-tasks' },
+      })
     } catch (error: unknown) {
       // Disposal may win the race after settlement; other injection failures surface.
       if (error instanceof Error && error.message.includes('is disposed')) return

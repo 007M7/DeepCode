@@ -269,10 +269,10 @@ export class ApprovalService extends Service {
       // to go out states the truth, and there is no delta to explain.
       if (told === undefined || told === current) return
       const cause = overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
-      agent.inject(
-        [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
-        { source: { kind: 'plugin', plugin: 'user-approval' } },
-      )
+      agent.inject({
+        content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
+        source: { kind: 'plugin', plugin: 'user-approval' },
+      })
     })
   }
 

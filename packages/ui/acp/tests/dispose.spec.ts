@@ -264,7 +264,7 @@ describe('acp bridge — disposal & HMR safety', () => {
     const handle = await harness.ctx.agents.create({
       sessionId: SessionId('guard-a'), agentOptions: { provider: 'mock', model: 'mock' },
     })
-    handle.agent.followup([{ type: 'text', text: 'go' }])
+    handle.agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await handle.agent.whenIdle()
     expect(harness.ctx.sessions.get(SessionId('guard-a'))).toBeDefined()
 
@@ -288,7 +288,7 @@ describe('acp bridge — disposal & HMR safety', () => {
     // Drive a turn that hangs in the model stream, so the loop is mid-turn when
     // disposed — its exit runs a final session/flush we can gate to hold the
     // teardown observably in-flight.
-    handle.agent.followup([{ type: 'text', text: 'go' }])
+    handle.agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await new Promise(r => setTimeout(r, 30))
     expect(handle.agent.status).toBe('running')
     // Both callers join the same teardown and observe registry removal.

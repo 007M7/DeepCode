@@ -213,7 +213,7 @@ interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: AdditionalContext): void
+  deferContext(context: UserMessageData): void
   /** Mark a successful final result as terminal for the current agent turn. */
   concludeTurn(): void
 }
@@ -292,7 +292,7 @@ interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: AdditionalContext[]
+  readonly additionalContexts?: UserMessageData[]
   /** The agent loop stops after committing this successful result batch. */
   readonly concludesTurn?: true
 }
@@ -306,7 +306,7 @@ interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: AdditionalContext[]
+  readonly additionalContexts?: UserMessageData[]
   readonly concludesTurn?: never
 }
 ```
@@ -343,9 +343,9 @@ type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: AdditionalContext[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: AdditionalContext[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: AdditionalContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessageData[] }
 ```
 
 Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.

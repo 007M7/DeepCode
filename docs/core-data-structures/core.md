@@ -216,8 +216,7 @@ interface GenerateOptions {
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
    * the `system` slot). A loop-built request assembles them as
-   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
-   * hand-built one-shot passes any list.
+   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
    */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */
@@ -287,11 +286,11 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset), and session prefix through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
+The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, and authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset) through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-`agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, or sampling. `agent/session-prefix` composes request-only prefix messages once per loop instance, and the header records the exact result used. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
+`agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, or sampling. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
 
-On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (the frozen session prefix) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The prefix never enters the derived history; its durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
+On the wire, a loop-built request reads the `system` slot (the rendered prompt assembly) followed by the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The dev invariant recomputes exactly this equation against every loop-built request.
 
 FIXME(call-config-shape): revisit the exact definition of this type — which fields are genuinely epoch-level for cache purposes (`model` certainly; the sampling scalars sit here out of caution), and where provider-specific extras (reasoning options, extra body params) belong when an adapter needs them.
 
@@ -353,7 +352,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-The thirteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `prompt/blocked`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the turn-enclosure invariant are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
+The twelve event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the turn-enclosure invariant are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
 
 ## The agent handle
 
@@ -378,8 +377,7 @@ type SendTarget = 'next-turn' | 'next-step'
  * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
  * {@link Agent.inject} (`next-step`/no-wakeup).
  *
- * The object is complete so routing and provenance are explicit; callers that
- * want the ordinary user-message preset use {@link Agent.followup}.
+ * The object is complete so routing policy is explicit.
  */
 interface SendOptions {
   /** Queue the item joins. */
@@ -392,20 +390,10 @@ interface SendOptions {
    * (the injection preset).
    */
   wakeup: boolean
-  /** Producer provenance; direct human input uses `{ kind: 'user' }`. */
-  source: MessageSource
 }
 ```
 
-The fixed-preset aliases own `target` and `wakeup`, so they accept only the remaining fields:
-
-```ts type-equiv
-/** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
-interface AliasSendOptions {
-  /** Producer provenance; each alias supplies its documented default when omitted. */
-  source?: MessageSource
-}
-```
+The fixed-preset aliases own `target` and `wakeup`; their `UserMessageData` input carries both content and provenance.
 
 `send` returns the accepted message's opaque `AgentMessageId`, stable across that message's `agent/inbox/*` events:
 
@@ -423,8 +411,8 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
 /**
  * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
  * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. Source defaults are already
- * applied, so these are the exact values the item was accepted with.
+ * message's enqueue, dequeue, and discard events. Its content and source are
+ * the exact input values accepted by the agent.
  */
 interface AgentMessage extends UserMessageData {
   /** The id `send` returned for this message. */
@@ -480,11 +468,11 @@ interface Agent {
    *   without running the model: an open turn stages it for the next safe log
    *   position, while an idle injection appends it immediately without opening
    *   a turn.
-   * @param content - the model-facing content blocks to deliver.
-   * @param options - target queue, wakeup decision, and source.
+   * @param input - model-facing content and its producer provenance.
+   * @param options - target queue and wakeup decision.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(content: ContentBlock[], options: SendOptions): AgentMessageId
+  send(input: UserMessageData, options: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -504,11 +492,10 @@ interface Agent {
    * Queue an ordinary follow-up turn and wake the driver — the
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
-   * @param content - the prompt content blocks.
-   * @param options - message source.
+   * @param input - prompt content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  followup(input: UserMessageData): AgentMessageId
 
   /**
    * Submit steering into the running turn — the `next-step`/wakeup preset of
@@ -517,23 +504,20 @@ interface Agent {
    * remainder stays staged without waking the agent; retry or a later prompt
    * takes it. Idle steering falls back to a woken follow-up turn, while
    * cancellation or disposal may discard pending steering.
-   * @param content - the steering content blocks.
-   * @param options - message source.
+   * @param input - steering content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  steer(input: UserMessageData): AgentMessageId
 
   /**
    * Append model-facing context without running the model — the
    * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
    * at the next safe log position; an idle injection appends immediately
-   * without opening a turn. An omitted source defaults to
-   * `{ kind: 'plugin', plugin: '' }`.
-   * @param content - the injected context content blocks.
-   * @param options - context source.
+   * without opening a turn.
+   * @param input - injected context and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
+  inject(input: UserMessageData): AgentMessageId
 
   /**
    * Re-open a turn on the current session log without a new prompt — the
@@ -558,14 +542,9 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Prompt and post-tool decisions share `AdditionalContext`, the same `UserMessageData` content/source shape used by durable user-role input. Each `additionalContexts` entry becomes a separate `user/message`, preserving its provenance. Hook bridges map their native decision fields onto these typed results.
+Prompt and post-tool decisions use the same `UserMessageData` content/source shape as durable user-role input. Each `additionalContexts` entry becomes a separate `user/message`, preserving its provenance. Hook bridges map their native decision fields onto these typed results.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
-
-```ts type-equiv
-/** Additional model-facing context produced beside a prompt or tool result. */
-type AdditionalContext = UserMessageData
-```
 
 `agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow may rewrite the claimed prompt or attach `additionalContexts`; block rejects admission without creating turn events:
 
@@ -577,7 +556,7 @@ type AdditionalContext = UserMessageData
  * `next()` preserves both fields unless it intentionally replaces them.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: AdditionalContext[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessageData[] }
   | { kind: 'block'; reason: string }
 ```
 
