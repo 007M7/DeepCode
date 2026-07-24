@@ -428,7 +428,19 @@ async function executeSessionTrace(
   const caller = callerOf(exec)
   const sessionId = targetId(args, caller)
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
-  const trace = await ctx.sessionQuery.traceSession(sessionId)
+  let trace: SessionLineageTrace
+  try {
+    trace = await ctx.sessionQuery.traceSession(sessionId)
+  } catch (error: unknown) {
+    exec.signal.throwIfAborted()
+    if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_INVALID_LINEAGE') {
+      throw new SessionQueryError(
+        'session lineage is invalid',
+        'SESSION_QUERY_INVALID_LINEAGE',
+      )
+    }
+    throw error
+  }
   exec.signal.throwIfAborted()
   assertObservedTargetAuthorized(caller, sessionId, trace.target.header)
 
@@ -579,21 +591,31 @@ function timestampRange(
   to: string | undefined,
 ): { from?: number; to?: number } | undefined {
   if (from === undefined && to === undefined) return undefined
-  const fromMs = from === undefined ? undefined : parseIsoTimestamp(`${name}_from`, from)
-  const toMs = to === undefined ? undefined : parseIsoTimestamp(`${name}_to`, to)
-  if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+  const fromTimestamp = from === undefined ? undefined : parseIsoTimestamp(`${name}_from`, from)
+  const toTimestamp = to === undefined ? undefined : parseIsoTimestamp(`${name}_to`, to)
+  if (
+    fromTimestamp !== undefined
+    && toTimestamp !== undefined
+    && compareTimestamps(fromTimestamp, toTimestamp) > 0
+  ) {
     throw invalidRange(name, 'from must be less than or equal to to')
   }
   return {
-    ...fromMs === undefined ? {} : { from: fromMs },
-    ...toMs === undefined ? {} : { to: toMs },
+    ...fromTimestamp === undefined ? {} : { from: timestampLowerBound(fromTimestamp) },
+    ...toTimestamp === undefined ? {} : { to: timestampUpperBound(toTimestamp) },
   }
 }
 
 const ISO_TIMESTAMP =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|([+-])(\d{2}):(\d{2}))$/
 
-function parseIsoTimestamp(name: string, value: string): number {
+interface ExactTimestamp {
+  readonly millisecond: number
+  /** Canonical decimal digits strictly below one millisecond; no trailing zeroes. */
+  readonly remainder: string
+}
+
+function parseIsoTimestamp(name: string, value: string): ExactTimestamp {
   const match = ISO_TIMESTAMP.exec(value)
   if (match === null) {
     throw invalidRange(name, 'must be an ISO 8601 timestamp with Z or a numeric offset')
@@ -614,8 +636,63 @@ function parseIsoTimestamp(name: string, value: string): number {
   ) {
     throw invalidRange(name, 'must be a valid ISO 8601 timestamp')
   }
-  const timestamp = Date.parse(value)
-  return timestamp
+  const fraction = match[7] ?? ''
+  const millisecondDigits = fraction.slice(0, 3).padEnd(3, '0')
+  const normalized = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`
+    + `:${match[6] ?? '00'}.${millisecondDigits}${match[8]}`
+  const timestamp = Date.parse(normalized)
+  if (!Number.isSafeInteger(timestamp)) {
+    throw invalidRange(name, 'must be a valid ISO 8601 timestamp')
+  }
+  return {
+    millisecond: timestamp,
+    remainder: fraction.slice(3).replace(/0+$/u, ''),
+  }
+}
+
+function compareTimestamps(left: ExactTimestamp, right: ExactTimestamp): number {
+  if (left.millisecond !== right.millisecond) {
+    return left.millisecond < right.millisecond ? -1 : 1
+  }
+  const length = Math.max(left.remainder.length, right.remainder.length)
+  for (let index = 0; index < length; index += 1) {
+    const leftDigit = left.remainder[index] ?? '0'
+    const rightDigit = right.remainder[index] ?? '0'
+    if (leftDigit !== rightDigit) return leftDigit < rightDigit ? -1 : 1
+  }
+  return 0
+}
+
+function timestampLowerBound(timestamp: ExactTimestamp): number {
+  return timestamp.remainder.length === 0
+    ? timestamp.millisecond
+    : nextUpFinite(timestamp.millisecond)
+}
+
+function timestampUpperBound(timestamp: ExactTimestamp): number {
+  return timestamp.remainder.length === 0
+    ? timestamp.millisecond
+    : nextDownFinite(timestamp.millisecond + 1)
+}
+
+/** Return the adjacent IEEE-754 value toward positive infinity for a finite input. */
+function nextUpFinite(value: number): number {
+  if (value === 0) return Number.MIN_VALUE
+  const view = new DataView(new ArrayBuffer(8))
+  view.setFloat64(0, value)
+  const bits = view.getBigUint64(0)
+  view.setBigUint64(0, value > 0 ? bits + 1n : bits - 1n)
+  return view.getFloat64(0)
+}
+
+/** Return the adjacent IEEE-754 value toward negative infinity for a finite input. */
+function nextDownFinite(value: number): number {
+  if (value === 0) return -Number.MIN_VALUE
+  const view = new DataView(new ArrayBuffer(8))
+  view.setFloat64(0, value)
+  const bits = view.getBigUint64(0)
+  view.setBigUint64(0, value > 0 ? bits - 1n : bits + 1n)
+  return view.getFloat64(0)
 }
 
 function daysInMonth(year: number, month: number): number {

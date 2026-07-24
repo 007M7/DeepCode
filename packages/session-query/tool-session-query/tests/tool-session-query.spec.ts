@@ -382,6 +382,137 @@ describe('input validation and translation', () => {
     })
   })
 
+  it.each([
+    ['one fractional digit', '2026-07-24T00:00:00.1Z', 100],
+    ['two fractional digits', '2026-07-24T00:00:00.12Z', 120],
+    ['three fractional digits', '2026-07-24T00:00:00.123Z', 123],
+  ])('normalizes %s into an exact integer epoch-millisecond filter', async (_case, value, offset) => {
+    const mounted = await mount()
+    await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: value,
+    })
+    const expected = Date.parse('2026-07-24T00:00:00.000Z') + offset
+    expect(Number.isFinite(expected)).toBe(true)
+    expect(FakeQuery.sessionRequests[0]?.sessionFilters).toContainEqual({
+      kind: 'created-at',
+      from: expected,
+    })
+  })
+
+  it('maps exact same-millisecond decimal bounds to adjacent numeric values without collapsing the interval', async () => {
+    const mounted = await mount()
+    const base = Date.parse('2026-07-24T00:00:00.000Z')
+    const result = await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: '2026-07-24T00:00:00.12300001Z',
+      created_at_to: '2026-07-24T08:00:00.1239999+08:00',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('No prior session matches found.')
+    const range = FakeQuery.sessionRequests[0]?.sessionFilters
+      ?.find(filter => filter.kind === 'created-at')
+    expect(range).toBeDefined()
+    if (range?.kind !== 'created-at' || range.from === undefined || range.to === undefined) {
+      throw new Error('expected complete created-at range')
+    }
+    expect(Number.isFinite(range.from)).toBe(true)
+    expect(Number.isFinite(range.to)).toBe(true)
+    expect(range.from).toBeGreaterThan(base + 123)
+    expect(range.from).toBeLessThan(base + 124)
+    expect(range.to).toBeGreaterThan(base + 123)
+    expect(range.to).toBeLessThan(base + 124)
+    expect(range.from).toBeLessThan(range.to)
+  })
+
+  it('rejects exact bounds reversed only below one millisecond before calling the provider', async () => {
+    const mounted = await mount()
+    const result = await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: '2026-07-24T00:00:00.12300002Z',
+      created_at_to: '2026-07-24T00:00:00.12300001Z',
+    })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_FILTER')
+    expect(FakeQuery.sessionRequests).toEqual([])
+  })
+
+  it('compares unequal-length exact remainders with implicit trailing decimal zeroes', async () => {
+    const mounted = await mount()
+    const ordered = await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: '2026-07-24T00:00:00.1231Z',
+      created_at_to: '2026-07-24T00:00:00.12311Z',
+    })
+    expect(ordered.isError).toBe(false)
+
+    const reversed = await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: '2026-07-24T00:00:00.12311Z',
+      created_at_to: '2026-07-24T00:00:00.1231Z',
+    })
+    expect(errorCode(reversed)).toBe('SESSION_QUERY_INVALID_FILTER')
+  })
+
+  it('treats trailing-zero fractional spellings as the same exact instant', async () => {
+    const mounted = await mount()
+    const result = await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: '2026-07-24T00:00:00.1230000100Z',
+      created_at_to: '2026-07-24T00:00:00.12300001Z',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(FakeQuery.sessionRequests).toHaveLength(1)
+  })
+
+  it('maps fractional bounds correctly across zero and for negative pre-epoch milliseconds', async () => {
+    const mounted = await mount()
+    await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: '1970-01-01T00:00:00.0000001Z',
+      event_time_to: '1969-12-31T23:59:59.9999999Z',
+    })
+    expect(FakeQuery.sessionRequests[0]?.sessionFilters).toContainEqual({
+      kind: 'created-at',
+      from: Number.MIN_VALUE,
+    })
+    expect(FakeQuery.sessionRequests[0]?.eventFilters).toContainEqual({
+      kind: 'time',
+      to: -Number.MIN_VALUE,
+    })
+
+    await mounted.call('session_event_search', {
+      query: 'q',
+      time_from: '1969-12-31T23:59:59.87600001Z',
+      time_to: '1969-12-31T19:59:59.8769999-04:00',
+    })
+    const range = FakeQuery.eventRequests[0]?.filters?.find(filter => filter.kind === 'time')
+    expect(range).toBeDefined()
+    if (range?.kind !== 'time' || range.from === undefined || range.to === undefined) {
+      throw new Error('expected complete event time range')
+    }
+    expect(range.from).toBeGreaterThan(-124)
+    expect(range.from).toBeLessThan(-123)
+    expect(range.to).toBeGreaterThan(-124)
+    expect(range.to).toBeLessThan(-123)
+    expect(range.from).toBeLessThan(range.to)
+  })
+
+  it('rejects a normalized timestamp when the platform parser cannot produce a finite value', async () => {
+    const mounted = await mount()
+    vi.spyOn(Date, 'parse').mockReturnValueOnce(Number.NaN)
+
+    const result = await mounted.call('session_search', {
+      query: 'q',
+      created_at_from: '2026-07-24T00:00:00.123456Z',
+    })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_FILTER')
+    expect(FakeQuery.sessionRequests).toEqual([])
+  })
+
   it('compiles one-sided timestamps and independent root/parent clauses', async () => {
     const mounted = await mount()
     await mounted.call('session_search', {
@@ -461,6 +592,109 @@ describe('workspace authority and lineage redaction', () => {
     expect(output).not.toContain('hidden-parent-secret')
     expect(output).not.toContain('hidden-child-secret')
     expect(output).not.toContain('hidden-grandchild-secret')
+  })
+
+  it('sanitizes a real outside-workspace ancestor cycle before the lineage error reaches the model', async () => {
+    const mounted = await mount()
+    const hiddenA = SessionId('hidden-cycle-a-secret')
+    const hiddenB = SessionId('hidden-cycle-b-secret')
+    createSession(mounted.ctx, hiddenA, '/outside', 2, hiddenB)
+    createSession(mounted.ctx, hiddenB, '/outside', 3, hiddenA)
+    const target = createSession(mounted.ctx, 'visible-cycle-target', '/work', 4, hiddenA)
+
+    const result = await mounted.call('session_trace', { session_id: target.id })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_LINEAGE')
+    expect(text(result)).toBe('Error: session lineage is invalid')
+    const presentation = JSON.stringify(result)
+    expect(presentation).not.toContain(hiddenA)
+    expect(presentation).not.toContain(hiddenB)
+  })
+
+  it.each([
+    {
+      name: 'typed query error',
+      makeError: () => new SessionQueryError(
+        'unrelated persistence failure',
+        'SESSION_QUERY_PERSISTENCE_FAILED',
+      ),
+      code: 'SESSION_QUERY_PERSISTENCE_FAILED',
+      message: 'unrelated persistence failure',
+    },
+    {
+      name: 'plain error',
+      makeError: () => new Error('unrelated plain trace failure'),
+      code: undefined,
+      message: 'unrelated plain trace failure',
+    },
+  ])('preserves an unrelated $name from lineage tracing', async ({ makeError, code, message }) => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'trace-failure-target', '/work')
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockRejectedValueOnce(makeError())
+
+    const result = await mounted.call('session_trace', { session_id: target.id })
+
+    expect(errorCode(result)).toBe(code)
+    expect(text(result)).toBe(`Error: ${message}`)
+  })
+
+  it('preserves caller cancellation while a lineage trace is pending', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'cancelled-trace-target', '/work')
+    const trace = await mounted.ctx.sessionQuery.traceSession(target.id)
+    let started!: () => void
+    const traceStarted = new Promise<void>((resolve) => { started = resolve })
+    let finish!: (value: typeof trace) => void
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockImplementation(() => {
+      started()
+      return new Promise<typeof trace>((resolve) => { finish = resolve })
+    })
+    const controller = new AbortController()
+    const cancellation = new SessionQueryError('lineage trace cancelled', 'SESSION_QUERY_ABORTED')
+
+    const pending = mounted.call(
+      'session_trace',
+      { session_id: target.id },
+      { signal: controller.signal },
+    )
+    await traceStarted
+    controller.abort(cancellation)
+    finish(trace)
+    const result = await pending
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
+    expect(text(result)).toBe('Error: lineage trace cancelled')
+  })
+
+  it('gives caller cancellation precedence when a pending trace rejects with invalid lineage', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'cancelled-invalid-lineage-target', '/work')
+    let started!: () => void
+    const traceStarted = new Promise<void>((resolve) => { started = resolve })
+    let fail!: (error: SessionQueryError) => void
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockImplementation(() => {
+      started()
+      return new Promise((_resolve, reject) => { fail = reject })
+    })
+    const controller = new AbortController()
+    const cancellation = new SessionQueryError('lineage trace cancelled first', 'SESSION_QUERY_ABORTED')
+
+    const pending = mounted.call(
+      'session_trace',
+      { session_id: target.id },
+      { signal: controller.signal },
+    )
+    await traceStarted
+    controller.abort(cancellation)
+    fail(new SessionQueryError(
+      'session lineage contains a cycle at "hidden-race-secret"',
+      'SESSION_QUERY_INVALID_LINEAGE',
+    ))
+    const result = await pending
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
+    expect(text(result)).toBe('Error: lineage trace cancelled first')
+    expect(JSON.stringify(result)).not.toContain('hidden-race-secret')
   })
 
   it('renders branching descendants in source preorder with one indented marker per pruned subtree', async () => {
