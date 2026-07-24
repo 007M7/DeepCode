@@ -33,65 +33,11 @@ host 侧唯一的持久化面是 session 事件日志（`packages/session-persis
 
 ### `dsh-storage`：存储枢纽
 
-纯注册枢纽，自身不做 IO，无 Config。
-
-```ts ignore-check
-declare module 'cordis' { interface Context { storage: Storage } }
-
-export class Storage extends Service {
-  constructor(ctx: Context)                      // super(ctx, 'storage')
-  readonly backend: BackendRegistry
-  /** Domain data form; present once dsh-domain is loaded. Unmounted access → throw. */
-  readonly domain: DomainFacility
-  /** Mount a data-form facility. Returns the disposer. Duplicate mount → throw. */
-  mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void
-}
-
-/** Merge-extensible map of data forms; dsh-domain merges `domain: DomainFacility`. */
-export interface StorageForms {}
-
-export class BackendRegistry {
-  /** Register a named backend. Returns the disposer (unregisters). Duplicate name → throw. */
-  register(name: string, backend: StorageBackend): () => void
-  /** Resolve by name. Unknown → throw StorageError('backend-not-found'). */
-  get(name: string): StorageBackend
-  names(): string[]
-}
-```
+纯注册枢纽，自身不做 IO，无 Config。`Storage` service 挂 `ctx.storage`，两个面：`backend`（`BackendRegistry`：`register(name, backend)` 返回 disposer、重名 throw；`get(name)` 未知名 throw `backend-not-found`）与数据形式挂载（`mount(form, facility)` 配 merge-extensible 的 `StorageForms` map，`dsh-domain` merge 进 `domain` 键；未挂载访问 throw `form-not-mounted`）。签名正文见 `packages/storage/storage/src/index.ts` 与 `src/registry.ts`。
 
 **多后端同时挂载**；域→后端的选择是 `dsh-domain` 的配置（见下），不是全局二选一。disposer 语义 = 从表中摘名；后端自身的 close 由后端包的 effect 闭包负责，顺序先摘名后 close。
 
-一个后端是一个**介质 owner**（一棵文件树 root / 一个 db 文件），通过**数据形状 facet** 暴露原语——本期只有 `kv`；session 迁移期加 `log`（见迁移节）。facet 是可选成员，缺席即该后端不支持该形状，解析时 fail loud：
-
-```ts ignore-check
-export interface StorageBackend {
-  readonly name: string
-  readonly kv?: KvFacet                          // 迁移期扩展：readonly log?: LogFacet
-  /** Drain in-flight writes and release the medium. Idempotent. */
-  close(): Promise<void>
-}
-
-export interface KvFacet {
-  /** Open (create or load) one unit. Version mismatch / malformed medium → throw. */
-  open(descriptor: KvUnitDescriptor): Promise<KvUnit>
-}
-
-export interface KvUnitDescriptor {
-  readonly name: string                          // ^[a-z][a-z0-9_]*$，兼作文件名/SQL 表名段
-  readonly version: number
-  readonly tables: readonly string[]             // 同字符集约束
-  readonly hasGlobal: boolean
-}
-
-/** One opened unit. Values are opaque JSON to this layer. */
-export interface KvUnit {
-  loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown | null }>
-  putRecord(table: string, key: string, value: unknown): Promise<void>
-  deleteRecord(table: string, key: string): Promise<void>       // missing key = no-op
-  setGlobal(value: unknown): Promise<void>
-  close(): Promise<void>                                        // idempotent
-}
-```
+一个后端是一个**介质 owner**（一棵文件树 root / 一个 db 文件），通过**数据形状 facet** 暴露原语——本期只有 `kv`；session 迁移期加 `log`（见迁移节）。facet 是可选成员，缺席即该后端不支持该形状，解析时 fail loud。`kv` facet 的原语面：`open(descriptor)`（descriptor = 名字/版本/表名清单/有无 global，名字与表名限 `^[a-z][a-z0-9_]*$` 兼作文件名与 SQL 表名段）返回 unit，unit 提供 `loadAll` / `putRecord` / `deleteRecord`（缺 key 为 no-op）/ `setGlobal` / `close`（幂等）；值对后端是不透明 JSON。规范正文（含逐方法 JSDoc）在 `packages/storage/storage/src/backend.ts`。
 
 backend 契约（共享契约测试逐条断言，两后端同套件）：
 
@@ -103,12 +49,7 @@ backend 契约（共享契约测试逐条断言，两后端同套件）：
 6. 任意字符串 key / 任意 JSON 值安全（key 不进文件路径，结构性质）。
 7. `close` 幂等；close 后任何操作 → `StorageError('closed')`。
 
-```ts ignore-check
-export type StorageErrorCode =
-  | 'backend-not-found' | 'form-not-mounted' | 'duplicate-backend' | 'duplicate-mount'
-  | 'version-mismatch' | 'malformed-medium' | 'closed'
-export class StorageError extends Error { readonly code: StorageErrorCode }
-```
+错误词汇是带 code 判别的 `StorageError`，码表：`backend-not-found` / `form-not-mounted` / `duplicate-backend` / `duplicate-mount` / `version-mismatch` / `malformed-medium` / `closed`（`packages/storage/storage/src/error.ts`）。
 
 ### `dsh-storage-json`
 
@@ -216,32 +157,7 @@ export interface KvTable<K extends string, V> {
 - **记录是纯数据**：可直接 JSON 序列化的不可变 POJO；`get`/`entries` 返回值不得原地改（TypeScript readonly 投影，不做运行时冻结）。带行为的领域对象属于消费者包。
 - **写串行**：域内一条 promise 链，`put`/`delete`/`update`/`global.set` 全排队；`update` 的 fn 在链上执行，并发不交错。不做 active-record（取出可变对象自动落盘——落盘时机不可控，与整域原子覆写冲突）。
 - **版本 fail loud**：盘上版本与 spec 不符直接报错，不迁移不重建（数据不可再生，pre-release 拒绝旧格式）。
-- **变更事件**：每次写落盘 resolve 后 emit，逐条发、不带旧值（对齐仓库"新快照 + 操作判别"惯例，范本 `goal/changed`）；此为下期 RPC 推帧的事件源：
-
-```ts ignore-check
-declare module 'cordis' {
-  interface Events {
-    /**
-     * A domain record or global changed (post-durability).
-     * @mode emit
-     * @param change - domain, table ('' for global), key ('' for global),
-     *                 operation, and the new snapshot (absent for deletions).
-     */
-    'domain/changed'(change: DomainChanged): void
-  }
-}
-export interface DomainChanged {
-  readonly domain: string
-  readonly table: string
-  readonly key: string
-  readonly operation: 'put' | 'deleted'
-  readonly value?: unknown
-}
-
-export type DomainErrorCode =
-  | 'already-open' | 'facet-unsupported' | 'invalid-record' | 'missing-key' | 'closed'
-export class DomainError extends Error { readonly code: DomainErrorCode }
-```
+- **变更事件**：每次写落盘 resolve 后 emit `domain/changed`（`@mode emit`），逐条发、不带旧值（对齐仓库"新快照 + 操作判别"惯例，范本 `goal/changed`）；payload `DomainChanged` 是 put/deleted 判别联合——域名 + 表名 + key（global 变更两者为 `''`）+ operation，put 支带新快照 value、deleted 支无 value（`packages/storage/domain/src/events.ts`）。此为下期 RPC 推帧的事件源。错误词汇 `DomainError`，码表：`already-open` / `facet-unsupported` / `invalid-record`（带 `{ table, key }`）/ `missing-key` / `closed`。
 
 ### Future work：session 侧删除（设计定案，本期不实施）
 

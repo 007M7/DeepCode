@@ -33,65 +33,11 @@ Dependency direction: `dsh-workspace` → `dsh-domain` → `dsh-storage` ← the
 
 ### `dsh-storage`: the storage hub
 
-A pure registration hub, no IO of its own, no Config.
-
-```ts ignore-check
-declare module 'cordis' { interface Context { storage: Storage } }
-
-export class Storage extends Service {
-  constructor(ctx: Context)                      // super(ctx, 'storage')
-  readonly backend: BackendRegistry
-  /** Domain data form; present once dsh-domain is loaded. Unmounted access → throw. */
-  readonly domain: DomainFacility
-  /** Mount a data-form facility. Returns the disposer. Duplicate mount → throw. */
-  mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void
-}
-
-/** Merge-extensible map of data forms; dsh-domain merges `domain: DomainFacility`. */
-export interface StorageForms {}
-
-export class BackendRegistry {
-  /** Register a named backend. Returns the disposer (unregisters). Duplicate name → throw. */
-  register(name: string, backend: StorageBackend): () => void
-  /** Resolve by name. Unknown → throw StorageError('backend-not-found'). */
-  get(name: string): StorageBackend
-  names(): string[]
-}
-```
+A pure registration hub, no IO of its own, no Config. The `Storage` service mounts at `ctx.storage` with two faces: `backend` (a `BackendRegistry`: `register(name, backend)` returns the disposer, duplicate names throw; `get(name)` throws `backend-not-found` for unknown names) and data-form mounting (`mount(form, facility)` over the merge-extensible `StorageForms` map, into which `dsh-domain` merges the `domain` key; unmounted access throws `form-not-mounted`). The signature text lives in `packages/storage/storage/src/index.ts` and `src/registry.ts`.
 
 **Multiple backends stay mounted side by side**; which backend serves a domain is `dsh-domain`'s configuration (below), never a global either-or. Disposer semantics = remove the name from the table; closing the backend itself belongs to the backend package's effect closure, unregister first then close.
 
-A backend is one **medium owner** (a file-tree root / one db file) exposing primitives through **data-shape facets** — only `kv` this phase; the session migration adds `log` (see the migration section). A facet is an optional member: absence means the backend cannot serve that shape, and resolution fails loud:
-
-```ts ignore-check
-export interface StorageBackend {
-  readonly name: string
-  readonly kv?: KvFacet                          // 迁移期扩展：readonly log?: LogFacet
-  /** Drain in-flight writes and release the medium. Idempotent. */
-  close(): Promise<void>
-}
-
-export interface KvFacet {
-  /** Open (create or load) one unit. Version mismatch / malformed medium → throw. */
-  open(descriptor: KvUnitDescriptor): Promise<KvUnit>
-}
-
-export interface KvUnitDescriptor {
-  readonly name: string                          // ^[a-z][a-z0-9_]*$，兼作文件名/SQL 表名段
-  readonly version: number
-  readonly tables: readonly string[]             // 同字符集约束
-  readonly hasGlobal: boolean
-}
-
-/** One opened unit. Values are opaque JSON to this layer. */
-export interface KvUnit {
-  loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown | null }>
-  putRecord(table: string, key: string, value: unknown): Promise<void>
-  deleteRecord(table: string, key: string): Promise<void>       // missing key = no-op
-  setGlobal(value: unknown): Promise<void>
-  close(): Promise<void>                                        // idempotent
-}
-```
+A backend is one **medium owner** (a file-tree root / one db file) exposing primitives through **data-shape facets** — only `kv` this phase; the session migration adds `log` (see the migration section). A facet is an optional member: absence means the backend cannot serve that shape, and resolution fails loud. The `kv` facet's primitive surface: `open(descriptor)` (descriptor = name/version/table list/global flag, with names and table names restricted to `^[a-z][a-z0-9_]*$` doubling as file-name and SQL-identifier segments) returns a unit exposing `loadAll` / `putRecord` / `deleteRecord` (missing key is a no-op) / `setGlobal` / `close` (idempotent); values are opaque JSON to the backend. The normative text (with per-method JSDoc) is `packages/storage/storage/src/backend.ts`.
 
 The backend contract (asserted clause by clause by the shared conformance suite, one suite for both backends):
 
@@ -103,12 +49,7 @@ The backend contract (asserted clause by clause by the shared conformance suite,
 6. Any string key / any JSON value is safe (keys never reach file paths, a structural property).
 7. `close` is idempotent; any operation after close → `StorageError('closed')`.
 
-```ts ignore-check
-export type StorageErrorCode =
-  | 'backend-not-found' | 'form-not-mounted' | 'duplicate-backend' | 'duplicate-mount'
-  | 'version-mismatch' | 'malformed-medium' | 'closed'
-export class StorageError extends Error { readonly code: StorageErrorCode }
-```
+The error vocabulary is `StorageError` with a code discriminant: `backend-not-found` / `form-not-mounted` / `duplicate-backend` / `duplicate-mount` / `version-mismatch` / `malformed-medium` / `closed` (`packages/storage/storage/src/error.ts`).
 
 ### `dsh-storage-json`
 
@@ -216,32 +157,7 @@ Rules:
 - **Records are plain data**: immutable, directly JSON-serializable POJOs; values returned by `get`/`entries` must not be mutated in place (TypeScript readonly projection, no runtime freezing). Behavior-carrying domain objects belong to consumer packages.
 - **Serialized writes**: one promise chain per domain; `put`/`delete`/`update`/`global.set` all queue on it; `update`'s fn runs on the chain, so concurrency cannot interleave. No active-record (pulling out a mutable object that auto-persists — uncontrollable persist timing, in conflict with the whole-unit atomic-rewrite model).
 - **Version fails loud**: a stored version differing from the spec throws outright; no migration, no rebuild (the data is not regenerable; pre-release rejects old formats).
-- **Change events**: emitted after each write's durability resolves, one per record, no old value (matching the repository's "new snapshot + operation discriminant" convention, template `goal/changed`); this is next phase's RPC push-frame event source:
-
-```ts ignore-check
-declare module 'cordis' {
-  interface Events {
-    /**
-     * A domain record or global changed (post-durability).
-     * @mode emit
-     * @param change - domain, table ('' for global), key ('' for global),
-     *                 operation, and the new snapshot (absent for deletions).
-     */
-    'domain/changed'(change: DomainChanged): void
-  }
-}
-export interface DomainChanged {
-  readonly domain: string
-  readonly table: string
-  readonly key: string
-  readonly operation: 'put' | 'deleted'
-  readonly value?: unknown
-}
-
-export type DomainErrorCode =
-  | 'already-open' | 'facet-unsupported' | 'invalid-record' | 'missing-key' | 'closed'
-export class DomainError extends Error { readonly code: DomainErrorCode }
-```
+- **Change events**: after each write's durability resolves, emit `domain/changed` (`@mode emit`), one per record, no old value (matching the repository's "new snapshot + operation discriminant" convention, template `goal/changed`); the payload `DomainChanged` is a put/deleted discriminated union — domain + table + key (both `''` for global changes) + operation, with the put branch carrying the new snapshot value and the deleted branch carrying none (`packages/storage/domain/src/events.ts`). This is next phase's RPC push-frame event source. The error vocabulary is `DomainError`, codes: `already-open` / `facet-unsupported` / `invalid-record` (with `{ table, key }`) / `missing-key` / `closed`.
 
 ### Future work: session-side deletion (design settled, not implemented this phase)
 
