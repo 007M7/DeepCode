@@ -14,15 +14,15 @@ Status: implemented
 
 ### 副作用通道，与窗口回放收敛
 
-`applyEventSideEffects` 新增一个 `todo/write` 分支（整份列表，后写覆盖先写），`rebuildDerivedFromWindow` 将其重置，于是实时路径与每一次窗口重建（分页、重连缝合、resync）都收敛到同一份最新快照——partial/openCalls 已在用的正是这个形态。`ConversationSnapshot.todos` 是读取面。这遵循事件自身的契约（「仅日志 UI 状态，绝非派生历史」）：把每次写入作为对话节点呈现，会让已被取代的列表看起来仍然有效。
+`applyEventSideEffects` 新增一个 `todo/write` 分支（整份列表，后写覆盖先写）。与 partial/openCalls 不同，`rebuildDerivedFromWindow` 刻意不重置它：该值是会话级的——由尾页 history 携带的全量 log 投影播种——而任意窗口未必包含最近一次写入，因此窗口重建（分页、重连缝合、resync）保留它，只有窗口内或实时的写入才会覆盖。`ConversationSnapshot.todos` 是读取面。这遵循事件自身的契约（「仅日志 UI 状态，绝非派生历史」）：把每次写入作为对话节点呈现，会让已被取代的列表看起来仍然有效。
 
 ### TodoPanel：长驻列表作为一条常驻横条
 
 骨架把面板钉在视图区与 composer 之间（composer-card 轴），空列表时隐藏，可折叠——折叠态以进行中项作为单行提示；✓/●/○ 字形与 TUI plan 面板一致。它经框架 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。它住在 `ConversationRoot` 之内，而非 details 列或自建 slot：details slot 单占用且由选中驱动（生命周期不同于一条常开横条），且 slot 表没有为 plan 预留席位。组件 props 完备且框架无关，因此日后迁往专用 slot 不触及其内部任何东西。
 
-### TodoRow：经 toolview 注册表的逐调用行
+### TodoRow：经 keyed toolview slot 的逐调用行
 
-专用的 `todo_write` 对话行经具名的 `ctx.toolviews` 注册表在 `apply` 中注册（跨域装配点，与 bash 样例同一姿态，但属产品级注册）。摘要由调用 args 推导（`N/M done · active item`）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
+专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.register` 注册进 keyed 的 `conversation.chat.toolview` slot——与 bash 样例同一接缝、同一载序姿态（`inject: ['slots', 'conversation']`），但属产品级注册。摘要由调用 args 推导（`N/M done · active item`）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
 
 ## Alternatives considered
 

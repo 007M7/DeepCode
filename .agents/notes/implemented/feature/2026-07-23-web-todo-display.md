@@ -14,15 +14,15 @@ Consume `todo/write` as a Session side effect, not a surface node, and render it
 
 ### Side-effect channel, converging with window replay
 
-`applyEventSideEffects` gains a `todo/write` case (whole list, last write wins) and `rebuildDerivedFromWindow` resets it, so the live path and every window rebuild (paging, reconnect stitch, resync) converge on the same latest snapshot — the same shape partial/openCalls already use. `ConversationSnapshot.todos` is the read surface. This follows the event's own contract ("log-only UI state; never derived history"): surfacing each write as a conversation node would render superseded lists as if they were still standing.
+`applyEventSideEffects` gains a `todo/write` case (whole list, last write wins). Unlike partial/openCalls, `rebuildDerivedFromWindow` deliberately does NOT reset it: the value is session-level — seeded by the tail history page's full-log projection — and an arbitrary window may not contain the latest write, so rebuilds (paging, reconnect stitch, resync) preserve it and only an in-window or live write overwrites it. `ConversationSnapshot.todos` is the read surface. This follows the event's own contract ("log-only UI state; never derived history"): surfacing each write as a conversation node would render superseded lists as if they were still standing.
 
 ### TodoPanel: the durable list as a persistent strip
 
 The skeleton pins the panel between the view area and the composer (the composer-card axis), hidden while empty, collapsible with the in-progress item as the collapsed one-line hint; ✓/●/○ glyphs mirror the TUI plan panel. It reads `snapshot.todos` via the framework `useSession` hook — no store, no service, no ctx. It lives inside `ConversationRoot` rather than the details column or its own slot: the details slot is single-occupant and selection-driven (a different lifetime than an always-on strip), and the slot table reserves no plan seat. The component is props-complete and framework-free, so a later relocation to a dedicated slot touches nothing inside it.
 
-### TodoRow: the per-call row through the toolview registry
+### TodoRow: the per-call row through the keyed toolview slot
 
-The dedicated `todo_write` chat row registers through the named `ctx.toolviews` registry from `apply` (the cross-domain assembly point, the same posture as the bash samples but a product registration). The summary derives from call args (`N/M done · active item`); unparseable args fall back to the generic row summary; clicking opens the details column with the raw args. No `ToolEventView` is added for todo — presentation is client-owned, and the durable list renders from the session event, not the tool card.
+The dedicated `todo_write` chat row is a plain registrant plugin (`todoToolview`, mounted from `apply`) that registers into the keyed `conversation.chat.toolview` slot via `ctx.slots.register` — the same seam and load-order posture as the bash sample (`inject: ['slots', 'conversation']`), but a product registration. The summary derives from call args (`N/M done · active item`); unparseable args fall back to the generic row summary; clicking opens the details column with the raw args. No `ToolEventView` is added for todo — presentation is client-owned, and the durable list renders from the session event, not the tool card.
 
 ## Alternatives considered
 
