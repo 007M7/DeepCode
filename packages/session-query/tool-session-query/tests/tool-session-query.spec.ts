@@ -14,6 +14,7 @@ import SessionQueryService, {
   SessionQueryError,
   SessionSearchCursor,
   type SessionEventSearchHit,
+  type SessionEventSearchPage,
   type SessionEventSearchRequest,
   type SessionSearchExecContext,
   type SessionSearchHit,
@@ -113,7 +114,10 @@ class FakeQuery extends SessionQueryService {
   static eventSearch: (
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
-  ) => Promise<SessionSearchPage<SessionEventSearchHit>> = () => Promise.resolve({ items: [] })
+  ) => Promise<SessionEventSearchPage> = request => Promise.resolve({
+    session: header(request.sessionId, '/work'),
+    items: [],
+  })
 
   static sessionRequests: SessionSearchRequest[] = []
   static eventRequests: SessionEventSearchRequest[] = []
@@ -122,7 +126,10 @@ class FakeQuery extends SessionQueryService {
 
   static reset(): void {
     this.sessionSearch = () => Promise.resolve({ items: [] })
-    this.eventSearch = () => Promise.resolve({ items: [] })
+    this.eventSearch = request => Promise.resolve({
+      session: header(request.sessionId, '/work'),
+      items: [],
+    })
     this.sessionRequests = []
     this.eventRequests = []
     this.searchSignals = []
@@ -141,22 +148,25 @@ class FakeQuery extends SessionQueryService {
   override searchEvents(
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
-  ): Promise<SessionSearchPage<SessionEventSearchHit>> {
+  ): Promise<SessionEventSearchPage> {
     FakeQuery.eventRequests.push(request)
     FakeQuery.searchSignals.push(exec?.signal)
     return FakeQuery.eventSearch(request, exec)
   }
 
-  override async readTitle(sessionId: SessionIdValue) {
+  override async readTitleSnapshot(sessionId: SessionIdValue) {
     const value = FakeQuery.titles.get(sessionId)
     if (value instanceof Error) throw value
-    if (value === undefined) return super.readTitle(sessionId)
+    if (value === undefined) return super.readTitleSnapshot(sessionId)
     return {
-      title: value,
-      messageSeqs: [],
-      source: { kind: 'fallback' as const },
-      eventSeq: 0,
-      updatedAt: 1,
+      session: (await this.readSurface(sessionId)).session,
+      title: {
+        title: value,
+        messageSeqs: [],
+        source: { kind: 'fallback' as const },
+        eventSeq: 0,
+        updatedAt: 1,
+      },
     }
   }
 }
@@ -477,6 +487,69 @@ describe('workspace authority and lineage redaction', () => {
     expect(output).toContain(mounted.caller.id)
     expect(output).toContain('persisted')
   })
+
+  it('rejects every payload observation whose target moved after pre-authorization', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'moving-target', '/work')
+    target.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'authorized payload' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    const movedHeader = header(target.id, '/outside')
+
+    FakeQuery.eventSearch = () => Promise.resolve({
+      session: movedHeader,
+      items: [eventHit(target.id, 0, 'secret event hit')],
+    })
+    const search = await mounted.call('session_event_search', {
+      session_id: target.id,
+      query: 'secret',
+    })
+    expect(errorCode(search)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+    expect(text(search)).not.toContain('secret event hit')
+
+    const lineage = await mounted.ctx.sessionQuery.traceSession(target.id)
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockResolvedValueOnce({
+      ...lineage,
+      target: { ...lineage.target, header: movedHeader },
+    })
+    expect(errorCode(await mounted.call('session_trace', { session_id: target.id })))
+      .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+
+    const eventTrace = await mounted.ctx.sessionQuery.traceEvent({ sessionId: target.id, seq: 0 })
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceEvent').mockResolvedValueOnce({
+      ...eventTrace,
+      session: movedHeader,
+    })
+    expect(errorCode(await mounted.call('session_event_trace', { session_id: target.id, seq: 0 })))
+      .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+
+    const eventWindow = await mounted.ctx.sessionQuery.readEvent({ sessionId: target.id, seq: 0 })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readEvent').mockResolvedValueOnce({
+      ...eventWindow,
+      session: movedHeader,
+    })
+    expect(errorCode(await mounted.call('session_event_read', { session_id: target.id, seq: 0 })))
+      .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+
+    FakeQuery.sessionSearch = () => Promise.resolve({
+      items: [sessionHit(target.id, '/work', 'safe hit')],
+    })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockResolvedValueOnce({
+      session: movedHeader,
+      title: {
+        title: 'secret moved title',
+        messageSeqs: [],
+        source: { kind: 'fallback' },
+        eventSeq: 0,
+        updatedAt: 1,
+      },
+    })
+    const titled = await mounted.call('session_search', { query: 'safe' })
+    expect(errorCode(titled)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+    expect(text(titled)).not.toContain('secret moved title')
+  })
 })
 
 describe('search paging, prior-history bounds, titles, and cancellation', () => {
@@ -590,6 +663,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
   it('intersects current-session search with the event before the latest step and leaves other targets unchanged', async () => {
     const mounted = await mount()
     FakeQuery.eventSearch = request => Promise.resolve({
+      session: header(request.sessionId, '/work'),
       items: [eventHit(request.sessionId, 1)],
     })
     await mounted.call('session_event_search', {
@@ -633,8 +707,15 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const other = createSession(mounted.ctx, 'paged-events', '/work')
     const cursor = SessionSearchCursor('events-next')
     FakeQuery.eventSearch = request => request.cursor === undefined
-      ? Promise.resolve({ items: [eventHit(other.id, 1)], nextCursor: cursor })
-      : Promise.resolve({ items: [eventHit(other.id, 2), eventHit(other.id, 3)] })
+      ? Promise.resolve({
+        session: header(other.id, '/work'),
+        items: [eventHit(other.id, 1)],
+        nextCursor: cursor,
+      })
+      : Promise.resolve({
+        session: header(other.id, '/work'),
+        items: [eventHit(other.id, 2), eventHit(other.id, 3)],
+      })
     const result = await mounted.call('session_event_search', {
       session_id: other.id,
       query: 'q',
@@ -663,7 +744,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const second = createSession(mounted.ctx, 'stackless-title', '/work')
     const stackless = new Error('stackless')
     Object.defineProperty(stackless, 'stack', { value: undefined })
-    const readTitle = vi.spyOn(mounted.ctx.sessionQuery, 'readTitle')
+    const readTitle = vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot')
       .mockRejectedValueOnce('string failure')
       .mockRejectedValueOnce(stackless)
     FakeQuery.sessionSearch = () => Promise.resolve({
@@ -685,7 +766,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const hit = createSession(mounted.ctx, 'abort-title', '/work')
     const controller = new AbortController()
     FakeQuery.sessionSearch = () => Promise.resolve({ items: [sessionHit(hit.id, '/work')] })
-    vi.spyOn(mounted.ctx.sessionQuery, 'readTitle').mockImplementation(() => {
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockImplementation(() => {
       controller.abort()
       return Promise.reject(new Error('cancelled title'))
     })

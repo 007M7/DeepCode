@@ -20,9 +20,10 @@ import {
   extractSessionEventText,
   type SessionAvailability,
   type SessionEventMetadataFilter,
+  type SessionEventSearchPage,
   type SessionEventSearchHit,
   type SessionEventSurface,
-  type SessionEventTrace,
+  type SessionEventTraceObservation,
   type SessionEventWindow,
   type SessionLineageNode,
   type SessionLineageTrace,
@@ -352,7 +353,7 @@ async function executeSessionSearch(
     .map(hit => hit.header.parentSession)
     .filter((id): id is SessionIdValue => id !== undefined)
   const authorizedParents = await authorizeSessionIds(ctx, caller, parentIds, exec.signal)
-  const titles = await readTitles(ctx, collected.items.map(hit => hit.header.id), exec.signal)
+  const titles = await readTitles(ctx, caller, collected.items.map(hit => hit.header.id), exec.signal)
   return formatSessionSearch(collected, titles, authorizedParents)
 }
 
@@ -377,7 +378,7 @@ async function executeEventSearch(
     }
     range.to = Math.min(range.to ?? Number.MAX_SAFE_INTEGER, stepStart.seq - 1)
   }
-  const title = await readTitle(ctx, sessionId, exec.signal)
+  const title = await readTitle(ctx, caller, sessionId, exec.signal)
   if (range.from !== undefined && range.to !== undefined && range.from > range.to) {
     return formatEventSearch(sessionId, title, { items: [], capped: false })
   }
@@ -392,12 +393,16 @@ async function executeEventSearch(
   const collected = await collectPages(
     maxResults,
     exec.signal,
-    cursor => ctx.sessionQuery.searchEvents({
-      sessionId,
-      query,
-      filters,
-      ...cursor === undefined ? {} : { cursor },
-    }, { signal: exec.signal }),
+    async (cursor): Promise<SessionEventSearchPage> => {
+      const page = await ctx.sessionQuery.searchEvents({
+        sessionId,
+        query,
+        filters,
+        ...cursor === undefined ? {} : { cursor },
+      }, { signal: exec.signal })
+      assertObservedTargetAuthorized(caller, sessionId, page.session)
+      return page
+    },
     () => true,
   )
   return formatEventSearch(sessionId, title, collected)
@@ -413,6 +418,7 @@ async function executeSessionTrace(
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
   const trace = await ctx.sessionQuery.traceSession(sessionId)
   exec.signal.throwIfAborted()
+  assertObservedTargetAuthorized(caller, sessionId, trace.target.header)
 
   const ancestors: SessionRecord[] = []
   let ancestorBoundary = false
@@ -430,7 +436,7 @@ async function executeSessionTrace(
     ...ancestors.map(record => record.header.id),
     ...descendantIds(descendants),
   ]
-  const titles = await readTitles(ctx, visibleIds, exec.signal)
+  const titles = await readTitles(ctx, caller, visibleIds, exec.signal)
   return formatSessionTrace(trace, ancestors, ancestorBoundary, descendants, titles)
 }
 
@@ -445,7 +451,8 @@ async function executeEventTrace(
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
   const trace = await ctx.sessionQuery.traceEvent({ sessionId, seq: args.seq })
   exec.signal.throwIfAborted()
-  const title = await readTitle(ctx, sessionId, exec.signal)
+  assertObservedTargetAuthorized(caller, sessionId, trace.session)
+  const title = await readTitle(ctx, caller, sessionId, exec.signal)
   return formatEventTrace(sessionId, title, trace)
 }
 
@@ -467,7 +474,8 @@ async function executeEventRead(
     ...args.after === undefined ? {} : { after: args.after },
   })
   exec.signal.throwIfAborted()
-  const title = await readTitle(ctx, sessionId, exec.signal)
+  assertObservedTargetAuthorized(caller, sessionId, window.session)
+  const title = await readTitle(ctx, caller, sessionId, exec.signal)
   return formatEventRead(sessionId, title, window)
 }
 
@@ -676,8 +684,20 @@ async function collectPages<T>(
 }
 
 function recordAuthorized(record: SessionRecord, caller: Caller): boolean {
-  if (record.header.id === caller.id) return true
-  return caller.header.cwd !== undefined && record.header.cwd === caller.header.cwd
+  return headerAuthorized(record.header, caller)
+}
+
+function headerAuthorized(header: SessionHeader, caller: Caller): boolean {
+  if (header.id === caller.id) return true
+  return caller.header.cwd !== undefined && header.cwd === caller.header.cwd
+}
+
+function assertObservedTargetAuthorized(
+  caller: Caller,
+  target: SessionIdValue,
+  observed: SessionHeader,
+): void {
+  if (observed.id !== target || !headerAuthorized(observed, caller)) throw unauthorizedTarget()
 }
 
 async function authorizeSessionIds(
@@ -704,28 +724,32 @@ async function authorizeSessionIds(
 
 async function readTitles(
   ctx: Context,
+  caller: Caller,
   ids: readonly SessionIdValue[],
   signal: AbortSignal,
 ): Promise<CompleteTitleMap> {
   const result = new Map<SessionIdValue, TitleView>()
   for (const id of new Set(ids)) {
-    result.set(id, await readTitle(ctx, id, signal))
+    result.set(id, await readTitle(ctx, caller, id, signal))
   }
   return result as CompleteTitleMap
 }
 
 async function readTitle(
   ctx: Context,
+  caller: Caller,
   id: SessionIdValue,
   signal: AbortSignal,
 ): Promise<TitleView> {
   signal.throwIfAborted()
   try {
-    const title = await ctx.sessionQuery.readTitle(id)
+    const observation = await ctx.sessionQuery.readTitleSnapshot(id)
     signal.throwIfAborted()
-    return { text: title?.title ?? 'untitled' }
+    assertObservedTargetAuthorized(caller, id, observation.session)
+    return { text: observation.title?.title ?? 'untitled' }
   } catch (error: unknown) {
     if (signal.aborted) signal.throwIfAborted()
+    if (error instanceof HarnessError && error.code === 'SESSION_QUERY_TOOL_UNAUTHORIZED') throw error
     const code = error instanceof HarnessError ? error.code : 'UNKNOWN'
     ctx.logger.warn(`tool-session-query: title read failed for session "${id}": ${fullError(error)}`)
     return { text: 'untitled', unavailableCode: code }
@@ -866,7 +890,7 @@ function renderDescendants(
 function formatEventTrace(
   sessionId: SessionIdValue,
   title: TitleView,
-  trace: SessionEventTrace,
+  trace: SessionEventTraceObservation,
 ): string {
   return [
     `Session ${sessionId} — ${titleText(title)}`,

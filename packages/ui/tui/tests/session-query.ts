@@ -9,8 +9,11 @@ export class TestSessionQueryService extends SessionQueryService {
   }
 
   override searchEvents(
-    ..._args: Parameters<SessionQueryService['searchEvents']>
+    ...args: Parameters<SessionQueryService['searchEvents']>
   ): ReturnType<SessionQueryService['searchEvents']> {
-    return Promise.resolve({ items: [] })
+    return this.readSurface(args[0].sessionId).then(surface => ({
+      session: surface.session,
+      items: [],
+    }))
   }
 }

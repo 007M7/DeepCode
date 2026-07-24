@@ -7,12 +7,12 @@
 - `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
 - `filterSessions(filters)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
 - `filterEvents(sessionId, filters)` extracts first-party semantic documents and applies provider-independent metadata and literal-text predicates in ascending seq order.
-- `readTitle(sessionId)` loads one live-preferred or persisted log and folds its latest `session/title` event into a `SessionTitleSnapshot`; it returns `undefined` when the known session has no title.
+- `readTitleSnapshot(sessionId)` loads one live-preferred or persisted log and returns the cloned source header with its latest folded `session/title` event. `readTitle(sessionId)` is the title-only convenience view; it returns `undefined` when the known session has no title.
 - `listEvents(sessionId)` loads the live-preferred raw log and classifies each event as `current`, `shadowed`, or `log-only` with the shared `dsh-session` surface fold.
 - `readSurface(sessionId)` returns one cloned header, raw-log capture boundary, and the complete folded current surface in model-history order. A live session wins over persistence; compaction is observed before or after its replacement append, never as a synthetic mixture.
 - `readEvent(request)` returns a cloned header, the full target event, and a bounded raw-seq window. `before` and `after` default to zero and may not exceed `readWindowMax`.
 - `traceSession(sessionId)` reads the corpus once and returns immediate-to-outward ancestors plus deterministic recursive descendant trees. `complete: false` identifies the first missing parent; a target-connected cycle fails with `SESSION_QUERY_INVALID_LINEAGE`.
-- `traceEvent(request)` loads the logical log once and returns direct positional replacements and direct logged provenance. `replacementChain` follows positional replacers to the final replacement; provenance links remain non-transitive.
+- `traceEvent(request)` loads the logical log once and returns its cloned source header with direct positional replacements and direct logged provenance. `replacementChain` follows positional replacers to the final replacement; provenance links remain non-transitive.
 
 Persistence is optional and may mount or unmount dynamically. Cross-corpus listing and lineage tracing fail with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A title, event read, or trace targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory state unreadable. Persisted title and event operations list before loading and reject a metadata mismatch rather than combining inconsistent observations. `listSessions()` remains lightweight and does not load logs or index titles.
 
@@ -24,7 +24,7 @@ The text clause is deliberately independent of FTS providers: caller text is esc
 
 ## Full-text methods
 
-`SessionQueryService.searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. These are the service's only abstract methods. Both return pages whose continuation is an owned branded `SessionSearchCursor`, accept optional cancellation, and expose snippets without provider-specific numeric scores. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
+`SessionQueryService.searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. These are the service's only abstract methods. Both return pages whose continuation is an owned branded `SessionSearchCursor`, accept optional cancellation, and expose snippets without provider-specific numeric scores. An event-search page also carries the cloned target header from the same indexed generation as its hits, allowing authorization consumers to bind policy to the payload observation. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
 
 The package has no provider coordinator, fallback implementation, or standalone concrete plugin. A concrete service backend inherits the implemented reads, filters, and traces while owning full-text observation, reconciliation, ranking, cursor generations, and query execution; the first implementation is [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md).
 

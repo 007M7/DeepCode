@@ -13,12 +13,14 @@ const TOOLS = '{{tools}}'
 const MESSAGE_PREFIX = '{{messagePrefix}}'
 const UPDATED_AT = '{{updatedAt}}'
 const EVENT_TIME = '{{eventTime}}'
+const EVENT_OMITTED_BYTES = '{{eventOmittedBytes}}'
 
 /** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
 const PATH_TAG_RE = /(<path>)([^<]*)(<\/path>)/g
 const ADDITIONAL_INSTRUCTIONS_PATH_RE = /(Additional instructions from: )([^\r\n]+)/g
 const EMBEDDED_EVENT_TIME_RE = /("time": )\d+(?=,\r?\n)/g
+const EVENT_READ_OMITTED_BYTES_RE = /(\r?\n\r?\n\(Omitted )\d+( bytes\.)/g
 const EVENT_READ_RESULT_RE
   = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n/
 
@@ -81,6 +83,7 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   // models, bash, or unrelated tools remains regression-visible.
   if (EVENT_READ_RESULT_RE.test(out)) {
     out = out.replace(EMBEDDED_EVENT_TIME_RE, `$1${EVENT_TIME}`)
+    out = out.replace(EVENT_READ_OMITTED_BYTES_RE, `$1${EVENT_OMITTED_BYTES}$2`)
   }
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)

@@ -1,6 +1,6 @@
 import SessionQueryService from '@deepseek-ai/dsh-session-query'
 import type {
-  SessionEventSearchHit,
+  SessionEventSearchPage,
   SessionEventSearchRequest,
   SessionSearchExecContext,
   SessionSearchHit,
@@ -17,10 +17,13 @@ export class TestSessionQueryService extends SessionQueryService {
     return Promise.resolve({ items: [] })
   }
 
-  override searchEvents(
-    _request: SessionEventSearchRequest,
+  override async searchEvents(
+    request: SessionEventSearchRequest,
     _exec?: SessionSearchExecContext,
-  ): Promise<SessionSearchPage<SessionEventSearchHit>> {
-    return Promise.resolve({ items: [] })
+  ): Promise<SessionEventSearchPage> {
+    return {
+      session: (await this.readSurface(request.sessionId)).session,
+      items: [],
+    }
   }
 }

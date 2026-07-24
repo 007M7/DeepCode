@@ -396,6 +396,11 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionTitleObservation",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventRecord",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -432,6 +437,11 @@
     {
       "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventTrace",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventTraceObservation",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
@@ -1192,6 +1202,11 @@
     {
       "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionSearchPage",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventSearchPage",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {

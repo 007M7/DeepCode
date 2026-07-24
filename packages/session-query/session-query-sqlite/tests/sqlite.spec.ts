@@ -179,7 +179,10 @@ describe('SQLite session search', () => {
     )
 
     await expect(ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'AI' }))
-      .resolves.toMatchObject({ items: [{ sessionId: session.id, seq: 0, snippet: 'An AI helper' }] })
+      .resolves.toMatchObject({
+        session: { ...session.header, seedLength: 1 },
+        items: [{ sessionId: session.id, seq: 0, snippet: 'An AI helper' }],
+      })
     await expect(ctx.sessionQuery.searchSessions({ query: 'AI' }))
       .resolves.toMatchObject({ items: [{ header: { ...session.header, seedLength: 1 }, live: true, persisted: false }] })
   })
@@ -1307,7 +1310,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await expect(ctx.sessionQuery.searchSessions({ query: 'SQLite needle' }))
       .resolves.toMatchObject({ items: [{ header: meta, persisted: true, live: false }] })
     await expect(ctx.sessionQuery.searchEvents({ sessionId: meta.id, query: 'SQLite needle' }))
-      .resolves.toMatchObject({ items: [{ sessionId: meta.id, seq: 0 }] })
+      .resolves.toMatchObject({ session: meta, items: [{ sessionId: meta.id, seq: 0 }] })
     await expect(ctx.sessionQuery.searchEvents({ sessionId: SessionId('absent'), query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
     await search.dispose()

@@ -18,7 +18,7 @@ Model-facing filters use flat snake-case fields. Timestamps are timezone-qualifi
 
 ## Workspace authority
 
-Every executor derives its caller from immutable `ToolExecution.exec.agent` identity and never accepts a model-supplied workspace. A target is authorized only when its persisted `cwd` exactly equals the caller session's `cwd`. Cross-session search always adds that workspace filter, direct reads and traces authorize before loading the target, and lineage rendering stops at an unauthorized ancestor or descendant subtree without revealing the hidden session id. A caller whose session has no `cwd` can inspect only its own session; missing agent identity fails closed.
+Every executor derives its caller from immutable `ToolExecution.exec.agent` identity and never accepts a model-supplied workspace. A target is authorized only when its observed `cwd` exactly equals the caller session's `cwd`. Cross-session search always adds that workspace filter. Direct operations preflight the target and then validate the header returned from the same service observation as every event-search page, event trace, event read, lineage target, or folded title before rendering its payload. This prevents a live or persisted target replacement between the check and use from crossing the workspace boundary. Lineage rendering stops at an unauthorized ancestor or descendant subtree without revealing the hidden session id. A caller whose session has no `cwd` can inspect only its own session; missing agent identity fails closed.
 
 The search tools expose prior work rather than the operation that is performing the search. `session_search` omits the caller's session. When `session_event_search` targets the caller's session, it intersects the requested sequence range with the event immediately before the current `step/start`, excluding the current assistant message and tool call as well as the query arguments indexed from that call.
 
@@ -28,7 +28,7 @@ Neither search tool exposes a cursor, offset, page size, or model-controlled res
 
 Trace and read tools likewise expose no lineage or character pagination. Canonical results are plain text and remain complete within the service's existing event-window and search-count resource bounds. The generic `tools/post-execute` spill policy owns inline byte retention: when a configured deployment receives oversized text, it replaces that text with a bounded preview plus an opaque locator and retrieval hint while preserving the complete result in its spill store. The session-query consumer neither imports `ctx.spillStore` nor implements a second truncation format.
 
-Session-level results include the latest folded title when available. Absence is rendered as untitled; a title read failure preserves the base result, renders an unavailable marker, and logs the underlying error. Search results include the strongest matching event and provider excerpt, traces include complete authorized relationships, and event reads keep neighbor presentation readable while reserving exact JSON for the requested target.
+Session-level results include the latest folded title when available. Absence is rendered as untitled; an operational title read failure preserves the base result, renders an unavailable marker, and logs the underlying error, while an authorization mismatch fails closed. Search results include the strongest matching event and provider excerpt, traces include complete authorized relationships, and event reads keep neighbor presentation readable while reserving exact JSON for the requested target.
 
 ## Host composition
 
@@ -44,7 +44,7 @@ The shipped ACP, TUI, and Web compositions all mount the consumer beside `ctx.se
 
 ## Verification
 
-Package tests pin argument validation, filter translation, timestamp normalization, exact-workspace authorization, missing-identity behavior, hidden-boundary pruning, current-step exclusion, internal provider paging, count caps, cancellation, title fallbacks, representative search/trace/read rendering, generic presentation, and disposable registration. Integration coverage uses the real SQLite FTS provider over live and persisted sessions. Loader and assembled-host coverage proves that ACP, TUI, and Web register the tools with timeout and spill support, while keyless assembled ACP snapshots pin the prompt guidance and schemas plus exact event-read spill and retention behavior.
+Package tests pin argument validation, filter translation, timestamp normalization, exact-workspace authorization, changed-observation rejection, missing-identity behavior, hidden-boundary pruning, current-step exclusion, internal provider paging, count caps, cancellation, title fallbacks, representative search/trace/read rendering, generic presentation, and disposable registration. Integration coverage uses the real SQLite FTS provider over live and persisted sessions. Loader and assembled-host coverage proves that ACP, TUI, and Web register the tools with timeout and spill support, while keyless assembled ACP snapshots pin the prompt guidance and schemas plus path-independent exact event-read spill and retention behavior.
 
 ## Consequences
 

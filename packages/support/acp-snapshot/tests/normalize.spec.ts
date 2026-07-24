@@ -134,7 +134,7 @@ Additional instructions from: nested\AGENTS.md`,
             type: 'content',
             content: {
               type: 'text',
-              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {}\n}\n```',
+              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {}\n}\n```\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
             },
           }],
         },
@@ -142,7 +142,9 @@ Additional instructions from: nested\AGENTS.md`,
     })
     const out = normalizeStdout(raw, ctx)
     expect(out).toContain('\\"time\\": {{eventTime}}')
+    expect(out).toContain('Omitted {{eventOmittedBytes}} bytes')
     expect(out).not.toContain('1784876275593')
+    expect(out).not.toContain('39387')
   })
 
   it('preserves event-like timestamps in unrelated output text', () => {
@@ -156,7 +158,7 @@ Additional instructions from: nested\AGENTS.md`,
             type: 'content',
             content: {
               type: 'text',
-              text: 'bash output:\n```json\n{\n  "time": 1784876275593,\n  "data": {}\n}\n```',
+              text: 'bash output:\n```json\n{\n  "time": 1784876275593,\n  "data": {}\n}\n```\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
             },
           }],
         },
@@ -164,7 +166,9 @@ Additional instructions from: nested\AGENTS.md`,
     })
     const out = normalizeStdout(raw, ctx)
     expect(out).toContain('1784876275593')
+    expect(out).toContain('39387')
     expect(out).not.toContain('{{eventTime}}')
+    expect(out).not.toContain('{{eventOmittedBytes}}')
   })
 
   it('throws on a non-JSON stdout line (the purity check)', () => {

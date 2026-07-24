@@ -10,12 +10,12 @@ import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
   SessionEventResultFilter,
+  SessionEventSearchPage,
   SessionEventReadRequest,
   SessionEventRecord,
-  SessionEventSearchHit,
   SessionEventSearchDocument,
   SessionEventSearchRequest,
-  SessionEventTrace,
+  SessionEventTraceObservation,
   SessionEventTraceRequest,
   SessionEventWindow,
   SessionLineageTrace,
@@ -26,6 +26,7 @@ import type {
   SessionSearchPage,
   SessionSearchRequest,
   SessionSurfaceSnapshot,
+  SessionTitleObservation,
 } from './types.ts'
 import {
   SESSION_QUERY_READ_WINDOW_MAX,
@@ -103,12 +104,12 @@ export abstract class SessionQueryService extends Service {
    * Search events within one live-preferred logical session.
    * @param request - target session, query text, filters, page size, and cursor.
    * @param exec - optional cancellation control.
-   * @returns matching event hits in deterministic relevance order.
+   * @returns matching event hits and their target header from one indexed generation.
    */
   abstract searchEvents(
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
-  ): Promise<SessionSearchPage<SessionEventSearchHit>>
+  ): Promise<SessionEventSearchPage>
 
   /**
    * List the complete logical corpus using live-preferred records.
@@ -134,8 +135,21 @@ export abstract class SessionQueryService extends Service {
    * @returns latest title snapshot, or `undefined` when the log has no title event.
    */
   async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined> {
+    return (await this.readTitleSnapshot(sessionId)).title
+  }
+
+  /**
+   * Fold the latest title and return its source header from one corpus observation.
+   * @param sessionId - live or persisted session id to read.
+   * @returns cloned source header and optional latest title snapshot.
+   */
+  async readTitleSnapshot(sessionId: SessionId): Promise<SessionTitleObservation> {
     const loaded = await this._corpus.load(sessionId)
-    return foldSessionTitle(loaded.events)
+    const title = foldSessionTitle(loaded.events)
+    return {
+      session: loaded.header,
+      ...title === undefined ? {} : { title },
+    }
   }
 
   /**
@@ -204,12 +218,15 @@ export abstract class SessionQueryService extends Service {
   /**
    * Trace one event's direct positional and provenance relationships.
    * @param request - target session id and event seq.
-   * @returns direct links plus the target's positional replacement chain.
+   * @returns source header, direct links, and the target's positional replacement chain.
    * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
    */
-  async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace> {
+  async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTraceObservation> {
     const loaded = await this._corpus.load(request.sessionId)
-    return tracing.traceEvent(request.sessionId, loaded.events, request.seq)
+    return {
+      session: loaded.header,
+      ...tracing.traceEvent(request.sessionId, loaded.events, request.seq),
+    }
   }
 
   /**

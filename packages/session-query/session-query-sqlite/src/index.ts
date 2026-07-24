@@ -25,6 +25,7 @@ import type {
   Config as SessionQueryConfig,
   SessionEventSearchDocument,
   SessionEventSearchHit,
+  SessionEventSearchPage,
   SessionEventSearchRequest,
   SessionSearchExecContext,
   SessionSearchHit,
@@ -133,7 +134,7 @@ interface IndexedLiveRow {
   generation: number
 }
 
-interface SearchRow {
+interface SessionHeaderRow {
   session_id: string
   version: number
   created_at: number
@@ -141,6 +142,9 @@ interface SearchRow {
   parent_session: string | null
   seed_length: number | null
   delegation_depth: number | null
+}
+
+interface SearchRow extends SessionHeaderRow {
   live: number
   persisted: number
   seq: number
@@ -247,27 +251,30 @@ export class SessionQuerySqlite extends SessionQueryService {
   override async searchEvents(
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
-  ): Promise<SessionSearchPage<SessionEventSearchHit>> {
+  ): Promise<SessionEventSearchPage> {
     const normalized = normalizeEventRequest(request, this.config)
     const signal = exec?.signal
     return this._serialized(signal, async () => {
       await this._ensureReady(signal)
       const persistenceBinding = await this._reconcile(signal)
       assertNotAborted(signal)
-      const generation = this._targetGeneration(normalized.sessionId, persistenceBinding)
+      const target = this._targetObservation(normalized.sessionId, persistenceBinding)
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
         ? 0
-        : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, generation)
+        : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, target.generation)
       const rows = this._queryEvents(normalized, offset, persistenceBinding)
-      return page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
-        version: 1,
-        instance: this._instance,
-        scope: 'events',
-        fingerprint,
-        generation,
-        offset: cursorOffset,
-      }), offset)
+      return {
+        session: target.header,
+        ...page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
+          version: 1,
+          instance: this._instance,
+          scope: 'events',
+          fingerprint,
+          generation: target.generation,
+          offset: cursorOffset,
+        }), offset),
+      }
     })
   }
 
@@ -643,17 +650,33 @@ export class SessionQuerySqlite extends SessionQueryService {
     `).all(...bindings) as unknown as SearchRow[]
   }
 
-  private _targetGeneration(sessionId: SessionId, persistenceBinding: PersistenceBinding): string {
+  private _targetObservation(
+    sessionId: SessionId,
+    persistenceBinding: PersistenceBinding,
+  ): { header: SessionHeader; generation: string } {
     const db = this._requireDb()
     const live = db.prepare(
-      'SELECT generation FROM temp.live_sessions WHERE id = ?',
-    ).get(sessionId) as { generation: number } | undefined
-    if (live !== undefined) return `live:${live.generation}`
+      `SELECT
+        id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, generation
+      FROM temp.live_sessions
+      WHERE id = ?`,
+    ).get(sessionId) as (SessionHeaderRow & { generation: number }) | undefined
+    if (live !== undefined) {
+      return { header: rowHeader(live), generation: `live:${live.generation}` }
+    }
     if (persistenceBinding.service !== undefined) {
       const persisted = db.prepare(
-        'SELECT generation FROM persisted_sessions WHERE id = ?',
-      ).get(sessionId) as { generation: number } | undefined
-      if (persisted !== undefined) return `persisted:${this._persistenceEpoch}:${persisted.generation}`
+        `SELECT
+          id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, generation
+        FROM persisted_sessions
+        WHERE id = ?`,
+      ).get(sessionId) as (SessionHeaderRow & { generation: number }) | undefined
+      if (persisted !== undefined) {
+        return {
+          header: rowHeader(persisted),
+          generation: `persisted:${this._persistenceEpoch}:${persisted.generation}`,
+        }
+      }
     }
     throw new SessionQueryError(
       `session "${sessionId}" not found`,
@@ -835,7 +858,7 @@ function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
     && (a.delegationDepth ?? 0) === (b.delegationDepth ?? 0)
 }
 
-function rowHeader(row: SearchRow): SessionHeader {
+function rowHeader(row: SessionHeaderRow): SessionHeader {
   return {
     version: row.version,
     id: row.session_id as SessionId,
