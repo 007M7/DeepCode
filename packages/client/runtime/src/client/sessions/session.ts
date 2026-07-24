@@ -410,7 +410,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore)
+        this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)

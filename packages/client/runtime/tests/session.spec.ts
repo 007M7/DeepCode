@@ -202,6 +202,21 @@ describe('live event path', () => {
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
   })
+
+  it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
+    expect(session.getSnapshot().todos).toEqual([])
+    // The missed range contained a todo/write that the repulled page no longer
+    // covers; the response's session-level projection is the only carrier.
+    const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
+    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(8, 1, 'c', 'd')], false, current)
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(11, 1, 'd') })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history').length).toBe(2)
+    })
+    await Promise.resolve()
+    expect(session.getSnapshot().todos).toEqual(current)
+  })
 })
 
 describe('paging', () => {
