@@ -11,7 +11,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 精确地说，一个数据结构是**核心**的，当且仅当满足以下条件之一：
 
 1. 它流经 agent loop 主干——循环在每个轮次中持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄本身），与当前加载了哪些插件无关；**或者**
-2. 它是插件作者面向某条流水线编写的唯一标题类型——`ToolDefinition`（每个工具*是什么*）。
+2. 它是插件作者面向某条流水线编写的代表性类型——`ToolDefinition`（每个工具*是什么*）。
 
 其他一切都记录在**子页面**上，而非本页。划线的规则是：*你编写、持有或接收的类型是核心；为它提供类型推导、渲染或持久化的机制是子页面细节*。因此 `ToolDefinition` 是核心，但为它提供类型推导的 `ValueSchemaSpec`/`ParameterSchemaSpec` 机制、为它提供渲染意图的 `ToolCallView`/`ToolResultView` 词汇，以及存储事件日志的 `SessionPersistence` seam 都不是——它们分别在下列子页面中。
 
