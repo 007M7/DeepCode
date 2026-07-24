@@ -389,4 +389,4 @@ Worker 消息、进程死亡和持久化输入确实跨越所有权和序列化�
 
 该设计信任同进程中的类型化插件。它不防御任意强制转换、有状态 getter、违反 readonly 契约的修改，或插件有意在支持的组合 API 之外使用环境服务访问。
 
-[安全与权限非目标](2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)仍然是根本性的。这些机制证明注册组合、发布和生命期所有权；它们不证明隔离或父到子的非升级。
+[安全与权限非目标](2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)仍然是根本性的。这些机制证明注册组合、发布和生命期所有权；它们不证明隔离或父到子的非升权。
