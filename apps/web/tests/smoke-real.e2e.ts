@@ -193,30 +193,22 @@ describe('dsh web keyless CLI smoke', () => {
     }
   })
 
-  it('injects workspace instructions and the exact Web mode policy into provider requests', async () => {
+  it('injects workspace instructions and the active Web plan policy into the provider request', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-workspace-'))
     mkdirSync(join(workspace, '.git'))
     writeFileSync(join(workspace, 'AGENTS.md'), 'web-workspace-context-probe\n')
 
-    type ProviderRequest = { messages?: { role?: string; content?: string }[] }
-    let resolveDefaultRequest!: (request: ProviderRequest) => void
-    let resolvePlanRequest!: (request: ProviderRequest) => void
-    const defaultRequest = new Promise<ProviderRequest>((resolve) => {
-      resolveDefaultRequest = resolve
-    })
-    const planRequest = new Promise<ProviderRequest>((resolve) => {
-      resolvePlanRequest = resolve
+    let resolveProviderRequest!: (request: { messages?: { role?: string; content?: string }[] }) => void
+    const providerRequest = new Promise<{ messages?: { role?: string; content?: string }[] }>((resolve) => {
+      resolveProviderRequest = resolve
     })
     const provider = createServer((request, response) => {
       let body = ''
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        const parsed = JSON.parse(body) as ProviderRequest
-        const system = parsed.messages?.find(message => message.role === 'system')?.content ?? ''
-        if (system.includes('You are in default mode, not plan mode.')) resolveDefaultRequest(parsed)
-        if (system.includes('Stay in plan mode until exit_plan_mode succeeds')) resolvePlanRequest(parsed)
+        resolveProviderRequest(JSON.parse(body) as { messages?: { role?: string; content?: string }[] })
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
           'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
@@ -249,43 +241,26 @@ describe('dsh web keyless CLI smoke', () => {
     try {
       const baseUrl = await waitForReadyLine(child)
       const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
-      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
-        sessionId: created.sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: 'default request' }],
-        planMode: false,
-      })
-      const capturedDefault = await Promise.race([
-        defaultRequest,
-        new Promise<never>((_resolve, reject) => {
-          setTimeout(() => { reject(new Error('default provider request not received in 10s')) }, 10_000).unref()
-        }),
-      ])
-      const workspaceMessage = capturedDefault.messages?.find(message =>
-        message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
-      const defaultSystem = capturedDefault.messages?.find(message => message.role === 'system')
-      expect(defaultSystem?.content).toContain('You are in default mode, not plan mode.')
-      expect(defaultSystem?.content).toContain('Do not call exit_plan_mode in default mode.')
-      expect(defaultSystem?.content).not.toContain('Stay in plan mode until exit_plan_mode succeeds')
       expect(await rpc(baseUrl, 'session.setPlanMode', {
         sessionId: created.sessionId, active: true,
-      })).toMatchObject({ pending: true })
+      })).toEqual({ active: false, pending: true })
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text: 'plan request' }],
+        content: [{ type: 'text', text: 'go' }],
         planMode: true,
       })
-      const capturedPlan = await Promise.race([
-        planRequest,
+      const captured = await Promise.race([
+        providerRequest,
         new Promise<never>((_resolve, reject) => {
-          setTimeout(() => { reject(new Error('plan provider request not received in 10s')) }, 10_000).unref()
+          setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
         }),
       ])
-      const planSystem = capturedPlan.messages?.find(message => message.role === 'system')
-      expect(planSystem?.content).toContain('Stay in plan mode until exit_plan_mode succeeds')
-      expect(planSystem?.content).toContain('Do not edit or write files')
-      expect(planSystem?.content).not.toContain('You are in default mode, not plan mode.')
+      const workspaceMessage = captured.messages?.find(message =>
+        message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
+      const systemMessage = captured.messages?.find(message => message.role === 'system')
+      expect(systemMessage?.content).toContain('Stay in plan mode until exit_plan_mode succeeds')
+      expect(systemMessage?.content).toContain('Do not edit or write files')
       expect(await rpc(baseUrl, 'session.planMode', { sessionId: created.sessionId }))
         .toEqual({ active: true })
       expect(workspaceMessage).toMatchInlineSnapshot(`

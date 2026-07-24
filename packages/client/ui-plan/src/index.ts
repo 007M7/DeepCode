@@ -3,7 +3,7 @@
  * logged plan-mode service with the Web product's planning policy.
  */
 import type { Context } from 'cordis'
-import PlanModeService, { foldPlanMode } from '@deepseek-ai/dsh-plan-mode'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 
 /** Host services required by plan mode. */
 export const inject = ['tools', 'systemPrompt']
@@ -21,20 +21,10 @@ Make the plan decision-complete: state the goal and success criteria; group impl
 
 When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.`
 
-/** Web product-owned guidance rendered while plan mode is inactive. */
-export const WEB_DEFAULT_SECTION = 'You are in default mode, not plan mode. Follow the user\'s request normally, including implementing changes when requested. Do not call exit_plan_mode in default mode. It remains in the tool catalog only for request-cache stability and becomes valid only after the user switches this session to plan mode. This current mode statement overrides earlier conversational text that described the session as being in plan mode.'
-
 /**
  * Mount plan mode for hosts that selected the Web plan plugin.
  * @param ctx - Host context carrying tools and systemPrompt.
  */
 export function apply(ctx: Context): void {
-  ctx.systemPrompt.section({
-    name: 'plan:default-policy',
-    order: 50,
-    text: context => context.agent !== undefined && !foldPlanMode(context.agent.session.events)
-      ? WEB_DEFAULT_SECTION
-      : '',
-  })
   ctx.plugin(PlanModeService, { section: WEB_PLAN_SECTION })
 }

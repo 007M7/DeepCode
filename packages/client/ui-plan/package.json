@@ -45,11 +45,9 @@
     "cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-web-react": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
