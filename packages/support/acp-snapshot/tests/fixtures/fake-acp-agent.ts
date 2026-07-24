@@ -23,9 +23,9 @@ import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
-/** One scripted session log: a file path under the sessions root plus its JSONL lines. */
+/** One scripted session log: a transcript path under the sessions root plus its JSONL lines. */
 interface ScriptedLog {
-  /** Path relative to `$DSH_SNAPSHOT_SESSIONS_ROOT`, e.g. `bucket/a.jsonl` (an empty dir segment is invalid). */
+  /** Path relative to `$DSH_SNAPSHOT_SESSIONS_ROOT`, e.g. `project/session/session.jsonl`. */
   file: string
   /**
    * The JSONL records. String templates `{{CWD}}` and `{{SID}}` are replaced
@@ -69,7 +69,7 @@ interface Behavior {
   logs?: ScriptedLog[]
   /** Leave a stray FILE directly under the sessions root (harvest must skip it). */
   strayRootFile?: boolean
-  /** Leave a stray non-`.jsonl` file inside a bucket (harvest must skip it). */
+  /** Leave a stray non-transcript file inside a project directory (harvest must skip it). */
   strayBucketFile?: boolean
   /** Delete the sessions root entirely (harvest must yield no logs). */
   deleteSessionsRoot?: boolean
