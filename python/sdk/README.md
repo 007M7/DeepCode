@@ -34,9 +34,7 @@ with DeepSeekHarness(
 
 `provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. The bundled default composition registers `deepseek`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
 
-`TurnResult.final_response` is the text content from the last
-`assistant/message` event in the turn. Use `TurnResult.events` for the complete
-event stream, including intermediate assistant messages and tool activity.
+`HarnessClient` retains discovered subagent ancestry for the lifetime of the runtime process. During each `Session.run()`, `TurnResult.notifications` and `on_notification` receive the root session and all known descendant notifications in wire order, including nested subagent lifecycle and session events. `TurnResult.events` remains the root session's complete event stream, and `TurnResult.final_response` is the text content from its last `assistant/message`; descendant messages therefore cannot replace the root response.
 
 The same behavior can be selected for the runtime subprocess with `DSH_CORDIS_CONFIG`. The injection lives in `HarnessClient.start()`, so the low-level client's default launch gets it too: when the launch resolves to the bundled runtime and neither `cordis` nor a non-empty `DSH_CORDIS_CONFIG` is set (the runtime treats an empty value as absent, and so does the injection check), the bundled default configuration is used; an explicit `runtime_bin`, `bridge_bin`, or `launch_args_override` disables the injection entirely. See the [sdk-runtime README](../sdk-runtime/README.md) for the runtime carriers (production exe vs dev-only node closure) and how to obtain them.
 
