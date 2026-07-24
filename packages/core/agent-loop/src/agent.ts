@@ -42,7 +42,7 @@ const bindContext = Symbol('dsh.agent-loop.bind-context')
 const publishAgent = Symbol('dsh.agent-loop.publish-agent')
 
 /** Fully resolved input accepted only by the concrete driver's private delivery mechanism. */
-type ResolvedDelivery = {
+type ResolvedAgentInput = {
   content: ContentBlock[]
   source: MessageSource
   meta: JsonValue | undefined
@@ -215,8 +215,8 @@ export class ReactLoopAgent implements Agent {
    * materialization reads every nested field once; deep freeze prevents later
    * caller mutation before an inbox or deferred-injection queue drains it.
    */
-  private snapshotMessage(id: AgentMessageId, delivery: ResolvedDelivery): InboxMessage {
-    const { content, source, contexts, wakeup, meta } = delivery
+  private snapshotMessage(id: AgentMessageId, input: ResolvedAgentInput): InboxMessage {
+    const { content, source, contexts, wakeup, meta } = input
     const accepted = snapshotJsonValue({
       id, content, source, contexts, wakeup,
       ...meta !== undefined ? { meta } : {},
@@ -241,17 +241,17 @@ export class ReactLoopAgent implements Agent {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
   }
 
-  /** Accept one fully resolved intent through the concrete driver's private routing matrix. */
-  #acceptDelivery(delivery: ResolvedDelivery): AgentMessageId {
+  /** Accept one fully resolved agent input through the concrete driver's private routing matrix. */
+  #acceptInput(input: ResolvedAgentInput): AgentMessageId {
     this.assertNotDisposed()
     const id = AgentMessageId(randomUUID())
-    const { target, wakeup } = delivery
+    const { target, wakeup } = input
     // next-step/no-wakeup is injection: durable context without running the model.
-    if (target === 'next-step' && !wakeup) { this.injectContext(delivery); return id }
+    if (target === 'next-step' && !wakeup) { this.injectContext(input); return id }
     // next-step/wakeup is steering into the running turn; idle falls back to a
     // waking ordinary turn (there is no active turn to attach to).
     const steering = target === 'next-step' && this._status === 'running'
-    const accepted = this.snapshotMessage(id, delivery)
+    const accepted = this.snapshotMessage(id, input)
     if (steering) {
       this.#inbox.steer(accepted)
     } else {
@@ -262,7 +262,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   send(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.#acceptDelivery({
+    return this.#acceptInput({
       content,
       target: 'next-turn',
       wakeup: true,
@@ -273,7 +273,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   queue(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.#acceptDelivery({
+    return this.#acceptInput({
       content,
       target: 'next-turn',
       wakeup: false,
@@ -284,7 +284,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   steer(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.#acceptDelivery({
+    return this.#acceptInput({
       content,
       target: 'next-step',
       wakeup: true,
@@ -295,7 +295,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId {
-    return this.#acceptDelivery({
+    return this.#acceptInput({
       content,
       target: 'next-step',
       wakeup: false,
@@ -306,8 +306,8 @@ export class ReactLoopAgent implements Agent {
   }
 
   /** The `next-step`/no-wakeup injection path: durable context, no FIFO, no run. */
-  private injectContext(delivery: Extract<ResolvedDelivery, { target: 'next-step'; wakeup: false }>): void {
-    const { content, source, meta } = delivery
+  private injectContext(input: Extract<ResolvedAgentInput, { target: 'next-step'; wakeup: false }>): void {
+    const { content, source, meta } = input
     const context = {
       content,
       source,

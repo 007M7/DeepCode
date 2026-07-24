@@ -21,7 +21,7 @@ Status: implemented
 
 `send`、`queue` 和 `steer` 接收 `SendOptions`；`inject` 接收 `InjectOptions`，后者不包含附加上下文，因为注入没有 inbox 项来拥有它们。接口不提供 `followup`：普通 `send` 已经为既有的常见操作命名，而「follow-up」不适用于会话的第一条消息。
 
-`ReactLoopAgent` 把每次公开调用解析为一个模块私有的 `ResolvedDelivery`，再将其传给原生私有的 `#acceptDelivery`。每个内部字段都必须提供：内容、来源、上下文、元数据（可以是 `undefined`）、目标和唤醒标志。注入会把上下文解析为空元组。这个私有名称说明同步边界所保证的事实：接受之后，工作仍可能在稍后出队、被丢弃或持久注入，而不是最终必然送达。
+`ReactLoopAgent` 把每次公开调用解析为一个模块私有的 `ResolvedAgentInput`，再将其传给原生私有的 `#acceptInput`。每个内部字段都必须提供：内容、来源、上下文、元数据（可以是 `undefined`）、目标和唤醒标志。注入会把上下文解析为空元组。这个私有名称说明同步边界所保证的事实：接受之后，工作仍可能在稍后出队、被丢弃或持久注入，而不是最终必然送达。
 
 target/wakeup 矩阵仍是 `dsh-agent-loop` 中的实现机制。它不会导出，不是 protected 成员，也不由基类表示。只有一个具体适配器时，子类投递 seam 只是假想的；调用方和测试使用同一个公开 `Agent` 接口。
 

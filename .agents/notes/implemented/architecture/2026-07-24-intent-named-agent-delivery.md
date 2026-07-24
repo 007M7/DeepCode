@@ -21,7 +21,7 @@ Sharing helper implementations through an abstract `Agent` class also makes the 
 
 `send`, `queue`, and `steer` accept `SendOptions`; `inject` accepts `InjectOptions`, which omits attached contexts because injection has no inbox item to own them. `followup` is absent: ordinary `send` already names the established common operation, and “follow-up” is false for a session's first message.
 
-`ReactLoopAgent` resolves each public call into one module-private `ResolvedDelivery` and passes it to native-private `#acceptDelivery`. Every internal field is mandatory: content, source, contexts, metadata (possibly `undefined`), target, and wakeup. Injection resolves contexts to the empty tuple. The private name says what the synchronous boundary guarantees: acceptance can still lead to later dequeue, discard, or durable injection rather than eventual delivery.
+`ReactLoopAgent` resolves each public call into one module-private `ResolvedAgentInput` and passes it to native-private `#acceptInput`. Every internal field is mandatory: content, source, contexts, metadata (possibly `undefined`), target, and wakeup. Injection resolves contexts to the empty tuple. The private name says what the synchronous boundary guarantees: acceptance can still lead to later dequeue, discard, or durable injection rather than eventual delivery.
 
 The target/wakeup matrix remains an implementation mechanism in `dsh-agent-loop`. It is not exported, protected, or represented by a base class. With one concrete adapter, a subclass delivery seam would be hypothetical; callers and tests use the same public `Agent` interface.
 
