@@ -1,6 +1,6 @@
-/* NEW SESSION hero (figma 313:14149): fish + title, workspace chip above the
-   shared InputBar card. The input itself is InputBar — only stack geometry
-   lives here. */
+/* NEW SESSION hero (figma Input_Bottom 75:8208): fish + title, workspace chip
+   above the shared InputBar card. The input itself is InputBar — only stack
+   geometry and the chip live here. */
 
 .root {
   display: flex;
@@ -11,23 +11,26 @@
   padding: 24px;
 }
 
-/* Cap matches InputBar card width (776). Glow may paint past the sides. */
+/* Cap matches InputBar card width (800). Glow may paint past the sides. */
 .stack {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 40px;
+  /* figma 75:8208: 12 between title block / workspace / card. */
+  gap: 12px;
   width: 100%;
-  max-width: 776px;
+  max-width: 800px;
   overflow: visible;
 }
 
-/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt600. */
+/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt600; title block
+   keeps 36px below the headline before the flex gap. */
 .headline {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
+  padding-bottom: 36px;
   font-size: 26px;
   line-height: 32px;
   font-weight: 600;
@@ -68,38 +71,43 @@
   z-index: 1;
 }
 
-.workspaceRow {
+/* Must beat `.body > :not(.glow)` specificity so the open Menu (and its
+   right-hand submenu) paints above the InputBar card. */
+.body > .workspaceRow {
+  z-index: 10;
   display: flex;
   align-items: center;
   min-width: 0;
-  /* Align with InputBar's left chrome (card pad 10 + attach). */
-  padding-left: 10px;
+  /* figma 75:8208 workspace row: px 8 above the card. */
+  padding-left: 8px;
 }
 
-/* Folder + "New Workspace" + chevron (figma workspace trigger). */
+/* Folder + label + chevron — transparent at rest; fill only on hover / open. */
 .workspace {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   max-width: 100%;
-  height: 28px;
-  padding: 0 4px 0 0;
+  min-height: 28px;
+  padding: 0 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   background: transparent;
   color: var(--dsw-alias-label-primary);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.workspace:hover {
+.workspace:hover,
+.workspace[aria-expanded='true'] {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .folder {
   flex: none;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-primary);
 }
 
 .workspaceLabel {
@@ -113,19 +121,44 @@
   color: var(--dsw-alias-label-caption);
 }
 
-.customInput {
-  width: min(320px, 100%);
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
-  border-radius: 8px;
+/* Workspace menu width tracks the longest basename in the Figma frame. */
+.workspaceMenu :global([role='menu']) {
+  min-width: 240px;
+}
+
+/* Dialog field (figma 451:18655 Input): h44, r22, px 14, caption placeholder. */
+.modalInput {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 22px;
   outline: none;
-  background: var(--dsw-alias-bg-base);
+  background: transparent;
   font-size: 14px;
-  line-height: 20px;
+  line-height: 24px;
   color: var(--dsw-alias-label-primary);
 }
 
-.customInput:focus {
+.modalInput::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+.modalInput:focus {
   border-color: var(--dsw-alias-state-business-primary);
+}
+
+.modalInput:disabled {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.modalAction {
+  min-width: 72px;
+}
+
+.modalError {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
 }

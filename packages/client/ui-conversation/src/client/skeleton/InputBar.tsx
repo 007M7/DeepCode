@@ -175,8 +175,10 @@ export function InputBar({
             >
               <IconPlusOutline16 size={14} />
             </button>
-            {renderSelect('Plan mode', planId, PLAN_OPTIONS, setPlanId)}
-            {renderSelect('Access mode', readonlyId, READONLY_OPTIONS, setReadonlyId)}
+            <div className={css.modes}>
+              {renderSelect('Plan mode', planId, PLAN_OPTIONS, setPlanId)}
+              {renderSelect('Access mode', readonlyId, READONLY_OPTIONS, setReadonlyId)}
+            </div>
           </div>
           <div className={css.trailing}>
             {renderSelect('Model', modelId, MODEL_OPTIONS, setModelId)}
@@ -190,11 +192,11 @@ export function InputBar({
               onClick={onPrimary}
             >
               {running ? (
-                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                   <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
                 </svg>
               ) : (
-                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                   <path d="M8 13V3.8M8 3.8L3.8 8M8 3.8L12.2 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                 </svg>
               )}

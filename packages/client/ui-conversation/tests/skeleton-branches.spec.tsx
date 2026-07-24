@@ -238,10 +238,16 @@ describe('DetailsPanel branches', () => {
 })
 
 describe('EmptyState branches', () => {
+  const noopCreate = () => Promise.resolve()
+
   it('keeps the draft and surfaces a local error strip when startSession rejects', async () => {
     const startSession = vi.fn(() => Promise.reject(new Error('create down')))
     const view = render(
-      <EmptyState useSessions={listHook([{ id: 'a', title: 'a', cwd: '/proj' }])} startSession={startSession} />,
+      <EmptyState
+        useSessions={listHook([{ id: 'a', title: 'a', cwd: '/proj' }])}
+        startSession={startSession}
+        createWorkspaceSession={noopCreate}
+      />,
     )
     const textarea = view.container.querySelector('textarea')!
     fireEvent.change(textarea, { target: { value: 'first task' } })
@@ -253,7 +259,11 @@ describe('EmptyState branches', () => {
   it('non-Error rejection reasons stringify into the error strip', async () => {
     const startSession = vi.fn(() => Promise.reject('plain-string'))
     const view = render(
-      <EmptyState useSessions={listHook([])} startSession={startSession} />,
+      <EmptyState
+        useSessions={listHook([])}
+        startSession={startSession}
+        createWorkspaceSession={noopCreate}
+      />,
     )
     const textarea = view.container.querySelector('textarea')!
     fireEvent.change(textarea, { target: { value: 'go' } })
@@ -270,20 +280,38 @@ describe('EmptyState branches', () => {
           { id: 'b', title: 'b' }, // no cwd: filtered from the option set
         ])}
         startSession={startSession}
+        createWorkspaceSession={noopCreate}
       />,
     )
     fireEvent.click(view.getByRole('button', { name: '项目目录' }))
     expect([...view.getByRole('menu').querySelectorAll('[role="menuitem"]')].map(el => el.textContent))
-      .toEqual(['Default directory', '/proj', 'New directory…'])
-    fireEvent.click(view.getByRole('menuitem', { name: '/proj' }))
+      .toEqual(['proj', 'New Workspace'])
+    fireEvent.click(view.getByRole('menuitem', { name: 'proj' }))
     expect(view.getByRole('button', { name: '项目目录' }).textContent).toContain('proj')
     fireEvent.click(view.getByRole('button', { name: '项目目录' }))
-    fireEvent.click(view.getByRole('menuitem', { name: 'New directory…' }))
+    fireEvent.mouseEnter(view.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(view.getByRole('menuitem', { name: 'Use a existing folder' }))
     const custom = view.container.querySelector('input')!
     fireEvent.change(custom, { target: { value: '/typed/dir' } })
     const textarea = view.container.querySelector('textarea')!
     fireEvent.change(textarea, { target: { value: 'task' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
     await waitFor(() => expect(startSession).toHaveBeenCalledWith({ text: 'task', mode: 'queue', cwd: '/typed/dir' }))
+  })
+
+  it('Create modal surfaces inject failures inline', async () => {
+    const createWorkspaceSession = vi.fn(() => Promise.reject(new Error('mkdir blocked')))
+    const view = render(
+      <EmptyState
+        useSessions={listHook([])}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={createWorkspaceSession}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: '项目目录' }))
+    fireEvent.mouseEnter(view.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(view.getByRole('menuitem', { name: 'Create new' }))
+    fireEvent.click(view.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(view.getByRole('alert').textContent).toContain('mkdir blocked'))
   })
 })

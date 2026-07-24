@@ -297,6 +297,27 @@ describe('create', () => {
   })
 })
 
+describe('createWorkspace', () => {
+  it('joins host.describe cwd with the name and creates there', async () => {
+    const b = bench()
+    b.api.onDescribe = () => Promise.resolve(ok({ version: '0', cwd: '/host/root', attachedSessions: 0 }))
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('ws') }))
+    await expect(b.svc.createWorkspace('My Proj')).resolves.toBe('ws')
+    expect(b.api.callsOf('session.create')).toEqual([{ cwd: '/host/root/My Proj' }])
+  })
+
+  it('rejects empty names and path separators; surfaces describe failures', async () => {
+    const b = bench()
+    await expect(b.svc.createWorkspace('  ')).rejects.toThrow(/name is required/)
+    await expect(b.svc.createWorkspace('a/b')).rejects.toThrow(/path separators/)
+    b.api.onDescribe = () => Promise.resolve({
+      rpcId: 'e' as never,
+      result: { ok: false as const, error: { code: 'internal' as const, message: 'down', details: {} } },
+    } as never)
+    await expect(b.svc.createWorkspace('ok')).rejects.toThrow(/host.describe failed/)
+  })
+})
+
 describe('coverage tails (branch duals)', () => {
   it('displayTitleOf falls back to the id for empty and separator-only cwd', async () => {
     const b = bench()

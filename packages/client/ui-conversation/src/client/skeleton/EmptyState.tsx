@@ -1,16 +1,21 @@
 // EmptyState (figma NEW SESSION screen): centered hero — fish + title,
-// workspace picker row, then the SAME InputBar the resident composer uses
-// (empty→content is a position move, never a swap). Project picker: cwd set
-// derived in-component from useSessions plus a free-form new-directory path;
-// submit runs startSession (create → open → send).
+// workspace picker row (MenuDropdown 122:9481 + New Workspace submenu
+// 419:16920 + Dialog 451:18655), then the SAME InputBar the resident
+// composer uses (empty→content is a position move, never a swap). Project
+// options derive in-component from useSessions; Create new runs
+// createWorkspaceSession (host mkdir + session.create + open).
 
 import { useId, useMemo, useState } from 'react'
 import {
+  Button,
   FishLogo,
   IconChevronDownOutline14,
+  IconFolderClose16,
   IconFolderOpen16,
+  IconPlusOutline16,
   Menu,
-  type MenuItem,
+  Modal,
+  type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { EmptyStateSlotProps } from '../contract/slots.ts'
@@ -18,10 +23,15 @@ import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
 import css from './EmptyState.module.css'
 
-/** Menu id for the free-form directory entry (not a filesystem path). */
-const NEW_DIR = '::new-directory'
-/** Menu id for the host default project directory (empty cwd on create). */
-const DEFAULT_DIR = '::default'
+/** Menu id for "New Workspace" (opens submenu; not a cwd). */
+const NEW_WORKSPACE = '::new-workspace'
+/** Submenu: path modal (figma 451:18655 copy). */
+const USE_EXISTING = '::use-existing'
+/** Submenu: create-workspace modal → mkdir + default session. */
+const CREATE_NEW = '::create-new'
+
+/** Which full-page dialog is open (null = none). */
+type ModalKind = 'path' | 'create' | null
 
 /** Full props composed by reference from the contract (runtime share & injected share; no store). */
 export type EmptyStateProps = EmptyStateSlotProps
@@ -36,22 +46,26 @@ function deriveCwds(state: SessionListState): readonly string[] {
   return [...seen]
 }
 
-/** Basename for the workspace chip; empty → the design's "New Workspace" label. */
+/** Basename for the workspace chip / menu row; empty → the design's "New Workspace" label. */
 function workspaceLabel(cwd: string): string {
   if (cwd === '') return 'New Workspace'
   const base = cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop()
   return base !== undefined && base !== '' ? base : cwd
 }
 
-export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
+export function EmptyState({ useSessions, startSession, createWorkspaceSession }: EmptyStateProps) {
   const list = useSessions(s => s)
   const cwds = useMemo(() => deriveCwds(list), [list])
   // Local viewing state: the empty state owns no session, so its draft is
   // ephemeral by design (drafts are keyed by session id; there is none yet).
   const [draft, setDraft] = useState('')
   const [cwd, setCwd] = useState('')
-  const [custom, setCustom] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [modalKind, setModalKind] = useState<ModalKind>(null)
+  const [pathDraft, setPathDraft] = useState('')
+  const [workspaceName, setWorkspaceName] = useState('New WorkSpace')
+  const [creating, setCreating] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<InputBarError | null>(null)
   // Stable filter id so multiple EmptyState mounts do not collide in the DOM.
@@ -74,59 +88,64 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
     // Success needs no cleanup: the session selection swaps this slot out for the session body.
   }
 
-  const items: MenuItem[] = [
-    { id: DEFAULT_DIR, label: 'Default directory' },
-    ...cwds.map(c => ({ id: c, label: c })),
-    { id: NEW_DIR, label: 'New directory…' },
+  const items: MenuEntry[] = [
+    ...cwds.map(c => ({
+      id: c,
+      label: workspaceLabel(c),
+      icon: <IconFolderClose16 size={16} />,
+    })),
+    ...(cwds.length > 0 ? [{ type: 'separator' as const, id: 'sep-new' }] : []),
+    {
+      id: NEW_WORKSPACE,
+      label: 'New Workspace',
+      icon: <IconPlusOutline16 size={16} />,
+      submenu: [
+        { id: USE_EXISTING, label: 'Use a existing folder' },
+        { id: CREATE_NEW, label: 'Create new' },
+      ],
+    },
   ]
-  const selectedId = custom ? NEW_DIR : cwd === '' ? DEFAULT_DIR : cwd
 
-  const workspace = custom
-    ? (
-        <input
-          className={css.customInput}
-          value={cwd}
-          autoFocus
-          aria-label="项目目录"
-          placeholder="Directory path, e.g. /home/me/proj"
-          onChange={(e) => { setCwd(e.target.value) }}
-        />
-      )
-    : (
-        <Menu
-          open={menuOpen}
-          onClose={() => { setMenuOpen(false) }}
-          selectedId={selectedId}
-          items={items}
-          onSelect={(id) => {
-            if (id === NEW_DIR) {
-              setCustom(true)
-              setCwd('')
-            } else if (id === DEFAULT_DIR) {
-              setCustom(false)
-              setCwd('')
-            } else {
-              setCustom(false)
-              setCwd(id)
-            }
-            setMenuOpen(false)
-          }}
-          anchor={(
-            <button
-              type="button"
-              className={css.workspace}
-              aria-label="项目目录"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              onClick={() => { setMenuOpen(!menuOpen) }}
-            >
-              <IconFolderOpen16 className={css.folder} size={16} />
-              <span className={css.workspaceLabel}>{workspaceLabel(cwd)}</span>
-              <IconChevronDownOutline14 className={css.chevron} size={14} />
-            </button>
-          )}
-        />
-      )
+  const closeModal = (): void => {
+    if (creating) return
+    setModalKind(null)
+    setModalError(null)
+  }
+
+  const openPathModal = (): void => {
+    setPathDraft(cwd)
+    setModalError(null)
+    setModalKind('path')
+  }
+
+  const openCreateModal = (): void => {
+    setWorkspaceName('New WorkSpace')
+    setModalError(null)
+    setModalKind('create')
+  }
+
+  const confirmPath = (): void => {
+    const next = pathDraft.trim()
+    if (next === '') return
+    setCwd(next)
+    setModalKind(null)
+  }
+
+  const confirmCreate = (): void => {
+    if (creating) return
+    setCreating(true)
+    setModalError(null)
+    createWorkspaceSession(workspaceName)
+      .catch((reason: unknown) => {
+        setModalError(reason instanceof Error ? reason.message : String(reason))
+        setCreating(false)
+      })
+    // Success swaps this slot out for the new session body — no local cleanup.
+  }
+
+  const modalBusy = creating
+  const isPath = modalKind === 'path'
+  const isCreate = modalKind === 'create'
 
   return (
     <div className={css.root}>
@@ -138,7 +157,8 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
         </div>
         <div className={css.body}>
           {/* figma 313:14109: soft ellipse behind workspace + InputBar; width
-              tracks the card (1051/776) so blur scales in userSpace with it. */}
+              tracks the card (glow asset 1051 vs design card 776) so blur
+              scales in userSpace with it. */}
           <svg className={css.glow} viewBox="0 0 1051 468" fill="none" aria-hidden="true">
             <defs>
               <filter
@@ -159,7 +179,44 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
               <ellipse cx="525.5" cy="234" rx="425.5" ry="134" fill="#6187D8" fillOpacity="0.1" />
             </g>
           </svg>
-          <div className={css.workspaceRow}>{workspace}</div>
+          <div className={css.workspaceRow}>
+            <Menu
+              open={menuOpen}
+              onClose={() => { setMenuOpen(false) }}
+              {...(cwd !== '' ? { selectedId: cwd } : {})}
+              items={items}
+              side="top"
+              className={css.workspaceMenu!}
+              onSelect={(id) => {
+                if (id === USE_EXISTING) {
+                  setMenuOpen(false)
+                  openPathModal()
+                  return
+                }
+                if (id === CREATE_NEW) {
+                  setMenuOpen(false)
+                  openCreateModal()
+                  return
+                }
+                setCwd(id)
+                setMenuOpen(false)
+              }}
+              anchor={(
+                <button
+                  type="button"
+                  className={css.workspace}
+                  aria-label="项目目录"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={() => { setMenuOpen(!menuOpen) }}
+                >
+                  <IconFolderOpen16 className={css.folder} size={16} />
+                  <span className={css.workspaceLabel}>{workspaceLabel(cwd)}</span>
+                  <IconChevronDownOutline14 className={css.chevron} size={12} />
+                </button>
+              )}
+            />
+          </div>
           <InputBar
             draft={draft}
             running={false}
@@ -174,6 +231,75 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
           />
         </div>
       </div>
+      <Modal
+        open={isPath}
+        onClose={closeModal}
+        title="Enter an existing folder path"
+        footer={(
+          <>
+            <Button variant="outline" className={css.modalAction!} onClick={closeModal}>Cancel</Button>
+            <Button
+              variant="primary"
+              className={css.modalAction!}
+              disabled={pathDraft.trim() === ''}
+              onClick={confirmPath}
+            >
+              Open Folder
+            </Button>
+          </>
+        )}
+      >
+        <input
+          className={css.modalInput}
+          value={pathDraft}
+          aria-label="Folder path"
+          autoFocus
+          placeholder="ex. User/Documents/Harness/Space"
+          onChange={(e) => { setPathDraft(e.target.value) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              confirmPath()
+            }
+          }}
+        />
+      </Modal>
+      <Modal
+        open={isCreate}
+        onClose={closeModal}
+        title="Create new workspace"
+        footer={(
+          <>
+            <Button variant="outline" className={css.modalAction!} disabled={modalBusy} onClick={closeModal}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className={css.modalAction!}
+              disabled={modalBusy || workspaceName.trim() === ''}
+              onClick={confirmCreate}
+            >
+              Create
+            </Button>
+          </>
+        )}
+      >
+        <input
+          className={css.modalInput}
+          value={workspaceName}
+          aria-label="Workspace name"
+          autoFocus
+          disabled={modalBusy}
+          onChange={(e) => { setWorkspaceName(e.target.value) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              confirmCreate()
+            }
+          }}
+        />
+        {modalError !== null && <div className={css.modalError} role="alert">{modalError}</div>}
+      </Modal>
     </div>
   )
 }

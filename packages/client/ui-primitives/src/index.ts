@@ -1,5 +1,5 @@
 /**
- * Pure React atoms (zero cordis): StateDot, icons, Button/Pill/Menu/Input,
+ * Pure React atoms (zero cordis): StateDot, icons, Button/Pill/Menu/Modal/Input,
  * markdown family, ConnectionBanner. Everything consumes props plus --dsw-*
  * token vars only. Contract: api-contracts v3 section 8.
  */
@@ -11,7 +11,8 @@ export type { ButtonVariant } from './Button.tsx'
 export { Pill } from './Pill.tsx'
 export { Input } from './Input.tsx'
 export { Menu } from './Menu.tsx'
-export type { MenuItem } from './Menu.tsx'
+export type { MenuEntry, MenuItem, MenuSeparator } from './Menu.tsx'
+export { Modal } from './Modal.tsx'
 export { ConnectionBanner } from './ConnectionBanner.tsx'
 export { FishLogo } from './FishLogo.tsx'
 export { BrandWordmark } from './BrandWordmark.tsx'

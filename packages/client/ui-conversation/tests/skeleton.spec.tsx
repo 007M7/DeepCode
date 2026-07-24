@@ -86,6 +86,8 @@ function fakeSessions(rows: { id: string; title: string; cwd?: string; parentId?
 const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(sid('s1'))}</>
 
 describe('EmptyState', () => {
+  const noopCreate = () => Promise.resolve()
+
   it('derives cwd options from the sessions list, submits startSession, failure surfaces locally', async () => {
     const { useSessions } = fakeSessions([
       { id: 'a', title: 'a', cwd: '/w/app' },
@@ -94,14 +96,20 @@ describe('EmptyState', () => {
     ])
     let reject!: (e: Error) => void
     const startSession = vi.fn(() => new Promise<void>((_res, rej) => { reject = rej }))
-    render(<EmptyState useSessions={useSessions} startSession={startSession} />)
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={startSession}
+        createWorkspaceSession={noopCreate}
+      />,
+    )
 
     const trigger = screen.getByRole('button', { name: '项目目录' })
     fireEvent.click(trigger)
     const menu = screen.getByRole('menu')
     expect([...menu.querySelectorAll('[role="menuitem"]')].map(el => el.textContent))
-      .toEqual(['Default directory', '/w/app', '/w/lib', 'New directory…'])
-    fireEvent.click(screen.getByRole('menuitem', { name: '/w/app' }))
+      .toEqual(['app', 'lib', 'New Workspace'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'app' }))
     const box = screen.getByPlaceholderText('Message to run task, plan and build, enter for / commands')
     fireEvent.change(box, { target: { value: '造一个轮子' } })
     fireEvent.keyDown(box, { key: 'Enter' })
@@ -113,14 +121,64 @@ describe('EmptyState', () => {
     expect((box as HTMLTextAreaElement).value).toBe('造一个轮子')
   })
 
-  it('new-directory option swaps the chip for a free-form input', () => {
+  it('Use a existing folder opens the path modal and Open Folder sets the chip', () => {
     const { useSessions } = fakeSessions([])
-    render(<EmptyState useSessions={useSessions} startSession={() => Promise.resolve()} />)
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={noopCreate}
+      />,
+    )
     fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'New directory…' }))
-    const custom = screen.getByPlaceholderText(/Directory path/)
-    fireEvent.change(custom, { target: { value: '/tmp/fresh' } })
-    expect((custom as HTMLInputElement).value).toBe('/tmp/fresh')
+    const newWs = screen.getByRole('menuitem', { name: 'New Workspace' })
+    fireEvent.mouseEnter(newWs.parentElement as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Use a existing folder' }))
+    expect(screen.getByRole('dialog', { name: 'Enter an existing folder path' })).toBeTruthy()
+    const path = screen.getByLabelText('Folder path') as HTMLInputElement
+    fireEvent.change(path, { target: { value: '/tmp/fresh' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open Folder' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: '项目目录' }).textContent).toContain('fresh')
+  })
+
+  it('Create new opens the modal and createWorkspaceSession succeeds', async () => {
+    const { useSessions } = fakeSessions([])
+    const createWorkspaceSession = vi.fn(() => Promise.resolve())
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={createWorkspaceSession}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create new' }))
+    expect(screen.getByRole('dialog', { name: 'Create new workspace' })).toBeTruthy()
+    const name = screen.getByLabelText('Workspace name') as HTMLInputElement
+    expect(name.value).toBe('New WorkSpace')
+    fireEvent.change(name, { target: { value: 'My Proj' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    await vi.waitFor(() => expect(createWorkspaceSession).toHaveBeenCalledWith('My Proj'))
+  })
+
+  it('Create modal Cancel dismisses without calling createWorkspaceSession', () => {
+    const { useSessions } = fakeSessions([])
+    const createWorkspaceSession = vi.fn(() => Promise.resolve())
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={createWorkspaceSession}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create new' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(createWorkspaceSession).not.toHaveBeenCalled()
   })
 })
 
