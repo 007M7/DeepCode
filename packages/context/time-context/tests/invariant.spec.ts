@@ -17,7 +17,7 @@ async function setup(): Promise<Context> {
 
 function event(text: string, time = SECOND + 456, content?: unknown[]): SessionEvent {
   return {
-    type: 'context/message',
+    type: 'user/message',
     seq: 0,
     time,
     data: {
@@ -56,7 +56,7 @@ function preparing(turn: number, step: number): Session {
 }
 
 function appendReading(session: Session, text: string): void {
-  session.append('context/message', {
+  session.append('user/message', {
     content: [{ type: 'text', text }],
     source: { kind: 'plugin', plugin: 'time-context' },
   }, { surfaceOp: 'append' })
@@ -162,7 +162,7 @@ describe('time-context invariants', () => {
 
   it('ignores context messages owned by another package', async () => {
     const ctx = await setup()
-    const other = event('unrelated') as SessionEvent<'context/message'>
+    const other = event('unrelated') as SessionEvent<'user/message'>
     other.data.source = { kind: 'plugin', plugin: 'other' }
     expect(() => { ctx.emit('session/event', preparing(1, 1), other) }).not.toThrow()
     other.data.source = { kind: 'user' }

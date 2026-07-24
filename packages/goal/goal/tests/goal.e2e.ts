@@ -50,11 +50,11 @@ describe('goal domain through a real cordis.yml and headless process', () => {
     expect(result['result']).toContain('CLI tool round trip complete')
     expect(events.filter(event => event.type === 'turn/end')).toHaveLength(1)
 
-    const contexts = events.filter(event => event.type === 'context/message'
+    const contexts = events.filter(event => event.type === 'user/message'
       && event.data.source.kind === 'goal')
     expect(contexts).toHaveLength(1)
     const context = contexts[0]
-    if (context?.type !== 'context/message') throw new Error('expected goal context event')
+    if (context?.type !== 'user/message') throw new Error('expected goal context event')
     const change = decodeGoalChange(context.data.meta)
     if (change === undefined) throw new Error('expected durable goal change')
     expect(change).toMatchObject({
@@ -69,7 +69,9 @@ describe('goal domain through a real cordis.yml and headless process', () => {
     })
     expect(context.data.content).toEqual(renderGoalChange(change))
     expect(JSON.stringify(context)).not.toContain('activation')
+    // No admitted continuation round ran (the snapshot mounts without starting
+    // a round); the round-zero state change from create is expected above.
     expect(events.filter(event => event.type === 'user/message'
-      && event.data.source.kind === 'goal')).toHaveLength(0)
+      && event.data.source.kind === 'goal' && event.data.source.round > 0)).toHaveLength(0)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

@@ -263,7 +263,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-goal',
     source: 'packages/goal/tool-goal/src/index.ts',
     requires: ['ctx.tools', 'ctx.agents', 'ctx.goals', 'ctx.systemPrompt', 'a calling Agent in an authorized open turn'],
-    writes: ['tool/call', 'context/message goal snapshot for mutations', 'tool/result'],
+    writes: ['tool/call', 'user/message goal snapshot for mutations', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(GoalService)
@@ -336,7 +336,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-tasks',
     source: 'packages/tasks/tool-tasks/src/index.ts',
     requires: ['ctx.tools', 'ctx.tasks', 'ctx.systemPrompt'],
-    writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
+    writes: ['tool/call', 'tool/result', 'user/message via agent.inject() for background completion notices'],
     async mount(ctx) {
       await ctx.plugin(TaskService)
       await ctx.plugin(ToolTasks)

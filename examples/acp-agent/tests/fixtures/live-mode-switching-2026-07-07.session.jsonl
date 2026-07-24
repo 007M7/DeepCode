@@ -688,7 +688,7 @@
 {"type":"turn/start","seq":686,"time":1783421455801,"data":{"turn":4,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"approval/policy","seq":687,"time":1783421455801,"data":{"policy":"never"}}
 {"type":"user/message","seq":688,"time":1783421455801,"data":{"content":[{"type":"text","text":"帮我创建一个 c.md"}],"source":{"kind":"user"}},"surfaceOp":"append"}
-{"type":"context/message","seq":689,"time":1783421455802,"data":{"content":[{"type":"text","text":"The approval policy changed from \"ask\" to \"never\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"approval"}},"surfaceOp":"append"}
+{"type":"user/message","seq":689,"time":1783421455802,"data":{"content":[{"type":"text","text":"The approval policy changed from \"ask\" to \"never\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"approval"}},"surfaceOp":"append"}
 {"type":"step/start","seq":690,"time":1783421455802,"data":{"turn":4,"step":1}}
 {"type":"request/header-delta","seq":691,"time":1783421455802,"data":{"system":{"keepStart":13,"keepEnd":0,"insert":["","Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation."]}}}
 {"type":"assistant/chunk","seq":692,"time":1783421456825,"data":{"turn":4,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
@@ -830,7 +830,7 @@
 {"type":"turn/start","seq":828,"time":1783421478599,"data":{"turn":5,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"bash/sandbox-mode","seq":829,"time":1783421478599,"data":{"mode":"workspace-write"}}
 {"type":"user/message","seq":830,"time":1783421478599,"data":{"content":[{"type":"text","text":"帮我创建一个 d.md"}],"source":{"kind":"user"}},"surfaceOp":"append"}
-{"type":"context/message","seq":831,"time":1783421478600,"data":{"content":[{"type":"text","text":"The bash sandbox mode changed from \"read-only\" to \"workspace-write\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"tool-bash"}},"surfaceOp":"append"}
+{"type":"user/message","seq":831,"time":1783421478600,"data":{"content":[{"type":"text","text":"The bash sandbox mode changed from \"read-only\" to \"workspace-write\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"tool-bash"}},"surfaceOp":"append"}
 {"type":"step/start","seq":832,"time":1783421478600,"data":{"turn":5,"step":1}}
 {"type":"request/header-delta","seq":833,"time":1783421478600,"data":{"system":{"keepStart":12,"keepEnd":2,"insert":["Bash commands run under the \"workspace-write\" file sandbox."]}}}
 {"type":"assistant/chunk","seq":834,"time":1783421479489,"data":{"turn":5,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
@@ -1482,7 +1482,7 @@
 {"type":"turn/start","seq":1480,"time":1783421524030,"data":{"turn":7,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"approval/policy","seq":1481,"time":1783421524030,"data":{"policy":"ask"}}
 {"type":"user/message","seq":1482,"time":1783421524030,"data":{"content":[{"type":"text","text":"帮我在 ~ 创建一个 f.md"}],"source":{"kind":"user"}},"surfaceOp":"append"}
-{"type":"context/message","seq":1483,"time":1783421524030,"data":{"content":[{"type":"text","text":"The approval policy changed from \"never\" to \"ask\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"approval"}},"surfaceOp":"append"}
+{"type":"user/message","seq":1483,"time":1783421524030,"data":{"content":[{"type":"text","text":"The approval policy changed from \"never\" to \"ask\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"approval"}},"surfaceOp":"append"}
 {"type":"step/start","seq":1484,"time":1783421524030,"data":{"turn":7,"step":1}}
 {"type":"request/header-delta","seq":1485,"time":1783421524030,"data":{"system":{"keepStart":13,"keepEnd":0,"insert":[]}}}
 {"type":"assistant/chunk","seq":1486,"time":1783421524940,"data":{"turn":7,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
@@ -1946,7 +1946,7 @@
 {"type":"turn/start","seq":1944,"time":1783421552564,"data":{"turn":9,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"bash/sandbox-mode","seq":1945,"time":1783421552564,"data":{"mode":"danger-full-access"}}
 {"type":"user/message","seq":1946,"time":1783421552564,"data":{"content":[{"type":"text","text":"创建一个 h.md"}],"source":{"kind":"user"}},"surfaceOp":"append"}
-{"type":"context/message","seq":1947,"time":1783421552564,"data":{"content":[{"type":"text","text":"The bash sandbox mode changed from \"workspace-write\" to \"danger-full-access\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"tool-bash"}},"surfaceOp":"append"}
+{"type":"user/message","seq":1947,"time":1783421552564,"data":{"content":[{"type":"text","text":"The bash sandbox mode changed from \"workspace-write\" to \"danger-full-access\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"tool-bash"}},"surfaceOp":"append"}
 {"type":"step/start","seq":1948,"time":1783421552564,"data":{"turn":9,"step":1}}
 {"type":"request/header-delta","seq":1949,"time":1783421552564,"data":{"system":{"keepStart":12,"keepEnd":0,"insert":["Bash commands run under the \"danger-full-access\" file sandbox."]}}}
 {"type":"assistant/chunk","seq":1950,"time":1783421553289,"data":{"turn":9,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}

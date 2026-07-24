@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
@@ -27,10 +27,10 @@ function nextTurn(session: Session): number {
 
 /** Append one idle injection using the public Agent contract's balanced shape. */
 function appendInjection(session: Session, content: ContentBlock[], options?: InjectOptions): void {
-  const source: MessageSource = options?.source ?? { kind: 'user' }
+  const source: MessageSource = options?.source ?? { kind: 'plugin', plugin: '' }
   const turn = nextTurn(session)
   session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-  session.append('context/message', {
+  session.append('user/message', {
     content,
     source,
     ...options?.meta === undefined ? {} : { meta: options.meta },
@@ -48,9 +48,11 @@ function stubAgent(id: string): { agent: Agent; session: Session } {
     session,
     ctx: new Context(),
     get status() { return status },
-    send() {},
-    steer() {},
-    inject(content, options) { appendInjection(session, content, options) },
+    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject(content, options) { appendInjection(session, content, options); return AgentMessageId('stub') },
+    send: () => AgentMessageId('stub'),
     cancel() { status = 'idle' },
     whenIdle() { return Promise.resolve() },
   }
@@ -125,7 +127,7 @@ describe('/goal human command', () => {
     expect(created.text).toContain('Rounds: 0/256')
     expect(created.text).toContain('Activation: armed')
     expect(test.ctx.goals.get(test.agent)?.objective).toBe('finish the release')
-    expect(test.session.events.map(event => event.type)).toEqual(['turn/start', 'context/message', 'turn/end'])
+    expect(test.session.events.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
 
     const count = test.session.events.length
     await expect(run(test, ' replacement')).resolves.toEqual({

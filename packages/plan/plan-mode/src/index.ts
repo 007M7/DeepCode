@@ -357,7 +357,7 @@ export class PlanModeService extends Service {
     const text = target
       ? 'The user switched this session to plan mode.'
       : 'The user switched this session back to the default mode.'
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text }],
       source: { kind: 'plugin', plugin: 'plan-mode' },
     }, { surfaceOp: 'append' })

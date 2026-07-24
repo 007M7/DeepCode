@@ -89,7 +89,7 @@ export interface GoalClearChangeMeta {
   readonly clearedAt: number
 }
 
-/** Durable metadata union carried by a goal-owned `context/message`. */
+/** Durable metadata union carried by a goal-owned round-zero `user/message`. */
 export type GoalChangeMeta = GoalSnapshotChangeMeta | GoalClearChangeMeta
 
 /** Message attribution for durable goal state and continuation rounds. */

@@ -22,7 +22,7 @@ flowchart TD
   normalized["Registry outer normalization<br/>pipeline/result snapshot throws become isError"]
   finalize["ToolDefinition.finalizeContent<br/>last content-only invariant"]
   final["<code>tools/result</code> synchronous notification<br/>frozen authoritative outcome"]
-  context["Active-batch additionalContexts FIFO<br/>context/message after recorded tool results"]
+  context["Active-batch additionalContexts FIFO<br/>injected user/message after recorded tool results"]
   toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
   allResults["Tool batch settled<br/>recorded tool/result events complete"]
   presentResult["UI completed card<br/>presentResult(args, result)"]

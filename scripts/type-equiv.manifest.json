@@ -73,12 +73,32 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "AgentCancelCause",
+      "symbol": "InjectOptions",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "InjectOptions",
+      "symbol": "ResolvedAgentInput",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentMessageId",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentMessage",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "CancelOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentCancelCause",
       "source": "packages/core/agent/src/types.ts"
     },
     {

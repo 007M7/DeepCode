@@ -370,7 +370,9 @@ export class GoalService extends Service {
   /** Incrementally observe durable events without losing deferred mutations. */
   private sync(session: Session, cache: GoalCache): void {
     for (const event of session.events.slice(cache.observedSeq)) {
-      if (event.type === 'context/message') {
+      // A goal state change is a round-zero goal-sourced user message; a
+      // positive round is a continuation prompt handled by applyGoalEvent.
+      if (event.type === 'user/message' && event.data.source.kind === 'goal' && event.data.source.round === 0) {
         const change = decodeGoalEvent(event)
         if (change !== undefined) {
           const pending = cache.pending[0]

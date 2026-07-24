@@ -383,7 +383,7 @@ describe('acp bridge', () => {
         },
       }],
     })
-    expect(target.events.some(event => event.type === 'context/message')).toBe(false)
+    expect(target.events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
     const request = JSON.stringify(harness.adapter.requests[0]?.messages)
     expect(request).toContain('untrusted, read-only snapshot')
     expect(request).toContain('source background')

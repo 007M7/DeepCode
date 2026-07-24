@@ -7,7 +7,7 @@ import type { GoalView } from '@deepseek-ai/dsh-goal'
  * Render the complete goal-round instruction retained in session history.
  * @param goal - exact active goal revision being admitted.
  * @param round - next positive round number.
- * @returns a fresh one-block prompt for `Agent.send()`.
+ * @returns a fresh one-block prompt for `Agent.followup()`.
  */
 export function renderGoalRoundPrompt(goal: GoalView, round: number): ContentBlock[] {
   return [{

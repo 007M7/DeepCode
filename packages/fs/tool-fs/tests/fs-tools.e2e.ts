@@ -36,7 +36,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
     // (config.cwd = workdir) is the workspace.
     const agent = ctx.agentLoop.create(SessionId('fs-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.send([{ type: 'text', text:
+    agent.followup([{ type: 'text', text:
       'Create a file named note.txt containing exactly the line: status: draft. '
       + 'Then read it back, then edit it to replace the literal word draft with final. '
       + 'Tell me when done.' }])
@@ -68,7 +68,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
         meta: { cwd: sessionDir },
         agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
       })
-      handle.agent.send([{ type: 'text', text:
+      handle.agent.followup([{ type: 'text', text:
         'Use the write tool to create a file named where.txt containing exactly the line: here. Tell me when done.' }])
       await waitForIdle(ctx, handle.agent)
 

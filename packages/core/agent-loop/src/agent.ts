@@ -6,15 +6,25 @@
  * @module dsh-agent-loop/agent
  */
 
+import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentCancelCause, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
+import type {
+  Agent,
+  AgentCancelCause,
+  AgentOptions,
+  AgentStatus,
+  CancelOptions,
+  HookContext,
+  InjectOptions,
+  ResolvedAgentInput,
+  SendOptions,
+} from '@deepseek-ai/dsh-agent'
 import { deepFreeze, errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { DISPOSED_INTERRUPT_REASON, TurnCancellation } from './cancellation.ts'
-import { Inbox, type InboxMessage } from './inbox.ts'
+import { Inbox, agentMessage, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
 /** Sessions already claimed by a concrete driver construction. */
@@ -190,19 +200,17 @@ export class ReactLoopAgent implements Agent {
     for (const resolve of waiters) resolve()
   }
 
-  private resolveSource(options?: SendOptions): MessageSource {
-    return options?.source ?? { kind: 'user' }
-  }
-
   /**
    * Accept one public message payload as a detached record. Lossless-JSON
    * materialization reads every nested field once; deep freeze prevents later
    * caller mutation before an inbox or deferred-injection queue drains it.
    */
-  private acceptMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
-    const source = this.resolveSource(options)
-    const contexts = options?.contexts ?? []
-    const accepted = snapshotJsonValue({ content, source, contexts })
+  private snapshotMessage(id: AgentMessageId, input: ResolvedAgentInput): InboxMessage {
+    const { content, source, contexts, wakeup, meta } = input
+    const accepted = snapshotJsonValue({
+      id, content, source, contexts, wakeup,
+      ...meta !== undefined ? { meta } : {},
+    })
     if (accepted === undefined) {
       throw new TypeError('agent message content, source, and contexts must be losslessly JSON-serializable')
     }
@@ -223,33 +231,81 @@ export class ReactLoopAgent implements Agent {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
   }
 
-  send(content: ContentBlock[], options?: SendOptions): void {
+  /** Accept one fully resolved agent input through the concrete driver's routing matrix. */
+  send(input: ResolvedAgentInput): AgentMessageId {
     this.assertNotDisposed()
-    const accepted = this.acceptMessage(content, options)
-    this.#inbox.enqueue(accepted)
-    const info = { source: accepted.source, contexts: accepted.contexts, steering: false } as const
-    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
+    const id = AgentMessageId(randomUUID())
+    const { target, wakeup } = input
+    // next-step/no-wakeup is injection: durable context without running the model.
+    if (target === 'next-step' && !wakeup) { this.injectContext(input); return id }
+    // next-step/wakeup is steering into the running turn; idle falls back to a
+    // waking ordinary turn (there is no active turn to attach to).
+    const steering = target === 'next-step' && this._status === 'running'
+    const accepted = this.snapshotMessage(id, input)
+    if (steering) {
+      this.#inbox.steer(accepted)
+    } else {
+      this.#inbox.enqueue(accepted, wakeup)
+    }
+    agentEvents(this.loopCtx, this).emit('agent/inbox/enqueue', agentMessage(accepted, steering))
+    return id
   }
 
-  steer(content: ContentBlock[], options?: SendOptions): void {
-    this.assertNotDisposed()
-    if (this._status !== 'running') { this.send(content, options); return }
-    const accepted = this.acceptMessage(content, options)
-    this.#inbox.steer(accepted)
-    const info = { source: accepted.source, contexts: accepted.contexts, steering: true } as const
-    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
+  followup(content: ContentBlock[], options?: SendOptions): AgentMessageId {
+    return this.send({
+      content,
+      target: 'next-turn',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+      contexts: options?.contexts ?? [],
+      meta: options?.meta,
+    })
   }
 
-  inject(content: ContentBlock[], options?: InjectOptions): void {
-    this.assertNotDisposed()
-    const source = this.resolveSource(options)
-    const context = {
+  queue(content: ContentBlock[], options?: SendOptions): AgentMessageId {
+    return this.send({
+      content,
+      target: 'next-turn',
+      wakeup: false,
+      source: options?.source ?? { kind: 'user' },
+      contexts: options?.contexts ?? [],
+      meta: options?.meta,
+    })
+  }
+
+  steer(content: ContentBlock[], options?: SendOptions): AgentMessageId {
+    return this.send({
+      content,
+      target: 'next-step',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+      contexts: options?.contexts ?? [],
+      meta: options?.meta,
+    })
+  }
+
+  inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId {
+    return this.send({
+      content,
+      target: 'next-step',
+      wakeup: false,
+      source: options?.source ?? { kind: 'plugin', plugin: '' },
+      contexts: [],
+      meta: options?.meta,
+    })
+  }
+
+  /** The `next-step`/no-wakeup injection path: durable context, no FIFO, no run. */
+  private injectContext(input: Extract<ResolvedAgentInput, { target: 'next-step'; wakeup: false }>): void {
+    const { content, source, meta } = input
+    // Detach and validate the payload before any append, so malformed input
+    // cannot open a one-shot turn or otherwise mutate the session.
+    const accepted = this.acceptContext({
       content,
       source,
-      ...options?.meta !== undefined ? { meta: options.meta } : {},
-    }
+      ...meta !== undefined ? { meta } : {},
+    })
     if (isTurnOpen(this.session)) {
-      const accepted = this.acceptContext(context)
       // Provider protocols require every assistant tool-call batch to be
       // followed only by its tool results. Historical interrupted batches do
       // not own new context; only the currently executing batch may defer it.
@@ -257,27 +313,29 @@ export class ReactLoopAgent implements Agent {
         this.deferredInjections.push(accepted)
         return
       }
-      this.session.append('context/message', accepted, { surfaceOp: 'append' })
+      this.session.append('user/message', accepted, { surfaceOp: 'append' })
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
-    // turn-enclosed (the durability/replay boundary is the turn).
+    // turn-enclosed (the durability/replay boundary is the turn). The payload is
+    // validated above, but `Session.append` can still reject a turn/start
+    // pre-commit (append re-entrancy from a session/event listener, or an
+    // internal-dispatch veto), so the finally owes a turn/end only when
+    // turn/start actually committed.
     const turn = lastTurnNumber(this.session) + 1
-    // Once turn/start enters the log, a turn/end is owed even if the message
-    // append fails acceptance or pre-commit validation. The finally re-checks
-    // the log and closes only a turn that actually opened; post-commit observers
-    // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('context/message', context, { surfaceOp: 'append' })
+      this.session.append('user/message', accepted, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. A pre-commit veto
       // must escape rather than being mistaken for a committed turn/end.
       if (isTurnOpen(this.session)) {
         this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
       }
-      // Decide the durability checkpoint from the log: an accepted one-shot
-      // turn must be flushed even when its message append was the failing step.
+      // Checkpoint only an accepted one-shot turn: a turn/start rejected
+      // pre-commit recorded nothing, so it owes no flush (and a spurious flush
+      // would emit a phantom-turn agent/error). The payload is validated up
+      // front, so a committed turn/start is always followed by its user/message.
       const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
       // Keep inject() synchronous: report checkpoint failures live instead of
       // rejecting the caller, and track the task so disposal still drains it.
@@ -301,7 +359,7 @@ export class ReactLoopAgent implements Agent {
   private drainDeferredInjections(): void {
     const pending = this.deferredInjections.splice(0)
     for (const accepted of pending) {
-      this.session.append('context/message', accepted, { surfaceOp: 'append' })
+      this.session.append('user/message', accepted, { surfaceOp: 'append' })
     }
   }
 
@@ -325,10 +383,14 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  cancel(cause?: AgentCancelCause): void {
+  cancel(cause?: AgentCancelCause, options?: CancelOptions): void {
     const resolvedCause = cause ?? { kind: 'user' }
+    const keepInbox = options?.keepInbox ?? false
     const cancellation = this.turnCancellation
-    const preRun = cancellation === undefined && (this.#inbox.hasQueued || this.#inbox.hasSteering)
+    // keepInbox preserves pending work, so un-started items must not arm the
+    // pre-run cancel path that would otherwise drop the next queued turn.
+    const preRun = !keepInbox && cancellation === undefined
+      && (this.#inbox.hasQueued || this.#inbox.hasSteering)
     if (cancellation !== undefined || preRun) {
       if (preRun) this.preRunCancelled = true
       // Coordination consumers must update their own state before this call
@@ -336,9 +398,24 @@ export class ReactLoopAgent implements Agent {
       // contained by the fused dispatcher and cannot veto cancellation.
       agentEvents(this.loopCtx, this).emit('agent/cancel-requested', resolvedCause)
     }
-    // Clear work already present before abort observers run. A replacement
-    // synchronously enqueued by an observer belongs to the next turn.
-    this.#inbox.clear()
+    if (!keepInbox) {
+      // Snapshot before clearing so the discard notification carries the exact
+      // dropped items; a replacement synchronously enqueued by an
+      // `agent/cancel-requested` observer belongs to the next turn, not here.
+      const discarded = this.#inbox.pending()
+      // Clear work already present before abort observers run.
+      this.#inbox.clear()
+      if (discarded.length > 0) {
+        const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
+        agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
+      }
+      // No idle-waiter settle here: a `whenIdle` waiter exists only while the
+      // agent is `running` or a waking item is queued, and neither is left
+      // quiescent by clearing the inbox — a lone quiet item takes `whenIdle`'s
+      // fast path (no waiter), a waking item keeps the woken driver running,
+      // and a running agent owns its own idle transition (including the
+      // post-turn flush window).
+    }
     cancellation?.request(resolvedCause)
   }
 
@@ -349,7 +426,9 @@ export class ReactLoopAgent implements Agent {
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
-    if (this._status !== 'running' && !this.#inbox.hasQueued) return Promise.resolve()
+    // A lone quiet (`wakeup:false`) queued item leaves the agent quiescent — the
+    // driver stays parked — so gate on hasWakingQueued, not hasQueued.
+    if (this._status !== 'running' && !this.#inbox.hasWakingQueued) return Promise.resolve()
     // Agent-owned waiters survive concurrent fiber disposal.
     return new Promise<void>((resolve) => {
       this.idleWaiters.push(() => {
@@ -407,8 +486,21 @@ export class ReactLoopAgent implements Agent {
    */
   private [stopDriver](): Promise<void> | void {
     if (this._status !== 'disposed') {
+      // Snapshot any still-pending inbox items, then CLEAR and mark disposed
+      // BEFORE emitting the discard — mirroring cancel()'s snapshot→clear→emit
+      // order so a re-entrant followup()/cancel() from a discard listener throws
+      // `disposed` (or finds an empty inbox) instead of leaking or double-
+      // discarding an id. `followup()` emits enqueue unconditionally, so the discard
+      // is unconditional too (even on an unpublished rollback) to keep every
+      // enqueued id matched.
+      const discarded = this.#inbox.pending()
+      this.#inbox.clear()
       this._status = 'disposed'
       this.resolveDisposed()
+      if (discarded.length > 0) {
+        const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
+        agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
+      }
       // Release whenIdle waiters BEFORE the (guarded) event emit — they are
       // internal state that must settle even if a listener throws below. Each
       // waiter chains `done`, so it resolves only once the loop actually exits.

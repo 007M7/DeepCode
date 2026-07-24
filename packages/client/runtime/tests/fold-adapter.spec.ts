@@ -40,7 +40,7 @@ describe('FoldAdapter', () => {
       ev.user(0, '用户'),
       ev.assistant(1, 0, '助手'),
       at(2, { type: 'steering/message', surfaceOp: 'append', data: { turn: 0, content: [{ type: 'text', text: '插话' }], source: { kind: 'user' } } }),
-      at(3, { type: 'context/message', surfaceOp: 'append', data: { content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' } } }),
+      at(3, { type: 'user/message', surfaceOp: 'append', data: { content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' } } }),
       ev.toolCall(4, 0, 'c1', 'echo', '{"x":1}'),
       ev.toolResult(5, 0, 'c1', '结果'),
     ]

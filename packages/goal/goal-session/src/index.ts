@@ -219,7 +219,7 @@ export function apply(ctx: Context): void {
     }
     state.attempt = reservation
     try {
-      agent.send(content, {
+      agent.followup(content, {
         source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
       })
     } catch (error: unknown) {
@@ -306,10 +306,10 @@ export function apply(ctx: Context): void {
         requestDrive(state)
       }
     })
-    ctx.on('agent/queued', (agent, content, info) => {
+    ctx.on('agent/inbox/enqueue', (agent, info) => {
       const state = stateFor(agent)
       const attempt = state.attempt
-      if (attempt !== undefined && sameQueued(content, info.source, attempt)) return
+      if (attempt !== undefined && sameQueued(info.content, info.source, attempt)) return
       state.competingQueued = true
       if (attempt?.phase === 'queued') attempt.stale = true
     })
