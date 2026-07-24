@@ -19,7 +19,10 @@ function setup(over?: Partial<InputBarProps>) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
-  const button = view.container.querySelector('button')!
+  // aria-label (not role name): title also contains 发送/停止 and would double-match.
+  const button = view.container.querySelector<HTMLButtonElement>(
+    `button[aria-label="${over?.running === true ? '停止' : '发送'}"]`,
+  )!
   return { view, textarea, button, props }
 }
 
@@ -97,7 +100,7 @@ describe('running lock and primary button', () => {
     const textarea = view.container.querySelector('textarea')!
     expect(document.activeElement).toBe(textarea)
     textarea.blur()
-    fireEvent.mouseDown(view.container.querySelector('button')!)
+    fireEvent.mouseDown(view.container.querySelector('button[aria-label="发送"]')!)
     expect(document.activeElement).toBe(textarea)
   })
 
@@ -127,5 +130,40 @@ describe('error strip and variants', () => {
     const { view } = setup({ variant: 'hero', accessory: <i data-testid="acc" /> })
     expect(view.getByTestId('acc')).toBeTruthy()
     expect(view.container.querySelector('[class*="hero"]')).not.toBeNull()
+  })
+})
+
+describe('placeholder chrome', () => {
+  it('renders attach / Plan / Read-only / model controls', () => {
+    const { view } = setup()
+    expect(view.getByLabelText('添加')).toBeTruthy()
+    expect((view.getByLabelText('Plan mode') as HTMLSelectElement).value).toBe('plan')
+    expect((view.getByLabelText('Access mode') as HTMLSelectElement).value).toBe('readonly')
+    expect((view.getByLabelText('Model') as HTMLSelectElement).value).toBe('v4-pro-high')
+  })
+
+  it('native select change updates the selected option', () => {
+    const { view } = setup()
+    const plan = view.getByLabelText('Plan mode') as HTMLSelectElement
+    fireEvent.change(plan, { target: { value: 'agent' } })
+    expect(plan.value).toBe('agent')
+    const access = view.getByLabelText('Access mode') as HTMLSelectElement
+    fireEvent.change(access, { target: { value: 'readwrite' } })
+    expect(access.value).toBe('readwrite')
+  })
+
+  it('model select can drop the High option', () => {
+    const { view } = setup()
+    const model = view.getByLabelText('Model') as HTMLSelectElement
+    fireEvent.change(model, { target: { value: 'v4-pro' } })
+    expect(model.value).toBe('v4-pro')
+    expect(model.selectedOptions[0]?.textContent).toBe('DeepSeek-V4-Pro')
+  })
+
+  it('running locks the chrome selects and attach control', () => {
+    const { view } = setup({ running: true })
+    expect((view.getByLabelText('添加') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('Plan mode') as HTMLSelectElement).disabled).toBe(true)
+    expect((view.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true)
   })
 })

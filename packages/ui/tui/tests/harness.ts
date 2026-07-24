@@ -14,6 +14,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
+import { TestSessionQueryService } from './session-query.ts'
 
 interface FakeAgent extends Agent {
   status: AgentStatus
@@ -48,7 +49,13 @@ export interface TuiHarnessOptions {
     resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
   }
   /** Provide a fake `sessionPersistence` service so resume surfaces can list sessions. */
-  sessionPersistence?: { list(): Promise<SessionHeader[]> }
+  sessionPersistence?: {
+    list(): Promise<SessionHeader[]>
+    load?(id: ReturnType<typeof SessionId>): Promise<{ meta: SessionHeader; events: Session['events'] }>
+  }
+  handoffResume?: TuiRuntime['handoffResume']
+  /** Set false to exercise the optional session-query degradation path. */
+  mountSessionQuery?: boolean
 }
 
 export interface TuiHarness<TerminalType extends Terminal, Exit extends (code: number) => void> {
@@ -118,7 +125,22 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   }
   if (ctx.get('systemPrompt') === undefined) await ctx.plugin(SystemPrompt)
   if (options.sessionPersistence !== undefined) {
-    ctx.provide('sessionPersistence', options.sessionPersistence as never)
+    const persistence = options.sessionPersistence
+    ctx.provide('sessionPersistence', {
+      ...persistence,
+      locate: () => undefined,
+      create: () => Promise.resolve(),
+      append: () => Promise.resolve(),
+      load: persistence.load === undefined
+        ? (id: ReturnType<typeof SessionId>) => Promise.reject(new Error(`session "${id}" not found`))
+        : (id: ReturnType<typeof SessionId>) => persistence.load!(id),
+      inspect: persistence.load === undefined
+        ? (id: ReturnType<typeof SessionId>) => Promise.reject(new Error(`session "${id}" not found`))
+        : (id: ReturnType<typeof SessionId>) => persistence.load!(id),
+    } as never)
+  }
+  if (options.mountSessionQuery !== false && ctx.get('sessionQuery') === undefined) {
+    await ctx.plugin(TestSessionQueryService)
   }
   const sessionId = SessionId('main-session')
   const session = ctx.sessions.create(
@@ -178,6 +200,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     // test pins the clock only by passing `now` explicitly.
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
+    ...(options.handoffResume === undefined ? {} : { handoffResume: options.handoffResume }),
   })
   return { ctx, session, agent, terminal, exit, controller }
 }
