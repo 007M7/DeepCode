@@ -205,10 +205,6 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
-  /** Resume-selector width in terminal columns. */
-  resumeDialogWidth?: number
-  /** Resume-selector maximum height in terminal rows. */
-  resumeDialogMaxHeight?: number
   /** Maximum fuzzy file candidates displayed for one `@` query. */
   fileSearchMaxResults?: number
   /** Maximum paths retained in one `@` workspace index. */
@@ -239,8 +235,6 @@ const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
-const resumeDialogWidthSchema = z.number().step(1).min(36).default(88)
-const resumeDialogMaxHeightSchema = z.number().step(1).min(8).default(24)
 const fileSearchMaxResultsSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_RESULTS)
 const fileSearchMaxEntriesSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_ENTRIES)
 const fileSearchExcludedDirectoriesSchema = z.array(z.string()).default([...DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES])
@@ -260,8 +254,6 @@ const tuiConfigSchemaFields = {
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
   modelDialogWidth: modelDialogWidthSchema,
   modelDialogMaxHeight: modelDialogMaxHeightSchema,
-  resumeDialogWidth: resumeDialogWidthSchema,
-  resumeDialogMaxHeight: resumeDialogMaxHeightSchema,
   fileSearchMaxResults: fileSearchMaxResultsSchema,
   fileSearchMaxEntries: fileSearchMaxEntriesSchema,
   fileSearchExcludedDirectories: fileSearchExcludedDirectoriesSchema,
@@ -302,8 +294,6 @@ export const Config: z<Config> = z.object({
   questionDialogMaxHeight: tuiConfigSchemaFields.questionDialogMaxHeight,
   modelDialogWidth: tuiConfigSchemaFields.modelDialogWidth,
   modelDialogMaxHeight: tuiConfigSchemaFields.modelDialogMaxHeight,
-  resumeDialogWidth: tuiConfigSchemaFields.resumeDialogWidth,
-  resumeDialogMaxHeight: tuiConfigSchemaFields.resumeDialogMaxHeight,
   fileSearchMaxResults: tuiConfigSchemaFields.fileSearchMaxResults,
   fileSearchMaxEntries: tuiConfigSchemaFields.fileSearchMaxEntries,
   fileSearchExcludedDirectories: tuiConfigSchemaFields.fileSearchExcludedDirectories,
@@ -324,8 +314,6 @@ export interface ResolvedTuiConfig {
   questionDialogMaxHeight: number
   modelDialogWidth: number
   modelDialogMaxHeight: number
-  resumeDialogWidth: number
-  resumeDialogMaxHeight: number
   fileSearchMaxResults: number
   fileSearchMaxEntries: number
   fileSearchExcludedDirectories: string[]
@@ -370,8 +358,6 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
     modelDialogWidth: config?.modelDialogWidth ?? 72,
     modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
-    resumeDialogWidth: config?.resumeDialogWidth ?? 88,
-    resumeDialogMaxHeight: config?.resumeDialogMaxHeight ?? 24,
     fileSearchMaxResults: config?.fileSearchMaxResults ?? DEFAULT_FILE_SEARCH_MAX_RESULTS,
     fileSearchMaxEntries: config?.fileSearchMaxEntries ?? DEFAULT_FILE_SEARCH_MAX_ENTRIES,
     fileSearchExcludedDirectories: [...(config?.fileSearchExcludedDirectories ?? DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES)],
@@ -1346,9 +1332,9 @@ function summarizeResumeCandidate(
   }
 }
 
-/** Searchable keyboard selector over detached, preflighted resume summaries. */
-class ResumeDialog implements Component, Focusable {
-  private query = ''
+/** Full-viewport keyboard selector over detached, preflighted resume summaries. */
+class ResumePicker implements Component, Focusable {
+  private readonly search = new Input()
   private selectedIndex = 0
   private error = ''
   focused = false
@@ -1356,87 +1342,133 @@ class ResumeDialog implements Component, Focusable {
   constructor(
     private readonly candidates: readonly ResumeCandidate[],
     private readonly maxVisible: number,
+    private readonly workspaceLabel: string,
+    private readonly viewportRows: () => number,
     private readonly palette: Palette,
     private readonly done: (candidate: ResumeCandidate) => void,
     private readonly cancel: () => void,
   ) {}
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.search.invalidate()
+  }
 
   private filtered(): ResumeCandidate[] {
-    const query = this.query.trim().toLocaleLowerCase()
+    const query = this.search.getValue().trim().toLocaleLowerCase()
     if (query === '') return [...this.candidates]
     return this.candidates.filter(candidate => candidate.title.toLocaleLowerCase().includes(query)
       || candidate.record.header.id.toLocaleLowerCase().includes(query))
   }
 
   handleInput(data: string): void {
-    this.invalidate()
     const filtered = this.filtered()
-    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+    if (matchesKey(data, Key.ctrl('c'))) {
       this.cancel()
       return
     }
-    if (matchesKey(data, Key.up)) {
+    if (matchesKey(data, Key.escape)) {
+      if (this.search.getValue() === '') this.cancel()
+      else {
+        this.search.setValue('')
+        this.selectedIndex = 0
+        this.error = ''
+      }
+    } else if (matchesKey(data, Key.up)) {
       this.selectedIndex = filtered.length === 0
         ? 0
         : (this.selectedIndex + filtered.length - 1) % filtered.length
     } else if (matchesKey(data, Key.down)) {
       this.selectedIndex = filtered.length === 0 ? 0 : (this.selectedIndex + 1) % filtered.length
+    } else if (matchesKey(data, Key.pageUp)) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - this.maxVisible)
+    } else if (matchesKey(data, Key.pageDown)) {
+      this.selectedIndex = Math.min(
+        Math.max(0, filtered.length - 1),
+        this.selectedIndex + this.maxVisible,
+      )
     } else if (matchesKey(data, Key.enter)) {
       const selected = filtered[this.selectedIndex]
       if (selected === undefined) this.error = 'No session matches this search.'
       else if (selected.disabledReason !== undefined) this.error = selected.disabledReason
       else this.done(selected)
-    } else if (data === '\x7f' || data === '\b') {
-      this.query = Array.from(this.query).slice(0, -1).join('')
-      this.selectedIndex = 0
-      this.error = ''
-    } else if (!Array.from(data).some(character => character < ' ' || character === '\x7f')) {
-      this.query += data
-      this.selectedIndex = 0
-      this.error = ''
+    } else {
+      const previous = this.search.getValue()
+      this.search.focused = this.focused
+      this.search.handleInput(data)
+      if (this.search.getValue() !== previous) {
+        this.selectedIndex = 0
+        this.error = ''
+      }
     }
+    this.invalidate()
   }
 
   render(width: number): string[] {
-    const innerWidth = Math.max(1, width - 4)
+    this.search.focused = this.focused
+    const height = Math.max(1, this.viewportRows())
+    const horizontalPadding = width >= 12 ? 2 : 0
+    const contentWidth = Math.max(1, width - horizontalPadding * 2)
+    const indent = ' '.repeat(horizontalPadding)
     const filtered = this.filtered()
     if (this.selectedIndex >= filtered.length) this.selectedIndex = Math.max(0, filtered.length - 1)
-    const start = Math.max(0, Math.min(
-      this.selectedIndex - Math.floor(this.maxVisible / 2),
-      filtered.length - this.maxVisible,
-    ))
-    const end = Math.min(filtered.length, start + this.maxVisible)
-    const body: string[] = [
-      this.query === ''
-        ? `${this.palette.muted('Search:')} ${this.palette.dim('title or session id')}`
-        : this.palette.text(`Search: ${displayText(this.query)}`),
+    const selected = filtered[this.selectedIndex]
+    const position = selected === undefined ? 0 : this.selectedIndex + 1
+    const lines: string[] = [
+      '',
+      `${indent}${this.palette.bold(this.palette.accent(`Resume session (${position} of ${filtered.length})`))}`,
       '',
     ]
+
+    const searchInnerWidth = Math.max(1, contentWidth - 4)
+    lines.push(`${indent}${this.palette.dim(`╭${'─'.repeat(Math.max(0, contentWidth - 2))}╮`)}`)
+    const searchContent = (this.search.render(searchInnerWidth)[0] ?? '').replace(/^> /u, '⌕ ')
+    const clippedSearch = truncateToWidth(searchContent, searchInnerWidth, '')
+    lines.push(
+      `${indent}${this.palette.dim('│')} ${clippedSearch}${' '.repeat(Math.max(0, searchInnerWidth - visibleWidth(clippedSearch)))} ${this.palette.dim('│')}`,
+      `${indent}${this.palette.dim(`╰${'─'.repeat(Math.max(0, contentWidth - 2))}╯`)}`,
+      '',
+      `${indent}${this.palette.muted(displayText(this.workspaceLabel))}`,
+      '',
+    )
+
+    const candidateBudget = Math.max(1, Math.floor((height - 13) / 4))
+    const visibleCount = Math.min(this.maxVisible, candidateBudget)
+    const start = Math.max(0, Math.min(
+      this.selectedIndex - Math.floor(visibleCount / 2),
+      filtered.length - visibleCount,
+    ))
+    const end = Math.min(filtered.length, start + visibleCount)
+    const push = (line: string): void => {
+      lines.push(`${indent}${truncateToWidth(line, contentWidth, '…')}`)
+    }
     for (let index = start; index < end; index += 1) {
       const candidate = filtered[index] as ResumeCandidate
-      const selected = index === this.selectedIndex
+      const active = index === this.selectedIndex
       const status = [
         candidate.disabledReason === 'current session' ? 'current' : undefined,
         candidate.record.live ? 'live' : undefined,
         candidate.record.persisted ? 'persisted' : undefined,
       ].filter((value): value is string => value !== undefined).join(' · ')
-      const lead = `${selected ? '›' : ' '} ${displayText(candidate.title)}`
-      body.push(selected ? this.palette.bold(this.palette.accent(lead)) : lead)
+      const lead = `${active ? '❯' : ' '} ${displayText(candidate.title)}`
+      push(active ? this.palette.bold(this.palette.accent(lead)) : lead)
       const route = candidate.route === undefined ? 'route unavailable' : `${candidate.route.provider}/${candidate.route.model}`
       const goal = candidate.goalPhase === undefined ? '' : ` · goal ${candidate.goalPhase}`
-      body.push(this.palette.muted(`  ${new Date(candidate.lastActivityAt).toISOString()} · ${candidate.lastTurn} · ${route}${goal}`))
-      body.push(this.palette.dim(`  ${status} · ${displayText(candidate.record.header.id)}`))
+      push(this.palette.muted(`  ${new Date(candidate.lastActivityAt).toISOString()} · ${candidate.lastTurn} · ${route}${goal}`))
+      push(this.palette.dim(`  ${status} · ${displayText(candidate.record.header.id)}`))
       if (candidate.disabledReason !== undefined) {
-        body.push(this.palette.warning(`  unavailable: ${displayText(candidate.disabledReason)}`))
+        push(this.palette.warning(`  unavailable: ${displayText(candidate.disabledReason)}`))
       }
     }
-    if (filtered.length === 0) body.push(this.palette.warning('No matching sessions.'))
-    if (filtered.length > this.maxVisible) body.push(this.palette.dim(`${this.selectedIndex + 1}/${filtered.length}`))
-    body.push('', this.palette.dim('Type to search • ↑/↓ navigate • Enter resume • Esc cancel'))
-    if (this.error !== '') body.push(this.palette.error(displayText(this.error)))
-    return renderDialog('Resume session', body.flatMap(line => wrapTextWithAnsi(line, innerWidth)), width, this.palette)
+    if (filtered.length === 0) push(this.palette.warning('No matching sessions.'))
+    if (this.error !== '') {
+      lines.push('')
+      push(this.palette.error(displayText(this.error)))
+    }
+
+    const footer = `${indent}${this.palette.dim('Type to search  •  ↑/↓ navigate  •  Enter resume  •  Esc clear/cancel')}`
+    while (lines.length < height - 2) lines.push('')
+    lines.push(footer, '')
+    return lines.slice(0, height)
   }
 }
 
@@ -2932,18 +2964,20 @@ export function createTuiChat(
         || a.record.header.id.localeCompare(b.record.header.id))
       if (isDisposed() || scan !== resumeScan) return
       const session = overlayManager.open({
-        create: () => new ResumeDialog(
+        create: host => new ResumePicker(
           candidates,
           resolved.maxResumeOptions,
+          runtime.formatCwd?.(agent.session.header.cwd) ?? formatCwd(agent.session.header.cwd),
+          () => host.viewport.rows,
           palette,
           (candidate) => { void handoffResume(candidate, session) },
           () => { void session.close() },
         ),
         options: {
-          width: resolved.resumeDialogWidth,
-          maxHeight: resolved.resumeDialogMaxHeight,
-          anchor: 'center',
-          margin: 1,
+          width: '100%',
+          maxHeight: '100%',
+          anchor: 'top-left',
+          margin: 0,
         },
       })
       resumeOverlay = session

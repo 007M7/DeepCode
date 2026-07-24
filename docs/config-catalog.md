@@ -1609,10 +1609,6 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
-  /** Resume-selector width in terminal columns. */
-  resumeDialogWidth?: number
-  /** Resume-selector maximum height in terminal rows. */
-  resumeDialogMaxHeight?: number
   /** Maximum fuzzy file candidates displayed for one `@` query. */
   fileSearchMaxResults?: number
   /** Maximum paths retained in one `@` workspace index. */
@@ -1635,7 +1631,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:278`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:270`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 

@@ -159,8 +159,6 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 20,
       modelDialogWidth: 72,
       modelDialogMaxHeight: 20,
-      resumeDialogWidth: 88,
-      resumeDialogMaxHeight: 24,
       fileSearchMaxResults: 20,
       fileSearchMaxEntries: 10_000,
       fileSearchExcludedDirectories: ['.git', 'node_modules'],
@@ -179,8 +177,6 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
-      resumeDialogWidth: 84,
-      resumeDialogMaxHeight: 22,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -198,8 +194,6 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
-      resumeDialogWidth: 84,
-      resumeDialogMaxHeight: 22,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -269,7 +263,7 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('opens a newest-active-first searchable selector and Esc cancels without side effects', async () => {
+  it('opens a newest-active-first searchable selector and Esc clears before cancelling', async () => {
     const older = header('older-session', 500, '/workspace')
     const newer = header('newer-session', 2000, '/workspace')
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
@@ -296,7 +290,11 @@ describe('resume command and /resume', () => {
     expect(output).not.toContain('foreign-session')
     result.terminal.send('Older')
     await tick()
-    expect(result.terminal.output).toContain('Search: Older')
+    expect(result.terminal.output).toContain('⌕ Older')
+    result.terminal.send('\x1b')
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .not.toContain('⌕ Older')
     result.terminal.send('\x1b')
     await tick()
     expect(handoff).not.toHaveBeenCalled()
@@ -325,7 +323,9 @@ describe('resume command and /resume', () => {
     result.terminal.send('\x7f')
     result.terminal.send('\x7f')
     await tick()
-    expect(result.terminal.output).toContain('Search: title or session id')
+    const cleared = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(cleared).toContain('⌕ ')
+    expect(cleared).not.toContain('zz')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('current session')
@@ -349,7 +349,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('1/3')
+    expect(result.terminal.output).toContain('(1 of 3)')
     await dispose(result)
   })
 

@@ -270,7 +270,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       actions: [
         { waitFor: 'scripted TUI ready.', send: '/resume\r' },
         { waitFor: 'Resume selector design', send: 'Resume selector design' },
-        { waitFor: 'Search: Resume selector design', send: '\r' },
+        { waitFor: '⌕ Resume selector design', send: '\r' },
         { waitFor: 'Preserve restored state', send: '/exit\r' },
       ],
     })
