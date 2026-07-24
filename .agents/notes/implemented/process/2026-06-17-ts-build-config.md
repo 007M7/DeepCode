@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-17-ts-build-config.zh.md)
+
 > Root project topology (which tsconfig owns which graph) has since moved to a solution root over two aggregate programs; see the [solution-root note](2026-07-22-tsconfig-solution-root-two-aggregates.md). The tsc-first pipeline decided here is unchanged.
 
 ## Problem
