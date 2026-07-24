@@ -132,6 +132,32 @@ function resolveConfig(config: Config): ResolvedConfig {
   return { blockedAfterConsecutiveRounds: blockedAfter }
 }
 
+/** Remove only empty provider fillers from fields unused by the selected action. */
+function normalizeUpdateArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...args }
+  const empty = (value: unknown): boolean => value === undefined || value === null || value === '' || value === 0
+  const removeEmpty = (key: string): void => {
+    if (empty(normalized[key])) normalized[key] = undefined
+  }
+  switch (normalized['action']) {
+    case 'edit':
+      removeEmpty('blocked_reason')
+      break
+    case 'blocked':
+      removeEmpty('objective')
+      removeEmpty('max_goal_rounds')
+      break
+    case 'pause':
+    case 'resume':
+    case 'complete':
+      removeEmpty('objective')
+      removeEmpty('max_goal_rounds')
+      removeEmpty('blocked_reason')
+      break
+  }
+  return normalized
+}
+
 /** Build the exact compare-and-set ref from model arguments. */
 function goalRef(goalId: string, revision: number): GoalRef {
   if (goalId.length === 0 || goalId !== goalId.trim()
@@ -244,7 +270,7 @@ export function apply(ctx: Context, config: Config): void {
     presentCall: args => present('Create goal', 'other', args.objective),
   }))
 
-  ctx.tools.register(defineTool({
+  const updateGoal = defineTool({
     name: 'update_goal',
     description: 'Update the exact current goal revision. edit, pause, and resume require a direct '
       + 'top-level human request. During an automatic continuation of the current goal, complete '
@@ -333,5 +359,10 @@ export function apply(ctx: Context, config: Config): void {
       'other',
       args.blocked_reason ?? args.objective ?? args.goal_id,
     ),
-  }))
+  })
+  // Object-literal execute methods do not use `this`; retaining the reference is safe.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const executeUpdate = updateGoal.execute
+  updateGoal.execute = (args, exec) => executeUpdate(normalizeUpdateArgs(args as Record<string, unknown>), exec)
+  ctx.tools.register(updateGoal)
 }
