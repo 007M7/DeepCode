@@ -16,12 +16,14 @@ The JSONL backend stores sessions under a readable project key and gives every s
 
 ```text
 <configured-root>/
-  --<normalized-cwd>--<hash>/
+  --<normalized-cwd>--/
     <encoded-session-id>/
       session.jsonl.zstd
 ```
 
-Raw mode uses `session.jsonl`, and sessions without a cwd use `_no-cwd`. Filesystem and drive separators become `-`, unsafe code units use `~XXXX`, and the readable prefix is bounded to keep the component within filesystem limits. A short SHA-256 suffix distinguishes project paths whose readable forms collide or truncate alike.
+Raw mode uses `session.jsonl`, and sessions without a cwd use `_no-cwd`. Filesystem and drive separators become `-`, unsafe code units use `~XXXX`, and the readable name is bounded to keep the component within filesystem limits.
+
+The project key intentionally has no hash suffix. This follows the common human-readable convention used by coding agents and keeps the normalized project path as the complete directory name. The normalization is lossy: paths such as `/a/b-c` and `/a-b/c`, or long paths with the same retained prefix, share one project directory. Their distinct session ids still select separate session directories; reuse of the same session id remains a storage collision and is rejected.
 
 The configured root remains a deployment choice. The layout neither selects a global root nor requires projects to share one. When a deployment does centralize storage, project paths remain recognizable; a project-local root uses the same deterministic structure.
 
@@ -35,7 +37,7 @@ Lazy materialization remains tied to the transcript: `create()` performs no file
 
 **Put session files directly in each project directory.** This matched Claude Code and pi's basic file organization but left no session-level ownership boundary for future artifacts.
 
-**Replace separators without a collision suffix.** This is readable but lossy: paths containing literal `-` can collide with paths where `-` represents a separator. Retaining a short hash suffix preserves readable navigation without merging distinct projects.
+**Add a collision-resistant hash suffix.** This distinguishes paths whose normalized forms collide, but makes the directory name more than the normalized project path. The chosen convention accepts lossy project grouping in exchange for the simpler, recognizable name.
 
 **Mandate a centralized root.** Rejected because storage placement belongs to deployment configuration. Project grouping is useful when roots are shared and harmless when they are not.
 
@@ -45,4 +47,4 @@ Lazy materialization remains tied to the transcript: `create()` performs no file
 
 Shared stores can be navigated by recognizable project names, while local and custom roots keep their existing configuration freedom. Every session has a directory available for future backend-owned artifacts, and existing transcript consumers still receive a file path.
 
-Project directory names are longer than the former 12-hex cwd hashes. Very long paths show only a bounded prefix plus their distinguishing hash, and moving a project still selects a different directory because the absolute cwd remains part of storage identity.
+Project directory names are longer than the former 12-hex cwd hashes. Very long paths show only a bounded prefix. Moving a project usually selects a different directory, but distinct cwd strings that normalize to the same name share one project directory by design.

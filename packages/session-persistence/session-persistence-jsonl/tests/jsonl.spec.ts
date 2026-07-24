@@ -127,15 +127,13 @@ describe('SessionPersistenceJsonl: format helpers', () => {
     expect(() => encodeSegment('')).toThrow(/empty/)
   })
 
-  it('projectKey keeps the path readable and disambiguates normalized collisions', () => {
-    expect(projectKey('/Users/qyj/work/deepseek-harness')).toMatch(
-      /^--Users-qyj-work-deepseek-harness--[a-f0-9]{12}$/,
-    )
-    expect(projectKey('/a/b-c')).not.toBe(projectKey('/a-b/c'))
-    expect(projectKey('C:\\work\\agent')).toMatch(/^--C-work-agent--[a-f0-9]{12}$/)
-    expect(projectKey('/开发/~agent')).toMatch(/^--~5F00~53D1-~007Eagent--[a-f0-9]{12}$/)
-    expect(projectKey('/')).toMatch(/^--root--[a-f0-9]{12}$/)
-    expect(projectKey('/' + 'x'.repeat(1_000))).toHaveLength(216)
+  it('projectKey normalizes project paths into bounded readable names', () => {
+    expect(projectKey('/Users/qyj/work/deepseek-harness')).toBe('--Users-qyj-work-deepseek-harness--')
+    expect(projectKey('/a/b-c')).toBe(projectKey('/a-b/c'))
+    expect(projectKey('C:\\work\\agent')).toBe('--C-work-agent--')
+    expect(projectKey('/开发/~agent')).toBe('--~5F00~53D1-~007Eagent--')
+    expect(projectKey('/')).toBe('--root--')
+    expect(projectKey('/' + 'x'.repeat(1_000))).toHaveLength(255)
     expect(() => projectKey('')).toThrow(/empty project path/)
   })
 
@@ -813,6 +811,23 @@ describe('SessionPersistenceJsonl: edge cases', () => {
 
     const ids = (await ctx.sessionPersistence.list()).map(x => x.id).sort()
     expect(ids).toEqual(['p1', 'p2', 'p3'])
+  })
+
+  it('groups sessions whose cwd paths normalize to the same project directory', async () => {
+    const first = meta('normalized-first', '/a/b-c')
+    const second = meta('normalized-second', '/a-b/c')
+    await ctx.sessionPersistence.create(first)
+    await ctx.sessionPersistence.append(first.id, oneTurnLog())
+    await ctx.sessionPersistence.create(second)
+    await ctx.sessionPersistence.append(second.id, oneTurnLog())
+
+    expect(projectDir(root, first.cwd)).toBe(projectDir(root, second.cwd))
+    expect(await readdir(projectDir(root, first.cwd))).toEqual(expect.arrayContaining([
+      encodeSegment(first.id),
+      encodeSegment(second.id),
+    ]))
+    expect((await ctx.sessionPersistence.list()).map(header => header.id).sort())
+      .toEqual([first.id, second.id].sort())
   })
 
   it('list on an empty root returns nothing', async () => {

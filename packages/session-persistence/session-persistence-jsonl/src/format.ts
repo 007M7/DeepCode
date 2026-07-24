@@ -8,7 +8,6 @@
  * @module dsh-session-persistence-jsonl/format
  */
 
-import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { decodeStorageRecord, packChunkRuns } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId, StorageRecord } from '@deepseek-ai/dsh-session'
@@ -120,11 +119,11 @@ export function encodeSegment(raw: string): string {
 }
 
 /**
- * Build the readable, collision-resistant directory key for a project path.
+ * Build the readable directory key for a project path.
  * Filesystem separators and drive separators become `-`; unsafe code units use
- * the same `~XXXX` escape as session ids. The readable prefix is bounded for
- * filesystem component limits, and the hash suffix keeps distinct or truncated
- * paths separate.
+ * the same `~XXXX` escape as session ids. The key is bounded for filesystem
+ * component limits. Separator replacement and truncation are intentionally
+ * lossy, following the common human-navigable project-directory convention.
  * @param cwd - the session's project directory.
  * @returns a single filesystem-safe project directory name.
  */
@@ -146,9 +145,8 @@ export function projectKey(cwd: string): string {
       separatorRun = false
     }
   }
-  const hash = createHash('sha256').update(cwd).digest('hex').slice(0, 12)
   const slug = readable.replace(/^-+/, '') || 'root'
-  return `--${slug.slice(0, 200)}--${hash}`
+  return `--${slug.slice(0, 251)}--`
 }
 
 /**
