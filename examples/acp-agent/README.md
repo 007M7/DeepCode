@@ -13,7 +13,7 @@ The leaf loads the ACP app, DeepSeek adapter, sandboxed bash and filesystem stac
 
 Stdout carries only newline-delimited ACP JSON-RPC. `@deepseek-ai/dsh-acp-demo` installs no stdout logger; leaf additions must use stderr for diagnostics.
 
-The server accepts initialization/authentication, fresh text sessions, one in-flight prompt per session, cancellation, and one-shot permission decisions. It emits only committed assistant text. Session navigation, commands, modes, configuration pickers, elicitation, titles, plans, reasoning, tool cards, and terminal output are intentionally absent; the full contract lives in [`@deepseek-ai/dsh-acp`](../../packages/acp/acp/README.md).
+The automation contract — supported methods, baseline prompt content, committed-text output, and the intentionally absent UI surfaces — lives in [`@deepseek-ai/dsh-acp`](../../packages/acp/acp/README.md).
 
 ## Session workspaces and permissions
 
@@ -26,10 +26,3 @@ Under `workspace-write`, a model retry requesting wider sandbox access triggers 
 This example owns the ACP snapshot suite. It boots the real automation server, replays committed model streams through `dsh-llm-replay`, and compares both normalized protocol output and re-persisted session logs. Recording uses the real model; refresh reuses committed replay input. Overrides cover throw/hang behavior, and optional `workspace/` fixtures seed world-state checks.
 
 Most scenarios pin backend behavior rather than ACP-specific behavior; the [automation-only ACP decision](../../.agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary) owns why that coverage remains transport-coupled.
-
-## Protocol limitations
-
-- Sessions are fresh and connection-owned; load, list, resume, close, delete, and fork are unsupported.
-- Prompts accept text only; resource links, images, audio, embedded resources, non-empty additional directories, and MCP servers reject.
-- Output is committed assistant text, not live progress, tool activity, reasoning, plans, titles, or usage.
-- All sessions close with the connection; there is no per-session close method.

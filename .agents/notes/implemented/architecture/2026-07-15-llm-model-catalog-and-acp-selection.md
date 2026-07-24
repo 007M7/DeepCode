@@ -26,13 +26,27 @@ Catalog membership is advisory. It drives selectors and diagnostics but never ch
 
 `dsh-llm-pi-ai` maps the configured provider's installed `getModels(provider)` entries into the neutral catalog. Its existing request-time catalog lookup remains authoritative and still rejects unknown models with `UNKNOWN_MODEL`. `dsh-llm-deepseek` accepts an optional `models` config containing display entries, defaulting to `deepseek-v4-flash` and `deepseek-v4-pro`. An explicit list replaces those defaults and an empty list disables discovery. The entries improve selector UX for known public or private models, while every unlisted model id continues to pass through unchanged.
 
-### ACP transport boundary
+### Per-session selection in the front door
 
-The ACP automation transport is not a catalog consumer. Its deployment config supplies one optional provider/model target for newly created agents, and it advertises no model selector or configuration-option interface. TUI, Web, SDK hosts, and other human-facing consumers may use the advisory catalog through their own interaction contracts.
+A selection is owned by the front door that offers it (today the TUI `/model` selector), never by `LlmService` or `AgentOptions`: those are deployment-wide or creation-wide objects, and mutating them would couple concurrent sessions. Each opaque choice carries the full provider/model pair, because the same model id may appear under multiple routes.
+
+The ACP automation transport is not a catalog consumer. Its deployment config supplies one optional provider/model target for newly created agents, and it advertises no model selector or configuration-option interface.
+
+### Prompt/request consistency and durability
+
+`installAgentLlmTarget` (in `dsh-agent`) installs scoped `system-prompt/assemble` and `agent/request` listeners for a front-door-owned target. Prompt assembly snapshots the selected pair once per step, overwrites the assembled `provider` and `model` variables after downstream prompt listeners, and the request listener applies that same snapshot after downstream request listeners. A selection during asynchronous assembly therefore starts on the next step rather than splitting prompt text from routing. Other call-config fields remain untouched.
+
+The request header remains the durable source of truth. When a selected target is actually used, the existing full `request/header` snapshot records it, and a front door initializes its selection from the folded last request header before falling back to creation options. A selection that is never used by a request is intentionally in-memory only because it never became model-visible state.
 
 ## Alternatives considered
 
+**Return model strings only.** A model-only value loses the provider route and becomes ambiguous as soon as two providers expose the same id.
+
 **Make catalogs mandatory whitelists.** This conflicts with the hand-written adapter's arbitrary model pass-through and private deployments. The selected adapter already owns authoritative request validation.
+
+**Store selection in `AgentOptions` or `LlmService`.** Those are creation-wide or deployment-wide objects. Mutating them would couple concurrent sessions and bypass the logged `agent/request` replacement path.
+
+**Persist a new model-selection session event immediately.** An unused UI selection has not affected a model request. Recording the existing request header when the target is consumed preserves the model-visible-if-and-only-if-logged rule without adding a second source of truth.
 
 ## Consequences
 
@@ -40,8 +54,9 @@ The ACP automation transport is not a catalog consumer. Its deployment config su
 - Catalog consumers must treat absence as “not advertised,” never “invalid request.”
 - pi-ai adapters expose their installed provider catalogs; hand-written DeepSeek deployments list known choices explicitly and retain arbitrary model support.
 - Human-facing catalog consumers own their selection interaction. ACP uses its fixed deployment target and does not widen the protocol with model discovery.
+- Request headers remain compatible with the provider-routed session shape; no new JSONL event or format version is required.
 - A catalog read can be asynchronous, and every caller receives detached values.
 
 ## Testing
 
-Unit coverage validates catalog detachment and malformed metadata plus pi-ai and DeepSeek catalog projection. ACP transport tests validate fixed provider/model forwarding independently of catalog discovery.
+Unit coverage validates catalog detachment and malformed metadata, pi-ai and DeepSeek catalog projection, provider/model request routing, prompt-variable alignment, and per-agent target isolation. ACP transport tests validate fixed provider/model forwarding independently of catalog discovery; the TUI suite covers selector interaction and header-based restoration.

@@ -86,3 +86,4 @@ Mode transitions do not change the tool catalog; plan arguments and review resul
 - Plan mode guides rather than enforces; deployments needing a hard boundary must combine independent sandbox and approval controls.
 - A pending selection made while idle is lost if the process exits before the next boundary, so the UI must reapply it.
 - Forked agents inherit logged plan state, while newly spawned agents begin inactive; there is no creation-time plan option.
+- The `exit_plan_mode` review arc (submit → human review → approved flip or rejected feedback) is covered by package tests only; its assembled-application snapshot left with the retired ACP UI scenarios ([automation-only ACP](../../../.agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md)) and the TUI keyless scenarios exercise only `/plan` entry and `/plan off` exit.
