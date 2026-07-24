@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This package is the shared run driver for the two in-process providers. Spawn passes no session seed; fork passes the parent's completed-turn prefix. Everything else—depth, child creation and cold resume, optional child customization, result reading, cancellation, strict steering, and disposal—has one implementation here.
+This package is the shared run driver for the two in-process providers. Spawn passes no session seed; fork passes the parent's completed-turn prefix. Everything else—depth, child creation and cold resume, optional child customization, result reading, cancellation, confirmed steering, and disposal—has one implementation here.
 
 ## Start contract
 
@@ -31,7 +31,7 @@ The required request signal covers both startup and the live run. Before publica
 
 After fulfillment, the caller owns the run. Provider-plugin unload does not revoke it. `dispose()` removes the live abort listener, records cancellation, and delegates to the returned `AgentHandle.dispose()`, whose memoized quiescence transaction stops the loop, removes the agent and session, and unwinds scoped registrations. Cancellation owns every non-completed in-flight outcome and reports `aborted`; an already-completed turn remains completed.
 
-Runs expose the strict `steer` capability: the synchronous checks and the `Agent.trySteer()` call share one frame, so delivery joins the observed step or throws. Delivery requires `AgentStatus.running`, an open turn and step in the child log, no committed structured capture, and acceptance before that step's final drain begins. Admission, between-step processing such as `agent/turn-stopping`, and a closed turn's durability flush all reject delivery. The Agent-level idle fallback (queue and start a new turn) is deliberately not reachable through the run — that would start an untracked turn after the run's result was read.
+Runs expose confirmed `steer`: a synchronous status check prevents the Agent-level idle fallback from starting an untracked turn, then the run submits through `Agent.steer()` and awaits that exact message's receipt. Fulfillment means a committed child request snapshot admitted the message; terminal turn policy, cancellation, disposal, or a settlement race rejects instead. A synchronously visible structured capture is rejected before submission because its terminal outcome is already authoritative. The run never falls through from rejected live delivery to a later queued turn or cold resume.
 
 ## Spawn and fork inputs
 

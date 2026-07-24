@@ -42,11 +42,11 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 - `toolFilter`：应用请求的子 agent 工具限制；
 - `persona`：应用每个子 agent 独立的 persona。
 
+运行时功能通过可选方法是否存在来检查能力：`SubagentRun.steer?` 只有在活跃子 agent 的请求 snapshot 接纳消息后才会兑现，并会拒绝而非排队一个未跟踪轮次；`SubagentProvider.resume?` 则重建已持久化且可继续的子 agent。一次运行表示一个可 dispose（资源释放）的 activation，因此刻意不提供冷恢复操作；已释放的运行无法在重启后重建。
+
 ## 委派深度
 
 该 seam 拥有实现和消费方共享的深度词汇：`AgentOptions.subagentDepth` 声明、`assertSubagentMaxDepth` 和 `delegationDepthOf(agent)`。持久化的 `SessionHeader.delegationDepth` 具有权威性且单调：运行时选项可以加深计数，但绝不能降低它，因此恢复后的子 agent 不会被重新计为顶层。
-
-运行时功能是 `SubagentRun` 上的可选方法：`sendMessage?` 可对正在运行的子 agent 进行 steering（中途引导），`resume?` 则异步创建延续运行。方法是否存在就是能力检查。
 
 `inheritsParentContext` 只用于描述，不能强制执行。它仅说明子 agent 是否能看到父级已完成的对话历史（`fork` 可以；`spawn` 和 ACP 不可以），不表示是否继承工具、服务或权限。
 

@@ -721,13 +721,14 @@ describe('agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
     ctx.tools.register(defineContentToolFixture({
       name: 'finalize',
       description: '',
       parameters: {},
       async execute(_args, exec) {
         // Steering lands while the concluding tool is still executing.
-        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } }))
+        receipt = agent.steer(createUserMessage({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } }))
         exec.concludeTurn()
         return [{ type: 'text', text: 'final' }]
       },
@@ -740,9 +741,9 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
     const events = agent.session.events.map(event => event.type)
     expect(events.filter(type => type === 'turn/end')).toHaveLength(1)
-    // The steering is durable inside the concluded turn and feeds the NEXT
-    // turn's request instead of being dropped or re-queued.
-    expect(events).toContain('steering/message')
+    if (receipt === undefined) throw new Error('concluding tool did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'rejected' })
+    expect(events).not.toContain('steering/message')
 
     send(agent, 'follow up')
     await waitForIdle(ctx, agent)
@@ -751,7 +752,7 @@ describe('agent loop', () => {
       .flatMap(message => message.content)
       .filter(block => block.type === 'text')
       .map(block => block.text)
-    expect(texts).toContain('late steering')
+    expect(texts).not.toContain('late steering')
   })
 
   it('agent/request waterfall switches models by returning a replacement config; the switch is logged', async () => {

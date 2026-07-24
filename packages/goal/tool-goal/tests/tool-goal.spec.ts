@@ -35,7 +35,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     send: () => {},
     updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },

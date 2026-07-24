@@ -1970,7 +1970,7 @@ startContinuable(spec: ContinuableStartSpec): ContinuableStart
  * Deliver one message to a known continuable child: steer its running
  * activation, or cold-resume the durable session into a fresh Task-backed
  * activation. The two routes are reported distinctly so timing-dependent
- * routing is observable. A throw means the message was NOT delivered — in
+ * routing is observable. Rejection means the message was NOT delivered — in
  * particular, losing a race with Task settlement does not fall through to
  * cold resume within the same call; a later retry after Task terminal may
  * start the next activation. The started Task owns descriptor lookup and
@@ -1984,7 +1984,7 @@ startContinuable(spec: ContinuableStartSpec): ContinuableStart
  * @param source - caller-supplied attribution retained across either route.
  * @returns whether the message `steered` the existing Task or `started` a new one.
  */
-sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource): SendMessageResult
+async sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageSource](../core-data-structures/core.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md)

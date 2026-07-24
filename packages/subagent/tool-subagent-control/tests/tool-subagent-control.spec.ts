@@ -101,7 +101,7 @@ describe('dsh-tool-subagent-control', () => {
     // Reach past the tool into the control service to fake a running route
     // deterministically: the tool is a thin adapter, so its steered wording is
     // what this test pins.
-    ctx.subagentControl.sendMessage = (agent, _childId, message, messageSource) => {
+    ctx.subagentControl.sendMessage = async (agent, _childId, message, messageSource) => {
       steered = (message[0] as { text: string }).text
       source = messageSource
       return { route: 'steered', taskId: ctx.tasks.list(agent)[0]?.id ?? ('subagent-9' as never) }

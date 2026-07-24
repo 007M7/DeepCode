@@ -238,8 +238,8 @@ export async function resumeInProcessRun(request: SubagentResumeRequest): Promis
  * Drive one activation turn on a published child and wrap it as a run. The
  * caller has already created or resumed the agent; this owns the
  * signal-handoff race, the live abort listener, result collection past
- * `boundary`, the continuable-run durability confirmation, strict steering,
- * and disposal.
+ * `boundary`, the continuable-run durability confirmation, confirmed
+ * steering, and disposal.
  */
 function driveTurn(
   handle: AgentHandle,
@@ -299,46 +299,21 @@ function driveTurn(
       flags.cancelled = true
       return handle.dispose()
     },
-    steer(content: ContentBlock[], steeringSource: MessageSource): void {
-      // Strict live delivery: the synchronous checks and Agent.trySteer() share
-      // one frame, so delivery joins the observed step or throws. The ordinary
-      // Agent.steer() idle fallback would instead queue the message and
-      // start a new, untracked turn after this run's result was read.
+    async steer(content: ContentBlock[], steeringSource: MessageSource): Promise<void> {
+      // The status check and submission share one synchronous frame. An idle
+      // Agent.steer() would queue an untracked turn after this run's result.
       if (child.status !== 'running') {
         throw new Error(`subagent child "${childId}" is not running; the message was not delivered`)
       }
-      // Status stays `running` through the closed turn's durability flush, when
-      // ordinary steering would queue a later turn. Requiring an open turn
-      // keeps this activation's acknowledged delivery honest.
-      const lastBoundary = child.session.events.findLast(
-        event => event.type === 'turn/start' || event.type === 'turn/end',
-      )
-      if (lastBoundary?.type !== 'turn/start') {
-        throw new Error(`subagent child "${childId}" turn has already closed; the message was not delivered`)
-      }
-      // Between steps there is no current step whose final drain can own strict
-      // delivery. A message accepted during an open step is recorded at that
-      // step's settlement checkpoint before the continuation decision
-      // (cancellation remains the documented shared-outcome race).
-      const lastStep = child.session.events.findLast(
-        event => event.type === 'step/start' || event.type === 'step/end',
-      )
-      if (lastStep?.type !== 'step/start') {
-        throw new Error(`subagent child "${childId}" is between steps; the message was not delivered`)
-      }
-      // A committed structured capture makes the pending step conclusion
-      // terminal. The capture is synchronously observable, so reject rather
-      // than acknowledge a message the run is about to drop.
+      // Avoid waiting for the structured terminal checkpoint when its outcome
+      // is already authoritative and synchronously visible.
       if (structured?.captured() !== undefined) {
         throw new Error(`subagent child "${childId}" already reported its structured result; the message was not delivered`)
       }
-      // The atomic Agent operation closes before the final drain, so this
-      // cannot acknowledge content that the current step will not record.
-      if (child.trySteer === undefined) {
-        throw new Error(`subagent child "${childId}" agent does not support strict steering; the message was not delivered`)
-      }
-      if (!child.trySteer(createUserMessage({ content, source: steeringSource }))) {
-        throw new Error(`subagent child "${childId}" passed its steering checkpoint; the message was not delivered`)
+      const receipt = child.steer(createUserMessage({ content, source: steeringSource }))
+      const outcome = await receipt.outcome
+      if (outcome.status === 'rejected') {
+        throw new Error(`subagent child "${childId}" stopped before steering admission; the message was not delivered`)
       }
     },
   }

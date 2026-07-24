@@ -10,7 +10,8 @@ import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentService, { SUBAGENT_DESCRIPTOR_VERSION, SubagentError } from '@deepseek-ai/dsh-subagent'
-import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { resumeInProcessRun, startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
@@ -290,7 +291,7 @@ describe('startInProcessRun', () => {
       reserveTurnAdmission: () => undefined,
       updateInbox: () => 'not-found',
       followup(): void {},
-      steer(): void {},
+      steer() { return { outcome: Promise.resolve({ status: 'rejected' as const }) } },
       inject(): void {},
       cancel(): void {},
       whenIdle: () => Promise.resolve(),
@@ -381,156 +382,103 @@ describe('startInProcessRun', () => {
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 
-  it('strict steer rejects a settled child instead of queueing an untracked turn', async () => {
+  it('confirmed steering rejects a settled child instead of queueing an untracked turn', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const run = await startInProcessRun(request(parent), {})
     await run.result
-    // The child is idle after its turn: Agent.steer() would silently QUEUE.
-    expect(() => { run.steer!([{ type: 'text', text: 'late' }], { kind: 'user' }) })
-      .toThrow(/not running; the message was not delivered/)
+    await expect(run.steer!([{ type: 'text', text: 'late' }], { kind: 'user' }))
+      .rejects.toThrow(/not running; the message was not delivered/)
     const child = ctx.agents.get(run.id)!
     expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
     await run.dispose()
   })
 
-  it('strict steer rejects the between-steps turn-stopping window', async () => {
-    // Hold `agent/turn-stopping` open after the step closed and pending
-    // steering was folded into the continuation decision.
-    const { ctx, parent } = await setup([textResponse('quick')])
-    let releaseStop: (() => void) | undefined
-    ctx.on('agent/turn-stopping', (agent) => {
-      if (agent.session.header.parentSession === undefined || releaseStop !== undefined) return undefined
-      return new Promise((resolve) => {
-        releaseStop = () => { resolve(undefined) }
-      })
-    })
-    const run = await startInProcessRun(request(parent), {})
-    const child = ctx.agents.get(run.id)!
-    await new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        if (releaseStop !== undefined) { clearInterval(timer); resolve() }
-      }, 5)
-    })
-    expect(child.status).toBe('running')
-    expect(() => {
-      run.steer!([{ type: 'text', text: 'too late for this turn' }], { kind: 'user' })
-    })
-      .toThrow(/between steps; the message was not delivered/)
-    releaseStop!()
-    await run.result
-    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
-    await run.dispose()
-  })
-
-  it('strict steer rejects reentrant delivery after the final drain begins', async () => {
-    const { ctx, parent } = await setup([textResponse('quick')])
-    let run: Awaited<ReturnType<typeof startInProcessRun>> | undefined
-    let seeded = false
-    let rejected: unknown
-    ctx.on('session/event', (session, event) => {
-      if (session.header.parentSession === undefined || run === undefined) return
-      if (event.type === 'assistant/chunk' && !seeded) {
-        seeded = true
-        run.steer?.([{ type: 'text', text: 'accepted before the drain' }], { kind: 'user' })
-      } else if (event.type === 'steering/message' && rejected === undefined) {
-        try {
-          run.steer?.([{ type: 'text', text: 'after the drain began' }], { kind: 'user' })
-        } catch (error: unknown) {
-          rejected = error
-        }
-      }
-    })
-
-    run = await startInProcessRun(request(parent), {})
-    const child = ctx.agents.get(run.id)!
-    await run.result
-    expect(seeded).toBe(true)
-    expect(rejected).toBeInstanceOf(Error)
-    expect((rejected as Error).message)
-      .toMatch(/passed its steering checkpoint; the message was not delivered/)
-    expect(child.session.events.filter(event => event.type === 'steering/message')).toHaveLength(1)
-    await run.dispose()
-  })
-
-  it('strict steer rejects an Agent implementation without atomic steering', async () => {
-    const childId = SessionId('custom-loop-child')
-    const childSession = new Session(childId)
-    childSession.append('turn/start', {
-      turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
-    })
-    childSession.append('step/start', { turn: 1, step: 1 })
-    const idle = Promise.withResolvers<undefined>()
-    const child = {
-      id: childId,
-      options: {},
-      session: childSession,
-      status: 'running',
-      acceptsNextStep: false,
-      ctx: new Context(),
-      send(): void {},
-      reserveTurnAdmission: () => undefined,
-      updateInbox: () => 'not-found',
-      followup(): void {},
-      steer(): void {},
-      inject(): void {},
-      cancel(): void {},
-      whenIdle: () => idle.promise,
-    } as Agent
-    const parentId = SessionId('custom-loop-parent')
-    const parent = {
-      id: parentId,
-      options: {},
-      session: new Session(parentId),
-      ctx: {
-        get: () => undefined,
-        agents: {
-          create: () => Promise.resolve({
-            agent: child,
-            dispose: () => {
-              idle.resolve(undefined)
-              return Promise.resolve()
-            },
-          }),
-        },
+  it('confirmed steering rejects when a concluding tool prevents request admission', async () => {
+    const { ctx, parent } = await setup([toolCallResponse('c1', 'finalize', {})])
+    const enteredTool = Promise.withResolvers<undefined>()
+    const releaseTool = Promise.withResolvers<undefined>()
+    ctx.tools.register(defineContentToolFixture({
+      name: 'finalize',
+      description: 'Finish the child run.',
+      parameters: {},
+      async execute(_args, exec) {
+        enteredTool.resolve(undefined)
+        await releaseTool.promise
+        exec.concludeTurn()
+        return [{ type: 'text', text: 'final' }]
       },
-    } as unknown as Agent
-
-    const run = await startInProcessRun(request(parent), {})
-    expect(() => {
-      run.steer!([{ type: 'text', text: 'unsupported strict delivery' }], { kind: 'user' })
-    })
-      .toThrow(/does not support strict steering; the message was not delivered/)
-    await run.dispose()
-    await run.result
-  })
-
-  it('strict steer rejects the closed-turn flush window where the loop discards steering', async () => {
-    // Hold the turn-end durability flush open: the turn has closed in the log
-    // and status is still `running`, exactly the window where the loop would
-    // discard a drained steering message instead of recording it.
-    const { ctx, parent } = await setup([textResponse('quick')])
-    let releaseFlush: (() => void) | undefined
-    ctx.on('session/flush', (session) => {
-      if (session.header.parentSession === undefined || releaseFlush !== undefined) return
-      const lastEnd = session.events.findLast(event => event.type === 'turn/end')
-      if (lastEnd === undefined) return
-      return new Promise<void>((resolve) => { releaseFlush = resolve })
-    })
+    }))
     const run = await startInProcessRun(request(parent), {})
     const child = ctx.agents.get(run.id)!
-    // Wait until the child's turn has closed while the flush keeps it running.
-    await new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        if (releaseFlush !== undefined) { clearInterval(timer); resolve() }
-      }, 5)
-    })
-    expect(child.status).toBe('running')
-    expect(() => { run.steer!([{ type: 'text', text: 'into the void' }], { kind: 'user' }) })
-      .toThrow(/turn has already closed; the message was not delivered/)
-    releaseFlush!()
+    await enteredTool.promise
+
+    const delivery = run.steer!([{ type: 'text', text: 'terminal race' }], { kind: 'user' })
+    releaseTool.resolve(undefined)
+    await expect(delivery).rejects.toThrow(/stopped before steering admission; the message was not delivered/)
     await run.result
     expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
+    await run.dispose()
+  })
+
+  it('confirmed steering fulfills only after the next request snapshot admits it', async () => {
+    const { ctx, parent, adapter } = await setup([textResponse('first'), textResponse('second')])
+    const enteredStopping = Promise.withResolvers<undefined>()
+    const releaseStopping = Promise.withResolvers<undefined>()
+    let held = false
+    ctx.on('agent/turn-stopping', (agent) => {
+      if (agent.session.header.parentSession === undefined || held) return
+      held = true
+      enteredStopping.resolve(undefined)
+      return releaseStopping.promise
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    const child = ctx.agents.get(run.id)!
+    await enteredStopping.promise
+
+    let settled = false
+    const delivery = run.steer!([{ type: 'text', text: 'after the first step' }], { kind: 'user' })
+      .then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    releaseStopping.resolve(undefined)
+    await delivery
+
+    const result = await run.result
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('after the first step')
+    expect((result.output[0] as { text?: string }).text).toBe('second')
+    const steering = child.session.events.find(event => event.type === 'steering/message')
+    expect(steering?.type === 'steering/message' && steering.data.message.source).toEqual({ kind: 'user' })
+    await run.dispose()
+  })
+
+  it('carries steering from a non-terminal flush window into a tracked next turn', async () => {
+    const { ctx, parent, adapter } = await setup([textResponse('first'), textResponse('second')])
+    const enteredFlush = Promise.withResolvers<undefined>()
+    const releaseFlush = Promise.withResolvers<undefined>()
+    let held = false
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession === undefined || held) return
+      if (!session.events.some(event => event.type === 'turn/end')) return
+      held = true
+      enteredFlush.resolve(undefined)
+      return releaseFlush.promise
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    const child = ctx.agents.get(run.id)!
+    await enteredFlush.promise
+    expect(child.status).toBe('running')
+
+    const delivery = run.steer!([{ type: 'text', text: 'next tracked turn' }], { kind: 'user' })
+    releaseFlush.resolve(undefined)
+    await delivery
+    const result = await run.result
+    expect(adapter.requests).toHaveLength(2)
+    expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
+    expect((result.output[0] as { text?: string }).text).toBe('second')
     await run.dispose()
   })
 })

@@ -45,7 +45,7 @@ Start-time features are advertised in `provider.capabilities` because the servic
 - `toolFilter` — apply the requested child tool restriction.
 - `persona` — apply a per-child persona.
 
-Runtime features are optional methods whose presence is the capability check: `SubagentRun.steer?` delivers strictly to the actively running child turn (it throws rather than queueing when the child is not running), and `SubagentProvider.resume?` reconstructs a persisted continuable child. A run represents one disposable activation, so it deliberately has no cold-resume operation — a disposed run cannot be reconstructed after restart.
+Runtime features are optional methods whose presence is the capability check: `SubagentRun.steer?` fulfills only after a request snapshot in the active child admits the message and rejects rather than queueing an untracked turn, while `SubagentProvider.resume?` reconstructs a persisted continuable child. A run represents one disposable activation, so it deliberately has no cold-resume operation — a disposed run cannot be reconstructed after restart.
 
 ## The durable descriptor
 

@@ -889,8 +889,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Start a continuable background child: allocate its stable session id,\n * snapshot its durable descriptor, and register the initial activation\'s\n * Task. A synchronous validation failure (a non-JSON descriptor input,\n * missing persistence, Task preflight) throws without creating a Task; the\n * method otherwise returns both identities immediately, without waiting for\n * child publication or descriptor durability. Asynchronous startup failure\n * settles the returned Task as `failed` (or `killed` when cancelled) after\n * any published run is disposed, which can leave an unmaterialized child id\n * that later by-id operations report as unavailable.\n * @param spec - provider, Task label, and the delegation request.\n * @returns the stable child id and the initial activation\'s Task id.\n */',
       },
       {
-        signature: 'sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource): SendMessageResult',
-        jsDoc: '/**\n * Deliver one message to a known continuable child: steer its running\n * activation, or cold-resume the durable session into a fresh Task-backed\n * activation. The two routes are reported distinctly so timing-dependent\n * routing is observable. A throw means the message was NOT delivered — in\n * particular, losing a race with Task settlement does not fall through to\n * cold resume within the same call; a later retry after Task terminal may\n * start the next activation. The started Task owns descriptor lookup and\n * direct-parent authorization (its AbortSignal exists before that lookup),\n * so an unknown, foreign, or descriptor-less child settles the started Task\n * as `failed` with a detail reporting the id as unavailable.\n * @param parent - the live parent agent sending the message (model tool or\n *   human adapter); Task access is authorized by its session id.\n * @param childId - the stable child session id.\n * @param message - the user-role content to deliver.\n * @param source - caller-supplied attribution retained across either route.\n * @returns whether the message `steered` the existing Task or `started` a new one.\n */',
+        signature: 'async sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>',
+        jsDoc: '/**\n * Deliver one message to a known continuable child: steer its running\n * activation, or cold-resume the durable session into a fresh Task-backed\n * activation. The two routes are reported distinctly so timing-dependent\n * routing is observable. Rejection means the message was NOT delivered — in\n * particular, losing a race with Task settlement does not fall through to\n * cold resume within the same call; a later retry after Task terminal may\n * start the next activation. The started Task owns descriptor lookup and\n * direct-parent authorization (its AbortSignal exists before that lookup),\n * so an unknown, foreign, or descriptor-less child settles the started Task\n * as `failed` with a detail reporting the id as unavailable.\n * @param parent - the live parent agent sending the message (model tool or\n *   human adapter); Task access is authorized by its session id.\n * @param childId - the stable child session id.\n * @param message - the user-role content to deliver.\n * @param source - caller-supplied attribution retained across either route.\n * @returns whether the message `steered` the existing Task or `started` a new one.\n */',
       },
     ],
   },
@@ -1583,7 +1583,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    trySteer?(message: UserMessage): boolean;\n    inject(message: UserMessage): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): SteeringReceipt;\n    inject(message: UserMessage): void;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -2670,6 +2670,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
+    name: 'SteeringOutcome',
+    declaration: 'export type SteeringOutcome = {\n    readonly status: \'admitted\';\n    readonly turn: number;\n    readonly step: number;\n} | {\n    readonly status: \'rejected\';\n};',
+  },
+  {
+    name: 'SteeringReceipt',
+    declaration: 'export interface SteeringReceipt {\n    readonly outcome: Promise<SteeringOutcome>;\n}',
+  },
+  {
     name: 'StorageForms',
     declaration: 'export interface StorageForms {\n}',
   },
@@ -2703,7 +2711,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    steer?(content: ContentBlock[], source: MessageSource): void;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    steer?(content: ContentBlock[], source: MessageSource): Promise<void>;\n}',
   },
   {
     name: 'SubagentStartRequest',

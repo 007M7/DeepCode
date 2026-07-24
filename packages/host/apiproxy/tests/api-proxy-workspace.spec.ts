@@ -48,7 +48,7 @@ function stubAgent(session: Session): Agent {
     acceptsNextStep: false,
     ctx: new Context(),
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     send: () => {},
     updateInbox: () => 'not-found',

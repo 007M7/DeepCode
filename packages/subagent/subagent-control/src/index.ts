@@ -251,7 +251,7 @@ export class SubagentControlService extends Service {
    * Deliver one message to a known continuable child: steer its running
    * activation, or cold-resume the durable session into a fresh Task-backed
    * activation. The two routes are reported distinctly so timing-dependent
-   * routing is observable. A throw means the message was NOT delivered — in
+   * routing is observable. Rejection means the message was NOT delivered — in
    * particular, losing a race with Task settlement does not fall through to
    * cold resume within the same call; a later retry after Task terminal may
    * start the next activation. The started Task owns descriptor lookup and
@@ -265,13 +265,18 @@ export class SubagentControlService extends Service {
    * @param source - caller-supplied attribution retained across either route.
    * @returns whether the message `steered` the existing Task or `started` a new one.
    */
-  sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource): SendMessageResult {
+  async sendMessage(
+    parent: Agent,
+    childId: SessionId,
+    message: ContentBlock[],
+    source: MessageSource,
+  ): Promise<SendMessageResult> {
     this.assertOwnership(childId)
     const activation = this.activations.get(childId)
     if (activation !== undefined) {
       return {
         route: 'steered',
-        taskId: this.steerActivation(activation, parent, childId, message, source),
+        taskId: await this.steerActivation(activation, parent, childId, message, source),
       }
     }
     return { route: 'started', taskId: this.resumeActivation(parent, childId, message, source) }
@@ -301,20 +306,20 @@ export class SubagentControlService extends Service {
     }
   }
 
-  /** Deliver to the running activation's Task through strict live steering. */
-  private steerActivation(
+  /** Deliver to the running activation's Task through confirmed live steering. */
+  private async steerActivation(
     activation: ActiveActivation,
     parent: Agent,
     childId: SessionId,
     message: ContentBlock[],
     source: MessageSource,
-  ): TaskId {
+  ): Promise<TaskId> {
     const taskId = activation.taskId
     /* v8 ignore next 3 -- the install and Task registration share one synchronous frame, so an observed activation carries its Task id. */
     if (taskId === undefined) {
       throw new SubagentControlError(`subagent "${childId}" activation is starting; the message was not delivered`, 'NOT_DELIVERED')
     }
-    // Owner-session authorization plus the live status for the strict check.
+    // Owner-session authorization plus the live status for admission.
     const snapshot = this.ctx.tasks.get(taskId, parent)
     if (snapshot.status !== 'running') {
       throw new SubagentControlError(
@@ -334,9 +339,9 @@ export class SubagentControlService extends Service {
       )
     }
     try {
-      run.steer(message, source)
+      await run.steer(message, source)
     } catch (error: unknown) {
-      // Strict steering lost the race with turn settlement. Deliberately no
+      // Confirmed steering lost the race with request admission. Deliberately no
       // cold-resume fallback here: that would attach the message to a turn the
       // caller did not observe.
       throw new SubagentControlError(

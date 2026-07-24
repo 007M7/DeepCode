@@ -10,7 +10,7 @@ Sources: [`packages/subagent/subagent/src/types.ts`](../../packages/subagent/sub
 
 ## Two kinds of capability, discovered two ways
 
-A provider advertises its **start-time** features on a static descriptor the service checks BEFORE a run exists; a request that needs one the provider lacks is rejected loud (`SubagentError('UNSUPPORTED_CAPABILITY')`), never accepted-then-ignored. **Runtime** features are instead optional methods whose presence IS the capability, with TS narrowing as the discovery mechanism: strict live steering is [`SubagentRun.steer`](#a-live-run-subagentrun) and persisted cold resume is [`SubagentProvider.resume`](#the-provider-seam-subagentprovider).
+A provider advertises its **start-time** features on a static descriptor the service checks BEFORE a run exists; a request that needs one the provider lacks is rejected loud (`SubagentError('UNSUPPORTED_CAPABILITY')`), never accepted-then-ignored. **Runtime** features are instead optional methods whose presence IS the capability, with TS narrowing as the discovery mechanism: confirmed live steering is [`SubagentRun.steer`](#a-live-run-subagentrun) and persisted cold resume is [`SubagentProvider.resume`](#the-provider-seam-subagentprovider).
 
 ```ts type-equiv
 /**
@@ -18,7 +18,7 @@ A provider advertises its **start-time** features on a static descriptor the ser
  * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
  * degradation" rule). These static flags cover features needed before a run exists; runtime
- * capabilities are optional methods whose presence is the capability — strict live steering
+ * capabilities are optional methods whose presence is the capability — confirmed live steering
  * is {@link SubagentRun.steer} and persisted cold resume is {@link SubagentProvider.resume}. Each
  * flag corresponds one-to-one to a {@link SubagentStartRequest} option: `depthLimit` to
  * `maxDepth`; the other names match.
@@ -214,7 +214,7 @@ interface SubagentStopReasonMap {
 
 ## A live run: `SubagentRun`
 
-`SubagentRun` is the consumer-owned handle for a ready child — one disposable activation, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A completed continuable result additionally means the provider confirmed the activation's final state durable; a failed required checkpoint rejects. The optional strict `steer` method advertises live delivery by presence. Cold resume is a provider-level operation: `SubagentProvider.resume` reconstructs a fresh run from the child's persisted session because the process-local run ceases to exist after disposal or process restart.
+`SubagentRun` is the consumer-owned handle for a ready child — one disposable activation, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A completed continuable result additionally means the provider confirmed the activation's final state durable; a failed required checkpoint rejects. The optional confirmed `steer` method advertises live delivery by presence and fulfills only after a request snapshot admits the message. Cold resume is a provider-level operation: `SubagentProvider.resume` reconstructs a fresh run from the child's persisted session because the process-local run ceases to exist after disposal or process restart.
 
 ```ts type-equiv
 /**
@@ -251,19 +251,16 @@ interface SubagentRun {
    */
   dispose(): Promise<void>
   /**
-   * OPTIONAL (strict live-steering capability): deliver additional content to
-   * the actively running child turn. STRICT means delivery joins the observed
-   * turn or fails — the implementation must synchronously verify, with no
-   * asynchronous boundary before delivery, that the child is running and its
-   * turn can still record the message, and must not fall back to a queue path
-   * that could start a new, untracked turn or silently drop the message after
-   * this run has settled. Throws when delivery cannot join the turn. A run
-   * represents one disposable activation, so it has no cold-resume operation;
-   * resuming a settled child goes through {@link SubagentProvider.resume}.
-   * `source` is retained on the child's logged steering message without
-   * changing its user role in model history.
+   * OPTIONAL (confirmed live-steering capability): submit additional content
+   * to the active child and fulfill only after a committed request snapshot
+   * admits it. Rejects when terminal policy, cancellation, disposal, or a lost
+   * settlement race prevents admission; it never falls through to a queued
+   * untracked turn or cold resume. A run represents one disposable activation,
+   * so resuming a settled child goes through {@link SubagentProvider.resume}.
+   * `source` is retained on the admitted steering message without changing its
+   * user role in model history.
    */
-  steer?(content: ContentBlock[], source: MessageSource): void
+  steer?(content: ContentBlock[], source: MessageSource): Promise<void>
 }
 ```
 

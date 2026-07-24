@@ -28,7 +28,7 @@ export function SubagentRunId(id: string): SubagentRunId {
  * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
  * degradation" rule). These static flags cover features needed before a run exists; runtime
- * capabilities are optional methods whose presence is the capability — strict live steering
+ * capabilities are optional methods whose presence is the capability — confirmed live steering
  * is {@link SubagentRun.steer} and persisted cold resume is {@link SubagentProvider.resume}. Each
  * flag corresponds one-to-one to a {@link SubagentStartRequest} option: `depthLimit` to
  * `maxDepth`; the other names match.
@@ -221,19 +221,16 @@ export interface SubagentRun {
    */
   dispose(): Promise<void>
   /**
-   * OPTIONAL (strict live-steering capability): deliver additional content to
-   * the actively running child turn. STRICT means delivery joins the observed
-   * turn or fails — the implementation must synchronously verify, with no
-   * asynchronous boundary before delivery, that the child is running and its
-   * turn can still record the message, and must not fall back to a queue path
-   * that could start a new, untracked turn or silently drop the message after
-   * this run has settled. Throws when delivery cannot join the turn. A run
-   * represents one disposable activation, so it has no cold-resume operation;
-   * resuming a settled child goes through {@link SubagentProvider.resume}.
-   * `source` is retained on the child's logged steering message without
-   * changing its user role in model history.
+   * OPTIONAL (confirmed live-steering capability): submit additional content
+   * to the active child and fulfill only after a committed request snapshot
+   * admits it. Rejects when terminal policy, cancellation, disposal, or a lost
+   * settlement race prevents admission; it never falls through to a queued
+   * untracked turn or cold resume. A run represents one disposable activation,
+   * so resuming a settled child goes through {@link SubagentProvider.resume}.
+   * `source` is retained on the admitted steering message without changing its
+   * user role in model history.
    */
-  steer?(content: ContentBlock[], source: MessageSource): void
+  steer?(content: ContentBlock[], source: MessageSource): Promise<void>
 }
 
 /**

@@ -120,26 +120,24 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
-  it('strict steer rejects delivery once the structured result is captured', async () => {
+  it('confirmed steering rejects delivery once the structured result is captured', async () => {
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
     ])
+    // oxlint-disable-next-line prefer-const -- single assignment follows listener registration so pre-fulfillment events remain guardable.
     let run: Awaited<ReturnType<typeof ctx.subagents.start>> | undefined
-    let rejected: unknown
+    let delivery: Promise<void> | undefined
     ctx.on('session/event', (session, event) => {
       if (session.header.parentSession === undefined || run === undefined
-        || event.type !== 'tool/result' || rejected !== undefined) return
-      try {
-        run.steer?.([{ type: 'text', text: 'one more thing' }], { kind: 'user' })
-      } catch (error: unknown) {
-        rejected = error
-      }
+        || event.type !== 'tool/result' || delivery !== undefined) return
+      delivery = run.steer?.([{ type: 'text', text: 'one more thing' }], { kind: 'user' })
+      void delivery?.catch(() => undefined)
     })
     run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
-    expect(rejected).toBeInstanceOf(Error)
-    expect((rejected as Error).message)
-      .toMatch(/already reported its structured result; the message was not delivered/)
+    if (delivery === undefined) throw new Error('structured result did not submit steering')
+    await expect(delivery)
+      .rejects.toThrow(/already reported its structured result; the message was not delivered/)
     expect(result.structured).toEqual({ answer: 7 })
     await run.dispose()
   })

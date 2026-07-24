@@ -49,7 +49,7 @@ durable child Session
 
 每个可继续 child 轮次都通过这条由 Task 支撑的路径准入。非终态 Task 是唯一受支持的存活激活；不存在激活时，其 run 已被 dispose，持久化 child 可以恢复。在路由任何按 id 的操作之前，控制服务会同步将自身关联与 `ctx.agents.get(childId)` 比较。如果注册表中的 Agent 没有关联，或者它与所关联的 `run.localAgent` 不同，就属于所有权冲突：控制服务会失败，而不会接管 idle Agent 或附加未受跟踪的轮次。二者均不存在时，可以从持久化存储恢复；如果检查后又有竞争方发布，仍会在 Agent 注册表的冲突边界上失败。
 
-系统依据 Task 关联进行路由。运行中的 Task 通过 run 可选且严格的 `SubagentRun.steer` 功能接收在线消息。Task 不存在时，系统创建新 Task，并从持久化存储恢复 child。进程内 spawn 和 fork 先执行同步检查，再调用默认 Agent 循环所提供的可选原子操作 `trySteer()`，以实现该功能：child 必须处于 `running` 状态，其轮次和步骤在日志中必须仍然打开，该步骤最后一次排空 steering（中途引导）必须尚未开始，且不得已有结构化捕获提交。循环会在排空 steering 并进入 `agent/post-step` 前关闭 `trySteer()` 准入，使终止性 stop 无法丢弃在这个窗口中已确认接收的消息。不提供 `trySteer()` 的循环无法支撑严格的进程内消息投递。提供方不得将 Agent 层的 idle fallback 暴露为严格 steering，因为观察到的 run 结束后，该 fallback 可能启动一个未受 Task 跟踪的轮次。如果 Task 在查找关联与执行这项严格操作之间进入结算，`steer()` 会失败，`send_message` 会报告消息未送达，而且该次调用不会改用从持久化存储恢复路径；在 Task 终态发布后重试，才可能启动下一次激活。
+系统依据 Task 关联进行路由。运行中的 Task 通过 run 可选且提供确认语义的 `SubagentRun.steer` 功能接收在线消息。Task 不存在时，系统创建新 Task，并从持久化存储恢复 child。进程内 spawn 和 fork 会先同步要求 child 处于 `running` 状态，并拒绝已经提交结构化捕获的 child；随后调用 `Agent.steer()`，等待该消息专属的准入回执。默认循环会为每个 steering 项目提供一份归属于该消息的回执；只有在 `agent/pre-step` 成功后追加该消息、捕获不可变的请求历史并提交 `step/start`，回执才会解析为 `admitted`。终止型轮次策略、取消和 dispose（资源释放）会将待处理回执解析为 `rejected`。非终止型轮次关闭可以把待处理 steering 带入后续排队轮次，但不会确认其准入。提供方必须在调用 `Agent.steer()` 前检查存活状态，避免其 idle 路径在观察到的 run 之外启动轮次。如果查找关联之后、请求获准之前，Task 结算或终止策略率先完成，`steer()` 会拒绝，`send_message` 会报告消息未送达，而且该次调用不会改用从持久化存储恢复路径；在 Task 终态发布后重试，才可能启动下一次激活。
 
 控制服务不会串行化两个通过其外部路径同时争抢已停止 child 的调用方，也不会为结果产生与 dispose 之间的阶段单独建立 settling 状态。在 producer 首次 await 之前同步安装的关联，使本进程内每个 child 只准入一次激活——resume 加载期间竞争的 `sendMessage` 会观察到待处理的激活并显式失败——而绕开该关联的发布仍会在 Agent 注册表相同会话的冲突边界上失败。发送也可能因与启动、取消、完成或清理发生竞态而失败。这些限制是明确的，而非隐藏在更大的生命周期抽象之后。
 
@@ -59,7 +59,7 @@ durable child Session
 
 - 如果 child 存在运行中的 Task 并支持在线消息，服务会调用 `run.steer(message, source)` 并返回现有 task id；它不会创建新 Task。
 - 如果 child 没有运行中的 Task，`send_message` 会创建新 Task，使用该消息从持久化存储恢复会话，并返回新的 task id。
-- 如果活跃提供方无法接收在线消息、严格 steering 在与 Task 结算的竞态中失败，或 Task 关联之外存在存活 child，`send_message` 会失败，而不会静默启动、恢复或接管未受跟踪的轮次。
+- 如果活跃提供方无法接收在线消息、带确认语义的 steering 在准入竞态中失败，或 Task 关联之外存在存活 child，`send_message` 会失败，而不会静默启动、恢复或接管未受跟踪的轮次。
 
 服务结果将路由标识为 `steered` 并携带现有 task id，或标识为 `started` 并携带新的 task id。失败结果会明确说明消息未送达。面向模型的工具会呈现这些差异，让调用方能够观察由时序决定的实际路由。
 
@@ -73,7 +73,7 @@ durable child Session
 
 版本化描述符（[descriptor.ts](../../../../packages/subagent/subagent/src/descriptor.ts) 中的 `SUBAGENT_DESCRIPTOR_VERSION`）包含 subagent 提供方名称、已解析的 child `agentOptions.provider` 和 `agentOptions.model`，以及可选的 `persona` 与 `toolFilter`。它不会对可通过声明合并扩展的 `AgentOptions` 对象建立快照：与此无关的扩展值不会仅因无法表示为 JSON 而导致继续执行失败。描述符会特意省略 `subagentDepth`；从持久化存储恢复时，系统依赖持久化 header 中的 `delegationDepth`，而不根据描述符重建深度。`outputSchema` 属于单次激活的结果契约，不属于持久化 child 组合配置。child header 仍是 child id、`cwd`、`parentSession`、`seedLength` 和 `delegationDepth` 的权威信息，持久化 child transcript 则负责保存 fork seed 和后续历史。[`delegationDepthOf()`](../../../../packages/subagent/subagent/src/index.ts) 会在 header 值和运行时值中取最大值，因此重建后的运行时选项可以加深持久化值，但绝不能降低它，恢复后的 child 无法重新获得顶层委派预算。
 
-从持久化存储恢复不能依赖旧 `SubagentRun` 的可选方法，因为该 run 已被 dispose，并且进程重启后不会保留。`SubagentRun` 不含 `resume` 操作：run 表示一次可 dispose 的激活，只暴露作用于当前激活的操作。原有的 `SubagentRun.sendMessage?()` 功能改名为 `SubagentRun.steer?()`，以免其严格的仅在线契约与服务编排或面向模型的工具混淆。
+从持久化存储恢复不能依赖旧 `SubagentRun` 的可选方法，因为该 run 已被 dispose，并且进程重启后不会保留。`SubagentRun` 不含 `resume` 操作：run 表示一次可 dispose 的激活，只暴露作用于当前激活的操作。原有的 `SubagentRun.sendMessage?()` 功能改名为 `SubagentRun.steer?()`，以免其提供确认语义且仅适用于在线消息的契约与服务编排或面向模型的工具混淆。
 
 `SubagentControlService` 的恢复路径会加载已知 child 会话、归并其描述符、根据持久化的 `parentSession` 鉴权，并在其创建的 Task 内部运行。它向底层 `SubagentService.resume(provider, request)` 传递完全解析的请求，其中包含由 Task 持有的取消信号；后者只负责检查提供方功能后进行分发，并执行 `start` 所使用的普通 run 生命周期观察。选中的 `SubagentProvider.resume?()` 负责传输相关的重建（进程内：在当前加载的 parent 作用域下执行 `parent.ctx.agents.resume`），并返回一个新 run。提供方是否存在该方法本身就是继续执行功能，无需额外功能标志。`SubagentControlService.sendMessage()` 在关联 run 的 `steer?()` 操作与该持久化恢复路径之间做出选择。底层服务和提供方都不会枚举持久化 child 或关联 Task。
 
@@ -97,7 +97,7 @@ Task 记录和活跃 run 关联都位于进程内。持久化使 child 会话可
 
 **为每条消息创建 Task。** 发送到现有 run 的消息会加入已有轮次，不产生独立的最终结果；为这类消息创建 Task，会重复当前 Task，或报告一个它并不拥有的结果。只有启动新激活的消息才会创建 Task。
 
-**拆分 `send_message` 与 `follow_up`。** 两个严格操作会向模型暴露实现状态差异，却无法消除 child 已停止时的竞态。单一操作采用 Claude Code 模型：向运行中的工作发送消息，或恢复一个由新 Task 支撑的生命周期。
+**拆分 `send_message` 与 `follow_up`。** 两个独立的投递操作会向模型暴露实现状态差异，却无法消除 child 已停止时的竞态。单一操作采用 Claude Code 模型：向运行中的工作发送消息，或恢复一个由新 Task 支撑的生命周期。
 
 **在已 dispose 的 run 上保留 `resume?()`。** 如果仅为调用 `resume()` 而保留已 dispose 的 `SubagentRun`，旧 run 会同时充当持久化 child handle，而且进程重启后无法重建该对象。由服务分发、提供方重建，可明确表达持久化边界。
 
