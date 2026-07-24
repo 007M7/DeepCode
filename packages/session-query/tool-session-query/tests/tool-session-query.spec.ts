@@ -16,6 +16,7 @@ import SessionQueryService, {
   type SessionEventSearchHit,
   type SessionEventSearchPage,
   type SessionEventSearchRequest,
+  type SessionLineageNode,
   type SessionSearchExecContext,
   type SessionSearchHit,
   type SessionSearchPage,
@@ -450,6 +451,65 @@ describe('workspace authority and lineage redaction', () => {
     expect(output).not.toContain('hidden-grandchild-secret')
   })
 
+  it('renders branching descendants in source preorder with one indented marker per pruned subtree', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'branch-target', '/work', 20)
+    const [targetRecord] = await mounted.ctx.sessionQuery.filterSessions([{
+      kind: 'id',
+      values: [target.id],
+    }])
+    if (targetRecord === undefined) throw new Error('expected target record')
+    const firstId = SessionId('branch-first')
+    const nestedId = SessionId('branch-nested')
+    const hiddenId = SessionId('branch-hidden-secret')
+    const hiddenDescendantId = SessionId('branch-hidden-descendant-secret')
+    const lastId = SessionId('branch-last')
+    const descendants: SessionLineageNode[] = [
+      {
+        session: { ...targetRecord, header: header(firstId, '/work', 30) },
+        descendants: [
+          {
+            session: { ...targetRecord, header: header(nestedId, '/work', 40) },
+            descendants: [],
+          },
+          {
+            session: { ...targetRecord, header: header(hiddenId, '/outside', 50) },
+            descendants: [{
+              session: { ...targetRecord, header: header(hiddenDescendantId, '/work', 60) },
+              descendants: [],
+            }],
+          },
+        ],
+      },
+      {
+        session: { ...targetRecord, header: header(lastId, '/work', 70) },
+        descendants: [],
+      },
+    ]
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockResolvedValue({
+      target: targetRecord,
+      ancestors: [],
+      descendants,
+      complete: true,
+      root: targetRecord,
+    })
+    const titleReads: SessionIdValue[] = []
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockImplementation((sessionId) => {
+      titleReads.push(sessionId)
+      return Promise.resolve({ session: header(sessionId, '/work') })
+    })
+
+    const output = text(await mounted.call('session_trace', { session_id: target.id }))
+    expect(output.slice(output.indexOf('Descendants:'))).toBe([
+      'Descendants:',
+      '- branch-first — untitled | 1970-01-01T00:00:00.030Z | live',
+      '  - branch-nested — untitled | 1970-01-01T00:00:00.040Z | live',
+      '  - [outside workspace subtree]',
+      '- branch-last — untitled | 1970-01-01T00:00:00.070Z | live',
+    ].join('\n'))
+    expect(titleReads).toEqual([target.id, firstId, nestedId, lastId])
+  })
+
   it('renders authorized ancestors and an unresolved lineage boundary without leaking it', async () => {
     const mounted = await mount()
     const root = createSession(mounted.ctx, 'visible-root', '/work', 5)
@@ -549,6 +609,30 @@ describe('workspace authority and lineage redaction', () => {
     const titled = await mounted.call('session_search', { query: 'safe' })
     expect(errorCode(titled)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
     expect(text(titled)).not.toContain('secret moved title')
+  })
+
+  it('rejects a default self read when its same-id observation moved after caller capture', async () => {
+    const mounted = await mount()
+    const secret = mounted.caller.append(
+      'context/message',
+      {
+        content: [{ type: 'text', text: 'same-id moved secret' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      },
+      { surfaceOp: 'append' },
+    )
+    const window = await mounted.ctx.sessionQuery.readEvent({
+      sessionId: mounted.caller.id,
+      seq: secret.seq,
+    })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readEvent').mockResolvedValueOnce({
+      ...window,
+      session: header(mounted.caller.id, '/outside'),
+    })
+
+    const denied = await mounted.call('session_event_read', { seq: secret.seq })
+    expect(errorCode(denied)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+    expect(text(denied)).not.toContain('same-id moved secret')
   })
 })
 
@@ -797,6 +881,41 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
 })
 
 describe('trace and exact read rendering', () => {
+  it('renders a deeply nested lineage without recursive consumer traversal', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'deep-target', '/work')
+    const [targetRecord] = await mounted.ctx.sessionQuery.filterSessions([{
+      kind: 'id',
+      values: [target.id],
+    }])
+    if (targetRecord === undefined) throw new Error('expected target record')
+    const depth = 3_000
+    let descendants: SessionLineageNode[] = []
+    for (let index = depth; index >= 1; index -= 1) {
+      descendants = [{
+        session: {
+          ...targetRecord,
+          header: header(`deep-${index}`, '/work', index),
+        },
+        descendants,
+      }]
+    }
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockResolvedValue({
+      target: targetRecord,
+      ancestors: [],
+      descendants,
+      complete: true,
+      root: targetRecord,
+    })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readTitleSnapshot').mockImplementation(sessionId => Promise.resolve({
+      session: header(sessionId, '/work'),
+    }))
+
+    const output = text(await mounted.call('session_trace', { session_id: target.id }))
+    expect(output).toContain('Descendants:\n- deep-1 —')
+    expect(output).toContain(`${'  '.repeat(depth - 1)}- deep-${depth} —`)
+  })
+
   it('renders every event relationship sequence and a UTC target timestamp', async () => {
     const mounted = await mount()
     const session = createSession(mounted.ctx, 'relationships', '/work')

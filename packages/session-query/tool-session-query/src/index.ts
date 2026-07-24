@@ -131,6 +131,18 @@ interface AuthorizedDescendant {
   readonly descendants: Array<AuthorizedDescendant | null>
 }
 
+interface DescendantProjectionFrame {
+  readonly node: SessionLineageNode
+  readonly target: Array<AuthorizedDescendant | null>
+  readonly next: DescendantProjectionFrame | undefined
+}
+
+interface DescendantVisit {
+  readonly node: AuthorizedDescendant | null
+  readonly depth: number
+  readonly next: DescendantVisit | undefined
+}
+
 const SESSION_SEARCH_PARAMETERS = {
   query: { type: 'string', required: true, description: 'Literal full-text query over prior session history.' },
   session_ids: { type: 'array', items: { type: 'string' }, description: 'Optional session ids to include.' },
@@ -688,7 +700,7 @@ function recordAuthorized(record: SessionRecord, caller: Caller): boolean {
 }
 
 function headerAuthorized(header: SessionHeader, caller: Caller): boolean {
-  if (header.id === caller.id) return true
+  if (header.id === caller.id) return header.cwd === caller.header.cwd
   return caller.header.cwd !== undefined && header.cwd === caller.header.cwd
 }
 
@@ -764,20 +776,60 @@ function authorizeDescendants(
   nodes: readonly SessionLineageNode[],
   caller: Caller,
 ): Array<AuthorizedDescendant | null> {
-  return nodes.map((node) => {
-    if (!recordAuthorized(node.session, caller)) return null
-    return {
-      record: node.session,
-      descendants: authorizeDescendants(node.descendants, caller),
+  const result: Array<AuthorizedDescendant | null> = []
+  let pending: DescendantProjectionFrame | undefined
+  for (const node of [...nodes].reverse()) {
+    pending = { node, target: result, next: pending }
+  }
+  while (pending !== undefined) {
+    const current = pending
+    pending = current.next
+    if (!recordAuthorized(current.node.session, caller)) {
+      current.target.push(null)
+      continue
     }
-  })
+    const projected: AuthorizedDescendant = {
+      record: current.node.session,
+      descendants: [],
+    }
+    current.target.push(projected)
+    for (const child of [...current.node.descendants].reverse()) {
+      pending = {
+        node: child,
+        target: projected.descendants,
+        next: pending,
+      }
+    }
+  }
+  return result
+}
+
+function * visitDescendants(
+  nodes: readonly (AuthorizedDescendant | null)[],
+): Generator<DescendantVisit> {
+  let pending: DescendantVisit | undefined
+  for (const node of [...nodes].reverse()) {
+    pending = { node, depth: 0, next: pending }
+  }
+  while (pending !== undefined) {
+    const current = pending
+    pending = current.next
+    yield current
+    if (current.node === null) continue
+    for (const child of [...current.node.descendants].reverse()) {
+      pending = {
+        node: child,
+        depth: current.depth + 1,
+        next: pending,
+      }
+    }
+  }
 }
 
 function descendantIds(nodes: readonly (AuthorizedDescendant | null)[]): SessionIdValue[] {
   const ids: SessionIdValue[] = []
-  for (const node of nodes) {
-    if (node === null) continue
-    ids.push(node.record.header.id, ...descendantIds(node.descendants))
+  for (const { node } of visitDescendants(nodes)) {
+    if (node !== null) ids.push(node.record.header.id)
   }
   return ids
 }
@@ -865,7 +917,7 @@ function formatSessionTrace(
   if (ancestorBoundary) lines.push('- [outside workspace boundary]')
   lines.push('', 'Descendants:')
   if (descendants.length === 0) lines.push('- none')
-  else renderDescendants(lines, descendants, titles, 0)
+  else renderDescendants(lines, descendants, titles)
   return lines.join('\n')
 }
 
@@ -873,9 +925,8 @@ function renderDescendants(
   lines: string[],
   nodes: readonly (AuthorizedDescendant | null)[],
   titles: CompleteTitleMap,
-  depth: number,
 ): void {
-  for (const node of nodes) {
+  for (const { node, depth } of visitDescendants(nodes)) {
     const indent = '  '.repeat(depth)
     if (node === null) {
       lines.push(`${indent}- [outside workspace subtree]`)
@@ -883,7 +934,6 @@ function renderDescendants(
     }
     const id = node.record.header.id
     lines.push(`${indent}- ${id} — ${titleText(titles.get(id))} | ${formatTime(node.record.header.createdAt)} | ${availabilityText(node.record)}`)
-    renderDescendants(lines, node.descendants, titles, depth + 1)
   }
 }
 
