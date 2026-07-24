@@ -1908,10 +1908,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
         expect(result.terminal.output).toContain('Folder · docs/')
       })
       result.terminal.send('\t')
-      await vi.waitFor(() => {
-        expect(result.terminal.output).toContain('File · design notes.md')
-      })
+      result.terminal.output = ''
       result.terminal.send('\t')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('@"docs/design notes.md"')
+      })
       await tick()
       result.terminal.send('\r')
       await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })

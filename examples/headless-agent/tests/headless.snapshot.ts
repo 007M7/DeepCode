@@ -222,18 +222,25 @@ describe('headless stream-json snapshots', () => {
         const records = parseJsonl(logs[0]?.content ?? '')
         const calls = records.filter(record => record.type === 'tool/call')
           .map(record => (record.data as JsonObject | undefined)?.name)
-        expect(calls).toEqual(['create_goal', 'get_goal'])
+        expect(calls).toEqual(['update_goal', 'create_goal', 'get_goal'])
+        const probeResult = records.find(record => record.type === 'tool/result'
+          && (record.data as JsonObject | undefined)?.callId === 'call_goal_probe')
+        const probeData = probeResult?.data as JsonObject | undefined
+        expect(probeData?.isError).toBe(true)
+        expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
         const goalChanges = records.filter((record) => {
           if (record.type !== 'user/message') return false
           const data = record.data as JsonObject | undefined
-          const meta = data?.meta as JsonObject | undefined
-          return meta?.kind === 'goal/change'
+          const source = data?.source as JsonObject | undefined
+          const change = source?.change as JsonObject | undefined
+          return source?.kind === 'goal' && change?.kind === 'goal/change'
         })
         expect(goalChanges).toHaveLength(1)
         const data = goalChanges[0]?.data as JsonObject | undefined
-        const meta = data?.meta as JsonObject | undefined
-        const goal = meta?.goal as JsonObject | undefined
-        expect(meta?.operation).toBe('create')
+        const source = data?.source as JsonObject | undefined
+        const change = source?.change as JsonObject | undefined
+        const goal = change?.goal as JsonObject | undefined
+        expect(change?.operation).toBe('create')
         expect(goal).toMatchObject({
           objective: 'Finish the headless goal-tool snapshot proof',
           phase: 'active',

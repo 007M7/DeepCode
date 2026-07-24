@@ -5,7 +5,7 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 3
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 5
 
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
@@ -78,7 +78,7 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
 
 function listUserTables(db: DatabaseSync): string[] {
   const rows = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' ORDER BY name",
   ).all() as Array<{ name: string }>
   return rows.map(row => row.name)
 }
