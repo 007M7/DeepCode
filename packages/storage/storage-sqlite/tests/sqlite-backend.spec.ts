@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { Context } from 'cordis'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import Storage from '@deepseek-ai/dsh-storage'
 import type { KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
 import { runKvBackendContract } from '../../storage/tests/contract.ts'
+import * as StorageSqlite from '../src/index.ts'
 import { Config, SqliteStorageBackend, STORAGE_SQLITE_SCHEMA_VERSION } from '../src/index.ts'
 
 /** Mirror the loader: resolve schemastery defaults before construction. */
@@ -166,6 +169,65 @@ describe('sqlite backend specifics', () => {
       code: 'malformed-medium',
     })
     await reopened.close()
+  })
+
+  it('rejects setGlobal on a unit without a global slot and writes to undeclared tables', async () => {
+    const backend = backendAt(':memory:')
+    const unit = await backend.kv.open({ ...DESCRIPTOR, hasGlobal: false })
+    await expect(unit.setGlobal({ g: 1 })).rejects.toThrow(/declared no global slot/)
+    await expect(unit.putRecord('undeclared', 'k', 1)).rejects.toThrow(/declared no table/)
+    expect((await unit.loadAll()).global).toBeNull()
+    await backend.close()
+  })
+
+  it('drains a still-pending failed open during close', async () => {
+    const path = await freshDbPath()
+    const first = backendAt(path)
+    await (await first.kv.open(DESCRIPTOR)).close()
+    await first.close()
+
+    const backend = backendAt(path)
+    // Do not await: close() must tolerate an in-flight open that will reject
+    // (version mismatch) while its name is still reserved in the unit table.
+    const pending = backend.kv.open({ ...DESCRIPTOR, version: 99 })
+    const closed = backend.close()
+    await expect(pending).rejects.toMatchObject({ code: 'version-mismatch' })
+    await closed
+  })
+
+  it('propagates filesystem errors other than an existing database file', async () => {
+    if (process.platform === 'win32') return
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-storage-sqlite-'))
+    dirs.push(dir)
+    await chmod(dir, 0o500)
+    const backend = backendAt(join(dir, 'storage.db'))
+    await expect(backend.kv.open(DESCRIPTOR)).rejects.toMatchObject({ code: 'EACCES' })
+    await backend.close()
+    await chmod(dir, 0o700)
+  })
+
+  it('preserves the mode of an existing database file', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    await writeFile(path, '', { mode: 0o644 })
+    await chmod(path, 0o644)
+    const backend = backendAt(path)
+    const unit = await backend.kv.open(DESCRIPTOR)
+    await unit.putRecord('records', 'k', 1)
+    await backend.close()
+  })
+
+  it('registers on the storage hub as backend sqlite and closes on dispose', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    const fiber = await ctx.plugin(StorageSqlite, { path: ':memory:' })
+    const backend = ctx.storage.backend.get('sqlite')
+    const unit = await backend.kv!.open(DESCRIPTOR)
+    await unit.putRecord('records', 'k', { n: 1 })
+
+    await fiber.dispose()
+    expect(ctx.storage.backend.names()).toEqual([])
+    await expect(backend.kv!.open(DESCRIPTOR)).rejects.toMatchObject({ code: 'closed' })
   })
 
   it('rejects an unparsable global slot with malformed-medium', async () => {

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-domain
 
-Domain data form for the DeepSeek Harness storage hub: mounts `ctx.storage.domain`, opening schema-validated KV domains over configured storage backends. A domain is declared once with `defineDomain` (zod record schemas, `z.infer`-derived types), opened through `DomainFacility.open`, and served from authoritative in-memory state — reads are synchronous, writes serialize on one per-domain chain, land durably on the routed backend, then emit `domain/changed`.
+Domain data form for the DeepSeek Harness storage hub: mounts `ctx.storage.domain`, opening schema-validated KV domains over configured storage backends. A domain is declared once with `defineDomain` (zod record schemas, `z.infer`-derived types), opened through `DomainFacility.open`, and served from authoritative in-memory state — reads are synchronous, writes serialize on one per-domain chain, reach durability on the routed backend first, then update memory and emit `domain/changed`.
 
 Design rationale, open semantics, and the storage/domain layer split live in the [Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md).
 
@@ -13,9 +13,21 @@ Design rationale, open semantics, and the storage/domain layer split live in the
 
 ## Model Experience
 
-No model-visible surface: the package registers no tools, injects no prompts, and emits no context. Token and KV-cache cost are zero.
+### Durable domain state
+
+#### What the model sees
+
+Nothing. The package registers no tools, injects no prompts, and appends no session events; it stores non-session data (workspace records, future session sidecars) behind `ctx.storage.domain` and emits only the in-process `domain/changed` event, which reaches a model only if a consumer package renders it through its own documented surface.
+
+#### Token effect
+
+Zero. No text from this package enters any model request.
+
+#### KV Cache effect
+
+Independent: domain reads and writes never touch request prefixes, so nothing here can invalidate provider cache reuse.
 
 ## Known Limitations and Deferred Work
 
-- Single-process only: `domain/changed` is an in-process event; cross-process observation (GUI reconnect) is deferred to the revision pattern noted in the Agent Note's non-goals.
-- No cross-table transactions, secondary indexes, or multi-segment keys; triggers and rework points are tabled in the Agent Note.
+- **Single-process change visibility** — `domain/changed` is an in-process event; a second host process or a reconnecting GUI observes no changes until the cross-process revision pattern deferred in the Agent Note lands.
+- **No cross-table transactions, secondary indexes, or multi-segment keys** — each write touches one record; triggers and rework points for these extensions are tabled in the Agent Note's deferred-work list.

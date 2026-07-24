@@ -19,17 +19,19 @@ interface Config {
 
 ## Model Experience
 
-### What the model sees
+### Stored domain records
 
-Nothing. This backend contributes no prompt, tool, or schema; it persists non-session domain data for host-side consumers.
+#### What the model sees
 
-### Token effect
+Nothing. This backend contributes no prompt, tool, or schema; it persists non-session domain data (workspace records, future session sidecar metadata) behind `ctx.storage` for host-side consumers only.
+
+#### Token effect
 
 Zero live-request tokens.
 
-### KV Cache effect
+#### KV Cache effect
 
-None — no live request prefixes are touched.
+None — the backend never touches live request prefixes.
 
 ## Known Limitations and Deferred Work
 

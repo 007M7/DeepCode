@@ -45,14 +45,14 @@ export class JsonStorageBackend implements StorageBackend {
   constructor(private readonly root: string) {}
 
   readonly kv: KvFacet = {
-    open: (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
-      if (this.closed) return Promise.reject(new StorageError('closed', 'json backend is closed'))
+    // The body up to the first await runs synchronously, so the opening-slot
+    // reservation below still excludes a concurrent open of the same unit.
+    open: async (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
+      if (this.closed) throw new StorageError('closed', 'json backend is closed')
       validateDescriptor(descriptor)
       if (this.open.has(descriptor.name) || this.opening.has(descriptor.name)) {
         // Double-open is a caller bug, not a medium condition.
-        return Promise.reject(
-          new Error(`unit '${descriptor.name}' is already open; a unit has exactly one live handle`),
-        )
+        throw new Error(`unit '${descriptor.name}' is already open; a unit has exactly one live handle`)
       }
       const opening = this.openUnit(descriptor)
       this.opening.set(descriptor.name, opening)

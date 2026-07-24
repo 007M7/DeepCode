@@ -16,7 +16,19 @@ JSON backend for the [storage hub](../storage/README.md): one human-readable `<u
 
 ## Model Experience
 
-No model-visible surface: this package serves host-side persistence only; nothing it does reaches prompts, tool schemas, or token budgets.
+### Stored domain records
+
+#### What the model sees
+
+Nothing. This backend contributes no prompt, tool, or schema; it persists non-session domain data behind `ctx.storage` for host-side consumers only.
+
+#### Token effect
+
+Zero live-request tokens.
+
+#### KV Cache effect
+
+None — the backend never touches live request prefixes.
 
 ## Known Limitations and Deferred Work
 

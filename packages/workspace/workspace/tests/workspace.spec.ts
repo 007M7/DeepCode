@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { Context } from 'cordis'
 import Storage from '@deepseek-ai/dsh-storage'
+import type { StorageBackend } from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-domain'
 import type { DomainChanged } from '@deepseek-ai/dsh-domain'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -24,10 +25,11 @@ const header = (id: string, cwd?: string): SessionHeader =>
 async function harness(options?: {
   pool?: MemoryMediaPool
   sessions?: SessionHeader[] | 'absent'
+  backend?: StorageBackend
 }) {
   const ctx = new Context()
   await ctx.plugin(Storage)
-  ctx.storage.backend.register('memory', new MemoryStorageBackend(options?.pool))
+  ctx.storage.backend.register('memory', options?.backend ?? new MemoryStorageBackend(options?.pool))
   ctx.storage.mount('domain', new DomainFacility(ctx, { backend: 'memory', routes: {} }))
   let listed = options?.sessions === 'absent' ? undefined : options?.sessions ?? []
   if (listed !== undefined) {
@@ -41,6 +43,36 @@ async function harness(options?: {
     registry: ctx.workspace,
     changes,
     setSessions: (headers: SessionHeader[]) => { listed = headers },
+  }
+}
+
+/** A memory backend whose next `putRecord` throws once when armed, for write-failure paths. */
+function failingBackend(): { backend: StorageBackend; arm: () => void } {
+  const inner = new MemoryStorageBackend()
+  let failNext = false
+  return {
+    arm: () => { failNext = true },
+    backend: {
+      kv: {
+        open: async (descriptor) => {
+          const unit = await inner.kv.open(descriptor)
+          return {
+            loadAll: () => unit.loadAll(),
+            putRecord: async (table, key, value) => {
+              if (failNext) {
+                failNext = false
+                throw new Error('medium write failed (injected)')
+              }
+              return unit.putRecord(table, key, value)
+            },
+            deleteRecord: (table, key) => unit.deleteRecord(table, key),
+            setGlobal: value => unit.setGlobal(value),
+            close: () => unit.close(),
+          }
+        },
+      },
+      close: () => inner.close(),
+    },
   }
 }
 
@@ -133,6 +165,25 @@ describe('WorkspaceRegistry.create', () => {
     const workspace = await registry.create(dir)
     expect(await registry.resolveByPath(link)).toBe(workspace)
     expect(await registry.resolveByPath(await makeDir('unowned'))).toBeUndefined()
+  })
+
+  it('rolls the entity cache back when the durable write fails, leaving the path free to retry', async () => {
+    const dir = await makeDir('rollback')
+    const { backend, arm } = failingBackend()
+    const { registry } = await harness({ backend })
+    arm()
+    await expect(registry.create(dir)).rejects.toThrow(/injected/)
+    expect(registry.list()).toEqual([])
+    const retried = await registry.create(dir)
+    expect(retried.path).toBe(dir)
+  })
+
+  it('rejects any table access before the registry has started', async () => {
+    const dir = await makeDir('unstarted')
+    const ctx = new Context()
+    // Constructed directly, Service.init never ran: no domain, no table.
+    const registry = new WorkspaceRegistry(ctx)
+    await expect(registry.create(dir)).rejects.toThrow(/not started/)
   })
 })
 
@@ -235,7 +286,24 @@ describe('consistency projections', () => {
     const id = WorkspaceId('00000000-0000-4000-8000-000000000002')
     const pool = pooledRecord(id, record(dir, ['maybe']))
     const { registry } = await harness({ pool, sessions: 'absent' })
-    expect(registry.get(id)!.sessionIds).toEqual(['maybe'])
+    const workspace = registry.get(id)!
+    expect(workspace.sessionIds).toEqual(['maybe'])
+    // Mutations must not prune either: unverifiable membership is kept as-is.
+    await workspace.setTitle('still-unverified')
+    expect(storedRecord(pool, id).sessionIds).toEqual(['maybe'])
+  })
+
+  it('prunes dead ids even when the triggering mutation is itself a no-op', async () => {
+    const dir = await makeDir('prune-on-noop')
+    const id = WorkspaceId('00000000-0000-4000-8000-000000000007')
+    const pool = pooledRecord(id, record(dir, ['ghost']))
+    const { registry, changes } = await harness({ pool, sessions: [] })
+    const workspace = registry.get(id)!
+    // Detaching an id that was never on the account changes nothing by
+    // itself, but the mutation slot still prunes the dead 'ghost' durably.
+    await workspace.detachSession(SessionId('never-there'))
+    expect(storedRecord(pool, id).sessionIds).toEqual([])
+    expect(changes).toHaveLength(1)
   })
 
   it('rejects startup over a medium accounting one session twice', async () => {
@@ -264,6 +332,20 @@ describe('consistency projections', () => {
   })
 })
 
+describe('Workspace mutation failures', () => {
+  it('propagates a medium write failure from a mutation and keeps the old snapshot', async () => {
+    const dir = await makeDir('write-fail')
+    const { backend, arm } = failingBackend()
+    const { registry } = await harness({ backend })
+    const workspace = await registry.create(dir)
+    arm()
+    await expect(workspace.setTitle('lost')).rejects.toThrow(/injected/)
+    expect(workspace.title).toBe('write-fail')
+    await workspace.setTitle('kept')
+    expect(workspace.title).toBe('kept')
+  })
+})
+
 describe('Workspace.status', () => {
   it('reports ok while the directory exists and missing-dir once it is gone, without mutating the record', async () => {
     const dir = await makeDir('vanishing')
@@ -274,5 +356,8 @@ describe('Workspace.status', () => {
     expect(await workspace.status()).toBe('missing-dir')
     expect(workspace.path).toBe(dir)
     expect(registry.get(workspace.id)).toBe(workspace)
+    // The path re-materializing as a non-directory is still missing-dir.
+    await writeFile(dir, 'now a file')
+    expect(await workspace.status()).toBe('missing-dir')
   })
 })

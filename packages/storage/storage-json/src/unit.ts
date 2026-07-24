@@ -14,7 +14,13 @@ import { writeAtomic } from './atomic.ts'
 import { parse, serialize } from './format.ts'
 import type { UnitState } from './format.ts'
 
-/** Open (load or lazily create) one unit backed by `path`. */
+/**
+ * Open (load or lazily create) one unit backed by `path`.
+ * @param descriptor - Static identity and shape of the unit.
+ * @param path - Absolute unit file path under the backend root.
+ * @param onClose - Backend callback releasing the unit's open-slot.
+ * @returns the opened unit.
+ */
 export async function openJsonUnit(
   descriptor: KvUnitDescriptor,
   path: string,

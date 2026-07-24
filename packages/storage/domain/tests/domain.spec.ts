@@ -76,6 +76,35 @@ describe('DomainFacility.open', () => {
     await expect(facility.open(spec)).rejects.toMatchObject({ code: 'facet-unsupported' })
   })
 
+  it('falls back to the default backend when no route table is configured', async () => {
+    // A second, unmounted facility whose config omits `routes` entirely
+    // (exactOptionalPropertyTypes forbids an explicit undefined). Opening
+    // emits no events, so the mounted facility's invariant never consults it.
+    const { ctx } = await harness()
+    const routeless = new DomainFacility(ctx, { backend: 'memory' })
+    await expect(routeless.open(bareSpec)).resolves.toBeDefined()
+  })
+
+  it('treats a table key the backend omitted from loadAll as empty', async () => {
+    // A sparse backend: loadAll omits declared table keys entirely instead of
+    // returning them as empty objects.
+    const { ctx, facility } = await harness({ config: { backend: 'sparse' } })
+    ctx.storage.backend.register('sparse', {
+      kv: {
+        open: async () => ({
+          loadAll: async () => ({ tables: {}, global: null }),
+          putRecord: async () => {},
+          deleteRecord: async () => {},
+          setGlobal: async () => {},
+          close: async () => {},
+        }),
+      },
+      close: async () => {},
+    })
+    const domain = await facility.open(bareSpec)
+    expect(domain.table('rows').size).toBe(0)
+  })
+
   it('rejects stored records that fail their schema, naming table and key', async () => {
     const pool = new MemoryMediaPool()
     {
@@ -109,6 +138,33 @@ describe('DomainFacility.open', () => {
       name: 'StorageError',
       code: 'version-mismatch',
     })
+  })
+})
+
+describe('plugin apply', () => {
+  it('mounts the facility as ctx.storage.domain through the plugin effect', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend())
+    const DomainPlugin = await import('../src/index.ts')
+    const fiber = await ctx.plugin(DomainPlugin, { backend: 'memory' })
+    expect(ctx.storage.domain).toBeInstanceOf(DomainFacility)
+    await fiber.dispose()
+    expect(() => ctx.storage.form('domain')).toThrow(/not mounted/)
+  })
+})
+
+describe('table and snapshot reads', () => {
+  it('serves entries, keys, and size as stable snapshots; unknown table names throw', async () => {
+    const { facility } = await harness()
+    const domain = await facility.open(spec)
+    const table = domain.table('items')
+    await table.put('a', { label: 'x', count: 1 })
+    await table.put('b', { label: 'y', count: 2 })
+    expect(table.size).toBe(2)
+    expect([...table.keys()].sort()).toEqual(['a', 'b'])
+    expect(new Map(table.entries()).get('a')).toEqual({ label: 'x', count: 1 })
+    expect(() => domain.table('nope' as never)).toThrow(/declares no table/)
   })
 })
 

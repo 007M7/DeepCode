@@ -147,7 +147,9 @@ export class DomainImpl {
    * @param ctx - Context that carries `domain/changed` emissions.
    * @param spec - The domain declaration.
    * @param unit - The opened backend unit; this instance owns its lifecycle.
-   * @param records - Validated per-table records from the unit's `loadAll`.
+   * @param records - Validated records from the unit's `loadAll`, one entry
+   * per declared table (empty maps included) — the facility builds it from
+   * the spec, so the entry set IS the table set.
    * @param globalValue - Validated stored global, or the spec's `initial`
    * when the medium held none; `undefined` when the spec declares no global.
    */
@@ -166,8 +168,8 @@ export class DomainImpl {
       assertReadable: () => this.assertReadable(),
       emitChanged: (change) => this.ctx.emit('domain/changed', change),
     }
-    for (const table of Object.keys(spec.tables)) {
-      this.tables.set(table, new KvTableImpl(host, table, records.get(table) ?? new Map()))
+    for (const [table, tableRecords] of records) {
+      this.tables.set(table, new KvTableImpl(host, table, tableRecords))
     }
     if (spec.global !== undefined) {
       this.globalValue = globalValue

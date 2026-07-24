@@ -119,8 +119,10 @@ export class DomainFacility {
             ? spec.global.initial
             : parseRecord(spec.name, '', '', () => spec.global!.schema.parse(snapshot.global))
         const domain = new DomainImpl(this.ctx, spec, unit, tables, globalValue)
-        this.domains.set(spec.name, domain)
+        // The open-domain table entry is itself the effect: registration and
+        // the drain-then-unlist teardown live in one closure.
         this.ctx.effect(() => {
+          this.domains.set(spec.name, domain)
           return async () => {
             // Drain before unlisting: writes landing during the drain still
             // emit domain/changed, and the domain must stay resolvable (the
@@ -139,7 +141,9 @@ export class DomainFacility {
         throw error
       }
     } catch (error) {
-      if (!this.domains.has(spec.name)) this.reserved.delete(spec.name)
+      // Any failure means the effect never registered (nothing can throw
+      // after it), so releasing the name reservation is unconditional.
+      this.reserved.delete(spec.name)
       throw error
     }
   }

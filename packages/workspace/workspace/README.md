@@ -16,7 +16,19 @@ Session persistence is an optional peer resolved with `ctx.get`: absent, attach 
 
 ## Model Experience
 
-No model-visible surface: the package registers no tools, injects no prompts, and emits no context. Token and KV-cache cost are zero.
+### Workspace records and session accounts
+
+#### What the model sees
+
+Nothing. `ctx.workspace` serves workspace records to host-side consumers only: the package registers no tools, injects no prompts, and writes no session events, so no request field ever carries this package's data.
+
+#### Token effect
+
+Zero direct tokens on every request.
+
+#### KV Cache effect
+
+Independent of live requests: the package never touches a request prefix, so it cannot invalidate provider cache reuse.
 
 ## Known Limitations and Deferred Work
 

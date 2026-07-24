@@ -33,11 +33,33 @@ describe('Storage service', () => {
     const facility = { marker: true }
     const dispose = ctx.storage.mount('domain' as never, facility as never)
     expect(ctx.storage.form('domain' as never)).toBe(facility)
+    expect(ctx.storage.domain).toBe(facility)
     expect(() => ctx.storage.mount('domain' as never, facility as never)).toThrowMatchingObject({
       code: 'duplicate-mount',
     })
     dispose()
     expect(() => ctx.storage.form('domain' as never)).toThrowMatchingObject({ code: 'form-not-mounted' })
+    expect(() => ctx.storage.domain).toThrowMatchingObject({ code: 'form-not-mounted' })
+  })
+
+  it('ignores a stale disposer after dispose and re-mount / re-register', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    const first = { first: true }
+    const second = { second: true }
+    const staleMount = ctx.storage.mount('domain' as never, first as never)
+    staleMount()
+    ctx.storage.mount('domain' as never, second as never)
+    staleMount()
+    expect(ctx.storage.form('domain' as never)).toBe(second)
+
+    const backendA = fakeBackend()
+    const backendB = fakeBackend()
+    const staleRegister = ctx.storage.backend.register('json', backendA)
+    staleRegister()
+    ctx.storage.backend.register('json', backendB)
+    staleRegister()
+    expect(ctx.storage.backend.get('json')).toBe(backendB)
   })
 })
 

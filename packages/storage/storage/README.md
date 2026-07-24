@@ -16,3 +16,24 @@ Storage hub (`ctx.storage`) for non-session data: a named backend registry plus 
 | `dsh-storage-json` | JSON backend: one unit per human-readable file, atomic whole-file rewrite |
 | `dsh-storage-sqlite` | SQLite backend: one database hosting all routed units, document-per-row |
 | `dsh-domain` | Domain data form (`ctx.storage.domain`): typed schemas, write chain, change events |
+
+## Model Experience
+
+### Backend and form registrations
+
+#### What the model sees
+
+Nothing. `ctx.storage` is a host-side registration table; the hub registers no tools, injects no prompts, and writes no session events.
+
+#### Token effect
+
+Zero direct tokens on every request.
+
+#### KV Cache effect
+
+Independent of live requests: the hub never touches a request prefix, so it cannot invalidate provider cache reuse.
+
+## Known Limitations and Deferred Work
+
+- **`kv` is the only data shape** — the append-log facet the future session-backend migration needs is reserved in the design note but not yet defined; backends currently have exactly one facet to implement.
+- **Forms resolve lazily** — reading `ctx.storage.domain` before the domain plugin mounts throws `form-not-mounted`; assemblies order plugins accordingly (misconfiguration fails loud rather than silently deferring).

@@ -2,6 +2,8 @@
 
 Status: proposed
 
+[English](2026-07-24-domain-kv-storage-and-workspace.md) | 中文
+
 ## Problem
 
 host 侧唯一的持久化面是 session 事件日志（`packages/session-persistence`：append-only、一 session 一文件）。凡是"不属于某个 session"的信息就没有落盘处，眼下有两个真实需求：
@@ -33,7 +35,7 @@ host 侧唯一的持久化面是 session 事件日志（`packages/session-persis
 
 纯注册枢纽，自身不做 IO，无 Config。
 
-```ts
+```ts ignore-check
 declare module 'cordis' { interface Context { storage: Storage } }
 
 export class Storage extends Service {
@@ -61,7 +63,7 @@ export class BackendRegistry {
 
 一个后端是一个**介质 owner**（一棵文件树 root / 一个 db 文件），通过**数据形状 facet** 暴露原语——本期只有 `kv`；session 迁移期加 `log`（见迁移节）。facet 是可选成员，缺席即该后端不支持该形状，解析时 fail loud：
 
-```ts
+```ts ignore-check
 export interface StorageBackend {
   readonly name: string
   readonly kv?: KvFacet                          // 迁移期扩展：readonly log?: LogFacet
@@ -101,7 +103,7 @@ backend 契约（共享契约测试逐条断言，两后端同套件）：
 6. 任意字符串 key / 任意 JSON 值安全（key 不进文件路径，结构性质）。
 7. `close` 幂等；close 后任何操作 → `StorageError('closed')`。
 
-```ts
+```ts ignore-check
 export type StorageErrorCode =
   | 'backend-not-found' | 'form-not-mounted' | 'duplicate-backend' | 'duplicate-mount'
   | 'version-mismatch' | 'malformed-medium' | 'closed'
@@ -110,17 +112,7 @@ export class StorageError extends Error { readonly code: StorageErrorCode }
 
 ### `dsh-storage-json`
 
-```ts
-export const Config = z.object({ root: z.string().required() })   // schemastery；无默认
-
-export function apply(ctx: Context, config: Config) {
-  const backend = new JsonStorageBackend(config)
-  ctx.effect(() => {
-    const dispose = ctx.storage.backend.register('json', backend)
-    return async () => { dispose(); await backend.close() }
-  })
-}
-```
+Config 仅 `root`（必填无默认，schemastery）；apply 在 `ctx.effect()` 里注册后端 `json`，disposer 先摘名再 `backend.close()`。
 
 - 布局 `<root>/<unitName>.json`，一 unit 一文件；目录 0o700、文件 0o600。
 - 文件格式（版本戳在头，文件即当前净值，`JSON.stringify(…, null, 2)` 肉眼可读——这是该后端的存在理由）：
@@ -138,13 +130,7 @@ export function apply(ctx: Context, config: Config) {
 
 ### `dsh-storage-sqlite`
 
-```ts
-export const Config = z.object({
-  path: z.string().required(),                   // ':memory:' 允许
-  journalMode: z.union(['wal', 'delete', 'truncate', 'persist']).default('wal'),
-})
-// apply 同 json：new SqliteStorageBackend(config) → register('sqlite', …)
-```
+Config 为 `path`（必填，`':memory:'` 允许）+ `journalMode`（枚举，默认 `wal`）；apply 同 json，注册后端 `sqlite`。
 
 - `node:sqlite` `DatabaseSync`；打开序列照抄 session-persistence-sqlite：mkdir 0o700 → 不存在则 `open(path,'wx',0o600)` 独占建文件 → `PRAGMA foreign_keys=ON` → journal_mode → 版本检查 → 建表。
 - 物理布局版本 `STORAGE_SQLITE_SCHEMA_VERSION = 1` 存 `PRAGMA user_version`：0 → 盖章；≠ → `version-mismatch`。
@@ -166,7 +152,7 @@ CREATE TABLE IF NOT EXISTS "u_<unit>_<table>" (
 
 单实现不抽象；消费者只依赖这层，不直接触后端。
 
-```ts
+```ts ignore-check
 export const Config = z.object({
   backend: z.string().required(),                // 默认后端名，必填
   routes: z.dict(z.string()).default({}),        // per-domain 覆盖：{ workspace: 'sqlite' }
@@ -181,7 +167,7 @@ export function apply(ctx: Context, config: Config) {
 
 域声明（spec 对象由拥有该域的包定义导出，是类型与运行时的单一来源；schema 用 zod，`z.infer` 推导类型不重复声明——记录模型下期要投影成 RPC wire schema，wire 边界全是 zod；schemastery 仍只管插件 Config）：
 
-```ts
+```ts ignore-check
 export interface DomainGlobalSpec<G> { readonly schema: ZodType<G>; readonly initial: G }
 export interface DomainTableSpec<K extends string, V> { readonly valueSchema: ZodType<V> }
 
@@ -205,7 +191,7 @@ export function domainTable<K extends string, V>(schema: ZodType<V>): DomainTabl
 5. `loadAll()`；每条记录 `valueSchema.parse`，global 过 schema（null 取 `initial`，不落盘，首写才落盘）。失败 → `DomainError('invalid-record', { table, key })`（durable 边界必须校验；写侧不重复校验）。
 6. 构造 `Domain` 并注册 `ctx.effect()`：disposer 排空写链 → `unit.close()`。
 
-```ts
+```ts ignore-check
 export interface Domain</* 由 spec 推导 */> {
   readonly name: string
   readonly global: { get(): G; set(value: G): Promise<void> }   // 仅当 spec.global 声明
@@ -232,7 +218,7 @@ export interface KvTable<K extends string, V> {
 - **版本 fail loud**：盘上版本与 spec 不符直接报错，不迁移不重建（数据不可再生，pre-release 拒绝旧格式）。
 - **变更事件**：每次写落盘 resolve 后 emit，逐条发、不带旧值（对齐仓库"新快照 + 操作判别"惯例，范本 `goal/changed`）；此为下期 RPC 推帧的事件源：
 
-```ts
+```ts ignore-check
 declare module 'cordis' {
   interface Events {
     /**
@@ -261,7 +247,7 @@ export class DomainError extends Error { readonly code: DomainErrorCode }
 
 本节是定案的施工规范，实施期不动语义只动代码；本期 session-persistence 的任何文件都不修改。
 
-```ts
+```ts ignore-check
 export abstract class SessionPersistence extends Service {
   /**
    * Permanently delete one session's stored log.
@@ -290,7 +276,7 @@ export abstract class SessionPersistence extends Service {
 
 包拥有 `WorkspaceId` brand，暴露 `ctx.workspace`。记录 key 为生成的 uuid——path 不做 key：规范化会改写它，引用锚点必须稳定。
 
-```ts
+```ts ignore-check
 export type WorkspaceId = Branded<'WorkspaceId'>
 export function WorkspaceId(id: string): WorkspaceId
 

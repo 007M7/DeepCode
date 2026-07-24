@@ -1,9 +1,13 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import Storage from '@deepseek-ai/dsh-storage'
+import InvariantService from '@deepseek-ai/dsh-invariants'
 import { runKvBackendContract } from '../../storage/tests/contract.ts'
-import { JsonStorageBackend } from '../src/index.ts'
+import { Config, JsonStorageBackend, apply } from '../src/index.ts'
+import * as InvariantCompanion from '../src/invariant.ts'
 
 const roots: string[] = []
 
@@ -83,20 +87,118 @@ describe('json backend specifics', () => {
     const backend = new JsonStorageBackend(root)
     const unit = await backend.kv.open(descriptor)
     await unit.putRecord('t', 'k', { v: 'committed' })
-    // Make the next publish fail: replace the unit file's parent with an
-    // unwritable directory path via chmod.
-    const { chmod } = await import('node:fs/promises')
+    await unit.setGlobal({ g: 'committed' })
+    // Make every publish fail: revoke write permission on the root.
     await chmod(root, 0o500)
     await expect(unit.putRecord('t', 'k', { v: 'rejected' })).rejects.toThrow()
     await expect(unit.putRecord('t', 'k2', { v: 'also rejected' })).rejects.toThrow()
+    await expect(unit.deleteRecord('t', 'k')).rejects.toThrow()
+    await expect(unit.setGlobal({ g: 'rejected' })).rejects.toThrow()
     await chmod(root, 0o700)
     const snapshot = await unit.loadAll()
     expect(snapshot.tables['t']).toEqual({ k: { v: 'committed' } })
+    expect(snapshot.global).toEqual({ g: 'committed' })
     // The next successful publish must not carry rejected writes to disk.
     await unit.putRecord('t', 'k3', { v: 'later' })
     const text = await readFile(join(root, 'shape.json'), 'utf8')
     expect(text).not.toContain('rejected')
     await backend.close()
+  })
+
+  it('rejects undeclared table and global access as caller errors', async () => {
+    const root = await freshRoot()
+    const backend = new JsonStorageBackend(root)
+    const unit = await backend.kv.open({ name: 'shape', version: 1, tables: ['t'], hasGlobal: false })
+    await expect(unit.putRecord('undeclared', 'k', {})).rejects.toThrow(/does not declare table/)
+    await expect(unit.setGlobal({})).rejects.toThrow(/does not declare a global slot/)
+    await backend.close()
+  })
+
+  it('rejects invalid unit and table names', async () => {
+    const root = await freshRoot()
+    const backend = new JsonStorageBackend(root)
+    await expect(backend.kv.open({ ...descriptor, name: 'Bad-Name' })).rejects.toMatchObject({
+      name: 'StorageError',
+      code: 'malformed-medium',
+    })
+    await expect(backend.kv.open({ ...descriptor, tables: ['ok', 'not ok'] })).rejects.toMatchObject({
+      name: 'StorageError',
+      code: 'malformed-medium',
+    })
+    await backend.close()
+    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'closed' })
+  })
+
+  it('opens a file missing a declared table as that table empty', async () => {
+    const root = await freshRoot()
+    await writeFile(
+      join(root, 'contract_unit.json'),
+      JSON.stringify({ unit: { name: 'contract_unit', version: 3 }, global: null, tables: { alpha: { k: 1 } } }),
+      'utf8',
+    )
+    const backend = new JsonStorageBackend(root)
+    const unit = await backend.kv.open({ name: 'contract_unit', version: 3, tables: ['alpha', 'beta'], hasGlobal: true })
+    const snapshot = await unit.loadAll()
+    expect(snapshot.tables['alpha']).toEqual({ k: 1 })
+    expect(snapshot.tables['beta']).toEqual({})
+    await backend.close()
+  })
+
+  it('propagates non-ENOENT read failures', async () => {
+    const root = await freshRoot()
+    const { mkdir } = await import('node:fs/promises')
+    // A directory where the unit file should be: readFile fails with EISDIR.
+    await mkdir(join(root, 'shape.json'))
+    const backend = new JsonStorageBackend(root)
+    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'EISDIR' })
+    await backend.close()
+  })
+
+  it('rejects malformed table shapes and foreign versions distinctly', async () => {
+    const root = await freshRoot()
+    await writeFile(
+      join(root, 'shape.json'),
+      JSON.stringify({ unit: { name: 'shape', version: 1 }, global: null, tables: { t: ['not', 'an', 'object'] } }),
+      'utf8',
+    )
+    const backend = new JsonStorageBackend(root)
+    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
+
+    await writeFile(
+      join(root, 'shape.json'),
+      JSON.stringify({ unit: { name: 'shape', version: 9 }, global: null, tables: {} }),
+      'utf8',
+    )
+    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'version-mismatch' })
+
+    await writeFile(join(root, 'shape.json'), JSON.stringify({ unit: { name: 'shape', version: 1 }, global: null }), 'utf8')
+    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
+
+    await writeFile(join(root, 'shape.json'), JSON.stringify('just a string'), 'utf8')
+    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
+    await backend.close()
+  })
+
+  it('registers on the hub via apply and closes on dispose', async () => {
+    const root = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    const fiber = await ctx.plugin({ apply, Config, inject: ['storage'] }, { root })
+    const backend = ctx.storage.backend.get('json')
+    const unit = await backend.kv!.open(descriptor)
+    await unit.putRecord('t', 'k', { v: 1 })
+    await fiber.dispose()
+    expect(() => ctx.storage.backend.get('json')).toThrow()
+    await expect(unit.putRecord('t', 'x', {})).rejects.toMatchObject({ code: 'closed' })
+  })
+
+  it('registers the invariant companion and disposes cleanly', async () => {
+    const ctx = new Context()
+    await ctx.plugin(InvariantService)
+    const fiber = await ctx.plugin(InvariantCompanion)
+    // Disposal releases the reservation: a fresh mount succeeds.
+    await fiber.dispose()
+    await ctx.plugin(InvariantCompanion)
   })
 
   it('close drains in-flight writes and blocks in-flight opens', async () => {
