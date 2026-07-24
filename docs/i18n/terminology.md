@@ -52,7 +52,7 @@
 | loader | loader | | | |
 | manifest | manifest | manifest（元数据清单） | | |
 | monorepo | monorepo | | | |
-| Round | Round | | 回合、目标回合、Ralph 回合 | 领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
+| Round | Round | | 回合、目标回合、Ralph 回合 | 外层策略使用 Round 时，领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Round 是可选的外层策略迭代，并非每个会话轮次都具有的通用层级。Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
 | seam | seam | | | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
