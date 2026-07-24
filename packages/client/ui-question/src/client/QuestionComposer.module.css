@@ -67,7 +67,7 @@
 }
 
 .detail {
-  margin: 2px 0 0;
+  margin: 0 2px 8px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
   line-height: 20px;
@@ -113,13 +113,19 @@
   cursor: default;
 }
 
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .options {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* The scrollable region of the capped card (ChatView list pattern). */
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .option {

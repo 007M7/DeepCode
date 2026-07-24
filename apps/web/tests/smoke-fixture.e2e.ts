@@ -312,6 +312,39 @@ describe('web boot chain success pass (keyless, ten real bundles, ?fixture)', ()
     await composer.getByRole('radio', { name: '工程落地型' }).click()
     await composer.getByText('2 / 3', { exact: true }).waitFor()
     await composer.getByRole('button', { name: '跳过本题', exact: true }).click()
+    const detail = composer.getByText('按当前招聘目标选择；跳过则视为不设偏好。')
+    // Exercise provider-sized plan detail through the assembled composer
+    // without making the shared fixture transcript permanently enormous.
+    await detail.evaluate((element) => {
+      element.textContent = Array.from(
+        { length: 80 },
+        (_, index) => `Plan section ${String(index + 1)} keeps review context readable.`,
+      ).join(' ')
+    })
+    const scrollRegion = composer.locator('[data-question-scroll]')
+    const layout = await composer.evaluate((root) => {
+      const card = root.querySelector('section')
+      const scroller = root.querySelector('[data-question-scroll]')
+      const footer = root.querySelector('footer')
+      if (!(card instanceof HTMLElement) ||
+          !(scroller instanceof HTMLElement) ||
+          !(footer instanceof HTMLElement)) return null
+      const cardRect = card.getBoundingClientRect()
+      const footerRect = footer.getBoundingClientRect()
+      return {
+        cardClientHeight: card.clientHeight,
+        cardScrollHeight: card.scrollHeight,
+        footerInsideCard: footerRect.bottom <= cardRect.bottom,
+        scrollerClientHeight: scroller.clientHeight,
+        scrollerScrollHeight: scroller.scrollHeight,
+      }
+    })
+    expect(layout).not.toBeNull()
+    expect(layout?.cardScrollHeight).toBe(layout?.cardClientHeight)
+    expect(layout?.footerInsideCard).toBe(true)
+    expect(layout?.scrollerScrollHeight).toBeGreaterThan(layout?.scrollerClientHeight ?? 0)
+    await scrollRegion.evaluate((element) => { element.scrollTop = element.scrollHeight })
+    await expect.poll(() => scrollRegion.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
     await composer.getByRole('checkbox', { name: '系统设计' }).click()
     await composer.getByRole('checkbox', { name: 'Agent 产品判断' }).click()
     await composer.getByRole('checkbox', { name: 'Agent 产品判断' }).press('Enter')
