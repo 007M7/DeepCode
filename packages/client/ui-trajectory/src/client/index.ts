@@ -12,8 +12,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TrajectoryView } from './TrajectoryView.tsx'
 import { WaterfallView } from './WaterfallView.tsx'
 
-/** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
-export const inject = ['slots']
+/**
+ * Required services (cordis fiber inject). 'conversation' is an ordering
+ * edge, not a call dependency: the 'conversation.view' slot is declared by
+ * ui-conversation's apply (which then provides the service), and register()
+ * into an undeclared slot throws — service waiting is what orders this
+ * apply after the declaring one.
+ */
+export const inject = ['slots', 'conversation']
 
 /**
  * Client plugin body: register the trajectory and waterfall view tabs. The

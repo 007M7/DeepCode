@@ -2,17 +2,15 @@
  * Browser half: the whole runtime contract surface (api-contracts v3 §4) —
  * SlotsService (declaration ledger + renderer seam + store axis, built-in
  * 'root'), SessionsService (list store + current selection + scope tree +
- * object layer), the ClientLoader interface, and the cordis Context/Events
- * merges. apply
- * mounts ctx.slots + ctx.sessions and wires the connection stream loop into
- * the object layer. The loader machinery implementation is NOT in the plugin
- * bundle — it ships via the package's `./loader` subpath, statically held by
- * the web shell (a loader cannot load itself).
+ * object layer), and the cordis Context/Events merges. apply mounts
+ * ctx.slots + ctx.sessions and wires the connection stream loop into the
+ * object layer. A static-arrival entry: the web shell bundles this module
+ * and mounts it through the host graph (module loading lives in
+ * @deepseek-ai/dsh-client-modules, entry governance in the vendored Loader).
  */
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotStore } from './contract/store.ts'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
@@ -95,46 +93,7 @@ declare module 'cordis' {
   interface Context {
     slots: import('./slots.ts').SlotsService
     sessions: import('./sessions/service.ts').SessionsService
-    loader: ClientLoader
   }
-}
-
-/** One __DSH_BOOT__ manifest row. */
-export interface BootPluginEntry { id: string; url: string; inject: string[]; immediately?: boolean }
-
-/** Per-plugin load status store shape. */
-export type LoaderStatus = Record<string, 'loading' | 'active' | 'failed'>
-
-/**
- * Client bundle loader. The immediately group loads first (parallel fetch,
- * apply in inject topology order); remaining plugins follow in inject
- * topology. Loaded bundle export surfaces are registered back into the
- * require module table. Implementation lives in the `./loader` subpath
- * (shell-held machinery).
- */
-export interface ClientLoader {
-  /** Start loading from window.__DSH_BOOT__ (non-blocking). */
-  start(): void
-  /**
-   * Load one plugin bundle (script inject, factory handoff, ctx.plugin, style registration).
-   * @param id - plugin id (package name).
-   */
-  load(id: string): Promise<void>
-  /**
-   * Unload a plugin. P-I: not implemented (full chain lands with HMR).
-   * @param id - plugin id.
-   */
-  unload(id: string): Promise<void>
-  /** Resolves when every manifest plugin reached active (AppRoot gates the real UI on this). */
-  settled(): Promise<void>
-  /**
-   * Read a loaded module's export surface from the module table (same
-   * implementation the bundle-facing require uses; unknown spec throws).
-   * @param spec - module specifier (package name or seeded library id).
-   */
-  requireModule(spec: string): unknown
-  /** Per-plugin status store. */
-  readonly status: SnapshotStore<LoaderStatus>
 }
 
 /** Required services: the wire handle mounted by the connection plugin. */

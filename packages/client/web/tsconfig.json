@@ -12,6 +12,12 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../modules"
+    },
+    {
       "path": "../ui-slots"
     },
     {
@@ -21,16 +27,7 @@
       "path": "../web-react"
     },
     {
-      "path": "../connection"
-    },
-    {
       "path": "../runtime"
-    },
-    {
-      "path": "../ui-theme"
-    },
-    {
-      "path": "../ui-layout"
     },
     {
       "path": "../../support/invariants"

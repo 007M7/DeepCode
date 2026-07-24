@@ -91,6 +91,13 @@ interface SessionState {
   owner?: Session
 }
 
+/** One live session's initialization and eager write-behind controller. */
+interface LiveSessionState {
+  pending: SessionEvent[]
+  init: Promise<void>
+  flush: Promise<void> | undefined
+}
+
 /** Collect the rejection reasons from a set of promises (none-throwing). */
 async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unknown[]> {
   const settled = await Promise.allSettled([...promises])
@@ -145,21 +152,15 @@ function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): 
 export class PersistenceCoordinator<TornMarker = unknown> {
   /** Backend bookkeeping keyed by session id (NOT the live Session object). */
   private states = new Map<SessionId, SessionState>()
-  /** Write-behind buffers keyed by the live Session (write path). */
-  private buffers = new Map<Session, SessionEvent[]>()
+  /** Lifecycle and write-behind state keyed by the exact live Session. */
+  private live = new Map<Session, LiveSessionState>()
+  /** Cold loads currently reserving an id across backend reads and repair writes. */
+  private coldLoads = new Set<SessionId>()
   /**
    * Per-session serialization: every operation chains onto the prior one for the
    * same id, so writes for one session never interleave. Keyed by session id.
    */
   private chains = new Map<SessionId, Promise<unknown>>()
-  /**
-   * Init promises keyed by live session object, preventing an id-reusing
-   * replacement from inheriting stale initialization. Flush is the public
-   * observation boundary; callers do not inspect this bookkeeping directly.
-   */
-  private inits = new Map<Session, Promise<void>>()
-  /** Final drains started by fire-and-forget session disposal notifications. */
-  private retirements = new Set<Promise<void>>()
 
   constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
     this.installWritePath()
@@ -248,8 +249,18 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @param id - the persisted session to reload.
    * @returns the header plus the event log, ending on a balanced `turn/end`.
    */
-  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.serialize(id, () => this.loadCore(id))
+  async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const selected = await this.serialize(id, async () => {
+      const live = this.ctx.sessions.get(id)
+      if (live !== undefined) return { live }
+      this.coldLoads.add(id)
+      try {
+        return { loaded: await this.loadCore(id) }
+      } finally {
+        this.coldLoads.delete(id)
+      }
+    })
+    return 'loaded' in selected ? selected.loaded : this.loadLiveSnapshot(selected.live)
   }
 
   /**
@@ -295,6 +306,21 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     return { meta, events: balanced }
   }
 
+  /** Return a durable balanced live snapshot without applying cold crash repair. */
+  private async loadLiveSnapshot(session: Session): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const events = session.events.map(event => structuredClone(event))
+    await this.flush(session)
+    const state = this.states.get(session.id)
+    /* v8 ignore next -- successful flush always publishes this live session's durable state */
+    if (state === undefined) throw new Error(`session "${session.id}" lost persistence state during load`)
+    const meta = structuredClone(state.meta)
+    if (events.length === 0) throw new Error(`session "${session.id}" not found`)
+    if (interruptedTurnClosers(events).length > 0) {
+      throw new Error(`cannot load session "${session.id}" while its live turn is open; use the live Session or wait for the turn to close`)
+    }
+    return { meta, events }
+  }
+
   // Listing is a direct backend read and needs no coordinator state.
 
   // --- per-id serialization + adoption helpers ---
@@ -305,7 +331,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * public methods must NOT call each other (deadlock); they call the unserialized
    * `*Core` helpers instead.
    */
-  private serialize<T>(id: SessionId, op: () => Promise<T>): Promise<T> {
+  private serialize<T>(id: SessionId, op: () => Promise<T> | T): Promise<T> {
     const prior = this.chains.get(id) ?? Promise.resolve()
     const next = prior.then(op, op)
     // Keep the chain alive but swallow this op's rejection for the NEXT waiter
@@ -353,15 +379,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // reverse registration order, so event admission closes before this final
     // drain reaches quiescence and closes the backend.
     ctx.effect(() => async () => {
-      await this.awaitRetirements()
-
       let disposeError: unknown
       try {
-        const errors = [
-          ...await settledErrors(this.inits.values()),
-          ...await settledErrors([...this.buffers.keys()].map(s => this.flush(s))),
-          ...await settledErrors(this.chains.values()),
-        ]
+        const errors = await settledErrors([...this.live.keys()].map(session => this.flush(session)))
+        while (this.chains.size > 0) await Promise.allSettled([...this.chains.values()])
         if (errors.length > 0) {
           throw new AggregateError(errors, `${this.backend.name} dispose failed`)
         }
@@ -382,25 +403,25 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
     }, `${this.backend.name} write path`)
 
-    // Capture the header on creation; persist a fork's seed once. Record the init
-    // promise so flush/dispose can await it (onCreated is async).
-    ctx.on('session/created', (session) => { void this.initFor(session) })
-
-    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
-    // so the write-behind queue owns exactly the record it will flush rather than
-    // retaining a product-layer record by identity. Serializability is guaranteed
-    // at the source, so structuredClone is safe.
-    ctx.on('session/event', (session, event) => {
-      let buffer = this.buffers.get(session)
-      if (!buffer) this.buffers.set(session, buffer = [])
-      buffer.push(structuredClone(event))
+    // Capture the header on creation and persist a fork's seed once.
+    ctx.on('session/created', (session) => {
+      if (this.coldLoads.has(session.id)) {
+        throw new Error(`cannot publish session "${session.id}" while its persisted history is loading`)
+      }
+      void this.initFor(session)
     })
 
-    // Drain to the backend at the durability checkpoint.
+    // Keep a persistence-owned copy of each frozen event and start an eager drain.
+    ctx.on('session/event', (session, event) => {
+      const live = this.initFor(session)
+      live.pending.push(structuredClone(event))
+      if (live.flush === undefined) this.scheduleDrain(session, live)
+    })
+
+    // Callers use flush as the observation barrier for the eager write path.
     ctx.on('session/flush', session => this.flush(session))
 
-    // Session disposal is observe-only, so the coordinator observes the
-    // detached task itself and backend teardown awaits quiescence.
+    // Session disposal is observe-only, so retirement contains its own failure.
     ctx.on('session/disposed', (session) => { this.retire(session) })
 
     // HMR: a hot reload does not replay session/created, so seed existing live
@@ -408,52 +429,34 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     for (const session of ctx.sessions.list()) void this.initFor(session)
   }
 
-  /** Start, observe, and track one disposed session's final drain. */
+  /** Start and observe one disposed session's final drain. */
   private retire(session: Session): void {
-    const task = this.retireCore(session)
-    this.retirements.add(task)
-    const settled = (): void => { this.retirements.delete(task) }
-    void task.then(settled, (error: unknown) => {
-      settled()
+    if (!this.live.has(session)) return
+    void this.retireCore(session).catch((error: unknown) => {
       this.ctx.logger.warn(`${this.backend.name}: session "${session.id}" retirement failed: ${String(error)}`)
     })
   }
 
   /** Drain and release state owned by one exact disposed Session lifecycle. */
   private async retireCore(session: Session): Promise<void> {
-    await this.inits.get(session)
-
+    await this.flush(session)
     const id = session.header.id
-    await this.serialize(id, async () => {
-      await this.drain(session)
-      this.buffers.delete(session)
-      this.inits.delete(session)
+    await this.serialize(id, () => {
+      this.live.delete(session)
       if (this.states.get(id)?.owner === session) this.states.delete(id)
     })
   }
 
-  /** Await every retirement admitted before listener teardown. */
-  private async awaitRetirements(): Promise<void> {
-    while (this.retirements.size > 0) {
-      await Promise.allSettled([...this.retirements])
-    }
-  }
-
-  /** Start (once) the async init for a session and remember its promise. */
-  private initFor(session: Session): Promise<void> {
-    const existing = this.inits.get(session)
+  /** Return the one lifecycle controller for a live session, creating it if needed. */
+  private initFor(session: Session): LiveSessionState {
+    const existing = this.live.get(session)
     if (existing) return existing
-    // Snapshot the seed SYNCHRONOUSLY — initFor runs inside the `session/created`
-    // emit, before any later append invalidates the public array snapshot. Events
-    // are already frozen; cloning gives persistence independent ownership.
     const seed = session.events.map(e => structuredClone(e))
-    const p = this.onCreated(session, seed)
-    // Attach a no-op rejection handler so a failing init does not surface as an
-    // unhandled rejection if no flush observes `p` before it rejects. The REAL
-    // error is still delivered: flush/dispose await the same `p` from the map.
-    p.catch(() => { /* observed by flush/dispose via the stored promise */ })
-    this.inits.set(session, p)
-    return p
+    const live: LiveSessionState = { pending: [], init: Promise.resolve(), flush: undefined }
+    this.live.set(session, live)
+    live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
+    live.init.catch(() => { /* observed by flush/dispose through the controller */ })
+    return live
   }
 
   /**
@@ -508,13 +511,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         // Persist the seed SUFFIX beyond the persisted prefix. Constructor seed
         // events never emit session/event, so the buffer never sees them.
         const suffix = seed.slice(tracked.cursor)
-        if (suffix.length > 0) await this.append(id, suffix)
+        if (suffix.length > 0) await this.appendCore(id, suffix)
         return
       }
-      // Owned by a DIFFERENT live session. Reclaim ONLY a truly-abandoned id
-      // (never materialized, no pending buffer); else it is a real collision.
-      const ownerBuffer = this.buffers.get(tracked.owner)
-      if (!tracked.materialized && !ownerBuffer?.length) {
+      const owner = this.live.get(tracked.owner)
+      if (!tracked.materialized && !owner?.pending.length) {
         this.states.delete(id)
       } else {
         throw new Error(`session "${id}" is already bound to a different live session in this backend (id collision)`)
@@ -528,20 +529,20 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       // Do NOT route through loadCore(): that crash-repairs open turns as
       // interrupted, which is wrong for HMR while the live Session is still the
       // authority and may append the real step/turn end later.
-      await this.serialize(id, () => this.adoptLivePrefix(session, seed, live))
+      await this.adoptLivePrefix(session, seed, live)
       return
     }
 
     // case 4: a genuinely new session. Register its meta (lazy), then persist its
     // seed (events present at creation time) once.
     const meta: SessionHeader = { ...session.header }
-    await this.create(meta)
+    await this.createCore(meta)
     // Bind this state to the live session so a later DIFFERENT session reusing
     // the id is detected as a collision (case 1) rather than silently no-opped.
     const created = this.states.get(id)
     /* v8 ignore next -- create() always sets the state for the id */
     if (created !== undefined) created.owner = session
-    if (seed.length > 0) await this.append(id, seed)
+    if (seed.length > 0) await this.appendCore(id, seed)
   }
 
   /**
@@ -574,36 +575,43 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   private async flush(session: Session): Promise<void> {
-    // Wait for the session's init (onCreated) so the state/cursor and any
-    // fork-seed persistence are in place before draining. Awaiting the same
-    // promise initFor stored also surfaces an init failure (e.g. a collision)
-    // here, where the caller of session/flush observes it.
-    await this.inits.get(session)
-    // Serialize the WHOLE drain (read cursor → append → splice) on the per-session
-    // chain so two concurrent flushes cannot both read the same cursor and
-    // seq-mismatch on the second append.
-    await this.serialize(session.header.id, () => this.drain(session))
+    const live = this.initFor(session)
+    await live.init
+    const overlapping = live.flush
+    if (overlapping !== undefined) await Promise.allSettled([overlapping])
+    while (live.flush !== undefined || live.pending.length > 0) {
+      if (live.flush !== undefined) await live.flush
+      else await this.ensureFlush(session, live)
+    }
   }
 
-  /** Drain a session's write buffer to the backend. Caller serializes this per id. */
-  private async drain(session: Session): Promise<void> {
-    const buffer = this.buffers.get(session)
-    if (!buffer?.length) return
-    // Copy WITHOUT removing: the buffer is the only durable-pending copy of these
-    // events. Drain it only AFTER the append commits; events pushed during the
-    // await sit past batch.length and survive the prefix splice, so a
-    // retry/dispose re-drains the rest.
-    const batch = buffer.slice()
-    const state = this.states.get(session.header.id)
-    // Only append events at or beyond the write cursor (a resumed session's seed
-    // is already stored). flush awaits the init above, which always sets state,
-    // so the `?? 0` fallback is a defensive guard that never fires in practice.
+  /** Start an eager drain without exposing its failure to the synchronous append. */
+  private scheduleDrain(session: Session, live: LiveSessionState): void {
+    void this.ensureFlush(session, live).catch((error: unknown) => {
+      this.ctx.logger.warn(`${this.backend.name}: eager drain for session "${session.id}" failed (buffered events retained): ${String(error)}`)
+    })
+  }
+
+  /** Start one drain for the complete pending batch. */
+  private ensureFlush(session: Session, live: LiveSessionState): Promise<void> {
+    const flush = live.init
+      .then(() => this.serialize(session.header.id, () => this.drain(session.header.id, live)))
+      .finally(() => { live.flush = undefined })
+    live.flush = flush
+    void flush.then(() => {
+      if (live.pending.length > 0) this.scheduleDrain(session, live)
+    }, () => {})
+    return flush
+  }
+
+  /** Drain one stable prefix; events admitted during the write remain pending. */
+  private async drain(id: SessionId, live: LiveSessionState): Promise<void> {
+    const batch = live.pending.slice()
+    const state = this.states.get(id)
     /* v8 ignore next -- state is always set by the awaited init before flush */
     const cursor = state?.cursor ?? 0
     const fresh = batch.filter(e => e.seq >= cursor)
-    // appendCore (NOT the serialized append) — drain already runs inside the
-    // per-session chain, so re-entering via append() would deadlock.
-    if (fresh.length > 0) await this.appendCore(session.header.id, fresh)
-    buffer.splice(0, batch.length)
+    await this.appendCore(id, fresh)
+    live.pending.splice(0, batch.length)
   }
 }

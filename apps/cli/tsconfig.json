@@ -8,12 +8,56 @@
     "src"
   ],
   "references": [
-    { "path": "../../vendor/cordis" },
-    { "path": "../../packages/host/apiproxy" },
-    { "path": "../../packages/host/runtime" },
-    { "path": "../../packages/host/webserver" },
-    { "path": "../../packages/core/session" },
-    { "path": "../../packages/ui/app-boot" },
-    { "path": "../../packages/util/paths" }
+    {
+      "path": "../../vendor/cordis"
+    },
+    {
+      "path": "../../packages/host/apiproxy"
+    },
+    {
+      "path": "../../packages/host/runtime"
+    },
+    {
+      "path": "../../packages/host/webserver"
+    },
+    {
+      "path": "../../packages/core/session"
+    },
+    {
+      "path": "../../packages/ui/app-boot"
+    },
+    {
+      "path": "../../packages/util/paths"
+    },
+    {
+      "path": "../../packages/client/connection"
+    },
+    {
+      "path": "../../packages/client/hmr"
+    },
+    {
+      "path": "../../packages/client/runtime"
+    },
+    {
+      "path": "../../packages/client/ui-theme"
+    },
+    {
+      "path": "../../packages/client/i18n"
+    },
+    {
+      "path": "../../packages/client/ui-layout"
+    },
+    {
+      "path": "../../packages/client/ui-sidebar"
+    },
+    {
+      "path": "../../packages/client/ui-conversation"
+    },
+    {
+      "path": "../../packages/client/ui-trajectory"
+    },
+    {
+      "path": "../../packages/client/ui-question"
+    }
   ]
 }
