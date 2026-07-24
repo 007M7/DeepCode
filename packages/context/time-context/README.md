@@ -18,9 +18,9 @@ When `timeZone` is omitted, the plugin resolves the Node process's system zone o
 
 ## Timing semantics
 
-The plugin prepends an `agent/pre-step` listener. When an injection is due, it appends one `context/message` through `agent.inject()` before `step/start` and ordinary automatic compaction, with source `{ kind: 'plugin', plugin: 'time-context' }`. A suppressed attempt appends nothing.
+The plugin prepends an `agent/pre-step` listener. When an injection is due, it appends one injected `user/message` through `agent.inject()` before `step/start` and ordinary automatic compaction, with source `{ kind: 'plugin', plugin: 'time-context' }`. A suppressed attempt appends nothing.
 
-Positive-interval scheduling scans the raw durable session events for the latest `context/message` with that source, including a reading shadowed by compaction. The schedule therefore applies across turns and resumed processes without process-local cache state. It reduces append frequency and history growth but never removes an existing reading, and sessions schedule independently.
+Positive-interval scheduling scans the raw durable session events for the latest `user/message` with that source, including a reading shadowed by compaction. The schedule therefore applies across turns and resumed processes without process-local cache state. It reduces append frequency and history growth but never removes an existing reading, and sessions schedule independently.
 
 Step 1 measures from the latest preceding model-visible message, including the prompt that opened the turn. Later steps measure from the preceding time-context event in the same turn. Both baselines use durable session-event timestamps; backward wall-clock movement clamps elapsed time to zero. A missing first-step baseline, or a later step with no earlier same-turn reading because interval suppression skipped it, reports `unavailable`.
 
