@@ -161,7 +161,6 @@ describe('agent/prompt-submit', () => {
     expect(log.some(e => e.type === 'turn/end')).toBe(false)
     expect(log.some(e => e.type === 'user/message')).toBe(false)
     expect(log.some(e => e.type === 'step/start')).toBe(false)
-    expect(log.some(e => e.type === 'prompt/blocked')).toBe(false)
     expect(reasons).toEqual([])
   })
 
@@ -189,7 +188,6 @@ describe('agent/prompt-submit', () => {
     expect(userMsgs).toHaveLength(1)
     expect(userMsgs[0]?.type === 'user/message' && userMsgs[0].data.content).toEqual([{ type: 'text', text: 'safe' }])
     expect(adapter.requests.length).toBeGreaterThanOrEqual(1)
-    expect(log.filter(e => e.type === 'prompt/blocked')).toHaveLength(0)
     expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
     expect(reasons).toEqual([{ kind: 'completed' }])
   })

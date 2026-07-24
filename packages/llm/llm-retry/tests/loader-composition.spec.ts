@@ -102,7 +102,6 @@ describe('real Loader composition', () => {
     loaded.llm.registerAdapter(['mock'], adapter)
     const agent = loaded.agentLoop.create(SessionId('loader-retry'), { provider: 'mock', model: 'mock' })
     agent.followup([{ type: 'text', text: 'recover' }])
-    await expect.poll(() => adapter.requests).toBe(2)
     await agent.whenIdle()
 
     expect(adapter.requests).toBe(2)

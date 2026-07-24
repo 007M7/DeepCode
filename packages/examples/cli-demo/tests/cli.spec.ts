@@ -501,7 +501,6 @@ describe('formatTurnFailure', () => {
       [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
       [{ kind: 'disposed' }, 'was disposed'],
       [{ kind: 'max-tokens' }, 'output-token limit'],
-      [{ kind: 'rejected', reason: 'policy' }, 'was rejected: policy'],
       [{ kind: 'interrupted' }, 'persistence recovery'],
     ]
     for (const [reason, expected] of cases) expect(formatTurnFailure(reason)).toContain(expected)

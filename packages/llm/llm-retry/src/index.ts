@@ -176,6 +176,14 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     retries.delete(agent)
   })
 
+  // A completed model response ends the consecutive-failure sequence even
+  // when its tool calls keep the turn running into another request.
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'assistant/message') return
+    const agent = ctx.agents.get(session.id)
+    if (agent?.session === session) retries.delete(agent)
+  })
+
   const disposeListener = ctx.on('agent/request-error', (
     agent: Agent,
     turn: number,

@@ -389,7 +389,6 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
         agentOptions: { provider: 'mock', model: 'mock' },
       })
       agent.followup([{ type: 'text', text: 'continue from history' }])
-      await expect.poll(() => adapter.conversationRequests.length).toBe(3)
       await agent.whenIdle()
 
       expect(adapter.conversationRequests).toHaveLength(3)

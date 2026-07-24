@@ -1041,7 +1041,7 @@ describe('agent loop', () => {
     await fiber.dispose()
     await driverDone(agent)
 
-    await expect.poll(() => ctx.agents.get(SessionId('scoped')) === undefined).toBe(true)
+    expect(ctx.agents.get(SessionId('scoped'))).toBeUndefined()
   })
 
   it('creates agents from config on startup', async () => {

@@ -1363,6 +1363,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
       result.terminal.send('\r')
     }
     const drainSteering = (text: string): void => {
+      const id = result.agent.steeredIds.shift()
+      if (id !== undefined) {
+        result.ctx.emit('agent/inbox/dequeue', result.agent, {
+          id,
+          content: [{ type: 'text', text }],
+          source: { kind: 'user' },
+        })
+      }
       result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     }
 
@@ -1401,9 +1409,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output).toContain('1 queued')
 
-    // A steering/message whose source matches no pending badge entry (here a
-    // plugin source with no tracked enqueue) pops nothing, so it cannot consume
-    // a pending user slot even when it drains first.
+    // A steering/message has no inbox identity and therefore cannot consume a
+    // pending slot by itself.
     result.terminal.output = ''
     result.session.append('steering/message', {
       turn: 1,

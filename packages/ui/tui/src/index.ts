@@ -41,6 +41,7 @@ import z from 'schemastery'
 import {
   installAgentLlmTarget,
   type Agent,
+  type AgentMessageId,
   type AgentLlmTarget,
   type AgentLlmTargetRef,
   type AgentStatus,
@@ -1299,7 +1300,6 @@ function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
     case 'error': return `turn ${event.data.turn}: error`
     case 'disposed': return `turn ${event.data.turn}: disposed`
     case 'max-tokens': return `turn ${event.data.turn}: max tokens`
-    case 'rejected': return `turn ${event.data.turn}: rejected`
     case 'interrupted': return `turn ${event.data.turn}: interrupted`
     default: return `turn ${event.data.turn}: unknown result`
   }
@@ -1875,11 +1875,10 @@ export function createTuiChat(
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
-  // TUI steering submissions that the loop has not yet drained, shown as a
-  // badge on the status line. Each entry is the submitted message's serialized
-  // source, so an unrelated steering/message cannot consume its slot. Leaving
-  // `running` clears entries discarded by cancellation.
-  const pendingSteering: string[] = []
+  // TUI steering submissions that the inbox has not yet claimed or discarded.
+  // Correlation ids avoid guessing whether a running-state submission actually
+  // joined steering or fell back to the queued-turn FIFO during turn close.
+  const pendingSteering = new Set<AgentMessageId>()
   let disposed = false
   let shuttingDown: Promise<void> | undefined
   // Optional: skills mount conditionally, so read the global service store
@@ -2124,7 +2123,7 @@ export function createTuiChat(
   const renderStatus = (running: RunningStatus): void => {
     const at = now()
     running.loader.setMessage(
-      formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering.length),
+      formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering.size),
     )
   }
 
@@ -2152,7 +2151,7 @@ export function createTuiChat(
       const phase = prior?.phase ?? 'waiting'
       const phaseStartedAt = prior?.phaseStartedAt ?? at
       const stepStartedAt = prior?.stepStartedAt ?? at
-      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering.length)
+      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering.size)
       const loader = new Loader(ui, text => palette.accent(text), text => palette.muted(text), message)
       statusContainer.addChild(loader)
       const running: RunningStatus = {
@@ -2264,9 +2263,6 @@ export function createTuiChat(
         }
         break
       }
-      case 'prompt/blocked':
-        appendNotice(`Prompt blocked: ${event.data.reason}`, 'warning')
-        break
       case 'assistant/chunk':
         if (options.renderChunks) {
           if (streaming === undefined) {
@@ -2326,8 +2322,6 @@ export function createTuiChat(
           appendNotice('Turn cancelled.', 'warning')
         } else if (event.data.reason.kind === 'max-tokens') {
           appendNotice('The model reached its output-token limit.', 'warning')
-        } else if (event.data.reason.kind === 'rejected') {
-          appendNotice(`Turn rejected: ${event.data.reason.reason}`, 'warning')
         } else if (event.data.reason.kind === 'interrupted') {
           appendNotice('The previous process ended during this turn.', 'warning')
         }
@@ -2788,8 +2782,7 @@ export function createTuiChat(
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
       const source = { kind: 'user' } as const
-      agent.steer(content, { source })
-      pendingSteering.push(JSON.stringify(source))
+      pendingSteering.add(agent.steer(content, { source }))
       refreshStatus()
     } else {
       agent.followup(content, { source: { kind: 'user' } })
@@ -3137,17 +3130,6 @@ export function createTuiChat(
     if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     advanceTurnPhase(event)
-    if (event.type === 'steering/message') {
-      // A queued steering message reached the model as it drained; drop its
-      // entry from the badge. Matching by source keeps a loop-authored
-      // continuation reason popping its own enqueued slot rather than a pending
-      // user message's slot.
-      const drained = pendingSteering.indexOf(JSON.stringify(event.data.source))
-      if (drained >= 0) {
-        pendingSteering.splice(drained, 1)
-        refreshStatus()
-      }
-    }
     if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
       rebuildTranscript(false)
       return
@@ -3155,12 +3137,24 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
+  const settlePendingSteering = (id: AgentMessageId): void => {
+    if (pendingSteering.delete(id)) refreshStatus()
+  }
+  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {
+    if (subject === agent) settlePendingSteering(message.id)
+  })
+  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, messages) => {
+    if (subject !== agent) return
+    let changed = false
+    for (const message of messages) changed = pendingSteering.delete(message.id) || changed
+    if (changed) refreshStatus()
+  })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
     // Leaving 'running' ends the turn's status line; clear any badge so the
     // next running turn starts from zero (and a cancellation, which discards
     // the queue without logging drains, cannot strand a stale count).
-    if (status !== 'running') pendingSteering.length = 0
+    if (status !== 'running') pendingSteering.clear()
     setStatus(status)
   })
   const disposeError = ctx.on('agent/error', (subject, turn, step, error) => {
@@ -3183,6 +3177,8 @@ export function createTuiChat(
     disposeCommandChanges()
     stopBannerReveal()
     disposeSessionEvents()
+    disposeDequeued()
+    disposeDiscarded()
     disposeStatus()
     disposeError()
     disposeAgent()

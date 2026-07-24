@@ -226,7 +226,6 @@ describe('dsh-agent-spine-demo bundle', () => {
     })
 
     handle.agent.followup([{ type: 'text', text: 'recover' }])
-    await expect.poll(() => adapter.requests).toBe(2)
     await waitForIdle(ctx, handle.agent)
 
     expect(adapter.requests).toBe(2)

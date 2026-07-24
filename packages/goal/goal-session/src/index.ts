@@ -37,7 +37,6 @@ interface RoundAttempt extends RoundIdentity {
   phase: 'queued' | 'admitted'
   turn: number | undefined
   reason: TurnEndReason | undefined
-  rejectedReason: string | undefined
   stale: boolean
 }
 
@@ -186,9 +185,7 @@ export function apply(ctx: Context): void {
       const goal = currentGoal(state)
       if (goal !== undefined && goal.id === attempt.goalId && goal.revision === attempt.revision
         && goal.phase === 'active' && goal.activation === 'armed') {
-        const outcome = attempt.phase === 'queued' && attempt.rejectedReason !== undefined && !attempt.stale
-          ? { kind: 'blocked', code: 'prompt-rejected', message: attempt.rejectedReason } as const
-          : classifyGoalRound(attempt.reason, durable)
+        const outcome = classifyGoalRound(attempt.reason, durable)
         if (!attempt.stale) applyOutcome(state, goal, outcome)
       }
       if (!readyToDrive(state)) return
@@ -214,7 +211,6 @@ export function apply(ctx: Context): void {
       phase: 'queued',
       turn: undefined,
       reason: undefined,
-      rejectedReason: undefined,
       stale: false,
     }
     state.attempt = reservation

@@ -23,6 +23,7 @@ interface FakeAgent extends Agent {
   sent: ContentBlock[][]
   sentOptions: (SendOptions | AliasSendOptions | undefined)[]
   steered: ContentBlock[][]
+  steeredIds: AgentMessageId[]
   steeredOptions: (AliasSendOptions | undefined)[]
   injected: ContentBlock[][]
   injectedOptions: (AliasSendOptions | undefined)[]
@@ -161,6 +162,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
+  const steeredIds: AgentMessageId[] = []
   const sentOptions: (SendOptions | AliasSendOptions | undefined)[] = []
   const steeredOptions: (AliasSendOptions | undefined)[] = []
   const injected: ContentBlock[][] = []
@@ -175,6 +177,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     sent,
     sentOptions,
     steered,
+    steeredIds,
     steeredOptions,
     injected,
     injectedOptions,
@@ -192,7 +195,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     steer(content, options) {
       steered.push(content)
       steeredOptions.push(options)
-      return AgentMessageId('stub')
+      const id = AgentMessageId(`steering-${steeredIds.length + 1}`)
+      steeredIds.push(id)
+      return id
     },
     inject(content, options) {
       injected.push(content)

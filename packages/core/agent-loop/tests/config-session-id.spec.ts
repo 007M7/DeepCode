@@ -140,13 +140,9 @@ describe('config-driven session id', () => {
     first.inject([{ type: 'text', text: 'persist before replacement' }], {
       source: { kind: 'plugin', plugin: 'test' },
     })
-    await expect.poll(async () => {
-      try {
-        return JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events)
-      } catch {
-        return ''
-      }
-    }).toContain('persist before replacement')
+    await ctx.sessions.flush(first.session)
+    expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
+      .toContain('persist before replacement')
 
     const firstDisposal = firstLoop.dispose()
     await cleanupStarted.promise
@@ -190,13 +186,9 @@ describe('config-driven session id', () => {
     first.inject([{ type: 'text', text: 'persist before cancellation' }], {
       source: { kind: 'plugin', plugin: 'test' },
     })
-    await expect.poll(async () => {
-      try {
-        return JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events)
-      } catch {
-        return ''
-      }
-    }).toContain('persist before cancellation')
+    await ctx.sessions.flush(first.session)
+    expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
+      .toContain('persist before cancellation')
 
     const firstDisposal = firstLoop.dispose()
     await cleanupStarted.promise

@@ -1168,7 +1168,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Agent',
-    declaration: 'export abstract class Agent {\n    abstract readonly id: SessionId;\n    abstract readonly options: AgentOptions;\n    abstract readonly session: Session;\n    abstract readonly status: AgentStatus;\n    abstract readonly ctx: Context;\n    abstract send(content: ContentBlock[], options: SendOptions): AgentMessageId;\n    abstract cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    abstract whenIdle(): Promise<void>;\n    followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    abstract retry(): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options: SendOptions): AgentMessageId;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    retry(): void;\n}',
   },
   {
     name: 'AgentCancelCause',

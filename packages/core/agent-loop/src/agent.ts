@@ -8,11 +8,13 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import { Agent, AgentMessageId, agentCarrier, agentInterruptReasonOf, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { AgentMessageId, agentCarrier, agentInterruptReasonOf, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
   AgentMessage,
+  Agent,
+  AliasSendOptions,
   CancelOptions,
   AgentInterruptReason,
   AgentOptions,
@@ -43,7 +45,7 @@ type StepOutcome =
  * The concrete {@link Agent}: each `run()` owns one turn and repeats model
  * steps while tools or steering require another request.
  */
-export class ReactLoopAgent extends Agent {
+export class ReactLoopAgent implements Agent {
   /** Prompts awaiting individual turns. */
   private queued: { message: AgentMessage; wakeup: boolean }[] = []
   /** Input taken into the session log at step boundaries. */
@@ -75,7 +77,6 @@ export class ReactLoopAgent extends Agent {
     public readonly options: AgentOptions,
     public readonly session: Session,
   ) {
-    super()
     this.lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx.extend({ agent: this })
@@ -116,6 +117,33 @@ export class ReactLoopAgent extends Agent {
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message)
     if (!steering && wakeup) this.kick()
     return id
+  }
+
+  /** Queue one ordinary prompt turn and wake the driver. */
+  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, {
+      target: 'next-turn',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+    })
+  }
+
+  /** Steer the open turn, falling back to a waking prompt while idle. */
+  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, {
+      target: 'next-step',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+    })
+  }
+
+  /** Append model-facing context without waking the driver. */
+  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, {
+      target: 'next-step',
+      wakeup: false,
+      source: options?.source ?? { kind: 'plugin', plugin: '' },
+    })
   }
 
   /**

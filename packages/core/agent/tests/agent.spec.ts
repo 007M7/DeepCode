@@ -3,59 +3,37 @@ import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
-  Agent,
   AgentMessageId,
   agentEvents,
   agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
 
 import type {
+  Agent,
   AgentCancelCause,
   AgentFactory,
   CreateAgentOptions,
   ResumeAgentOptions,
-  SendOptions,
 } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
-  // Agent is an abstract class, so its alias methods live on the prototype and
-  // object spread would drop them; build the full literal and merge overrides.
-  return Object.assign(Object.create(Agent.prototype) as Agent, {
+  return {
     id,
     options: {},
     session: new Session(id),
     status: 'idle',
     ctx: new Context(),
     send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject: () => AgentMessageId('stub'),
     cancel() {},
     retry() {},
     whenIdle() { return Promise.resolve() },
     ...overrides,
-  })
+  }
 }
-
-describe('Agent delivery aliases', () => {
-  it('materializes complete SendOptions for every preset', () => {
-    const calls: SendOptions[] = []
-    const agent = stubAgent('aliases', {
-      send(_content, options) {
-        if (options !== undefined) calls.push(options)
-        return AgentMessageId('stub')
-      },
-    })
-
-    agent.followup([])
-    agent.steer([])
-    agent.inject([])
-
-    expect(calls).toEqual([
-      { target: 'next-turn', wakeup: true, source: { kind: 'user' } },
-      { target: 'next-step', wakeup: true, source: { kind: 'user' } },
-      { target: 'next-step', wakeup: false, source: { kind: 'plugin', plugin: '' } },
-    ])
-  })
-})
 
 describe('AgentRegistry', () => {
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {

@@ -17,8 +17,8 @@ import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientpr
  * Map a harness {@link TurnEndReason} to the ACP `StopReason` wire enum.
  *
  * `completed` and the defensive `error` case map to `end_turn`;
- * `max-tokens` maps to `max_tokens`; `aborted`, `disposed`, and `rejected` map
- * to `cancelled`. The bridge rejects error turns before this mapping. Unknown
+ * `max-tokens` maps to `max_tokens`; `aborted` and `disposed` map to
+ * `cancelled`. The bridge rejects error turns before this mapping. Unknown
  * merge-extensible kinds use legal fallback `end_turn` rather than breaking
  * the prompt RPC.
  * @param reason - the harness turn-end reason to translate.
@@ -33,8 +33,6 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
     case 'aborted':
       return 'cancelled'
     case 'disposed':
-      return 'cancelled'
-    case 'rejected':
       return 'cancelled'
     case 'error':
       return 'end_turn'

@@ -1,5 +1,5 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
@@ -118,11 +118,6 @@ export interface TurnEndReasonMap {
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * Policy blocked the turn's claimed prompt before the first step. The
-   * zero-step turn still records a balanced durable boundary and veto reason.
-   */
-  rejected: { kind: 'rejected'; reason: string }
-  /**
    * A persistence backend closed a crash-orphaned turn on reload. The loop never
    * emits this marker, and the events recorded before the crash remain intact.
    */
@@ -151,9 +146,9 @@ export interface TodoItem {
 }
 
 /**
- * Logged request state outside derived history: call config, system prompt,
- * tools, and prefix. The latest full `request/header` snapshot reconstructs it;
- * canonical empty optional fields are absent.
+ * Logged request state outside derived history: call config, system prompt, and
+ * tools. The latest full `request/header` snapshot reconstructs it; canonical
+ * empty optional fields are absent.
  */
 export interface EpochHeader {
   /** The conversation's call configuration (provider, model, and sampling scalars). */
@@ -162,14 +157,6 @@ export interface EpochHeader {
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
-  /**
-   * The session prefix: request-only messages sent BEFORE the entire derived
-   * history (the `agent/session-prefix` waterfall's product, composed once
-   * per loop instance and reused for every request it sends). Not session
-   * history — `deriveMessages()` never returns it — so the header is its
-   * only durable record; absent when the instance composed none.
-   */
-  messagePrefix?: Message[]
 }
 
 /**
@@ -225,11 +212,6 @@ export interface SessionEventMap {
    * injection may append this event between turns without running the model.
    */
   'user/message': UserMessageData
-  /**
-   * Durable record of a prompt veto and its reason. It is log-only: the blocked
-   * prompt never enters the model-visible surface, and its turn runs zero steps.
-   */
-  'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**

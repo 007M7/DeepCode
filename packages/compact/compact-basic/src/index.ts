@@ -112,6 +112,7 @@ export class BasicCompactService extends CompactService {
 
   private readonly warnedPressureConfigTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
+  private readonly overflowAgents = new WeakMap<Session, Agent>()
 
   constructor(ctx: Context, config: BasicCompactConfig = {}) {
     super(ctx)
@@ -158,6 +159,14 @@ export class BasicCompactService extends CompactService {
       this.overflowRetries.delete(agent)
     })
 
+    // A successful response starts a fresh overflow-recovery sequence even
+    // when tool calls continue the same turn into another request.
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'assistant/message') return
+      const agent = this.overflowAgents.get(session)
+      if (agent !== undefined) this.overflowRetries.delete(agent)
+    })
+
     ctx.on('agent/request-error', async (
       agent,
       _turn,
@@ -168,6 +177,7 @@ export class BasicCompactService extends CompactService {
       next,
     ) => {
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
+      this.overflowAgents.set(agent.session, agent)
       const target = routedTarget(agent.session)
       if (target === undefined) return next()
       const policy = resolveTargetPolicy(this.config, target)

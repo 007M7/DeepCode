@@ -388,7 +388,6 @@ export function formatTurnFailure(reason: TurnEndReason): string {
     case 'error': return `failed at step ${reason.step}: ${'failure' in reason ? reason.failure.message : reason.message}`
     case 'disposed': return 'was disposed'
     case 'max-tokens': return 'reached the model output-token limit'
-    case 'rejected': return `was rejected: ${reason.reason}`
     case 'interrupted': return 'was interrupted during persistence recovery'
     default: return `ended with ${JSON.stringify(reason)}`
   }

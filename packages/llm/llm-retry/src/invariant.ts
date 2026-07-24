@@ -88,7 +88,9 @@ function validateRetry(
   }
 
   const chainStart = retryChainStart(history, turn)
-  const chainRetries = history.slice(Math.max(chainStart, 0))
+  const chain = history.slice(Math.max(chainStart, 0))
+  const lastSuccess = chain.findLastIndex(prior => prior.type === 'assistant/message')
+  const chainRetries = chain.slice(lastSuccess + 1)
     .filter((prior): prior is SessionEvent<'llm/retry'> => prior.type === 'llm/retry')
   if (chainRetries.some(prior => prior.data.turn === turn && prior.data.step === step)) {
     fail(`llm/retry duplicates the retry record for turn ${turn}/step ${step}`)

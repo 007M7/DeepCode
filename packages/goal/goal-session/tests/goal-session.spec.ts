@@ -141,8 +141,6 @@ describe('goal-round outcome policy', () => {
       { kind: 'blocked', code: 'turn-error', message: 'broken' }],
     [{ kind: 'max-tokens' }, true,
       { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }],
-    [{ kind: 'rejected', reason: 'policy' }, true,
-      { kind: 'blocked', code: 'prompt-rejected', message: 'policy' }],
     [{ kind: 'disposed' }, true, { kind: 'disarm', reason: 'disposed' }],
     [{ kind: 'interrupted' }, true, { kind: 'disarm', reason: 'interrupted' }],
     [{ kind: 'completed' }, false, { kind: 'disarm', reason: 'durability-failed' }],

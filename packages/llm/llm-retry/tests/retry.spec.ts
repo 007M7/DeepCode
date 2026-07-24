@@ -50,6 +50,16 @@ function textResponse(text: string): StreamChunk[] {
   ]
 }
 
+function toolResponse(callId: string, name: string): StreamChunk[] {
+  const id = CallId(callId)
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: '{}' },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: '{}' } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+
 async function harness(
   adapter: LlmAdapter,
   config: retry.Config = {},
@@ -257,6 +267,43 @@ describe('bounded transient retry policy', () => {
     const secondIdle = waitForIdle(context, agent)
     await vi.advanceTimersByTimeAsync(500)
     await secondIdle
+
+    expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data.retry))
+      .toEqual([1, 1])
+    expect(adapter.requests).toHaveLength(4)
+  })
+
+  it('resets the retry budget after a successful tool-call response within the same drain', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('first busy', 'SERVER'),
+      toolResponse('work-1', 'work'),
+      new LlmError('second busy', 'SERVER'),
+      textResponse('done'),
+    ])
+    ;({ ctx: context } = await harness(adapter, { maxTransientRetries: 1 }))
+    context.tools.register(defineContentToolFixture({
+      name: 'work',
+      description: 'continue into another model step',
+      parameters: {},
+      async execute() {
+        return [{ type: 'text', text: 'worked' }]
+      },
+    }))
+    const agent = context.agentLoop.create(SessionId('retry-reset-after-success'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    const firstRetry = waitForRetry(context, agent, 1)
+    agent.followup([{ type: 'text', text: 'go' }])
+    await firstRetry
+    const secondRetry = waitForRetry(context, agent, 1)
+    await vi.advanceTimersByTimeAsync(500)
+    await secondRetry
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(500)
+    await idle
 
     expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data.retry))
       .toEqual([1, 1])

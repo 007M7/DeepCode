@@ -199,7 +199,7 @@ function buildSummarizationInput(
   return {
     ...header?.system === undefined ? {} : { system: header.system },
     ...header?.tools === undefined ? {} : { tools: header.tools },
-    messages: [...header?.messagePrefix ?? [], ...regionMessages],
+    messages: regionMessages,
   }
 }
 

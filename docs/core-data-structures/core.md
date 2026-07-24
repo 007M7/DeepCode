@@ -451,21 +451,21 @@ type AgentCancelCause =
   | { readonly kind: 'parent' }
 ```
 
-`Agent` is an abstract class: concrete drivers implement the abstract members, while `followup`/`steer`/`inject` are shared concrete delegates to the single abstract `send` over the (`target` × `wakeup`) matrix.
+`Agent` is an interface over the public live-agent contract. Concrete drivers own the `followup`/`steer`/`inject` aliases and route them through `send`'s (`target` × `wakeup`) matrix.
 
 ```ts type-equiv
 /** Public live-agent handle with aliases over the unified delivery primitive. */
-abstract class Agent {
+interface Agent {
   /** The single identity shared with {@link session}. */
-  abstract readonly id: SessionId
+  readonly id: SessionId
   /** The provider route and model this agent's requests use. */
-  abstract readonly options: AgentOptions
+  readonly options: AgentOptions
   /** The live session this agent drives; its log is the durable source of truth. */
-  abstract readonly session: Session
+  readonly session: Session
   /** The current lifecycle state, mirrored on every `agent/status` transition. */
-  abstract readonly status: AgentStatus
+  readonly status: AgentStatus
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
-  abstract readonly ctx: Context
+  readonly ctx: Context
 
   /**
    * The unified delivery primitive over the (`target` × `wakeup`) matrix.
@@ -484,7 +484,7 @@ abstract class Agent {
    * @param options - target queue, wakeup decision, and source.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  abstract send(content: ContentBlock[], options: SendOptions): AgentMessageId
+  send(content: ContentBlock[], options: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -495,10 +495,10 @@ abstract class Agent {
    * @param cause - the stable caller intent carried by the current turn signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
-  abstract cancel(cause: AgentCancelCause, options?: CancelOptions): void
+  cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
-  abstract whenIdle(): Promise<void>
+  whenIdle(): Promise<void>
 
   /**
    * Queue an ordinary follow-up turn and wake the driver — the
@@ -508,13 +508,7 @@ abstract class Agent {
    * @param options - message source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, {
-      target: 'next-turn',
-      wakeup: true,
-      source: options?.source ?? { kind: 'user' },
-    })
-  }
+  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
 
   /**
    * Submit steering into the running turn — the `next-step`/wakeup preset of
@@ -527,13 +521,7 @@ abstract class Agent {
    * @param options - message source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, {
-      target: 'next-step',
-      wakeup: true,
-      source: options?.source ?? { kind: 'user' },
-    })
-  }
+  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
 
   /**
    * Append model-facing context without running the model — the
@@ -545,13 +533,7 @@ abstract class Agent {
    * @param options - context source.
    * @returns the accepted message's {@link AgentMessageId}.
    */
-  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, {
-      target: 'next-step',
-      wakeup: false,
-      source: options?.source ?? { kind: 'plugin', plugin: '' },
-    })
-  }
+  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId
 
   /**
    * Re-open a turn on the current session log without a new prompt — the
@@ -560,7 +542,7 @@ abstract class Agent {
    * immediately. Repeated calls before the scheduled retry coalesce.
    * @throws while other agent work is running.
    */
-  abstract retry(): void
+  retry(): void
 }
 ```
 
