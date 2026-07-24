@@ -42,6 +42,8 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
 export interface UserMessageNode {
   kind: 'user'
   seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
   content: readonly ContentBlock[]
   source: unknown
 }
@@ -50,6 +52,8 @@ export interface UserMessageNode {
 export interface AssistantMessageNode {
   kind: 'assistant'
   seq: number
+  /** Unix epoch ms from the source session event (or turn/end when frozen from a partial). */
+  time: number
   turn: number
   step: number
   blocks: readonly AssistantBlock[]
@@ -63,6 +67,8 @@ export interface AssistantMessageNode {
 export interface SteeringMessageNode {
   kind: 'steering'
   seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
   turn: number
   content: readonly ContentBlock[]
   source: unknown
@@ -72,6 +78,8 @@ export interface SteeringMessageNode {
 export interface ContextMessageNode {
   kind: 'context'
   seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
   content: readonly ContentBlock[]
   source: unknown
   meta?: unknown
@@ -81,9 +89,13 @@ export interface ContextMessageNode {
 export interface ToolResultNode {
   kind: 'tool-result'
   seq: number
+  /** Unix epoch ms from the tool/result session event. */
+  time: number
   callId: string
   /** Call head backfilled from the in-window tool/call; null when window truncation left the call outside (card head shows callId). */
   call: { name: string; argsRaw: string } | null
+  /** Unix epoch ms of the paired tool/call when the call is still in-window; used for call-row duration. */
+  callTime: number | null
   content: readonly ContentBlock[]
   isError: boolean
   error?: { name: string; code: string }
@@ -98,6 +110,8 @@ export interface ToolResultNode {
 export interface UnknownSurfaceNode {
   kind: 'unknown'
   seq: number
+  /** Unix epoch ms from the source session event when known. */
+  time: number
   type: string
   data: unknown
 }
@@ -118,6 +132,8 @@ export interface RunningToolCall {
   argsRaw: string
   turn: number
   step: number
+  /** Unix epoch ms when the tool/call event was logged. */
+  time: number
   /** Host-computed render intent riding the tool/call frame; null = generic JSON card. */
   callView: ToolCallView | null
 }

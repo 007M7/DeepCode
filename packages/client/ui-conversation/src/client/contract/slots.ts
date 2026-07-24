@@ -164,6 +164,11 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 export interface EmptyStateInjected {
   /** The create → navigate → first-send chain, in one service call. */
   startSession(opts: { cwd?: string; text: string; mode: 'queue' | 'steer' }): Promise<void>
+  /**
+   * Create a workspace folder under the host cwd, mint a session there, and
+   * open it (Create-new modal success path).
+   */
+  createWorkspaceSession(name: string): Promise<void>
 }
 
 /** Full empty-state component props (root slot: no store; cwd options derive from useSessions in-component). */
