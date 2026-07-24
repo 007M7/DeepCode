@@ -25,13 +25,17 @@ Cordis 是 DeepSeek Harness SDK 底层以 vendor 方式引入的插件框架。�
 
 分发模式是事件公开契约的一部分。新的 harness 事件通过 `@mode` 标签记录模式，以便生成的目录可以将声明与分发调用点做交叉校验。
 
+<a id="cordis-waterfall-semantics"></a>
+
 ## Cordis Waterfall 语义
 
-`ctx.waterfall` 是环绕中间件。监听器接收 `(...args, next)`。调用 `next()` 将可能经过包装的结果委托给下一个服务；不调用 `next()` 直接返回则短路。值通过 `next()` 的返回值向下传播。
+`ctx.waterfall` 是环绕中间件。监听器接收 `(...args, next)`。调用 `next()` 会执行下游监听器；下游返回值通过 `next()` 返回当前包装层，可由该层包装后继续向外返回。不调用 `next()` 直接返回则短路。
 
 协作式监听器通常修改一个共享的请求或决策对象，然后委托。监听器也可以选择完全替换结果，下游监听器将只看到替换后的结果。仅当监听器必须在普通注册之前运行时才使用 `prepend: true`。
 
 对于单决策事件，短路是设计意图。策略监听器在拥有决策权时可以不调用 `next()` 直接返回，而仅做标注或观察的监听器则必须委托。
+
+<a id="loader-configuration"></a>
 
 ## Loader 配置
 
