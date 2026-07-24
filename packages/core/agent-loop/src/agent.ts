@@ -23,7 +23,7 @@ import type {
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import {
-  BlockAssembler, LlmError, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
+  BlockAssembler, LlmError, assertNever, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock, GenerateOptions, LlmCallConfig, LlmFailure, Message,
@@ -34,16 +34,10 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
-
-/** A final-adapter or terminal in-band failure eligible for request recovery. */
-class ModelRequestFailure extends Error {
-  constructor(
-    readonly requestError: RequestError,
-    readonly failure: LlmFailure,
-  ) {
-    super(requestError.message, { cause: requestError })
-  }
-}
+/** One completed step or a final-adapter failure eligible for recovery. */
+type StepOutcome =
+  | { kind: 'completed'; continueTurn: boolean; maxTokens: boolean }
+  | { kind: 'request-failed'; error: RequestError; failure: LlmFailure }
 
 /**
  * The concrete {@link Agent}: each `run()` owns one turn and repeats model
@@ -245,45 +239,59 @@ export class ReactLoopAgent extends Agent {
 
       this.drainOutbox(turn)
 
-      while (true) {
+      steps: while (true) {
         step += 1
-        const { continueTurn, maxTokens } = await this.step(turn, step, signal)
-        if (maxTokens) reason = { kind: 'max-tokens' }
-        if (continueTurn || this.outbox.some(item => 'id' in item)) continue
+        const outcome = await this.step(turn, step, signal)
+        switch (outcome.kind) {
+          case 'completed':
+            if (outcome.maxTokens) reason = { kind: 'max-tokens' }
+            if (outcome.continueTurn || this.outbox.some(item => 'id' in item)) continue
+            break
+          case 'request-failed': {
+            if (this.stepOpen) {
+              this.stepOpen = false
+              this.session.append('step/end', { turn, step })
+            }
+            if (agentInterruptReasonOf(signal) === undefined) {
+              const retryWindow = { requested: false }
+              this.retryWindow = retryWindow
+              let recoveryCompleted = false
+              try {
+                await this.loopCtx.waterfall(
+                  agentCarrier(this), 'agent/request-error', this, turn, step, outcome.error,
+                  outcome.failure, signal,
+                  () => Promise.resolve(),
+                )
+                recoveryCompleted = true
+              } catch (recoveryError: unknown) {
+                this.loopCtx.logger.warn(
+                  `agent "${this.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
+                )
+              } finally {
+                if (this.retryWindow === retryWindow) this.retryWindow = undefined
+              }
+              retry = recoveryCompleted
+                && agentInterruptReasonOf(signal) === undefined
+                && retryWindow.requested
+            }
+            const settlement = this.settle(turn, step, outcome.error, signal, outcome.failure)
+            reason = settlement.reason
+            idle = settlement.idle
+            break steps
+          }
+          default:
+            assertNever(outcome)
+        }
         await this.loopCtx.serial(agentCarrier(this), 'agent/stopping', this, turn, signal)
         signal.throwIfAborted()
         if (!this.drainOutbox(turn)) break
       }
     } catch (caught: unknown) {
-      const requestFailure = caught instanceof ModelRequestFailure ? caught : undefined
-      const error = requestFailure?.requestError ?? caught
       if (this.stepOpen) {
         this.stepOpen = false
         this.session.append('step/end', { turn, step })
       }
-      if (requestFailure !== undefined && agentInterruptReasonOf(signal) === undefined) {
-        const retryWindow = { requested: false }
-        this.retryWindow = retryWindow
-        let recoveryCompleted = false
-        try {
-          await this.loopCtx.waterfall(
-            agentCarrier(this), 'agent/request-error', this, turn, step, requestFailure.requestError,
-            requestFailure.failure, signal,
-            () => Promise.resolve(),
-          )
-          recoveryCompleted = true
-        } catch (recoveryError: unknown) {
-          this.loopCtx.logger.warn(
-            `agent "${this.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
-          )
-        } finally {
-          if (this.retryWindow === retryWindow) this.retryWindow = undefined
-        }
-        retry = recoveryCompleted
-          && agentInterruptReasonOf(signal) === undefined
-          && retryWindow.requested
-      }
-      ({ reason, idle } = this.settle(turn, step, error, signal, requestFailure?.failure))
+      ({ reason, idle } = this.settle(turn, step, caught, signal))
     } finally {
       try {
         if (this.stepOpen) {
@@ -321,7 +329,7 @@ export class ReactLoopAgent extends Agent {
     turn: number,
     step: number,
     signal: AbortSignal,
-  ): Promise<{ continueTurn: boolean; maxTokens: boolean }> {
+  ): Promise<StepOutcome> {
     const { session } = this
 
     // The single between-steps seam: listeners inject, steer, or edit the log
@@ -361,7 +369,7 @@ export class ReactLoopAgent extends Agent {
     } catch (error: unknown) {
       const facts = llmFailureOf(stream, error)
       if (facts !== undefined && error instanceof Error) {
-        throw new ModelRequestFailure(error, facts)
+        return { kind: 'request-failed', error, failure: facts }
       }
       throw error
     }
@@ -371,7 +379,7 @@ export class ReactLoopAgent extends Agent {
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') {
       const error = new LlmError(finish.failure.message, finish.failure.code, finish.failure)
-      throw new ModelRequestFailure(error, finish.failure)
+      return { kind: 'request-failed', error, failure: finish.failure }
     }
 
     // Truncated (max-tokens) output cannot owe tool calls.
@@ -411,6 +419,7 @@ export class ReactLoopAgent extends Agent {
     session.append('step/end', { turn, step })
     this.stepOpen = false
     return {
+      kind: 'completed',
       continueTurn: (toolCalls.length > 0 && !concluded) || steered,
       maxTokens: finish.kind === 'max-tokens',
     }
