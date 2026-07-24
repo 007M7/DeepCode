@@ -14,11 +14,11 @@ The host does not mount plan mode for every product composition. The wire must d
 
 The session RPC domain exposes `session.planMode({ sessionId })` and `session.setPlanMode({ sessionId, active })`. Their shared value is `null | { active: boolean, pending?: boolean }`. `null` means the optional `ctx.planMode` service is absent; `{ active: false }` means the service is available and inactive. Both methods resume a cold session through the same host-owned path as history and prompt before reading or changing state.
 
-The host adapter delegates selection and folding to `ctx.planMode`; it does not append events or duplicate boundary logic. `active` is the last committed logged value. When present, `pending` is the selected target value awaiting a model-request boundary; its presence, rather than its boolean value, identifies pending intent. Re-selecting the committed value can therefore return `pending: false` while cancelling a pending entry. The boundary then removes that intent without logging a redundant state event. The RPC does not cancel a running request, so a selection made during generation leaves that request unchanged and shapes the next one.
+The host adapter delegates selection and folding to `ctx.planMode`; it does not append events or duplicate boundary logic. `active` is the last committed logged value. When present, `pending` is the selected target value awaiting a model-request boundary and differs from `active`; its presence, rather than its boolean value, identifies a user-visible pending transition. Re-selecting the committed value can leave an internal cleanup intent in the service, but the adapter canonicalizes that net-zero state to `{ active }`. The boundary then removes the intent without logging a redundant state event. The wire schema rejects equal `active` and `pending` values. The RPC does not cancel a running request, so a selection made during generation leaves that request unchanged and shapes the next one.
 
-The browser session object queries the complete state after history opens and on reconnect. A failed plan query is fail-soft: history remains usable and the last known capability state is retained. A reconnect generation fence prevents a superseded query from overwriting the newer result. A separate local event-version fence prevents a query or selection response from overwriting a `plan/mode` commit that overtook it on the mux stream; an early commit remains private until a successful query confirms capability presence. Successful selections otherwise update the snapshot only from the host-confirmed response, while business and transport failures leave the prior state intact.
+The browser session object queries the complete state after history opens and on reconnect. A failed plan query is fail-soft: history remains usable and the last known capability state is retained. A reconnect generation fence prevents a superseded open from overwriting the newer result. One monotonic plan-request fence covers both queries and selections, so an older unary response cannot replace the result of a newer request. A separate local event-version fence prevents a current query or selection response from overwriting a `plan/mode` commit that overtook it on the mux stream; an early commit remains private until a successful query confirms capability presence. Successful selections otherwise update the snapshot only from the host-confirmed response, while business and transport failures leave the prior state intact.
 
-Committed `plan/mode` session events remain the live notification. When the host advertised the capability, a valid event replaces `active` and clears `pending`. The object layer ignores malformed events and does not infer capability from a raw event alone. This keeps full-state reads authoritative while preserving the existing logged event stream as the commit signal.
+Committed `plan/mode` session events remain the live notification. When the host advertised the capability, a valid event replaces `active` and clears `pending`. Both the append path and a history replacement window observe the newest valid plan event by sequence, so gap repair applies a recovered commit even when the buffered triggering frame becomes replay overlap. The object layer ignores malformed events and does not infer capability from a raw event alone. This keeps full-state reads authoritative while preserving the existing logged event stream as the commit signal.
 
 ## State and timing
 
@@ -26,7 +26,7 @@ Committed `plan/mode` session events remain the live notification. When the host
 |---|---|---|---|
 | Inactive | Plan | `{ active: false, pending: true }` | Logs `plan/mode: true`; snapshot becomes active |
 | Active | Default | `{ active: true, pending: false }` | Logs `plan/mode: false`; snapshot becomes inactive |
-| Inactive with pending Plan | Default | `{ active: false, pending: false }` | No state event is needed |
+| Inactive with pending Plan | Default | `{ active: false }` | No state event is needed |
 | Capability absent | Either | `null` | No plan behavior is introduced |
 
 Stopping generation remains a separate session operation. A pending selection survives cancellation and applies when the next prompt or continuation reaches the service boundary.
@@ -43,9 +43,9 @@ Stopping generation remains a separate session operation. A pending selection su
 
 ## Verification
 
-- API schemas reject invalid request and state shapes, and both fetch directions dispatch the two methods.
-- Host runtime tests cover capability absence, real-service pending and cancellation state, cold-session errors, and shared RPC semantics.
-- Client object tests cover open, selection success, business and transport failure, committed live events, malformed and unavailable events, fail-soft queries, reconnect refresh, superseded-query fencing, and mux commits overtaking unary responses.
+- API schemas reject invalid request and state shapes, including equal committed and pending values, and both fetch directions dispatch the two methods.
+- Host runtime tests cover capability absence, real-service pending state, canonical net-zero cancellation, cold-session errors, and shared RPC semantics.
+- Client object tests cover open, selection success, overlapping selection response order, business and transport failure, committed live events, gap-repaired commits, malformed and unavailable events, fail-soft queries, reconnect refresh, superseded-query fencing, and mux commits overtaking unary responses.
 
 ## Consequences
 

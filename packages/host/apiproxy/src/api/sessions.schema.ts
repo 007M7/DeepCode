@@ -113,7 +113,10 @@ export const sessionCancelValueSchema = z.object({
 export const planModeStateSchema = z.object({
   active: z.boolean(),
   pending: z.boolean().optional(),
-}) satisfies z.ZodType<Wire<PlanModeState>>
+}).refine(
+  state => state.pending === undefined || state.pending !== state.active,
+  { message: 'pending must differ from active when present', path: ['pending'] },
+) satisfies z.ZodType<Wire<PlanModeState>>
 
 /** session.planMode request payload. */
 export const sessionPlanModeRequestSchema = z.object({

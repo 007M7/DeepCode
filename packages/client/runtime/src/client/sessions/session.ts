@@ -59,6 +59,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private planCapabilityKnown = false
   /** Monotonic local fence for committed plan events observed on the mux stream. */
   private planEventVersion = 0
+  /** Highest plan event seq observed through an append or replacement window. */
+  private latestPlanEventSeq: number | null = null
+  /** Monotonic fence shared by plan queries and selections; only the latest response may land. */
+  private planRequestVersion = 0
   /** Latest valid commit, held until the initial capability query resolves. */
   private latestLivePlanMode: PlanModeState | null = null
   // Revision counters + caches backing the snapshot's reference-stability contract (§A.9.4/§C.2,
@@ -145,6 +149,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    */
   async setPlanMode(active: boolean): Promise<RpcResult<PlanModeState | null>> {
     const planEventVersion = this.planEventVersion
+    const planRequestVersion = ++this.planRequestVersion
     let result: RpcResult<PlanModeState | null>
     try {
       result = (await this.api.sessions.setPlanMode({ sessionId: this.sessionId, active })).result
@@ -152,8 +157,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       result = transportError(error)
     }
     if (result.ok) {
-      this.applyPlanResponse(result.value, planEventVersion)
-      this.notifier.notifyNow()
+      if (this.applyPlanResponse(result.value, planEventVersion, planRequestVersion)) {
+        this.notifier.notifyNow()
+      }
     }
     return result
   }
@@ -387,6 +393,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.hasMore = hasMore
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
+    this.applyLatestWindowPlanMode()
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -411,10 +418,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    */
   private async refreshPlanMode(generation: number): Promise<void> {
     const planEventVersion = this.planEventVersion
+    const planRequestVersion = ++this.planRequestVersion
     try {
       const { result } = await this.api.sessions.planMode({ sessionId: this.sessionId })
       if (generation !== this.openGeneration) return
-      if (result.ok) this.applyPlanResponse(result.value, planEventVersion)
+      if (result.ok) this.applyPlanResponse(result.value, planEventVersion, planRequestVersion)
       else console.error('[web-runtime] plan-mode query failed:', result.error)
     } catch (error) {
       if (generation !== this.openGeneration) return
@@ -429,6 +437,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (typeof candidate.data !== 'object' || candidate.data === null) return
     const data = candidate.data as { active?: unknown }
     if (typeof data.active !== 'boolean') return
+    if (this.latestPlanEventSeq !== null && event.seq <= this.latestPlanEventSeq) return
+    this.latestPlanEventSeq = event.seq
     this.planEventVersion++
     this.latestLivePlanMode = { active: data.active }
     if (this.planCapabilityKnown && this.planMode !== null) {
@@ -436,20 +446,38 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
+  /** Replacement windows bypass appendLive, so fold their newest valid plan commit explicitly. */
+  private applyLatestWindowPlanMode(): void {
+    for (let i = this.events.length - 1; i >= 0; i--) {
+      const before = this.latestPlanEventSeq
+      this.applyLivePlanMode(this.events[i] as SessionEvent)
+      if (this.latestPlanEventSeq !== before) return
+    }
+  }
+
   /**
-   * Apply a unary plan snapshot unless a newer mux commit crossed the request.
+   * Apply the latest unary plan snapshot unless a newer request or mux commit
+   * crossed it.
    * A successful null response establishes absence and never promotes a raw
    * event into a capability.
+   *
+   * @returns Whether this response was current and applied.
    */
-  private applyPlanResponse(value: PlanModeState | null, requestVersion: number): void {
+  private applyPlanResponse(
+    value: PlanModeState | null,
+    requestEventVersion: number,
+    requestVersion: number,
+  ): boolean {
+    if (requestVersion !== this.planRequestVersion) return false
     this.planCapabilityKnown = true
     if (value === null) {
       this.planMode = null
-      return
+      return true
     }
-    this.planMode = requestVersion === this.planEventVersion
+    this.planMode = requestEventVersion === this.planEventVersion
       ? value
       : this.latestLivePlanMode ?? value
+    return true
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;

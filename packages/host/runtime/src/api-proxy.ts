@@ -12,7 +12,8 @@ import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from 
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type {
-  ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
+  ApiProxy, HistoryEntry, HostFrame, MuxFrame, PlanModeState, QuestionResponsePayload, SessionSummary,
+  ToolEventView,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { questionResponsePayloadSchema } from '@deepseek-ai/dsh-host-apiproxy/api/questions.schema'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -63,6 +64,16 @@ function paginate(
 /** Wrap an ok result echoing the request's rpcId. */
 function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: true, value } }
+}
+
+/**
+ * Project the service's boundary-cleanup intent into canonical wire state.
+ * A target equal to the committed value has no user-visible pending effect.
+ */
+function projectPlanModeState(state: PlanModeState): PlanModeState {
+  return state.pending !== undefined && state.pending === state.active
+    ? { active: state.active }
+    : state
 }
 
 /** Wrap an error result echoing the request's rpcId. */
@@ -466,7 +477,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(request.payload.sessionId)
         if ('error' in found) return err(request, found.error)
         const planMode = ctx.get('planMode')
-        return ok(request, planMode?.get(found.agent) ?? null)
+        return ok(request, planMode === undefined ? null : projectPlanModeState(planMode.get(found.agent)))
       },
 
       async setPlanMode(request) {
@@ -475,7 +486,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const planMode = ctx.get('planMode')
         if (planMode === undefined) return ok(request, null)
         planMode.set(found.agent, request.payload.active)
-        return ok(request, planMode.get(found.agent))
+        return ok(request, projectPlanModeState(planMode.get(found.agent)))
       },
     },
 
