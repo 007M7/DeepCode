@@ -69,7 +69,7 @@ describe('TodoPanel', () => {
 })
 
 const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResultNode => ({
-  kind: 'tool-result', seq: 10, callId: 'c1',
+  kind: 'tool-result', seq: 10, time: 2_000, callTime: 1_000, callId: 'c1',
   call: { name: 'todo_write', argsRaw },
   content: [], isError: false, callView: null, resultView: null, ...over,
 })

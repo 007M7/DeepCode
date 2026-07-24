@@ -10,7 +10,7 @@ harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结�
 
 ## 决策
 
-新增一个面向模型的 `todo_write(todos: [{ content, status }])` 工具，其整列表状态作为新的 `todo/write` `SessionEventMap` 变体存储在事件溯源的会话日志上。stdio UI 和 ACP bridge 均从现有的 `session/event` 渲染；ACP bridge 将列表映射为 `plan` sessionUpdate。
+新增一个面向模型的 `todo_write(todos: [{ content, status }])` 工具，其整列表状态作为新的 `todo/write` `SessionEventMap` 变体存储在事件溯源的会话日志上。每个 UI 都从现有的 `session/event` 渲染：stdio/TUI 前门展示常驻计划，ACP bridge 将列表映射为 `plan` sessionUpdate，web 客户端将其投影进 `ConversationSnapshot.todos`（[web todo 展示](2026-07-23-web-todo-display.md)）。
 
 ### 整列表替换，三态 status
 
@@ -18,7 +18,7 @@ harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结�
 
 ### 状态在会话日志上，而非服务
 
-列表作为 `todo/write` 事件追加到日志，携带完整的 `{ todos }` 快照。harness 是事件溯源的——LLM（大语言模型）历史、工具调用和轮次结构都在日志上——所以 todo 列表也在那里。这免费获得了持久性、回放和 `session/load` 重建：重新打开的会话从最后一条 `todo/write` 重新推导当前列表，ACP bridge 在加载时重新发出 `plan`，无需独立的持久化后端、无需重新注水的内存服务、无需额外接线。一个内存中的 `ctx.todos` 服务需要重新发明以上所有。
+列表作为 `todo/write` 事件追加到日志，携带完整的 `{ todos }` 快照。harness 是事件溯源的——LLM（大语言模型）历史、工具调用和轮次结构都在日志上——所以 todo 列表也在那里。这免费获得了持久性、回放和 `session/load` 重建：重新打开的会话从最后一条 `todo/write` 重新推导当前列表，ACP bridge 在加载时重新发出 `plan`，无需独立的持久化后端、无需重新注水的内存服务、无需额外接线。一个内存中的 `ctx.todos` 服务需要重新发明以上所有。（全量 log 消费者直接获得这份重建；web 客户端的分页窗口则从尾页 history 携带的 host 计算投影获得——见 [web todo 展示 Note](2026-07-23-web-todo-display.md)。）
 
 ### 不是 surface 事件
 
