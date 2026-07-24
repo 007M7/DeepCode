@@ -42,10 +42,10 @@ Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute serv
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
-| `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
-| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallback titles and one optional asynchronous provider |
-| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | registry and package-name selection for package-owned runtime checks |
+| `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable session-log storage |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | `session-query` interface: concrete live-preferred exact/filter/trace; exactly two abstract FTS methods via `session-query-sqlite` |
+| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks plus one optional asynchronous provider |
+| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry for package-owned runtime checks |
 
 ## Event
 

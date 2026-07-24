@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import type { IPty, IPtyForkOptions } from 'node-pty'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
-import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
+import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import PtyService, { PtyBackendCleanupError, PtySessionId } from '@deepseek-ai/dsh-pty'
 import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
 import * as ptyLocal from '@deepseek-ai/dsh-pty-local'
 import type { ResolvedConfig } from '@deepseek-ai/dsh-pty-local/src/config.ts'
@@ -62,6 +63,30 @@ function spec(owner: Agent, signal?: AbortSignal) {
   }
 }
 
+function stubLocalSession(initialize: () => Promise<void> = () => Promise.resolve()): LocalPtySession {
+  return {
+    motd: '',
+    initialize,
+    startSend: () => { throw new Error('unused') },
+    read: () => { throw new Error('unused') },
+    signal: () => Promise.resolve({ delivered: true, targetPgid: 1 }),
+    status: () => ({ kind: 'running' as const }),
+    close: () => Promise.resolve(),
+  } as unknown as LocalPtySession
+}
+
+function registerStubLocalBackend(ctx: Context, createSession: () => LocalPtySession) {
+  return ctx.inject(['pty', 'sandbox', 'sandboxPolicy'], (providerCtx) => {
+    providerCtx.pty.registerBackend(new LocalPtyBackend(
+      providerCtx,
+      { ...config(), backendType: 'stub' },
+      inspector,
+      (() => ({})) as never,
+      createSession,
+    ))
+  })
+}
+
 describe('LocalPtyBackend startup rollback', () => {
   it('rejects pre-aborted setup and empty sandbox argv', async () => {
     const ctx = new Context()
@@ -69,8 +94,9 @@ describe('LocalPtyBackend startup rollback', () => {
     await ctx.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: '/tmp' })
     const backend = new LocalPtyBackend(ctx, config(), inspector)
     const controller = new AbortController()
-    controller.abort()
-    await expect(backend.spawn(spec(agent(ctx), controller.signal))).rejects.toThrow('spawn aborted')
+    const abortReason = new Error('spawn aborted')
+    controller.abort(abortReason)
+    await expect(backend.spawn(spec(agent(ctx), controller.signal))).rejects.toBe(abortReason)
     await expect(backend.spawn(spec(agent(ctx)))).rejects.toThrow('empty argv')
   })
 
@@ -86,12 +112,18 @@ describe('LocalPtyBackend startup rollback', () => {
     await expect(backend.spawn(spec(agent(ctx)))).rejects.toThrow('startup failed')
     expect(closed).toHaveBeenCalledWith('PTY startup failed')
 
+    const startupFailure = new Error('startup failed')
+    const cleanupFailure = new Error('cleanup failed')
     const doublyFailed = {
-      initialize: () => Promise.reject(new Error('startup failed')),
-      close: () => Promise.reject(new Error('cleanup failed')),
+      initialize: () => Promise.reject(startupFailure),
+      close: () => Promise.reject(cleanupFailure),
     } as unknown as LocalPtySession
     const aggregate = new LocalPtyBackend(ctx, config(), inspector, spawnTerminal, () => doublyFailed)
-    await expect(aggregate.spawn(spec(agent(ctx)))).rejects.toThrow('startup and cleanup both failed')
+    await expect(aggregate.spawn(spec(agent(ctx)))).rejects.toEqual(expect.objectContaining({
+      name: 'PtyBackendCleanupError',
+      spawnError: startupFailure,
+      cleanupError: cleanupFailure,
+    } satisfies Partial<PtyBackendCleanupError>))
   })
 
   it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {
@@ -175,6 +207,7 @@ describe('pty-local plugin shape', () => {
 
   it('validates config and registers the configured backend', async () => {
     const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
     await ctx.plugin(PtyService)
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
@@ -182,5 +215,91 @@ describe('pty-local plugin shape', () => {
     expect(ctx.pty.listBackends()).toEqual(['shell'])
     await fiber.dispose()
     expect(ctx.pty.listBackends()).toEqual([])
+  })
+
+  it('ignores unrelated session events and mode changes without a live owner', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(PtyService)
+    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+    await ctx.plugin(ptyLocal, config())
+
+    const session = ctx.sessions.create(SessionId('unowned-mode'))
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    }).not.toThrow()
+    expect(() => { setSandboxMode(session, 'read-only') }).not.toThrow()
+  })
+
+  it('keeps the owner-lifetime sandbox fence after the local provider unloads', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(PtyService)
+    await ctx.plugin(RecordingSandbox)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+
+    const session = ctx.sessions.create(SessionId('mode-owner'))
+    const ownerFiber = await ctx.plugin(() => {})
+    const owner: Agent = {
+      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    }
+    ctx.agents.register(owner)
+    const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
+    const created = await ctx.pty.spawn(owner, { type: 'stub' })
+
+    const unrelated = ctx.sessions.create(SessionId('unrelated-mode'))
+    expect(() => { setSandboxMode(unrelated, 'read-only') }).not.toThrow()
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    }).not.toThrow()
+
+    expect(() => { setSandboxMode(session, 'danger-full-access') }).not.toThrow()
+    await providerFiber.dispose()
+    expect(ctx.pty.listBackends()).toEqual([])
+    expect(() => { setSandboxMode(session, 'read-only') }).toThrow(
+      'cannot change sandbox mode from "danger-full-access" to "read-only" while persistent terminal sessions are open or being created; wait for creation to settle and close them first',
+    )
+    expect(session.events.filter(event => event.type === 'sandbox/mode')).toHaveLength(1)
+
+    const replacementFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
+    const second = await ctx.pty.spawn(owner, { type: 'stub' })
+    await replacementFiber.dispose()
+    expect(() => { setSandboxMode(session, 'read-only') }).toThrow('open or being created')
+
+    await ctx.pty.kill(owner, created.sessionId)
+    await ctx.pty.kill(owner, second.sessionId)
+    expect(() => { setSandboxMode(session, 'read-only') }).not.toThrow()
+    expect(session.events.filter(event => event.type === 'sandbox/mode')).toHaveLength(2)
+  })
+
+  it('also fences sandbox-mode changes across unpublished PTY creation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(PtyService)
+    await ctx.plugin(RecordingSandbox)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+
+    const session = ctx.sessions.create(SessionId('pending-mode-owner'))
+    const ownerFiber = await ctx.plugin(() => {})
+    const owner: Agent = {
+      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    }
+    ctx.agents.register(owner)
+    const gate = Promise.withResolvers<undefined>()
+    await registerStubLocalBackend(ctx, () => stubLocalSession(() => gate.promise))
+    const spawning = ctx.pty.spawn(owner, { type: 'stub' })
+
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(true)
+    expect(() => { setSandboxMode(session, 'read-only') }).toThrow('open or being created')
+    gate.resolve(undefined)
+    const created = await spawning
+    await ctx.pty.kill(owner, created.sessionId)
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(false)
   })
 })

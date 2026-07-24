@@ -4,7 +4,7 @@ Packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis `Service` subclass
 
 ## Hierarchy
 
-Packages live at `packages/<group>/<pkg>/`; groups are containers, while names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical package/ctx-key map.**
+`packages/<group>/<pkg>/` contains `@deepseek-ai/dsh-<pkg>` packages. **Each group README is the canonical package/ctx-key map.**
 
 | Group | Role | Release expectation |
 |---|---|---|
@@ -24,7 +24,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
 | [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, worker-thread engine, and model-facing `workflow` and fresh-agent `ralph` tools | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
-| [`attachment/`](attachment/README.md) | Durable attachment seam and DSH_HOME backend | Product — stable surface |
+| [`attachment/`](attachment/README.md) | Durable attachments | Product — stable surface |
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool | Product — stable surface |
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit | Product — stable surface |
@@ -33,7 +33,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
-| [`session-query/`](session-query/README.md) | Session retrieval: logical corpus, bounded reads, lineage, and event relationships | Product — stable surface |
+| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |
 | [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service, shared LLM policy, and opt-in providers | Product — stable surface |
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, user-approval/user-interaction seams, ask-user tool | Product — stable surface |

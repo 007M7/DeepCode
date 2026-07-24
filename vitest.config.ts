@@ -96,6 +96,7 @@ export default defineConfig({
         // branches need a browser-grade harness the jsdom lane doesn't cover
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
+        'packages/client/ui-question/src/client/QuestionComposer.tsx',
         'packages/client/web-react/src/*',
         'packages/client/runtime/src/*',
         'packages/client/ui-conversation/src/*',
@@ -103,6 +104,8 @@ export default defineConfig({
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
         'packages/host/webserver/src/*',
+        'packages/client/modules/src/loader.ts',
+        'packages/client/hmr/src/client/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

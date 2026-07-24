@@ -5,7 +5,8 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { RpcError, RpcId, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type { RpcError, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type { PendingInteraction } from './pending.ts'
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -35,7 +36,8 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
     case 'text': return { kind: 'text', text: block.text }
     case 'reasoning': return { kind: 'reasoning', text: block.text }
     case 'image': return {
-      kind: 'image', attachment: block.attachment,
+      kind: 'image',
+      attachment: block.attachment,
       ...block.alt === undefined ? {} : { alt: block.alt },
     }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
@@ -127,11 +129,6 @@ export interface RunningToolCall {
   callView: ToolCallView | null
 }
 
-/** Approval/question placeholder cards (visible, not answerable;
- *  rpcId = the requested frame's envelope id, the future respond backfill key). */
-export type PendingInteraction =
-  | { kind: 'approval'; rpcId: RpcId; approvalId: string; toolName: string; callId?: string; reason?: string }
-  | { kind: 'question'; rpcId: RpcId; questions: readonly unknown[] }
 
 /** In-progress assistant output (chunk accumulator product). */
 export interface PartialAssistant {

@@ -5,12 +5,19 @@
 
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { HistoryEntry, IApiClient, MuxFrame, PromptContentPart, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
-import { transportError } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  HistoryEntry, IApiClient, MuxFrame, PromptContentPart, RpcError, RpcId,
+  RpcResult, SessionId, ToolEventView,
+} from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  ConversationNode, ConversationSnapshot, OpenState, PendingInteraction, PromptError, RunningToolCall,
+  ConversationNode, ConversationSnapshot, OpenState, PromptError, RunningToolCall,
 } from './conversation.ts'
+import type { PendingInteraction } from './pending.ts'
+import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
@@ -108,9 +115,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @param attachmentId - opaque id found in the folded session log.
    * @returns the authenticated reference and decoded bytes.
    */
-  async readAttachment(attachmentId: AttachmentIdType): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>> {
+  async readAttachment(
+    attachmentId: AttachmentIdType,
+  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>> {
     try {
-      const result = (await this.api.sessions.attachment({ sessionId: this.sessionId, attachmentId })).result
+      const result = (await this.api.sessions.attachment({
+        sessionId: this.sessionId,
+        attachmentId,
+      })).result
       if (!result.ok) return result
       const binary = atob(result.value.data)
       const data = Uint8Array.from(binary, char => char.charCodeAt(0))
@@ -200,7 +212,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.events = []
     this.views = []
     this.baseSeq = 0
-    this.pending.clear() // the subscribed baseline replay re-sends still-pending requested frames verbatim
+    // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
+    // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
+    this.pending.clear()
     this.pendingRev++
     this.subscribedLastSeq = null
     this.liveBuffer = []
@@ -246,33 +260,27 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return // pure baseline bookkeeping, no visible change
       }
       case 'approval/requested': {
-        this.pending.set(`a:${rpcId}`, {
-          kind: 'approval', rpcId, approvalId: frame.approvalId, toolName: frame.toolName,
-          ...(frame.callId !== undefined ? { callId: frame.callId } : {}),
-          ...(frame.reason !== undefined ? { reason: frame.reason } : {}),
-        })
-        this.pendingRev++
+        const { type: _type, sessionId: _sid, ...payload } = frame
+        this.mint(new PendingWait('approval', rpcId, this.sessionId, payload, m => this.api.respond(m)))
         this.notifier.markDirty()
         return
       }
       case 'approval/resolved': {
-        for (const [key, item] of this.pending) {
-          if (item.kind === 'approval' && item.approvalId === frame.approvalId) {
-            this.pending.delete(key)
-            this.pendingRev++
-          }
+        for (const item of this.pending.values()) {
+          if (item.kind === 'approval' && item.payload.approvalId === frame.approvalId) this.settle(item)
         }
         this.notifier.markDirty()
         return
       }
       case 'question/requested': {
-        this.pending.set(`q:${rpcId}`, { kind: 'question', rpcId, questions: frame.questions })
-        this.pendingRev++
+        const { type: _type, sessionId: _sid, ...payload } = frame
+        this.mint(new PendingWait('question', rpcId, this.sessionId, payload, m => this.api.respond(m)))
         this.notifier.markDirty()
         return
       }
       case 'question/resolved': {
-        if (this.pending.delete(`q:${frame.questionRpcId}`)) this.pendingRev++
+        const item = this.pending.get(`q:${frame.questionRpcId}`)
+        if (item !== undefined) this.settle(item)
         this.notifier.markDirty()
         return
       }
@@ -311,6 +319,19 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   dispose(): void {}
 
   // ---- 私有 ----
+
+  /** Requested-frame arrival: the wait enters the pending map under its own key. */
+  private mint(wait: PendingInteraction): void {
+    this.pending.set(wait.key, wait)
+    this.pendingRev++
+  }
+
+  /** Authoritative resolved-frame settlement: mark, then drop from the pending map. */
+  private settle(wait: PendingInteraction): void {
+    wait.markSettled()
+    this.pending.delete(wait.key)
+    this.pendingRev++
+  }
 
   /** @param generation - openGeneration at launch; every await re-checks it and a stale pass
    *  drops all writes (resync superseded this open — its outcome belongs to a dead connection). */

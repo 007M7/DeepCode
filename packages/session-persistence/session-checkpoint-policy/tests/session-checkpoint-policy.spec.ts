@@ -19,7 +19,11 @@ class TestPersistence extends SessionPersistence {
   load(_id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return Promise.reject(new Error('not used'))
   }
+  inspect(_id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return Promise.reject(new Error('not used'))
+  }
   list(): Promise<SessionHeader[]> { return Promise.resolve([]) }
+  listSnapshots(): Promise<never[]> { return Promise.resolve([]) }
 }
 
 class RecordingAdapter extends LlmAdapter {

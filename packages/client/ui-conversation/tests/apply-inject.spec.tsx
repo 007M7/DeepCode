@@ -51,7 +51,7 @@ async function bench() {
 
   const listStore = createSnapshotStore<SessionListState>({
     ids: [ROOT],
-    byId: { [ROOT]: { id: ROOT, title: 'R', cwd: '/proj', running: false, updatedAt: 1 } },
+    byId: { [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', cwd: '/proj', running: false, updatedAt: 1 } },
     current: ROOT,
   } as SessionListState)
   const sessionFake = {
@@ -59,6 +59,7 @@ async function bench() {
     loadOlder: vi.fn(() => Promise.resolve()),
     prompt: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
       () => Promise.resolve({ ok: true, value: { accepted: true } })),
+    readAttachment: vi.fn(() => Promise.reject(new Error('attachment response not configured'))),
     cancel: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
       () => Promise.resolve({ ok: true, value: { accepted: true } })),
   }
@@ -76,6 +77,7 @@ async function bench() {
     manager: { get: () => sessionFake },
     scope: (id: SessionId) => mint(id),
     cell: () => undefined,
+    scopeOf,
     hostDescription: () => undefined,
     create: vi.fn(() => Promise.resolve(ROOT)),
     open: vi.fn(),

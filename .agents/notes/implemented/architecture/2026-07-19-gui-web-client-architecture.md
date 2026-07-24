@@ -17,29 +17,22 @@ Both ends run cordis. The host is a cordis plugin tree; the browser runs a secon
 ```
 ┌─ Host ─────────────────────────┐   ┌─ Browser ─────────────────────────────────────────┐
 │ sessions/agents/SessionLog     │   │ client cordis root ctx                             │
-│ apiproxy: RPC + mux/host 双流  │◀─▶│  ├ loader（壳静态持有，不能经自己装载）             │
-│ webserver:                     │   │  ├ immediately 先行组: connection/runtime/         │
-│  ├ GET /plugins/<id>/client.js │   │  │   ui-theme/i18n（动态 bundle，并行先装）        │
-│  └ GET / 注入 __DSH_BOOT__     │   │  ├ 后续组: layout/sidebar/conversation/trajectory  │
-└────────────────────────────────┘   │  └ session scope ×N（观看驱动，惰性建）            │
+│ apiproxy: RPC + mux/host 双流  │◀─▶│  ├ vendored Loader + ctx.modules（内核，壳静态持有）│
+│ webserver:                     │   │  ├ immediately entries: connection/runtime/        │
+│  ├ GET /plugins/<id>/client.js │   │  │   ui-theme/i18n（fetch bundle，boot 预拉）       │
+│  └ GET / 注入 __DSH_BOOT__ 图  │   │  ├ lazy entries: layout/sidebar/                   │
+│                                │   │  │   conversation/trajectory（fetch bundle，按需） │
+└────────────────────────────────┘   │  ├ app-shell 伪行（壳内静态注册，同一治理）        │
+                                     │  └ session scope ×N（观看驱动，惰性建）            │
                                      │ React: loading 页 → settled → 整 UI 一次成型       │
                                      └────────────────────────────────────────────────────┘
 ```
 
 ## The client cordis tree and the loading chain
 
-Every UI plugin is simultaneously a host plugin (dual-entry package): the node half sits in the host's plugin tree so the host Loader governs its lifecycle, and the browser half is a tsdown closure bundle under the package's `exports["./client"]`. The host webserver derives the boot manifest from loaded plugins carrying a `dshClient` manifest field and injects it into the page as `window.__DSH_BOOT__` — the HTML alone tells the browser everything to fetch, zero extra round trips.
+The loading chain — the two package kinds (plain vs dshClient plugin), the module-system/plugin-governor split, the two-phase boot over the host-authored entry graph with revisions, and hot reload — is owned by the [client plugin loading RFC](2026-07-23-client-plugin-loading-model.md). The load-bearing facts for this document: the browser boots the same vendored `@cordisjs/plugin-loader` as the host with a client module system (`ctx.modules`, `packages/client/modules`) filling its `internal` seam; every unit with product behavior is an entry in the host-authored `__DSH_BOOT__` graph — all nine plugin packages (infrastructure included) carry the `dshClient` declaration and arrive as fetched `./client` tsdown closure bundles, `immediately` rows differing only in boot phase-one prefetch, while plain packages (react family, cordis, the not-yet-promoted libraries) stay shell-bundled, seeded, and invisible to the graph; bundles execute `window.__ModuleLoader__.load({ id, factory })` and their `require` is answered from the lazy CJS module table (seed words + registered factories, materialized and memoized on first require — cross-plugin value imports are a build error, cooperation goes through cordis services); plugin CSS is inlined in the bundle and injected as `<style data-plugin="<id>">` at materialization (CSS Modules hashing + ownership tag = isolation, removal on reload); hot reload is live in dev graphs — the webserver stat-polls the bundles it serves and broadcasts `rebuilt` SSE frames, and the `client-hmr` plugin swaps one fiber per frame. The settled flip (`loader.await()` + an all-ACTIVE sweep) still switches the shell from the loading page to the real UI in one pass — settled means every entry is created and every fiber reached ACTIVE, with FAILED/PENDING fibers listed loud; there is no partial-availability mode (progressive rendering is deferred work).
 
-The loading chain, end to end:
-
-1. `GET /` → the shell boots, mounts `ctx.loader` (the loader mechanism is held statically by the shell — a loader cannot load itself; its code home is `packages/client/runtime/src/client/loader/`, imported through the `./loader` subpath so the shell bundle does not swallow the rest of the runtime package), seeds the require module table with the pure-library instances (react, react-dom, cordis, ui-slots, web-react, ui-primitives), and renders a plugin-independent loading page.
-2. `loader.start()` reads `__DSH_BOOT__`. Entries flagged `immediately` form the early-load group (connection, runtime, ui-theme, i18n): fetched in parallel, applied in intra-group `inject` topological order, and **the whole group must land before anything else loads**. Remaining plugins then load in inject order.
-3. Each bundle executes `window.DSHClientProxy.loadPlugin({ id, factory })`. The loader calls `factory(require)` — bundles are closure factories whose external dependencies arrive through the injected `require`, resolved against the module table (no globals, no import maps; an unresolvable specifier fails loud). The factory returns its module export surface (including the cordis `apply`); the loader runs `ctx.plugin(apply)`, then **registers that export surface into the module table under the package name**, so inject topology guarantees later plugins can `require` earlier ones. Plugin CSS is inlined in the bundle and injected as `<style data-plugin="<id>">` (CSS Modules hashing + ownership tag = isolation).
-4. `await loader.settled()` → the shell flips from the loading page to the real UI in one pass. A single failed plugin fails loud on the loading page; there is no partial-availability mode (progressive rendering is deferred work).
-
-**The dual-instance ban**: a module-table package inlined into a plugin bundle would duplicate runtime identity (two React copies, two store registries — the root cause of an actual white-screen P0). The tsdown client preset enforces purity at build time: a bare-name import of a module-table package must resolve external (rewritten to its `/client` form where applicable), and any other workspace leak that is not an inline-safe wire/type layer fails the build (`packages/client/tsdown.client.ts`, pinned by `scripts/client-bundle-purity.spec.ts`).
-
-Dev equals prod: plugins rebuild under `tsdown --watch`, refresh reloads the same chain; vite serves only the shell (`apps/web`). Type universes stay split at the aggregate level — `tsconfig.host.json` is the host program and `tsconfig.client.json` the client program, both referenced by the solution root `tsconfig.json` — because both sides merge cordis `Context` under the same keys (`sessions`, `loader`) with different services; client packages consume the wire vocabulary through pure type subpaths (`@deepseek-ai/dsh-session/types` and kin) so no host augmentation rides into the client program.
+Type universes stay split at the aggregate level — `tsconfig.host.json` is the host program and `tsconfig.client.json` the client program, both referenced by the solution root `tsconfig.json` — because both sides merge cordis `Context` under the same keys (`sessions`, `loader`) with different services; client packages consume the wire vocabulary through pure type subpaths (`@deepseek-ai/dsh-session/types` and kin) so no host augmentation rides into the client program.
 
 ## The slot system: how the page composes
 

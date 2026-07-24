@@ -15,13 +15,9 @@
  */
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
-// Value import MUST use the /client subpath: only that specifier is in the
-// bundle externals (CLIENT_EXTERNALS), so it resolves to the shared runtime
-// module at load time. A bare-specifier value import gets INLINED as a second
-// module instance whose private scope-tag Symbol never matches the one
-// SessionsService tags contexts with — scopeOf then always returns undefined
-// in the browser while unit tests (single-instance path resolution) stay green.
-import { scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only imports: a plugin-to-plugin value import is a bundle purity
+// error, so scope resolution goes through the sessions service (scopeOf
+// method) instead of the standalone helper.
 import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
@@ -160,14 +156,17 @@ export class ConversationService extends Service {
     const cached = this.imageUrls.get(key)
     if (cached !== undefined) return cached.pending
     const generation = this.imageGenerations.get(sessionId) ?? 0
-    const pending = this.requireSessions().manager.get(sessionId).readAttachment(attachment.attachmentId)
+    const pending = this.requireSessions().manager.get(sessionId)
+      .readAttachment(attachment.attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
         if (typeof URL.createObjectURL !== 'function') {
           return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
         }
         const bytes = Uint8Array.from(result.value.data)
-        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
+        const url = URL.createObjectURL(new Blob([bytes.buffer], {
+          type: result.value.attachment.mediaType,
+        }))
         if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
           revokePreview(url)
           throw new Error('historical image scope was released before loading completed')
@@ -242,11 +241,17 @@ export class ConversationService extends Service {
 
   /** Resolve the caller scope's Session or throw on root contexts. */
   private scopedSession(op: string): Session {
-    const id = scopeOf(this.ctx)
+    const id = this.scopeId(op)
+    return this.requireSessions().manager.get(id)
+  }
+
+  /** Read the caller's session scope tag via the sessions service; root contexts fail loud. */
+  private scopeId(op: string): SessionId {
+    const id = this.requireSessions().scopeOf(this.ctx)
     if (id === undefined) {
       throw new Error(`conversation.${op} requires a session scope — address one via ctx.sessions.scope(id).conversation`)
     }
-    return this.requireSessions().manager.get(id)
+    return id
   }
 
   private requireSessions(): SessionsService {

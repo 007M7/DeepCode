@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import PtyService, { PtyError, PtySessionId } from '@deepseek-ai/dsh-pty'
+import PtyService, { PtyBackendCleanupError, PtyError, PtySessionId } from '@deepseek-ai/dsh-pty'
 import type {
   PtyBackend,
   PtyBackendSession,
@@ -160,6 +160,7 @@ describe('PtyService ownership and lifecycle', () => {
 
     const created = await ctx.pty.spawn(owner, { type: 'stub', name: 'main', cwd: '/tmp' })
     expect(created).toMatchObject({ sessionId: 'pty-1', name: 'main', type: 'stub', pid: 123, motd: 'stub ready', status: { kind: 'running' } })
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(true)
     expect(ctx.pty.list(owner)).toHaveLength(1)
     expect(ctx.pty.list(foreign)).toEqual([])
     expect(() => ctx.pty.read(foreign, created.sessionId)).toThrow('belongs to another agent')
@@ -178,8 +179,9 @@ describe('PtyService ownership and lifecycle', () => {
     const created = await ctx.pty.spawn(owner, { type: 'stub', name: 'main' })
     await expect(ctx.pty.spawn(owner, { type: 'stub', name: '' })).rejects.toThrow('must be non-empty')
     const aborted = new AbortController()
-    aborted.abort()
-    await expect(ctx.pty.spawn(owner, { type: 'stub' }, aborted.signal)).rejects.toThrow('spawn aborted')
+    const abortReason = new Error('spawn aborted')
+    aborted.abort(abortReason)
+    await expect(ctx.pty.spawn(owner, { type: 'stub' }, aborted.signal)).rejects.toBe(abortReason)
     await expect(ctx.pty.spawn(owner, { type: 'stub', name: 'main' })).rejects.toMatchObject({ code: 'DUPLICATE_NAME' })
 
     const operation = ctx.pty.startSend(owner, created.sessionId, { text: 'echo hi', submit: true })
@@ -205,10 +207,220 @@ describe('PtyService ownership and lifecycle', () => {
     ctx.agents.register(owner)
     const pending = ctx.pty.spawn(owner, { type: 'slow', name: 'main' })
     await expect(ctx.pty.spawn(owner, { type: 'slow', name: 'main' })).rejects.toMatchObject({ code: 'DUPLICATE_NAME' })
-    await disposeAgentScope(owner)
+    const disposal = disposeAgentScope(owner)
     gate.resolve(session)
     await expect(pending).rejects.toMatchObject({ code: 'OWNER_NOT_LIVE' })
+    await disposal
     expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
+  it('preserves caller cancellation when a pending backend spawn completes', async () => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const session = new StubSession()
+    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' }, controller.signal)
+    controller.abort(reason)
+    gate.resolve(session)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+    expect(ctx.agents.get(owner.id)).toBe(owner)
+  })
+
+  it('preserves caller cancellation when unpublished rollback fails', async () => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const session = new StubSession()
+    session.rejectClose = true
+    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' }, controller.signal)
+    controller.abort(reason)
+    gate.resolve(session)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(true)
+    const internal = ctx.pty as unknown as { disposeAll(): Promise<void> }
+    await expect(internal.disposeAll()).rejects.toThrow('failed to clean up PTY lifecycle')
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(false)
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
+  it('preserves caller cancellation when a backend rejects in response to it', async () => {
+    const ctx = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const backendFailure = new Error('backend observed cancellation')
+    ctx.pty.registerBackend({
+      type: 'abortable',
+      spawn: ({ signal }) => new Promise((_resolve, reject) => {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        started.resolve(undefined)
+        signal.addEventListener('abort', () => { reject(backendFailure) }, { once: true })
+      }),
+    })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'abortable' }, controller.signal)
+    await started.promise
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+  })
+
+  it.each(['owner', 'service'] as const)('retains caller-triggered backend cleanup failure until %s disposal', async (scope) => {
+    const ctx = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const cleanupFailure = new Error('backend cleanup failed')
+    ctx.pty.registerBackend({
+      type: 'cleanup-failing',
+      spawn: ({ signal }) => new Promise((_resolve, reject) => {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        started.resolve(undefined)
+        signal.addEventListener('abort', () => {
+          reject(new PtyBackendCleanupError(signal.reason, cleanupFailure))
+        }, { once: true })
+      }),
+    })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'cleanup-failing' }, controller.signal)
+    await started.promise
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(true)
+    const internal = ctx.pty as unknown as {
+      disposeOwned(owner: Agent): Promise<void>
+      disposeAll(): Promise<void>
+    }
+    const disposal = scope === 'owner' ? internal.disposeOwned(owner) : internal.disposeAll()
+    await expect(disposal).rejects.toThrow('failed to clean up PTY lifecycle')
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(false)
+  })
+
+  it.each([
+    { scope: 'owner', code: 'OWNER_NOT_LIVE' },
+    { scope: 'service', code: 'SERVICE_DISPOSING' },
+  ] as const)('$scope disposal aborts and awaits unpublished backend setup', async ({ scope, code }) => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const started = Promise.withResolvers<undefined>()
+    const session = new StubSession()
+    let backendSignal: AbortSignal | undefined
+    ctx.pty.registerBackend({
+      type: 'slow',
+      spawn: (spec) => {
+        backendSignal = spec.signal
+        started.resolve(undefined)
+        return gate.promise
+      },
+    })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' })
+    const pendingFailure = pending.then(
+      () => { throw new Error('pending spawn unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+    await started.promise
+    let disposalSettled = false
+    const disposal = (scope === 'owner' ? disposeAgentScope(owner) : disposePtyService(ctx))
+      .then(() => { disposalSettled = true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const signalAbortedBeforeRelease = backendSignal?.aborted ?? false
+    const signalReasonBeforeRelease = backendSignal?.reason as unknown
+    const disposalSettledBeforeRelease = disposalSettled
+    gate.resolve(session)
+
+    expect(await pendingFailure).toMatchObject({ code })
+    await disposal
+    expect(signalAbortedBeforeRelease).toBe(true)
+    expect(signalReasonBeforeRelease).toMatchObject({ code })
+    expect(disposalSettledBeforeRelease).toBe(false)
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
+  it('reports unpublished rollback failure through service disposal', async () => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const session = new StubSession()
+    session.rejectClose = true
+    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' })
+    const pendingFailure = expect(pending).rejects.toThrow('PTY spawn and rollback both failed')
+    const internal = ctx.pty as unknown as { disposeAll(): Promise<void> }
+    const disposalFailure = expect(internal.disposeAll()).rejects.toThrow('failed to clean up PTY lifecycle')
+    gate.resolve(session)
+
+    await pendingFailure
+    await disposalFailure
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
+  it.each([
+    { scope: 'owner', code: 'OWNER_NOT_LIVE' },
+    { scope: 'service', code: 'SERVICE_DISPOSING' },
+  ] as const)('$scope disposal retains backend-side startup cleanup failure', async ({ scope, code }) => {
+    const ctx = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const cleanupFailure = new Error('backend cleanup failed')
+    let backendAbortReason: unknown
+    ctx.pty.registerBackend({
+      type: 'cleanup-failing',
+      spawn: ({ signal }) => new Promise((_resolve, reject) => {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        started.resolve(undefined)
+        signal.addEventListener('abort', () => {
+          backendAbortReason = signal.reason
+          reject(new PtyBackendCleanupError(signal.reason, cleanupFailure))
+        }, { once: true })
+      }),
+    })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+
+    const pending = ctx.pty.spawn(owner, { type: 'cleanup-failing' })
+    await started.promise
+    const internal = ctx.pty as unknown as {
+      disposeOwned(owner: Agent): Promise<void>
+      disposeAll(): Promise<void>
+    }
+    const disposal = scope === 'owner' ? internal.disposeOwned(owner) : internal.disposeAll()
+    const pendingError = await pending.then(
+      () => { throw new Error('pending spawn unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+
+    expect(pendingError).toBe(backendAbortReason)
+    expect(pendingError).toMatchObject({ code })
+    const disposalError = await disposal.then(
+      () => { throw new Error('disposal unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+    expect(disposalError).toMatchObject({ message: 'failed to clean up PTY lifecycle' })
+    const rollbackError = (disposalError as AggregateError).errors[0] as unknown
+    const cleanupErrors = (rollbackError as AggregateError).errors as unknown[]
+    expect(cleanupErrors).toEqual([cleanupFailure])
   })
 
   it('keeps independent reservations and handles provider failure before publication', async () => {
@@ -254,14 +466,27 @@ describe('PtyService ownership and lifecycle', () => {
     ctx.agents.register(owner)
     const failedSpawn = new StubSession()
     failedSpawn.rejectClose = true
+    let ownerDisposal = Promise.resolve()
+    const internal = ctx.pty as unknown as {
+      disposedOwners: WeakSet<Agent>
+      disposeOwned(owner: Agent): Promise<void>
+    }
     ctx.pty.registerBackend({
       type: 'bad-spawn',
-      async spawn() {
-        await disposeAgentScope(owner)
+      async spawn({ signal }) {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        internal.disposedOwners.add(owner)
+        ownerDisposal = internal.disposeOwned(owner)
+        if (!signal.aborted) {
+          await new Promise<undefined>((resolve) => {
+            signal.addEventListener('abort', () => { resolve(undefined) }, { once: true })
+          })
+        }
         return failedSpawn
       },
     })
     await expect(ctx.pty.spawn(owner, { type: 'bad-spawn' })).rejects.toThrow('spawn and rollback both failed')
+    await expect(ownerDisposal).rejects.toThrow('failed to clean up PTY lifecycle')
 
     const nextOwner = stubAgent(ctx, 'next')
     ctx.agents.register(nextOwner)
@@ -338,8 +563,15 @@ describe('PtyService ownership and lifecycle', () => {
       sessions: Map<PtySessionIdType, unknown>
       closeRecords(records: unknown[], reason: string): Promise<void>
     }
-    await expect(internal.closeRecords([...internal.sessions.values()], 'test failure')).rejects.toThrow('failed to close 1 PTY session')
+    const records = [...internal.sessions.values()]
+    const firstFailure = expect(internal.closeRecords(records, 'test failure')).rejects.toThrow('failed to close 1 PTY session')
+    const joinedFailure = expect(internal.closeRecords(records, 'joined failure')).rejects.toThrow('failed to close 1 PTY session')
+    await firstFailure
+    await joinedFailure
     b.sessions[0]!.rejectClose = false
+    await expect(internal.closeRecords([...internal.sessions.values()], 'retry')).resolves.toBeUndefined()
+    expect(b.sessions[0]!.closed).toEqual(['test failure', 'retry'])
+    expect(internal.sessions.size).toBe(0)
     await disposePtyService(ctx)
     await expect(service.spawn(owner, { type: 'stub' })).rejects.toMatchObject({ code: 'SERVICE_DISPOSING' })
   })
@@ -360,7 +592,7 @@ describe('PtyService ownership and lifecycle', () => {
     }
     // Teardown surfaces the close failure, but its finally still clears the
     // backend and owner-cleanup registries instead of orphaning them.
-    await expect(internal.disposeAll()).rejects.toThrow('failed to close 1 PTY session')
+    await expect(internal.disposeAll()).rejects.toThrow('failed to clean up PTY lifecycle')
     expect(internal.backends.size).toBe(0)
     expect(internal.ownerCleanups.size).toBe(0)
   })

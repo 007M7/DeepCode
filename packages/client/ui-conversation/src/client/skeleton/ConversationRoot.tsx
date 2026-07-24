@@ -3,7 +3,8 @@
 // props: the framework standard kit (useSession/sessionId/useSessions), the
 // declared chat store's useStore/actions, the injected business face, and the
 // renderSlot share for the declared 'conversation.view' child slot (views are
-// slot entries; the active one renders via the list `only` filter).
+// slot entries; the active one renders via the list `only` filter) plus the
+// renderSlotChain share for the 'conversation.composer' takeover chain.
 // Breadcrumbs derive from useSessions with a pure parentId walk; the active
 // view id lives in the chat store's `view` field (per-session by store scope).
 
@@ -36,7 +37,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 }
 
 export function ConversationRoot({
-  sessionId, useSession, useSessions, useStore, actions, renderSlot,
+  sessionId, useSession, useSessions, useStore, actions, renderSlot, renderSlotChain,
   views, addImages, removeImage, draftImages, releaseSessionImages,
   send, stop, open,
 }: ConversationRootProps) {
@@ -55,6 +56,7 @@ export function ConversationRoot({
   const removed = useSession(s => s.removed)
   const promptError = useSession(s => s.promptError)
   const turns = useSession(s => countTurns(s))
+  const pending = useSession(s => s.pending)
 
   // Browser File/object-URL values are runtime-only. A reload may rehydrate
   // ids whose objects no longer exist; prune those ids after the first render.
@@ -72,6 +74,24 @@ export function ConversationRoot({
     ? null
     : { op: promptError.op, message: `${promptError.error.message}（${promptError.error.code}）` }
 
+  // The default composer doubles as the chain's all-decline fallback: a
+  // pending wait with no registered takeover must still leave the input usable.
+  const composerBar = (
+    <InputBar
+      draft={draft}
+      attachments={attachments}
+      running={running}
+      disabled={removed}
+      error={error}
+      variant="composer"
+      onDraftChange={actions.setDraft}
+      onAddImages={files => addImages(files, attachments)}
+      onRemoveAttachment={removeImage}
+      onSend={(mode) => { send(draft, attachments, mode) }}
+      onStop={stop}
+    />
+  )
+
   return (
     <div className={css.root}>
       <header className={css.header}>
@@ -88,7 +108,7 @@ export function ConversationRoot({
                     disabled={last}
                     onClick={() => { open(s.id) }}
                   >
-                    {s.title}
+                    {s.displayTitle}
                   </button>
                 </span>
               )
@@ -121,19 +141,7 @@ export function ConversationRoot({
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
       </div>
 
-      <InputBar
-        draft={draft}
-        attachments={attachments}
-        running={running}
-        disabled={removed}
-        error={error}
-        variant="composer"
-        onDraftChange={actions.setDraft}
-        onAddImages={files => addImages(files, attachments)}
-        onRemoveAttachment={removeImage}
-        onSend={(mode) => { send(draft, attachments, mode) }}
-        onStop={stop}
-      />
+      {renderSlotChain('conversation.composer', { interactions: pending }, { fallback: composerBar })}
     </div>
   )
 }

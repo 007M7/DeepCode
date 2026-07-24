@@ -78,6 +78,7 @@ async function bench(opts?: {
     create: createMock,
     open: openMock,
     scope: (id: SessionId) => (id === sid('new-1') ? mint(id) : scopes.get(id)),
+    scopeOf,
     hostDescription: () => opts?.description,
   } as unknown as SessionsService
   if (opts?.sessions !== false) ctx.provide('sessions', sessionsFake)
@@ -126,7 +127,8 @@ describe('send / cancel', () => {
     Object.defineProperty(file, 'arrayBuffer', {
       value: () => Promise.resolve(Uint8Array.of(1).buffer),
     })
-    await expect(b.scopedSvc(sid('s1')).send('', 'queue', [file])).rejects.toThrow(/不支持的图片格式/)
+    await expect(b.scopedSvc(sid('s1')).send('', 'queue', [file]))
+      .rejects.toThrow(/不支持的图片格式/)
     expect(b.sessionDoubles.get(sid('s1'))?.prompt).not.toHaveBeenCalled()
   })
 
@@ -177,7 +179,11 @@ describe('image admission and URL lifecycle', () => {
     const second = new File([Uint8Array.of(4, 5)], 'second.png', { type: 'image/png' })
 
     const attachments = b.svc.createDraftImages([first])
-    expect(attachments[0]).toMatchObject({ kind: 'image', file: first, previewUrl: 'blob:draft' })
+    expect(attachments[0]).toMatchObject({
+      kind: 'image',
+      file: first,
+      previewUrl: 'blob:draft',
+    })
     expect(() => b.svc.createDraftImages([second], attachments)).toThrow(/总大小/)
     expect(createObjectURL).toHaveBeenCalledTimes(1)
 
@@ -195,12 +201,15 @@ describe('image admission and URL lifecycle', () => {
       },
     })
     const png = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
-    expect(() => textOnly.svc.createDraftImages([png], [], true)).toThrow(/当前模型不支持图片/)
+    expect(() => textOnly.svc.createDraftImages([png], [], true))
+      .toThrow(/当前模型不支持图片/)
 
     const b = await bench({ description })
     const video = new File([Uint8Array.of(1)], 'clip.mp4', { type: 'video/mp4' })
     expect(() => b.svc.createDraftImages([video])).toThrow(/不支持的图片格式/)
-    const large = new File([Uint8Array.of(1, 2, 3, 4)], 'large.png', { type: 'image/png' })
+    const large = new File([Uint8Array.of(1, 2, 3, 4)], 'large.png', {
+      type: 'image/png',
+    })
     expect(() => b.svc.createDraftImages([large])).toThrow(/单张大小限制/)
     const existing = b.svc.createDraftImages([png, png])
     expect(() => b.svc.createDraftImages([png], existing)).toThrow(/最多添加 2 张/)
@@ -235,7 +244,9 @@ describe('image admission and URL lifecycle', () => {
     expect(session.readAttachment).toHaveBeenCalledTimes(1)
 
     b.svc.releaseSessionImages(sid('s1'))
-    await vi.waitFor(() => { expect(revokeObjectURL).toHaveBeenCalledWith('blob:history-1') })
+    await vi.waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:history-1')
+    })
     await expect(b.svc.resolveImage(sid('s1'), ref)).resolves.toBe('blob:history-2')
     expect(session.readAttachment).toHaveBeenCalledTimes(2)
   })

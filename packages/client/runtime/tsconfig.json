@@ -24,6 +24,9 @@
       "path": "../connection"
     },
     {
+      "path": "../../host/apiproxy"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
