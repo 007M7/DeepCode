@@ -147,27 +147,24 @@ describe('conversation slot inject surface', () => {
     const { instance, injected } = b.conversationSurface(ROOT)
     // Whitespace-only: no send, and the (whitespace) draft is not cleared.
     instance.actions.setDraft('   ')
-    injected.send('   ', 'queue')
+    await injected.send('   ', 'queue')
     expect(b.sessionFake.prompt).not.toHaveBeenCalled()
     expect(instance.store.getSnapshot().draft).toBe('   ')
     // Success: cleared and stays cleared.
     instance.actions.setDraft('hello')
-    injected.send('hello', 'queue')
+    await injected.send('hello', 'queue')
     expect(instance.store.getSnapshot().draft).toBe('')
-    await Promise.resolve()
     expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
     // Failure: restored (draft still empty when the rejection lands).
     b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b' } })
     instance.actions.setDraft('retry me')
-    injected.send('retry me', 'queue')
-    await vi.waitFor(() => {
-      expect(instance.store.getSnapshot().draft).toBe('retry me')
-    })
+    await expect(injected.send('retry me', 'queue')).rejects.toThrow(/agent-busy: b/)
+    expect(instance.store.getSnapshot().draft).toBe('retry me')
     // Failure landing after new typing: no clobber (restoreDraft fills empty only).
     b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b' } })
-    injected.send('retry me', 'queue')
+    const failed = injected.send('retry me', 'queue').catch(() => {})
     instance.actions.setDraft('typed during flight')
-    await new Promise(r => setTimeout(r, 0))
+    await failed
     expect(instance.store.getSnapshot().draft).toBe('typed during flight')
     // Stop failure is swallowed (promptError owns the surface).
     b.sessionFake.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'x' } })

@@ -12,7 +12,7 @@ afterEach(cleanup)
 
 function setup(over?: Partial<InputBarProps>) {
   const props: InputBarProps = {
-    draft: 'hello', running: false, disabled: false, error: null,
+    draft: 'hello', running: false, submitting: false, disabled: false, error: null,
     variant: 'composer',
     onDraftChange: vi.fn(), onSend: vi.fn(), onStop: vi.fn(),
     ...over,
@@ -80,6 +80,15 @@ describe('running lock and primary button', () => {
     expect(button.getAttribute('aria-label')).toBe('停止')
     fireEvent.click(button)
     expect(props.onStop).toHaveBeenCalledTimes(1)
+    expect(props.onSend).not.toHaveBeenCalled()
+  })
+
+  it('submission locks duplicate sends only until Host admission settles', () => {
+    const { textarea, button, props } = setup({ submitting: true })
+    expect(textarea.disabled).toBe(true)
+    expect(textarea.placeholder).toBe('正在发送…')
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
     expect(props.onSend).not.toHaveBeenCalled()
   })
 

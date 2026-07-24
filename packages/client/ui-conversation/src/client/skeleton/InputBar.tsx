@@ -2,8 +2,8 @@
 // serves the empty state (variant='hero': centered launch card) and the
 // resident composer (variant='composer') — the empty→content transition is a
 // position move of this component, never a swap (layout ruling). Running
-// LOCKS the input: textarea disabled with the draft visible, stop is the only
-// action; the turn ending re-enables and refocuses.
+// LOCKS the input while Host admission or generation is active. Admission
+// settles before model work; running keeps Stop available until the turn ends.
 
 import { useEffect, useRef } from 'react'
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
@@ -19,6 +19,8 @@ export interface InputBarError {
 export interface InputBarProps {
   draft: string
   running: boolean
+  /** Prompt is waiting for selector settlement or synchronous Host admission. */
+  submitting: boolean
   disabled: boolean
   error: InputBarError | null
   /** Hero = empty-state centered card; composer = resident bottom bar. */
@@ -34,7 +36,7 @@ export interface InputBarProps {
 }
 
 export function InputBar({
-  draft, running, disabled, error, variant, placeholder, accessory, controls, onDraftChange, onSend, onStop,
+  draft, running, submitting, disabled, error, variant, placeholder, accessory, controls, onDraftChange, onSend, onStop,
 }: InputBarProps) {
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -52,7 +54,7 @@ export function InputBar({
 
   // Locked while running: the browser drops keystrokes AND focus on a disabled
   // textarea — no sending mid-turn, stop or wait.
-  const locked = disabled || running
+  const locked = disabled || running || submitting
 
   // Unlock (mount / session switch / turn end) returns focus to the box.
   useEffect(() => {
@@ -80,14 +82,14 @@ export function InputBar({
     inputRef.current?.focus()
   }
 
-  const primaryLabel = running ? '停止' : '发送'
+  const primaryLabel = running ? '停止' : submitting ? '发送中' : '发送'
   const onPrimary = (): void => {
     if (running) {
       onStop()
       return
     }
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled) onSend('queue')
+    if (!empty && !disabled && !submitting) onSend('queue')
   }
 
   return (
@@ -108,7 +110,13 @@ export function InputBar({
             className={css.input}
             value={draft}
             disabled={locked}
-            placeholder={placeholder ?? (disabled ? '会话不可用' : running ? '回复生成中，可停止后再输入' : '输入消息，Enter 发送，Shift+Enter 换行')}
+            placeholder={placeholder ?? (disabled
+              ? '会话不可用'
+              : running
+                ? '回复生成中，可停止后再输入'
+                : submitting
+                  ? '正在发送…'
+                  : '输入消息，Enter 发送，Shift+Enter 换行')}
             rows={2}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={onKeyDown}
@@ -123,8 +131,8 @@ export function InputBar({
             type="button"
             className={clsx(css.primary, running && css.stopping)}
             aria-label={primaryLabel}
-            title={running ? '停止本轮' : '发送（Enter）'}
-            disabled={!running && (empty || disabled)}
+            title={running ? '停止本轮' : submitting ? '正在等待发送确认' : '发送（Enter）'}
+            disabled={!running && (empty || disabled || submitting)}
             onMouseDown={keepFocus}
             onClick={onPrimary}
           >

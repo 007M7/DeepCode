@@ -8,7 +8,7 @@
 // Breadcrumbs derive from useSessions with a pure parentId walk; the active
 // view id lives in the chat store's `view` field (per-session by store scope).
 
-import { useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
@@ -54,11 +54,28 @@ export function ConversationRoot({
   const promptError = useSession(s => s.promptError)
   const turns = useSession(s => countTurns(s))
   const pending = useSession(s => s.pending)
+  const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
+  const aliveRef = useRef(true)
+
+  useEffect(() => () => {
+    aliveRef.current = false
+  }, [])
 
   const error: InputBarError | null = promptError === null
     ? null
     : { op: promptError.op, message: `${promptError.error.message}（${promptError.error.code}）` }
   const controls = renderSlot('conversation.composer.controls', {})
+  const submit = (mode: 'queue' | 'steer'): void => {
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setSubmitting(true)
+    const settle = (): void => {
+      submittingRef.current = false
+      if (aliveRef.current) setSubmitting(false)
+    }
+    void send(draft, mode).then(settle, settle)
+  }
 
   // The default composer doubles as the chain's all-decline fallback: a
   // pending wait with no registered takeover must still leave the input usable.
@@ -66,12 +83,13 @@ export function ConversationRoot({
     <InputBar
       draft={draft}
       running={running}
+      submitting={submitting}
       disabled={removed}
       error={error}
       variant="composer"
       controls={controls}
       onDraftChange={actions.setDraft}
-      onSend={(mode) => { send(draft, mode) }}
+      onSend={submit}
       onStop={stop}
     />
   )

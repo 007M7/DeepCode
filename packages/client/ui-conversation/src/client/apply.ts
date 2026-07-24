@@ -89,7 +89,7 @@ export function apply(ctx: Context): void {
           subscribe: fn => slots.subscribe('conversation.view', fn),
           version: () => slots.getVersion('conversation.view'),
         },
-        send: (text, mode) => {
+        send: async (text, mode) => {
           const trimmed = text.trim()
           if (trimmed === '') return
           // Optimistic clear with failure restore (choreography lives with the
@@ -97,7 +97,12 @@ export function apply(ctx: Context): void {
           // The store write path stays inside the declared actions set:
           // restoreDraft itself no-ops once the user typed something new.
           actions.clearDraft()
-          void scoped.send(trimmed, mode).catch(() => { actions.restoreDraft(trimmed) })
+          try {
+            await scoped.send(trimmed, mode)
+          } catch (error: unknown) {
+            actions.restoreDraft(trimmed)
+            throw error
+          }
         },
         stop: () => {
           scoped.cancel().catch(() => {

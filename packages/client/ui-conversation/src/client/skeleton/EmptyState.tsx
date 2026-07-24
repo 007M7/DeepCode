@@ -103,7 +103,8 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
         <InputBar
           draft={draft}
           running={false}
-          disabled={sending}
+          submitting={sending}
+          disabled={false}
           error={error}
           variant="hero"
           placeholder="Message to run task, plan and build"

@@ -112,8 +112,8 @@ export interface ConversationInjected {
     subscribe(fn: () => void): () => void
     version(): number
   }
-  /** Send choreography: trims, clears the draft optimistically, restores it on failure. */
-  send(text: string, mode: 'queue' | 'steer'): void
+  /** Send choreography through Host admission: trims, clears the draft optimistically, restores it on failure. */
+  send(text: string, mode: 'queue' | 'steer'): Promise<void>
   /** Cancel the in-flight turn (failure surfaces via snapshot.promptError). */
   stop(): void
   /** Navigate to another session (breadcrumb ancestors). */

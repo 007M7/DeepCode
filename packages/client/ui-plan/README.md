@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-ui-plan
 
-Web plan-mode feature with two lifecycle-coupled halves. The node entry mounts `@deepseek-ai/dsh-plan-mode` with the Web product policy; the browser entry contributes a session-scoped selector to `conversation.composer.controls`.
+Web plan-mode feature with two lifecycle-coupled halves. The node entry mounts `@deepseek-ai/dsh-plan-mode` with the Web product's active and default mode policies; the browser entry contributes a session-scoped selector to `conversation.composer.controls`.
 
 The selector distinguishes unavailable capability (`planMode === null`), committed mode (`active`), and the target queued for the next model-request boundary (`pending`, including `pending: false`). Selecting a mode never cancels a running turn. It remains available while generation is running, disables only during its own RPC, and displays the host-confirmed pending target until a logged `plan/mode` event commits it. The transparent native select mirrors keyboard focus onto the visible chip and carries a dynamic accessible description of the committed and pending modes.
 
@@ -8,11 +8,11 @@ The model exits plan mode through the stable `exit_plan_mode` tool. Its plan rev
 
 ## Model Experience
 
-Indirectly, through `@deepseek-ai/dsh-plan-mode`; that package owns policy activation, the exit-tool schema and rendering, logged state, and request-boundary transitions, while this package supplies the Web composition's section text.
+Indirectly, through complementary Web system-prompt sections: active mode supplies the planning policy, while default mode explicitly states that the session is not planning, permits normal implementation work, and tells the model not to call the still-registered `exit_plan_mode` tool; `@deepseek-ai/dsh-plan-mode` continues to own the exit-tool schema and rendering, logged state, and request-boundary transitions.
 
 #### KV Cache effect
 
-Entering or leaving plan mode changes the active system-prompt section and therefore the request prefix. The stable exit-tool registration avoids an additional tool-catalog shape change across the same transition.
+Entering or leaving plan mode swaps the active Web mode section and therefore changes the request prefix. The stable exit-tool registration avoids an additional tool-catalog shape change across the same transition.
 
 ## Known Limitations and Deferred Work
 

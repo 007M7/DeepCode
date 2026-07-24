@@ -8,7 +8,7 @@
  * share is a REAL createChatStore().create() instance (same construction path
  * as production), injected callbacks are spies.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -106,14 +106,14 @@ describe('ConversationRoot', () => {
     tabs: ViewTab[], activeView?: string, init: Partial<FakeSnapshot> = {},
     renderSlotChain?: ConversationRootProps['renderSlotChain'],
   ) {
-    const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }], ...init })
+    const { useSession, store: session } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }], ...init })
     const { useSessions } = fakeSessions([
       { id: 'root', title: 'proj' },
       { id: 's1', title: 'child', parentId: 'root' },
     ])
     const chat = createChatStore().create()
     if (activeView !== undefined) chat.actions.setView(activeView)
-    const send = vi.fn()
+    const send = vi.fn(() => Promise.resolve())
     const stop = vi.fn()
     const open = vi.fn()
     // The renderSlot share as the outlet would bake it: renders a marker for
@@ -141,7 +141,7 @@ describe('ConversationRoot', () => {
         stop={stop}
         open={open}
       />)
-    return { ui, chat, send, stop, open, renderSlot }
+    return { ui, chat, session, send, stop, open, renderSlot }
   }
 
   const tab = (id: string, label: string): ViewTab => ({ id, label })
@@ -187,6 +187,37 @@ describe('ConversationRoot', () => {
     expect(chat.store.getSnapshot().draft).toBe('hi')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(send).toHaveBeenCalledWith('hi', 'queue')
+  })
+
+  it('locks duplicate sends only while prompt admission is unresolved', async () => {
+    const { session, send, stop } = bench([tab('chat', 'Chat')])
+    let resolve!: () => void
+    send.mockImplementationOnce(() => new Promise<void>((done) => { resolve = done }))
+    const box = screen.getByPlaceholderText(/输入消息/)
+    fireEvent.change(box, { target: { value: 'wait for mode' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    expect((screen.getByRole('button', { name: '发送中' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((box as HTMLTextAreaElement).disabled).toBe(true)
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(send).toHaveBeenCalledTimes(1)
+
+    session.set({ ...session.getSnapshot(), running: true })
+    const stopButton = await screen.findByRole('button', { name: '停止' }) as HTMLButtonElement
+    expect(stopButton.disabled).toBe(false)
+    fireEvent.click(stopButton)
+    expect(stop).toHaveBeenCalledTimes(1)
+
+    resolve()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
+    })
+    expect((box as HTMLTextAreaElement).disabled).toBe(true)
+    session.set({ ...session.getSnapshot(), running: false })
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: '发送' }) as HTMLButtonElement).disabled).toBe(false)
+    })
+    expect((box as HTMLTextAreaElement).disabled).toBe(false)
   })
 
   it('dispatches the pending list to the composer chain; all-decline falls back to InputBar', () => {
