@@ -133,6 +133,26 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
     expect(b.svc.list.getSnapshot().current).toBe('s1') // failed open leaves the selection alone
   })
 
+  it('clear() blanks list.current and the persisted selection', async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v) },
+      removeItem: (k: string) => { storage.delete(k) },
+      clear: () => { storage.clear() },
+    })
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.open(sid('s1'))
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
+    b.svc.clear()
+    expect(b.svc.list.getSnapshot().current).toBeUndefined()
+    // Persisted wipe: a fresh service with the same storage stays on empty.
+    const again = bench()
+    await feedList(again, [{ id: 's1' }])
+    expect(again.svc.list.getSnapshot().current).toBeUndefined()
+  })
+
   it('masks (not destroys) the selection while its session is off the list', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
@@ -274,6 +294,27 @@ describe('create', () => {
       result: { ok: false as const, error: { code: 'internal' as const, message: '爆了', details: {} } },
     } as never)
     await expect(b.svc.create()).rejects.toThrow(/internal: 爆了/)
+  })
+})
+
+describe('createWorkspace', () => {
+  it('joins host.describe cwd with the name and creates there', async () => {
+    const b = bench()
+    b.api.onDescribe = () => Promise.resolve(ok({ version: '0', cwd: '/host/root', attachedSessions: 0 }))
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('ws') }))
+    await expect(b.svc.createWorkspace('My Proj')).resolves.toBe('ws')
+    expect(b.api.callsOf('session.create')).toEqual([{ cwd: '/host/root/My Proj' }])
+  })
+
+  it('rejects empty names and path separators; surfaces describe failures', async () => {
+    const b = bench()
+    await expect(b.svc.createWorkspace('  ')).rejects.toThrow(/name is required/)
+    await expect(b.svc.createWorkspace('a/b')).rejects.toThrow(/path separators/)
+    b.api.onDescribe = () => Promise.resolve({
+      rpcId: 'e' as never,
+      result: { ok: false as const, error: { code: 'internal' as const, message: 'down', details: {} } },
+    } as never)
+    await expect(b.svc.createWorkspace('ok')).rejects.toThrow(/host.describe failed/)
   })
 })
 

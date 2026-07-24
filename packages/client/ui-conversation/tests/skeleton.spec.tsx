@@ -28,13 +28,33 @@ const sid = (s: string): SessionId => s as SessionId
 
 afterEach(cleanup)
 beforeEach(() => {
-  localStorage.clear()
+  // jsdom normally provides localStorage; some host Node builds surface it as undefined.
+  globalThis.localStorage?.clear()
 })
 
 /** Minimal conversation snapshot slice the skeleton reads. */
 interface FakeSnapshot {
-  nodes: readonly { kind: string; callId?: string; call?: { name: string; argsRaw: string } | null; content?: readonly { type: string; text?: string }[]; isError?: boolean }[]
-  runningCalls: readonly { callId: string; name: string; argsRaw: string }[]
+  nodes: readonly {
+    kind: string
+    seq?: number
+    time?: number
+    callId?: string
+    call?: { name: string; argsRaw: string } | null
+    callTime?: number | null
+    content?: readonly { type: string; text?: string }[]
+    isError?: boolean
+    callView?: null
+    resultView?: null
+  }[]
+  runningCalls: readonly {
+    callId: string
+    name: string
+    argsRaw: string
+    turn?: number
+    step?: number
+    time?: number
+    callView?: null
+  }[]
   running: boolean
   removed: boolean
   promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null
@@ -66,6 +86,8 @@ function fakeSessions(rows: { id: string; title: string; cwd?: string; parentId?
 const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(sid('s1'))}</>
 
 describe('EmptyState', () => {
+  const noopCreate = () => Promise.resolve()
+
   it('derives cwd options from the sessions list, submits startSession, failure surfaces locally', async () => {
     const { useSessions } = fakeSessions([
       { id: 'a', title: 'a', cwd: '/w/app' },
@@ -74,13 +96,21 @@ describe('EmptyState', () => {
     ])
     let reject!: (e: Error) => void
     const startSession = vi.fn(() => new Promise<void>((_res, rej) => { reject = rej }))
-    render(<EmptyState useSessions={useSessions} startSession={startSession} />)
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={startSession}
+        createWorkspaceSession={noopCreate}
+      />,
+    )
 
-    const select = screen.getByRole('combobox', { name: '项目目录' })
-    expect([...(select as HTMLSelectElement).options].map(o => o.value))
-      .toEqual(['', '/w/app', '/w/lib', '::new-directory'])
-    fireEvent.change(select, { target: { value: '/w/app' } })
-    const box = screen.getByPlaceholderText('Message to run task, plan and build')
+    const trigger = screen.getByRole('button', { name: '项目目录' })
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('menu')
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map(el => el.textContent))
+      .toEqual(['app', 'lib', 'New Workspace'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'app' }))
+    const box = screen.getByPlaceholderText('Message to run task, plan and build, enter for / commands')
     fireEvent.change(box, { target: { value: '造一个轮子' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(startSession).toHaveBeenCalledWith({ text: '造一个轮子', mode: 'queue', cwd: '/w/app' })
@@ -91,13 +121,64 @@ describe('EmptyState', () => {
     expect((box as HTMLTextAreaElement).value).toBe('造一个轮子')
   })
 
-  it('new-directory option swaps the select for a free-form input', () => {
+  it('Use a existing folder opens the path modal and Open Folder sets the chip', () => {
     const { useSessions } = fakeSessions([])
-    render(<EmptyState useSessions={useSessions} startSession={() => Promise.resolve()} />)
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '::new-directory' } })
-    const custom = screen.getByPlaceholderText(/目录路径/)
-    fireEvent.change(custom, { target: { value: '/tmp/fresh' } })
-    expect((custom as HTMLInputElement).value).toBe('/tmp/fresh')
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={noopCreate}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
+    const newWs = screen.getByRole('menuitem', { name: 'New Workspace' })
+    fireEvent.mouseEnter(newWs.parentElement as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Use a existing folder' }))
+    expect(screen.getByRole('dialog', { name: 'Enter an existing folder path' })).toBeTruthy()
+    const path = screen.getByLabelText('Folder path') as HTMLInputElement
+    fireEvent.change(path, { target: { value: '/tmp/fresh' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open Folder' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: '项目目录' }).textContent).toContain('fresh')
+  })
+
+  it('Create new opens the modal and createWorkspaceSession succeeds', async () => {
+    const { useSessions } = fakeSessions([])
+    const createWorkspaceSession = vi.fn(() => Promise.resolve())
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={createWorkspaceSession}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create new' }))
+    expect(screen.getByRole('dialog', { name: 'Create new workspace' })).toBeTruthy()
+    const name = screen.getByLabelText('Workspace name') as HTMLInputElement
+    expect(name.value).toBe('New WorkSpace')
+    fireEvent.change(name, { target: { value: 'My Proj' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    await vi.waitFor(() => expect(createWorkspaceSession).toHaveBeenCalledWith('My Proj'))
+  })
+
+  it('Create modal Cancel dismisses without calling createWorkspaceSession', () => {
+    const { useSessions } = fakeSessions([])
+    const createWorkspaceSession = vi.fn(() => Promise.resolve())
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={createWorkspaceSession}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create new' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(createWorkspaceSession).not.toHaveBeenCalled()
   })
 })
 
@@ -234,10 +315,11 @@ describe('DetailsPanel', () => {
   it('renders the selected call args and result off the shared store; close fires the injected callback', () => {
     const { closeDetails } = benchDetails({
       nodes: [{
-        kind: 'tool-result', callId: 'c1',
+        kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
         call: { name: 'bash', argsRaw: '{"cmd":"ls"}' },
+        callTime: 500,
         content: [{ type: 'text', text: 'file-a\nfile-b' }],
-        isError: false,
+        isError: false, callView: null, resultView: null,
       }],
     }, { turnSeq: 1, callId: 'c1' })
     expect(screen.getByText('bash')).toBeTruthy()
@@ -248,10 +330,10 @@ describe('DetailsPanel', () => {
   })
 
   it('shows the empty hint without a selection and the running state for open calls', () => {
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}' }] }, null)
+    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}', turn: 1, step: 1, time: 1_000, callView: null }] }, null)
     expect(screen.getByText(/点击消息流中的工具行/)).toBeTruthy()
     cleanup()
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}' }] }, { turnSeq: 1, callId: 'c9' })
+    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}', turn: 1, step: 1, time: 1_000, callView: null }] }, { turnSeq: 1, callId: 'c9' })
     expect(screen.getByText('运行中…')).toBeTruthy()
   })
 
