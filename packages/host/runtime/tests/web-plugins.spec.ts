@@ -1,13 +1,20 @@
 /**
- * mountWebPlugins unit coverage (keyless; the real nine-package walk is the
- * built-artifact e2e). The Loader-facing behavior — baseUrl anchoring, entry
- * creation with idempotent reuse, the fiber-less fail-loud sweep, and the
- * resolver seam — is exercised against a stubbed loader service so it runs
- * without built lib/ artifacts.
+ * mountWebPlugins unit coverage (keyless). The Loader-facing behavior —
+ * baseUrl anchoring, entry creation with idempotent reuse, the fiber-less
+ * fail-loud sweep, and the resolver seam — is exercised against a stubbed
+ * loader service so it runs without built lib/ artifacts. The roster is
+ * caller-supplied now (composition moved to apps/cli), so these tests pass
+ * their own lists.
  */
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import { WEB_UI_PLUGINS, mountWebPlugins } from '../src/web-plugins.ts'
+import { mountWebPlugins } from '../src/web-plugins.ts'
+
+const ROSTER = [
+  '@deepseek-ai/dsh-plugin-a',
+  '@deepseek-ai/dsh-plugin-b',
+  '@deepseek-ai/dsh-plugin-c',
+] as const
 
 interface FakeEntry {
   options: { name: string }
@@ -47,60 +54,50 @@ function withLoader(entriesList: FakeEntry[], onCreate?: (name: string) => void)
 }
 
 describe('mountWebPlugins (stubbed loader)', () => {
-  it('creates one entry per UI plugin, awaits the tree, and returns the loader view + resolver', async () => {
+  it('creates one entry per roster package, awaits the tree, and returns the loader view + resolver', async () => {
     const entriesList: FakeEntry[] = []
     const { ctx, loader } = withLoader(entriesList, (name) => {
       entriesList.push({ options: { name }, fiber: {}, disabled: false })
     })
-    const mounted = await mountWebPlugins(ctx)
-    expect(loader.created).toEqual([...WEB_UI_PLUGINS])
+    const mounted = await mountWebPlugins(ctx, ROSTER, import.meta.url)
+    expect(loader.created).toEqual([...ROSTER])
     expect(loader.awaited).toBe(1)
-    expect([...mounted.loader.entries()].map(e => e.options.name)).toEqual([...WEB_UI_PLUGINS])
-    // The resolver resolves this package's own manifest through real module resolution.
+    expect([...mounted.loader.entries()].map(e => e.options.name)).toEqual([...ROSTER])
+    // The resolver resolves a real package manifest through real module resolution, anchored at this test file.
     expect(mounted.resolvePkgJson('@deepseek-ai/dsh-host-runtime')).toMatch(/package\.json$/)
     expect(ctx.baseUrl).toBeDefined()
   })
 
   it('reuses existing entries (idempotent mount creates no duplicates)', async () => {
-    const preexisting: FakeEntry[] = WEB_UI_PLUGINS.map(name => ({ options: { name }, fiber: {}, disabled: false }))
+    const preexisting: FakeEntry[] = ROSTER.map(name => ({ options: { name }, fiber: {}, disabled: false }))
     const { ctx, loader } = withLoader(preexisting)
-    await mountWebPlugins(ctx)
+    await mountWebPlugins(ctx, ROSTER, import.meta.url)
     expect(loader.created).toEqual([])
   })
 
-  it('throws listing every fiber-less entry (silent import failure must not drop a UI plugin)', async () => {
+  it('throws listing every fiber-less entry (silent import failure must not drop a client plugin)', async () => {
     const entriesList: FakeEntry[] = []
     const { ctx } = withLoader(entriesList, (name) => {
-      // First two load; the rest stay fiber-less (import failed silently).
-      entriesList.push({ options: { name }, fiber: entriesList.length < 2 ? {} : undefined, disabled: false })
+      // First one loads; the rest stay fiber-less (import failed silently).
+      entriesList.push({ options: { name }, fiber: entriesList.length < 1 ? {} : undefined, disabled: false })
     })
-    await expect(mountWebPlugins(ctx)).rejects.toThrow(/UI plugin\(s\) failed to load: .*dsh-client-ui-theme/)
+    await expect(mountWebPlugins(ctx, ROSTER, import.meta.url))
+      .rejects.toThrow(/client plugin\(s\) failed to load: .*dsh-plugin-c/)
   })
 
   it('skips disabled entries in the fail-loud sweep (disabled is the one valid fiber-less state)', async () => {
-    const entriesList: FakeEntry[] = WEB_UI_PLUGINS.map(name => ({ options: { name }, fiber: undefined, disabled: true }))
+    const entriesList: FakeEntry[] = ROSTER.map(name => ({ options: { name }, fiber: undefined, disabled: true }))
     const { ctx } = withLoader(entriesList)
-    await expect(mountWebPlugins(ctx)).resolves.toBeDefined()
+    await expect(mountWebPlugins(ctx, ROSTER, import.meta.url)).resolves.toBeDefined()
   })
 
   it('mounts the real Loader when none is present (the ctx.plugin(Loader) branch)', async () => {
     root = new Context()
-    // Environment-dependent outcome: with built lib/ the nine imports load
-    // and the mount resolves; without them every entry stays fiber-less and
-    // the sweep throws its loud list. Either way the branch under test is the
-    // Loader auto-mount. Manual try/catch keeps cordis-traced proxies out of
-    // expect()'s formatting path (pretty-format probes throw on them).
-    // Plain string: the success sentinel and error text share one channel.
-    let outcome: string
-    try {
-      await mountWebPlugins(root)
-      outcome = 'resolved'
-    } catch (error) {
-      outcome = error instanceof Error ? error.message : String(error)
-    }
-    expect(outcome === 'resolved' || /UI plugin\(s\) failed to load/.test(outcome)).toBe(true)
+    // An empty roster keeps this keyless and artifact-free: the branch under
+    // test is only the Loader auto-mount.
+    await mountWebPlugins(root, [], import.meta.url)
     expect(root.get('loader') !== undefined).toBe(true)
-  }, 30_000) // built-env run imports nine real plugin packages through the Loader
+  }, 30_000) // cold-cache import of the real vendored Loader crosses the network-disk 5s default
 
   it('keeps a caller-set baseUrl (anchors only when absent)', async () => {
     const entriesList: FakeEntry[] = []
@@ -108,7 +105,7 @@ describe('mountWebPlugins (stubbed loader)', () => {
       entriesList.push({ options: { name }, fiber: {}, disabled: false })
     })
     ctx.baseUrl = 'file:///caller/anchor/'
-    await mountWebPlugins(ctx)
+    await mountWebPlugins(ctx, ROSTER, import.meta.url)
     expect(ctx.baseUrl).toBe('file:///caller/anchor/')
   })
 })
