@@ -444,7 +444,7 @@ describe('goal tool state transitions', () => {
       action: 'pause',
       objective: '',
       max_goal_rounds: 0,
-      blocked_reason: null,
+      blocked_reason: '',
     }, root.agent)
     expect(resultGoal(paused)).toMatchObject({ phase: 'paused', objective: 'edited' })
     goal = ctx.goals.get(root.agent)!
@@ -453,8 +453,8 @@ describe('goal tool state transitions', () => {
       goal_id: goal.id,
       revision: goal.revision,
       action: 'resume',
-      objective: null,
-      max_goal_rounds: '',
+      objective: '',
+      max_goal_rounds: 0,
       blocked_reason: '',
     }, root.agent)
     expect(resultGoal(resumed)).toMatchObject({ phase: 'active', objective: 'edited' })
@@ -465,7 +465,7 @@ describe('goal tool state transitions', () => {
       revision: goal.revision,
       action: 'blocked',
       objective: '',
-      max_goal_rounds: null,
+      max_goal_rounds: 0,
       blocked_reason: 'actual blocker',
     }, root.agent)
     expect(resultGoal(blocked)).toMatchObject({ phase: 'blocked' })

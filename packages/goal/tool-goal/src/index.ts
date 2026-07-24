@@ -132,14 +132,14 @@ function resolveConfig(config: Config): ResolvedConfig {
   return { blockedAfterConsecutiveRounds: blockedAfter }
 }
 
-/** Remove only empty provider fillers from fields unused by the selected action. */
-function normalizeUpdateArgs(args: Record<string, unknown>): Record<string, unknown> {
-  const action = args['action']
-  const empty = (value: unknown): boolean => value === undefined || value === null || value === '' || value === 0
-  const unused = (key: string): boolean => key === 'blocked_reason'
-    ? action !== 'blocked'
-    : (key === 'objective' || key === 'max_goal_rounds') && action !== 'edit'
-  return Object.fromEntries(Object.entries(args).filter(([key, value]) => !unused(key) || !empty(value)))
+/** Whether an optional string carries a meaningful action-specific value. */
+function hasText(value: string | undefined): boolean {
+  return value !== undefined && value !== ''
+}
+
+/** Whether an optional round cap carries a meaningful action-specific value. */
+function hasRoundCap(value: number | undefined): boolean {
+  return value !== undefined && value !== 0
 }
 
 /** Build the exact compare-and-set ref from model arguments. */
@@ -254,7 +254,7 @@ export function apply(ctx: Context, config: Config): void {
     presentCall: args => present('Create goal', 'other', args.objective),
   }))
 
-  const updateGoal = defineTool({
+  ctx.tools.register(defineTool({
     name: 'update_goal',
     description: 'Update the exact current goal revision. edit, pause, and resume require a direct '
       + 'top-level human request. During an automatic continuation of the current goal, complete '
@@ -286,7 +286,9 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
-        if (args.blocked_reason !== undefined) {
+        // Some strict-schema providers emit empty placeholders for every declared
+        // optional field. Reject only values that could change another action.
+        if (hasText(args.blocked_reason)) {
           throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
         }
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
@@ -295,7 +297,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'pause' || args.action === 'resume') {
         requireDirectHuman(ctx, execution)
-        if (args.objective !== undefined || args.max_goal_rounds !== undefined || args.blocked_reason !== undefined) {
+        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasText(args.blocked_reason)) {
           throw new HarnessError(
             'objective and max_goal_rounds are valid only with action edit; blocked_reason is valid only with action blocked',
             'GOAL_TOOL_INVALID_UPDATE',
@@ -308,13 +310,13 @@ export function apply(ctx: Context, config: Config): void {
         return Promise.resolve(goalValue(goal))
       }
       const authority = completionAuthority(ctx, execution)
-      if (args.objective !== undefined || args.max_goal_rounds !== undefined) {
+      if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds)) {
         throw new HarnessError(
           'objective and max_goal_rounds are valid only with action edit',
           'GOAL_TOOL_INVALID_UPDATE',
         )
       }
-      if (args.action === 'complete' && args.blocked_reason !== undefined) {
+      if (args.action === 'complete' && hasText(args.blocked_reason)) {
         throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
       }
       if (args.action === 'blocked'
@@ -343,10 +345,5 @@ export function apply(ctx: Context, config: Config): void {
       'other',
       args.blocked_reason ?? args.objective ?? args.goal_id,
     ),
-  })
-  // Object-literal execute methods do not use `this`; retaining the reference is safe.
-  // eslint-disable-next-line @typescript-eslint/unbound-method
-  const executeUpdate = updateGoal.execute
-  updateGoal.execute = (args, exec) => executeUpdate(normalizeUpdateArgs(args as Record<string, unknown>), exec)
-  ctx.tools.register(updateGoal)
+  }))
 }
