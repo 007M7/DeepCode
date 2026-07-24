@@ -455,7 +455,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { sessionId },
           }))
         }
-        agent.cancel()
+        agent.cancel({ kind: 'user' })
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
     },
@@ -542,7 +542,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
           }),
           ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
-            if (status === 'disposed') return
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
           ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: Error) => {

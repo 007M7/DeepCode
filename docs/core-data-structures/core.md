@@ -512,13 +512,13 @@ abstract class Agent {
    * Clear queued and steering work — unless `keepInbox` — and abort the active
    * turn. An effective call first emits `agent/cancel-requested` with the
    * resolved typed cause. The first cause wins for the active turn, and
-   * `whenIdle()` resolves after cancellation reaches quiescence. Omitted cause
-   * means `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm
-   * later work. The active turn snapshots and freezes the cause.
+   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
+   * cancellation is a no-op and does not arm later work. The active turn
+   * snapshots and freezes the required cause.
    * @param cause - the stable caller intent carried by the current turn signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
-  abstract cancel(cause?: AgentCancelCause, options?: CancelOptions): void
+  abstract cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   abstract whenIdle(): Promise<void>

@@ -14,18 +14,20 @@
  * @module dsh-agent-loop/agent
  */
 
+import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import { agentCarrier, agentInterruptReasonOf, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { Agent, AgentMessageId, agentCarrier, agentInterruptReasonOf, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
-  Agent,
+  AgentMessage,
+  AgentMessageId as AgentMessageIdType,
+  CancelOptions,
   AgentInterruptReason,
   AgentOptions,
   AgentStatus,
   HookContext,
   IdleReason,
-  InjectOptions,
   PromptDecision,
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
@@ -36,22 +38,37 @@ import type {
   ContentBlock, GenerateOptions, LlmCallConfig, LlmFailure, Message, MessageSource,
 } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals, snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { PromptMessageData, Session, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { JsonValue, PromptMessageData, Session, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
 /** A prompt waiting for a turn of its own. */
 interface QueuedMessage {
+  id: AgentMessageIdType
   content: ContentBlock[]
   source: MessageSource
   contexts: HookContext[]
+  wakeup: boolean
+  meta?: JsonValue
 }
 
 /** Input awaiting the next step boundary. */
 type OutboxItem =
   | ({ kind: 'steering' } & QueuedMessage)
   | { kind: 'context'; context: HookContext }
+
+/** Build one live inbox event payload from an accepted message. */
+function inboxMessage(message: QueuedMessage, steering: boolean): AgentMessage {
+  return {
+    id: message.id,
+    content: message.content,
+    source: message.source,
+    contexts: message.contexts,
+    steering,
+    wakeup: message.wakeup,
+  }
+}
 
 const PROMPT_PREFIX_REQUEST_DELIMITER: ContentBlock = {
   type: 'text',
@@ -118,13 +135,13 @@ function withoutToolCalls(message: Message): Message {
  * history in, one assistant message out, loop until a reply owes no tool call.
  * One `run()` drains the work queue, one turn per unit.
  */
-export class ReactLoopAgent implements Agent {
+export class ReactLoopAgent extends Agent {
   /** Prompts awaiting a turn of their own: one dequeued per turn, FIFO. */
   private queued: QueuedMessage[] = []
   /** Taken whole at every step boundary; caller-editable until taken (taken = entered the log). */
   private outbox: OutboxItem[] = []
 
-  /** Whether `run()` is driving a turn right now — the single activity truth. */
+  /** Whether observers see one running drain interval; queued turns share it. */
   private busy = false
   /** The active turn's abort owner; rotated per turn, aborted by {@link cancel}. */
   private turnAbort: AbortController | undefined
@@ -152,13 +169,14 @@ export class ReactLoopAgent implements Agent {
     public readonly options: AgentOptions,
     public readonly session: Session,
   ) {
+    super()
     this.lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
     // The scope is keyed by this agent — an opaque identity, fine mid-construction.
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx.extend({ agent: this })
   }
 
-  /** Pure activity: whether a run is driving right now. */
+  /** Last activity state published to observers. */
   get status(): AgentStatus {
     return this.busy ? 'running' : 'idle'
   }
@@ -176,47 +194,40 @@ export class ReactLoopAgent implements Agent {
   // Public driving verbs.
   // -------------------------------------------------------------------------
 
-  /** Queue a prompt: one turn of its own, FIFO. */
-  send(content: ContentBlock[], options: SendOptions): void {
-    const accepted = this.accept({ content, source: options.source, contexts: options.contexts ?? [] })
-    this.queued.push(accepted)
-    emitAgentEvent(this.loopCtx, this, 'agent/queued', accepted.content, {
-      source: accepted.source,
-      contexts: accepted.contexts,
-      steering: false,
-    })
-    this.kick()
-  }
+  /** Accept and route one unified send item. */
+  send(content: ContentBlock[], options: SendOptions = {}): AgentMessageIdType {
+    const id = AgentMessageId(randomUUID())
+    const target = options.target ?? 'next-turn'
+    const wakeup = options.wakeup ?? true
+    if (target === 'next-step' && !wakeup) {
+      this.injectContext(content, options)
+      return id
+    }
 
-  /** Steer the running turn: taken at the next step boundary. With no turn running, falls back to {@link send}. */
-  steer(content: ContentBlock[], options: SendOptions): void {
-    // `busy` (a turn is actually running), not status: status stays `running`
-    // across chained turns and through the agent/idle report, where steering
-    // has no live turn to join and must become a prompt of its own.
-    if (!this.busy) { this.send(content, options); return }
-    const accepted = this.accept({ content, source: options.source, contexts: options.contexts ?? [] })
-    this.outbox.push({ kind: 'steering', ...accepted })
-    emitAgentEvent(this.loopCtx, this, 'agent/queued', accepted.content, {
-      source: accepted.source,
-      contexts: accepted.contexts,
-      steering: true,
-    })
-  }
-
-  /**
-   * Stage model-facing context without running the model: it rides along with
-   * whatever runs next (the next step of the running turn, or the next turn).
-   * While the agent is idle the context is committed immediately as a one-shot
-   * turn. Appending IS the durable write — persistence drains eagerly on
-   * every append and owns the write chain end to end.
-   */
-  inject(content: ContentBlock[], options: InjectOptions): void {
-    const context = this.accept({
+    const steering = target === 'next-step' && this.turnAbort !== undefined
+    const accepted = this.accept({
+      id,
       content,
-      source: options.source,
+      source: options.source ?? { kind: 'user' },
+      contexts: options.contexts ?? [],
+      wakeup,
       ...options.meta === undefined ? {} : { meta: options.meta },
     })
-    if (this.busy) {
+    if (steering) this.outbox.push({ kind: 'steering', ...accepted })
+    else this.queued.push(accepted)
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', inboxMessage(accepted, steering))
+    if (!steering && wakeup) this.kick()
+    return id
+  }
+
+  /** Stage non-waking context at the next step boundary, or in an idle one-shot turn. */
+  private injectContext(content: ContentBlock[], options: SendOptions): void {
+    const context = this.accept({
+      content,
+      source: options.source ?? { kind: 'plugin', plugin: '' },
+      ...options.meta === undefined ? {} : { meta: options.meta },
+    })
+    if (this.turnAbort !== undefined) {
       this.outbox.push({ kind: 'context', context })
       return
     }
@@ -227,7 +238,7 @@ export class ReactLoopAgent implements Agent {
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source: context.source } })
       opened = true
-      this.session.append('context/message', context, { surfaceOp: 'append' })
+      this.session.append('user/message', context, { surfaceOp: 'append' })
     } finally {
       // Close only a turn whose start committed; a pre-commit veto escapes.
       if (opened) this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
@@ -241,16 +252,23 @@ export class ReactLoopAgent implements Agent {
    * `cancel({kind:'disposed'})` + await {@link done} + {@link scope} dispose,
    * all owned by the factory.
    */
-  cancel(cause: AgentInterruptReason = { kind: 'user' }): void {
+  cancel(cause: AgentInterruptReason, options: CancelOptions = {}): void {
     if (this.turnAbort !== undefined || this.queued.length > 0 || this.outbox.length > 0) {
       // Observe-only: coordination consumers update their state before the
       // inboxes clear; listener failures are contained by the dispatcher.
-      emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)
+      if (cause.kind !== 'disposed') emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)
     }
-    // Clear before abort observers run: a replacement enqueued by an observer
-    // belongs to the next turn.
-    this.queued.length = 0
-    this.outbox.length = 0
+    if (!options.keepInbox) {
+      const steering = this.outbox.flatMap(item => item.kind === 'steering' ? [item] : [])
+      const discarded = [
+        ...this.queued.map(message => inboxMessage(message, false)),
+        ...steering.map(message => inboxMessage(message, true)),
+      ]
+      // Clear before abort observers run: replacement work belongs to the next turn.
+      this.queued.length = 0
+      this.outbox.length = 0
+      if (discarded.length > 0) emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', discarded)
+    }
     this.turnAbort?.abort(Object.freeze({ kind: cause.kind }))
   }
 
@@ -261,15 +279,15 @@ export class ReactLoopAgent implements Agent {
    * @throws while a turn is running — there is nothing to retry yet.
    */
   retry(): void {
-    if (this.busy) throw new Error(`agent "${this.id}" cannot retry while busy`)
+    if (this.turnAbort !== undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
     this.start()
   }
 
-  /** Resolve at idle quiescence: no run driving and no prompt waiting. */
+  /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
   async whenIdle(): Promise<void> {
     // `done` is replaced per run, so re-reading it each lap follows chained
     // turns; a run failure still counts as quiescence for the waiter.
-    while (this.busy || this.queued.length > 0) await this.done.catch(() => undefined)
+    while (this.turnAbort !== undefined || this.queued.some(message => message.wakeup)) await this.done.catch(() => undefined)
   }
 
   // -------------------------------------------------------------------------
@@ -278,18 +296,25 @@ export class ReactLoopAgent implements Agent {
 
   /** Claim the next queued prompt and open a run on it, when nothing is driving. */
   private kick(): void {
-    if (this.busy) return
+    if (this.turnAbort !== undefined || !this.queued.some(message => message.wakeup)) return
     const message = this.queued.shift()
-    if (message !== undefined) this.start(message)
+    if (message !== undefined) {
+      emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(message, false))
+      this.start(message)
+    }
   }
 
-  /** Open one `run()` — on a claimed prompt, or promptless for a retry. The caller has checked `busy`. */
+  /** Open one `run()` — on a claimed prompt, or promptless for a retry. */
   private start(prompt?: QueuedMessage): void {
-    this.busy = true
-    emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
+    const controller = new AbortController()
+    this.turnAbort = controller
+    if (!this.busy) {
+      this.busy = true
+      emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
+    }
     // The whole run inherits this agent as its process-local initiator so
     // tools, the llm service, and nested factories can attribute their work.
-    this.done = this.loopCtx.agents.withInitiator(this, () => this.run(prompt))
+    this.done = this.loopCtx.agents.withInitiator(this, () => this.run(prompt, controller))
   }
 
   /**
@@ -300,9 +325,7 @@ export class ReactLoopAgent implements Agent {
    * boundaries and runs the idle tail, which opens the next run while work
    * remains.
    */
-  private async run(prompt?: QueuedMessage): Promise<void> {
-    const controller = new AbortController()
-    this.turnAbort = controller
+  private async run(prompt: QueuedMessage | undefined, controller: AbortController): Promise<void> {
     const signal = controller.signal
     const turn = ++this.lastTurn
     let idle: IdleReason = { kind: 'completed' }
@@ -342,7 +365,10 @@ export class ReactLoopAgent implements Agent {
             prompt.source,
             decision.additionalContexts ?? [],
           )
-          this.session.append('user/message', prepared.data, { surfaceOp: 'append' })
+          this.session.append('user/message', {
+            ...prepared.data,
+            ...prompt.meta === undefined ? {} : { meta: prompt.meta },
+          }, { surfaceOp: 'append' })
           for (const context of prepared.separateContexts) {
             this.outbox.push({ kind: 'context', context: this.accept(context) })
           }
@@ -369,7 +395,7 @@ export class ReactLoopAgent implements Agent {
         this.closeTurn(turn, step, reason)
       } catch (error: unknown) {
         // A rejected boundary append (a pre-commit validation veto) must not
-        // kill the machine or leave `busy` stuck: report and move on — the
+        // kill the machine or strand its running interval: report and move on — the
         // idle tail below still runs and the next turn still opens.
         const err = toError(error)
         this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(err)}`)
@@ -544,7 +570,7 @@ export class ReactLoopAgent implements Agent {
     for (const item of this.outbox.splice(0)) {
       if (item.kind === 'context') {
         const { content, source, meta } = item.context
-        this.session.append('context/message', {
+        this.session.append('user/message', {
           content,
           source,
           ...meta === undefined ? {} : { meta },
@@ -552,11 +578,16 @@ export class ReactLoopAgent implements Agent {
         continue
       }
       steered = true
+      emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', inboxMessage(item, true))
       const prepared = preparePromptMessage(item.content, item.source, item.contexts)
-      this.session.append('steering/message', { turn, ...prepared.data }, { surfaceOp: 'append' })
+      this.session.append('steering/message', {
+        turn,
+        ...prepared.data,
+        ...item.meta === undefined ? {} : { meta: item.meta },
+      }, { surfaceOp: 'append' })
       for (const context of prepared.separateContexts) {
         const { content, source, meta } = context
-        this.session.append('context/message', {
+        this.session.append('user/message', {
           content,
           source,
           ...meta === undefined ? {} : { meta },
@@ -607,31 +638,30 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * The turn boundary's tail (naive `idle()`): the machine is no longer busy,
+   * The turn boundary's tail (naive `idle()`): no turn owner remains,
    * the idle report fires (a listener may synchronously `retry()` or `send()`
    * here — both are legal now), leftover steering becomes queued prompts, and
    * the next run opens while the queue is non-empty; otherwise the machine
    * parks.
    */
   private idle(turn: number, idle: IdleReason): void {
-    this.busy = false
-    // Status mirrors busy faithfully: chained turns pulse idle → running,
-    // which is honest — a listener really can act in this window.
-    emitAgentEvent(this.loopCtx, this, 'agent/status', 'idle')
     // Requeue BEFORE the idle report so earlier-arrived steering keeps its
     // FIFO position ahead of anything a listener send()s synchronously.
     for (const item of this.outbox.splice(0)) {
-      if (item.kind === 'steering') this.queued.push({
-        content: item.content,
-        source: item.source,
-        contexts: item.contexts,
-      })
-      else this.outbox.push(item)
+      if (item.kind === 'context') {
+        this.outbox.push(item)
+        continue
+      }
+      const { kind: _kind, ...message } = item
+      this.queued.push(message)
     }
     emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
-    // A synchronous idle listener may retry()/send(), flipping busy back.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (this.busy) return // a listener already re-opened
-    if (this.queued.length > 0) this.kick()
+    // A synchronous idle listener may retry()/send(), installing a new owner.
+    if (this.turnAbort !== undefined) return // a listener already re-opened
+    if (this.queued.some(message => message.wakeup)) this.kick()
+    else {
+      this.busy = false
+      emitAgentEvent(this.loopCtx, this, 'agent/status', 'idle')
+    }
   }
 }

@@ -71,7 +71,7 @@ describe('Agent.cancel()', () => {
     })
 
     send(agent, 'drop me')
-    agent.cancel()
+    agent.cancel({ kind: 'user' })
     await new Promise(resolve => setTimeout(resolve, 30))
     agent.cancel({ kind: 'parent' })
 
@@ -403,7 +403,7 @@ describe('Agent.cancel()', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
-    agent.cancel()
+    agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'aborted' }])

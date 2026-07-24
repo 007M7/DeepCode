@@ -346,7 +346,7 @@ export class GoalService extends Service {
 
   /** Enforce exact live-agent identity rather than trusting a matching id. */
   private assertLive(agent: Agent): void {
-    if (this.ctx.agents.get(agent.id) !== agent || agent.status === 'disposed') {
+    if (this.ctx.agents.get(agent.id) !== agent) {
       throw new GoalError(`agent "${agent.id}" is not live in this registry`, 'GOAL_AGENT_NOT_LIVE')
     }
   }

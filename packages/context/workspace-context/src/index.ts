@@ -1,7 +1,7 @@
 /**
  * Workspace instruction loader for AGENTS.md-compatible files.
  *
- * Baseline instructions are frozen into `agent/session-prefix`; successful fs
+ * Baseline instructions enter durable context before the first request; successful fs
  * tool touches reconcile nested, changed, and removed instructions through
  * `tools/post-execute` for the next model request. Plugin lifecycle reads use
  * the optional `ctx.fs` provider, so providerless products mount it as a no-op.
@@ -11,7 +11,6 @@
 
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { Message } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
 import { loadBaselineInstructionSet } from './files.ts'
@@ -50,6 +49,7 @@ export function apply(ctx: Context, config: Config): void {
   const baselineInstructionStates = new WeakMap<object, Map<string, WorkspaceInstructionChange>>()
   const instructionVersions: InstructionVersionCache = new WeakMap()
   const pendingVersionUpdates = new Map<ToolExecutionToken, InstructionVersionUpdate[]>()
+  const baselineLoaded = new WeakSet<object>()
   const pendingByParent = new Map<ToolExecutionToken, {
     agent: Agent
     changes: WorkspaceInstructionChange[]
@@ -60,11 +60,17 @@ export function apply(ctx: Context, config: Config): void {
     observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
   })
 
-  ctx.on('agent/session-prefix', async (agent: Agent, _prefix, signal, next): Promise<Message[]> => {
-    const rest = await next()
-    if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) return rest
+  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
+    if (baselineLoaded.has(agent.session)) return
+    if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
+      baselineLoaded.add(agent.session)
+      return
+    }
     const fileSystem = ctx.get('fs')
-    if (fileSystem === undefined) return rest
+    if (fileSystem === undefined) {
+      baselineLoaded.add(agent.session)
+      return
+    }
     /* v8 ignore next -- normal agents carry an absolute session cwd. */
     const cwd = agent.session.header.cwd ?? process.cwd()
     const instructions = await loadBaselineInstructionSet({
@@ -97,8 +103,11 @@ export function apply(ctx: Context, config: Config): void {
       })
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
-    if (instructions === undefined || instructions.rendered.text.length === 0) return rest
-    return [workspaceContextMessage(instructions.rendered.text), ...rest]
+    if (instructions !== undefined && instructions.rendered.text.length > 0) {
+      const baselineMessage = workspaceContextMessage(instructions.rendered.text)
+      agent.inject(baselineMessage.content, { source: { kind: 'plugin', plugin: 'workspace-context' } })
+    }
+    baselineLoaded.add(agent.session)
   })
 
   ctx.on('tools/post-execute', async (

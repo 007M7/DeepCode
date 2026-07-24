@@ -2519,7 +2519,7 @@ export function createTuiChat(
   }
 
   const dispatchMessage = (content: ContentBlock[], contexts: HookContext[]): void => {
-    if (agent.status === 'disposed') {
+    if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
       agent.steer(content, { source: { kind: 'user' }, contexts })

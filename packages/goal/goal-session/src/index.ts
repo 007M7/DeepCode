@@ -106,7 +106,7 @@ export function apply(ctx: Context): void {
 
   /** Read only when the exact Agent remains live. */
   function currentGoal(state: DriverState): GoalView | undefined {
-    if (ctx.agents.get(state.agent.id) !== state.agent || state.agent.status === 'disposed') return undefined
+    if (ctx.agents.get(state.agent.id) !== state.agent) return undefined
     return ctx.goals.get(state.agent)
   }
 
@@ -297,10 +297,6 @@ export function apply(ctx: Context): void {
     })
     ctx.on('agent/status', (agent, status) => {
       const state = stateFor(agent)
-      if (status === 'disposed') {
-        state.stopping = true
-        return
-      }
       if (status === 'idle') {
         state.competingQueued = false
         requestDrive(state)

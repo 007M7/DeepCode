@@ -1415,12 +1415,15 @@ export class ToolRegistry extends Service {
       content: result.content,
       ...result.meta !== undefined ? { meta: result.meta } : {},
       ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
-      ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
     }
     if (result.isError) {
       return materializePresentation({ isError: true as const, error: result.error, ...presentation })
     }
-    const detached = materializePresentation({ isError: false as const, ...presentation })
+    const detached = materializePresentation({
+      isError: false as const,
+      ...presentation,
+      ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
+    })
     return deepFreeze({ ...detached, value: result.value })
   }
 }

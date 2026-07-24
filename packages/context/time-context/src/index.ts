@@ -156,7 +156,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   const resolvedTimeZone = formatter.resolvedOptions().timeZone
 
-  ctx.on('agent/pre-step', (
+  ctx.on('agent/step', (
     agent: Agent,
     turn: number,
     step: number,
