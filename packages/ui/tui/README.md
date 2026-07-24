@@ -30,7 +30,9 @@ The footer sums the session's reported usage as `↑<uncached input> ↓<output>
 
 `/status` adds a point-in-time diagnostics card to the transcript and remains available while the agent runs. It reports the session id, title, working directory, selected provider/model, reasoning-block visibility, agent state, event/turn/step/tool-call counts, exact input/output/cache token buckets, KV-cache hit rate, token-meter context use and capacity, creation time, and latest event time. Missing titles, models, cache input, or context capacity are labeled instead of inferred. The card is terminal-only and does not duplicate the compact footer.
 
-When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiting prints the resume command for the current session (once it has been persisted, so an abandoned session yields no hint), and `/resume` lists this workspace's persisted sessions newest-first, each with its resume command and a marker on the current one. `{session}` in the template expands to the session id; the TUI only prints commands to copy and never resumes in place.
+`/resume` opens a full-viewport keyboard selector over the current workspace instead of a centered dialog. Its focused search field starts immediately after the search glyph and emits pi-tui's cursor marker, so terminal IME composition remains anchored inside the field. Candidates are sorted by last logged activity and searchable by log-backed title or session id; each row reports current/live/persisted state, last turn outcome, recent provider/model, and durable goal phase when present. Up/Down and Page Up/Page Down navigate, Enter resumes, Escape clears a non-empty search before a second Escape cancels, and Ctrl+C cancels directly. The current session, a session already live in this runtime, an unreadable log, a mismatched cwd, or a session whose logged provider has no current adapter remains visible but disabled. Selection repeats those checks and requires the current agent to be idle before flushing the current session. The TUI then stops the terminal UI and calls the optional host-owned `TuiRuntime.handoffResume`; where `process.execve` is available, the shipped `dsh` host disposes the app and replaces its process. Resume restores the same `SessionId`, transcript, title, todos, and durable goal; goal activation remains disarmed and the TUI asks for human confirmation or `/goal resume`.
+
+`resumeCommand` remains the deployment-owned fallback: exiting prints it only after the current session is durable, and a host without in-place handoff shows the selected session's command. `{session}` expands to the session id. TUI code never executes the template or arbitrary shell text.
 
 ## Config
 
@@ -42,6 +44,7 @@ When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiti
 | `maxToolOutputLines` | `6` | Output lines retained across a collapsed tool card's head/tail preview |
 | `maxQuestionOptions` | `8` | Visible options in a question panel |
 | `maxModelOptions` | `8` | Visible models in the model selector |
+| `maxResumeOptions` | `8` | Visible sessions in the resume selector |
 | `questionDialogWidth` | `200` | Question-panel width in columns, clamped to the terminal |
 | `questionDialogMaxHeight` | `20` | Question-panel maximum rows |
 | `modelDialogWidth` | `72` | Model-selector width in columns |
@@ -52,7 +55,7 @@ When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiti
 | `showHardwareCursor` | `false` | Show the hardware cursor at pi-tui's IME marker |
 | `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
 | `title` | `DeepSeek Harness` | Product suffix for the terminal window title. |
-| `resumeCommand` | — | Shell command template for the exit hint and `/resume`, with `{session}` expanded to the session id; unset disables both. Needs a `sessionPersistence` backend |
+| `resumeCommand` | — | Shell command template for the exit hint and hosts without in-place handoff, with `{session}` expanded to the session id |
 
 ```yaml
 - id: terminal
@@ -151,6 +154,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
+- **Resume has no cross-process session lock** — the selector rejects sessions known to be live in its own runtime, but another process can resume the same persisted id before or during handoff. Deployments that can run concurrent hosts must coordinate ownership outside the TUI.
 - **One configured session owns the transcript and editor** — questions from other agents can still use the shared overlay provider, but session rendering and prompt input remain bound to `sessionId`.
 - **Tool cards are text terminal presentations** — terminal, diff, and generic cards use tool-owned titles/content, but session content currently has no image block for inline image rendering.
 - **Non-TTY operation is intentionally unsupported** — app bundles that need automation must compose a one-shot or server front door (`dsh-cli-demo`, `dsh-acp`) rather than expecting an internal fallback.

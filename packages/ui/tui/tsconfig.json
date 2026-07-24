@@ -21,6 +21,9 @@
       "path": "../../core/agent-loop"
     },
     {
+      "path": "../../goal/goal"
+    },
+    {
       "path": "../../core/session"
     },
     {
@@ -28,6 +31,9 @@
     },
     {
       "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../session-query/session-query"
     },
     {
       "path": "../../session-title/session-title"

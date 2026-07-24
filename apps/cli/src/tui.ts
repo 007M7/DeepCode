@@ -19,9 +19,12 @@ import {
   loadEnv,
   loadPersonalPatches,
   parseResumeArg,
+  replaceResumeArg,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import type { Context } from 'cordis'
+import type { TuiResumeHost } from '@deepseek-ai/dsh-tui'
 
 const NAME = 'dsh'
 
@@ -65,7 +68,39 @@ export async function runTui(argv: string[]): Promise<void> {
   // after loadEnv and before boot reads it through the config's `!!js`.
   const { resumeSessionId, rest } = parseResumeArg(argv)
   if (resumeSessionId !== undefined) process.env[RESUME_SESSION_ID_ENV] = resumeSessionId
-  const ctx = await boot(NAME, resolveConfigPath(rest[0] ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
+  const entry = process.argv[1]
+  const execve = process.execve?.bind(process)
+  const app: { current?: Context } = {}
+  const resumeHost: TuiResumeHost | undefined = entry === undefined || execve === undefined ? undefined : {
+    async handoff(sessionId): Promise<never> {
+      const current = app.current
+      if (current === undefined) throw new Error(`${NAME}: app boot has not completed`)
+      const nextArgv = [
+        process.execPath,
+        ...process.execArgv,
+        entry,
+        ...replaceResumeArg(process.argv.slice(2), sessionId),
+      ]
+      process.env[RESUME_SESSION_ID_ENV] = sessionId
+      try {
+        await current.fiber.dispose()
+        execve(process.execPath, nextArgv, process.env)
+        throw new Error('process replacement returned unexpectedly')
+      } catch (error) {
+        process.stderr.write(`${NAME}: resume handoff failed after terminal release: ${String(error)}\n`)
+        process.exit(1)
+      }
+    },
+  }
+  const ctx = await boot(
+    NAME,
+    resolveConfigPath(rest[0] ?? DEFAULT_CONFIG, undefined),
+    loadPersonalPatches(NAME),
+    (hostCtx) => {
+      if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
+    },
+  )
+  app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
 }
 /* v8 ignore stop */
