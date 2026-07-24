@@ -1,6 +1,6 @@
 # Agent Note: 通过工具调用流式传输工作流进度
 
-Status: proposed
+Status: rejected — ACP 仅面向自动化；实时工作流展示需要一个面向人类界面的归属方和全新设计。
 
 [English](2026-07-13-stream-workflow-progress-through-tool-calls.md) | 中文
 

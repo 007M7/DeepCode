@@ -28,7 +28,7 @@ Status: implemented
 
 ### 首批发布的索引
 
-该索引链接十一种关系表面。包拓扑和工具包所提供的功能位于已经拥有这些事实的现有生成式目录中；其余聚焦图表由 `scripts/gen-doc-graphs.ts` 生成。
+该索引链接十种关系表面。包拓扑和工具包所提供的功能位于已经拥有这些事实的现有生成式目录中；其余聚焦图表由 `scripts/gen-doc-graphs.ts` 生成。
 
 | 关系图 | 维护模式 | 真源 |
 |---|---|---|
@@ -42,7 +42,6 @@ Status: implemented
 | [事件生产者/消费方矩阵](../../../../docs/event-producer-consumer.md) | 混合生成式 | Cordis 事件声明、经 AST 扫描的 `ctx.on/emit/parallel/serial/waterfall` 位置，以及显式动态分派覆盖 |
 | [agent 轮次与步骤生命周期](../../../../docs/agent-lifecycle.md) | 人工维护 | architecture.md 循环生命周期、Cordis 目录链接，以及会话事件语义 |
 | [工具执行管线](../../../../docs/tool-execution-pipeline.md) | 人工维护 | 工具管线语义与 `tools/execute` waterfall（瀑布式事件）|
-| [ACP（Agent Client Protocol）快照回放](../../../../packages/ui/acp/snapshot-replay.md) | 人工策划 | 快照 harness 行为 |
 
 ### 为什么由生成器拥有文档
 
@@ -64,7 +63,7 @@ Status: implemented
 
 ## 后果
 
-- 维护者获得了拓扑、seam、事件流、生命周期、应用组合与快照行为的可视化入口。
+- 维护者获得了拓扑、seam、事件流、生命周期与应用组合的可视化入口。
 - SDK 用户获得了从用例到包组合的路径，而非仅有自底向上的包参考。
 - `doc-sync` 现在包含 `verify-doc-graphs` 和 `verify-mermaid`，因此关系图漂移和 Mermaid 语法错误与其他文档新鲜度门禁一起被捕获。
 - 未来的文件系统和钩子工作有了承载新复杂度的具体位置：文件系统应扩展能力文档和工具目录，钩子应扩展事件矩阵和工具执行流水线。
