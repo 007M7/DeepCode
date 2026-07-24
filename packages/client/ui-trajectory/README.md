@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-ui-trajectory
 
-Trajectory/Waterfall placeholder views; the pure-consumer minimal plugin exemplar (registers two views, provides no service, declares no Context merge). Contract: api-contracts v3 §8.
+Trajectory/Waterfall placeholder views; the pure-consumer minimal plugin exemplar (registers two view tabs into the conversation's `'conversation.view'` slot ring, provides no service, declares no Context merge). Contract: api-contracts v3 §8.
 
 ## Model Experience
 

@@ -21,7 +21,7 @@
 {"type":"assistant/chunk","seq":19,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
 {"type":"assistant/message","seq":20,"time":0,"data":{"turn":1,"step":2,"content":[{"type":"tool-call","id":"pty-send","name":"terminal_send","arguments":"{\"sessionId\":\"pty-1\",\"text\":\"printf 'PTY_OK\\\\n'\"}"}],"provenance":{"provider":"deepseek","model":"deepseek-v4-flash"},"usage":{"inputTokens":10,"outputTokens":5}},"sourceEventSeqs":[15,16,17,18,19],"surfaceOp":"append"}
 {"type":"tool/call","seq":21,"time":0,"data":{"turn":1,"step":2,"callId":"pty-send","name":"terminal_send","arguments":"{\"sessionId\":\"pty-1\",\"text\":\"printf 'PTY_OK\\\\n'\"}"}}
-{"type":"tool/result","seq":22,"time":0,"data":{"turn":1,"step":2,"callId":"pty-send","content":[{"type":"text","text":"printf 'PTY_OK\\n'\nPTY_OK\ndsh> \n[wait: stdin_read]\n[session: running]"}],"isError":false,"meta":{"viewport":"printf 'PTY_OK\\n'\nPTY_OK\ndsh> ","waitReason":"stdin_read","sessionStatus":{"kind":"running"},"truncated":false}},"sourceEventSeqs":[21],"surfaceOp":"append"}
+{"type":"tool/result","seq":22,"time":0,"data":{"turn":1,"step":2,"callId":"pty-send","content":[{"type":"text","text":"K\ndsh> \n[wait: stdin_read]\n[session: running]\n[output truncated]"}],"isError":false,"meta":{"viewport":"printf 'PTY_OK\\n'\nPTY_OK\ndsh> ","waitReason":"stdin_read","sessionStatus":{"kind":"running"},"truncated":false}},"sourceEventSeqs":[21],"surfaceOp":"append"}
 {"type":"step/end","seq":23,"time":0,"data":{"turn":1,"step":2}}
 {"type":"step/start","seq":24,"time":0,"data":{"turn":1,"step":3}}
 {"type":"assistant/chunk","seq":25,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}

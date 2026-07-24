@@ -20,9 +20,13 @@ export function apply(ctx: Context) {
     parameters: {
       name: { type: 'string', required: true, description: 'The name to greet' },
     },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     async execute(args) {
       // args is inferred as { name: string }.
-      return [{ type: 'text', text: `Hello, ${args.name}!` }]
+      return `Hello, ${args.name}!`
     },
   }))
 }
@@ -37,10 +41,11 @@ export function apply(ctx: Context) {
 ```ts
 export const parameters = {
   path: { type: 'string', required: true },
-  limit: { type: 'number' },
+  limit: { type: 'integer' },
   recursive: { type: 'boolean' },
+  parent: { type: 'null' },
 }
-// Inferred type: { path: string; limit?: number; recursive?: boolean }
+// Inferred type: { path: string; limit?: number; recursive?: boolean; parent?: null }
 ```
 
 ### 枚举
@@ -49,7 +54,7 @@ export const parameters = {
 export const parameters = {
   mode: { type: 'string', required: true, enum: ['read', 'write', 'append'] },
 }
-// Inferred type: { mode: string } (enum values are validated at runtime)
+// Inferred type: { mode: 'read' | 'write' | 'append' }
 ```
 
 ### 嵌套对象
@@ -58,13 +63,14 @@ export const parameters = {
 export const parameters = {
   options: {
     type: 'object',
+    additionalProperties: true,
     properties: {
       timeout: { type: 'number' },
       retries: { type: 'number' },
     },
   },
 }
-// Inferred type: { options?: { timeout?: number; retries?: number } }
+// The declared fields are inferred; additional JSON-valued keys are allowed.
 ```
 
 ### 数组
@@ -83,12 +89,16 @@ export const parameters = {
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `type` | `'string' \| 'number' \| 'boolean' \| 'object' \| 'array'` | 值类型 |
+| `type` | `'string' \| 'number' \| 'integer' \| 'boolean' \| 'null' \| 'object' \| 'array' \| 'json'` | 值类型；`json` 接受任意无损 JSON 值 |
 | `required` | `true` | 标记为必填（影响类型推导） |
 | `description` | `string` | 发送给模型的描述 |
-| `enum` | `string[]` | 允许的枚举值 |
-| `properties` | `SchemaSpec` | 嵌套属性（type 为 object 时） |
-| `items` | `SchemaProp` | 数组元素 schema（type 为 array 时） |
+| `enum` / `const` | 匹配类型的标量值 | 允许的字面量值，在编写和运行时边界校验 |
+| `properties` | `ParameterSchemaSpec` | 对象的嵌套属性 |
+| `additionalProperties` | `true \| false` | 每个显式对象节点都必须声明 |
+| `items` | `ValueSchemaSpec` | 数组的元素 schema |
+| `oneOf` | 至少两个 `ValueSchemaSpec` 分支 | 要求恰好匹配一个分支；代替 `type` 使用 |
+
+外层 `parameters` 映射是一个隐式的开放对象。显式嵌套对象需自行选择是否开放；不通过 `defineTool` 注册的原始 JSON Schema 保持 JSON Schema 的默认开放语义。
 
 ## execute 函数
 
@@ -101,32 +111,44 @@ export const tool = defineTool({
   name: 'example',
   description: 'Return an example result.',
   parameters: {},
+  output: {
+    schema: { type: 'string' },
+    render: (_args, value) => [{ type: 'text', text: value }],
+  },
   async execute(args, exec) {
     // args: inferred from parameters
     // exec: ToolExecution context
 
-    // Return a ContentBlock array.
+    // Return the value declared by output.schema.
     void args
     void exec
-    return [{ type: 'text', text: 'result here' }]
+    return 'result here'
   },
 })
 ```
 
 ### 返回值
 
-`execute` 必须返回一个 `ContentBlock[]`，告诉模型 tool 的执行结果：
+`execute` 返回由 `output.schema` 声明的无损 JSON 值。`output.render(args, value)` 会将经过校验的值另外转换为 Native／模型可见的内容：
 
 ```ts ignore-check
-// Text result
-return [{ type: 'text', text: 'file content here...' }]
-
-// Multiple blocks
-return [
-  { type: 'text', text: 'Found 3 matches:' },
-  { type: 'text', text: matchResults.join('\n') },
-]
+output: {
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      path: { type: 'string', required: true },
+      content: { type: 'string', required: true },
+    },
+  },
+  render: (_args, value) => [{ type: 'text', text: value.content }],
+},
+async execute(args) {
+  return { path: args.path, content: await readFile(args.path, 'utf8') }
+}
 ```
+
+执行期间的程序化调用方可以使用规范值，但 `tool/result` 不会持久化该值；渲染后的内容和可选的 `presentationMeta` 才是可回放的投影。工具主体返回的值若不满足 schema 或不是无损 JSON，就会变为 `INVALID_TOOL_OUTPUT` 失败。
 
 ### 参数校验
 
@@ -142,6 +164,10 @@ Tool 可以定义 UI 渲染方法，用于在终端或 ACP 客户端中展示 to
 defineTool({
   name: 'bash',
   // ...
+  output: {
+    schema: { type: 'string' },
+    render: (_args, value) => [{ type: 'text', text: value }],
+  },
   presentCall(args) {
     return {
       card: 'terminal',
@@ -190,13 +216,24 @@ export function apply(ctx: Context) {
       path: { type: 'string', required: true, description: 'Directory path' },
       extension: { type: 'string', description: 'Filter by extension (e.g. ".ts")' },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          count: { type: 'integer', required: true },
+          files: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Found ${value.count} files.` }],
+    },
     async execute(args) {
       const entries = await readdir(args.path, { withFileTypes: true })
       let files = entries.filter(e => e.isFile())
       if (args.extension) {
         files = files.filter(f => f.name.endsWith(args.extension!))
       }
-      return [{ type: 'text', text: `Found ${files.length} files.` }]
+      return { count: files.length, files: files.map(file => file.name) }
     },
   }))
 }

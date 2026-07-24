@@ -5,16 +5,15 @@
  */
 import clsx from 'clsx'
 import {
-  IconChevronDownOutline14, IconChevronRightOutline14,
   IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
-  IconTreeCorner8x10, StateDot,
+  IconTriangleRightFill14, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ProjectRow, SessionRow } from './tree.ts'
 import { formatRelativeTime } from './tree.ts'
 import css from './Rows.module.css'
 
-/** Indent step per tree level: 16px slot + 6px gap (figma). */
-const INDENT_STEP = 22
+/** Indent step per tree level: one 16px slot (figma session cell). */
+const INDENT_STEP = 16
 
 /**
  * Project (workspace) row: 54px, folder + title + session count; hover
@@ -38,7 +37,7 @@ export function ProjectRowItem({ row, active, onToggle, onCreate }: {
         {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
       </span>
       <span className={clsx(css.slot, css.chevron)}>
-        {row.expanded ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+        <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
       </span>
       <span className={css.projectText}>
         <span className={css.title}>{row.label}</span>
@@ -79,17 +78,16 @@ export function SessionRowItem({ row, selected, now, onOpen, onToggle }: {
   onOpen: () => void
   onToggle: () => void
 }) {
-  // Rail (figma sub-cell slot sequence): twist slot, always-reserved state
-  // slot (opacity-0 slots keep their 22px in figma, so titles align whether
-  // or not the dot is lit), then the L connector on child rows. Extra depth
-  // rides the left padding: indent spacers = depth - 1.
+  // Rail (figma session cell: pad 8, twist slot 16, status slot 16, gap 4 to
+  // the title): both slots are always reserved so titles align whether or not
+  // the twist/dot is lit. Extra depth rides the left padding.
   return (
     <div
       className={clsx(css.sessionRow, selected && css.selected)}
       role="treeitem"
       aria-selected={selected}
       {...(row.hasChildren ? { 'aria-expanded': row.expanded } : {})}
-      style={{ paddingLeft: 8 + Math.max(0, row.depth - 1) * INDENT_STEP }}
+      style={{ paddingLeft: 8 + row.depth * INDENT_STEP }}
       onClick={onOpen}
     >
       {row.hasChildren
@@ -100,16 +98,11 @@ export function SessionRowItem({ row, selected, now, onOpen, onToggle }: {
               aria-label={row.expanded ? 'Collapse' : 'Expand'}
               onClick={(e) => { e.stopPropagation(); onToggle() }}
             >
-              {row.expanded ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+              <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
             </button>
           )
         : <span className={css.slot} />}
       <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
-      {row.depth > 0 && (
-        <span className={css.cornerSlot} data-tree-corner="">
-          <IconTreeCorner8x10 />
-        </span>
-      )}
       <span className={css.title}>{row.title}</span>
       <span className={css.time}>{formatRelativeTime(row.updatedAt, now)}</span>
       <span className={css.rowActions}>

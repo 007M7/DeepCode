@@ -30,6 +30,7 @@ export function RpcId(id: string): RpcId {
 /** Error code → details type map (a second table isomorphic to RpcMethodMap). New code = one row here + one branch in the error schema. */
 export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
+  'cancelled': {}
   'session-not-found': { sessionId: SessionId }
   'agent-busy': { reason: string }
   'internal': {}
@@ -48,6 +49,20 @@ export type RpcError = {
 
 /** Business success/failure result: the result slot of a unary response; methods never throw business errors. */
 export type RpcResult<T> = { ok: true; value: T } | { ok: false; error: RpcError }
+
+/**
+ * Fold a transport exception into the RpcResult error branch (unified error
+ * surface; 'internal' as the catch-all code). Lives with RpcResult so every
+ * carrier consumer folds the same way.
+ * @param error - the thrown value from the carrier.
+ * @returns the error branch of an RpcResult.
+ */
+export function transportError<T>(error: unknown): RpcResult<T> {
+  return {
+    ok: false,
+    error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },
+  }
+}
 
 /**
  * Signature-layer narrow form, request side (domain-interface view, shared by

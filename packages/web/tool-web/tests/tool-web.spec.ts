@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import WebService from '@deepseek-ai/dsh-web'
 import type { WebSearchProvider, WebSearchResult } from '@deepseek-ai/dsh-web'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
@@ -32,7 +32,7 @@ async function mountTools(opts: {
   webConfig?: ConstructorParameters<typeof WebService>[1]
   search?: WebSearchProvider
   fetchProvider?: import('@deepseek-ai/dsh-web').WebFetchProvider
-} = {}): Promise<{ ctx: Context; fiber: Awaited<ReturnType<Context['plugin']>>; call: (name: string, args: unknown) => Promise<{ isError: boolean; content: { type: string; text?: string }[]; error?: { code: string } }> }> {
+} = {}): Promise<{ ctx: Context; fiber: Awaited<ReturnType<Context['plugin']>>; call: (name: string, args: unknown) => Promise<ToolExecutionResult> }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
@@ -41,7 +41,7 @@ async function mountTools(opts: {
   if (opts.fetchProvider) ctx.web.registerFetchProvider(opts.fetchProvider)
   const fiber = await ctx.plugin(ToolWeb, opts.config ?? {})
   let counter = 0
-  const call = (name: string, args: unknown) => ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++counter}`), name, arguments: args }) as never
+  const call = (name: string, args: unknown) => ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++counter}`), name, arguments: args })
   return { ctx, fiber, call }
 }
 
@@ -198,7 +198,7 @@ describe('tool-web registration', () => {
     // No provider is registered: the schema stays visible and execution reports
     // the structured unavailability instead.
     const out = await call('web_search', { query: 'q' })
-    expect(out.error?.code).toBe('WEB_PROVIDER_UNAVAILABLE')
+    expect(out.error?.info?.code).toBe('WEB_PROVIDER_UNAVAILABLE')
     await fiber.dispose()
   })
 
@@ -216,12 +216,13 @@ describe('tool-web execution through the real registry', () => {
   it('executes web_search and formats the result', async () => {
     const result: WebSearchResult = {
       content: 'answer', truncated: false,
-      sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip' }],
+      sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-07-20' }],
     }
     const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: searchProvider(result) })
     const out = await call('web_search', { query: 'q' })
     expect(out.isError).toBe(false)
-    expect(out.content.map(b => b.text).join('')).toContain('[A](https://a.test)')
+    expect(out.value).toEqual(result)
+    expect(out.content.map(b => b.type === 'text' ? b.text : '').join('')).toContain('[A](https://a.test)')
     await fiber.dispose()
   })
 
@@ -229,7 +230,7 @@ describe('tool-web execution through the real registry', () => {
     const { fiber, call } = await mountTools()
     const out = await call('web_search', { query: 'q' })
     expect(out.isError).toBe(true)
-    expect(out.error?.code).toBe('WEB_PROVIDER_UNAVAILABLE')
+    expect(out.error?.info?.code).toBe('WEB_PROVIDER_UNAVAILABLE')
     await fiber.dispose()
   })
 
@@ -238,7 +239,7 @@ describe('tool-web execution through the real registry', () => {
     ctx.web.registerSearchProvider({ id: 'other', available: () => available, search: () => Promise.resolve({ sources: [], truncated: false }) })
     const out = await call('web_search', { query: 'q' })
     expect(out.isError).toBe(true)
-    expect(out.error?.code).toBe('WEB_PROVIDER_AMBIGUOUS')
+    expect(out.error?.info?.code).toBe('WEB_PROVIDER_AMBIGUOUS')
     await fiber.dispose()
   })
 
@@ -246,7 +247,7 @@ describe('tool-web execution through the real registry', () => {
     const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: searchProvider({ sources: [], truncated: false }) })
     const out = await call('web_search', { query: 123 })
     expect(out.isError).toBe(true)
-    expect(out.error?.code).toBe('INVALID_ARGS')
+    expect(out.error?.info?.code).toBe('INVALID_ARGS')
     await fiber.dispose()
   })
 
@@ -269,6 +270,12 @@ describe('tool-web execution through the real registry', () => {
     const controller = new AbortController()
     const out = await ctx.tools.execute({ callId: CallId('fetch-1'), name: 'web_fetch', arguments: { url: 'https://a.test' }, signal: controller.signal })
     expect(out.isError).toBe(false)
+    expect(out.value).toEqual({
+      url: 'https://a.test',
+      statusCode: 200,
+      body: { kind: 'text', content: 'ok' },
+      truncated: false,
+    })
     // The model schema exposes no timeout: the tool forwards only the url; the
     // tool-call budget is owned by dsh-timeout-policy over exec.signal.
     expect(seen.request).toEqual({ url: 'https://a.test' })
@@ -290,6 +297,12 @@ describe('tool-web execution through the real registry', () => {
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
     const out = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
     expect(out.isError).toBe(false)
+    expect(out.value).toEqual({
+      url: 'https://a.test',
+      statusCode: 200,
+      body: { kind: 'text', content: 'ok' },
+      truncated: false,
+    })
     expect(seen.passedSignal).toBe(true)
     expect(seen.signal).toBe(testToolSignal)
     await fiber.dispose()
@@ -334,7 +347,7 @@ describe('searchMaxResults is plugin config', () => {
     const { fiber, call } = await mountTools({ config: { searchMaxResults: 2 }, webConfig: { searchProvider: 'stub-search' }, search: provider })
     const out = await call('web_search', { query: 'q' })
     expect(out.isError).toBe(false)
-    const body = out.content.map(b => b.text).join('')
+    const body = out.content.map(b => b.type === 'text' ? b.text : '').join('')
     expect(body).toContain('https://s1.test')
     expect(body).not.toContain('https://s2.test')
     expect(body).toContain('Showing the first 2 sources.')

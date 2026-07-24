@@ -12,7 +12,6 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { ItemRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
@@ -20,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { singleQuote } from './shell-quote.ts'
+import { acceptedSurfaceValue } from './surface.ts'
 
 /**
  * Default cap on paths retained inline by one `glob` call (the `globMaxResults`
@@ -117,6 +117,14 @@ export function formatGlobOutput(retained: RetainedItems<string>, spillRef: Spil
   return `${body}\n\n(Showing ${retained.kept} of ${retained.seen} paths. ${recovery})`
 }
 
+/** Retain and format one canonical path list for the Native surface. */
+function renderGlobPaths(paths: string[], maxResults: number, spillRef?: SpillRef): string {
+  if (paths.length === 0) return 'No files found'
+  const retainer = new ItemRetainer<string>({ kind: 'head', maxItems: maxResults })
+  for (const path of paths) retainer.push(path)
+  return formatGlobOutput(retainer.finish(), spillRef)
+}
+
 /**
  * Pending-call presentation: a search card titled by the pattern (and root).
  *
@@ -142,7 +150,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
     text: 'Use the glob tool — not shell find or ls — to discover files by path pattern. Results are sorted by modification time and include hidden and ignored files.',
   })
 
-  ctx.tools.register(defineTool({
+  const tool = defineTool({
     name: 'glob',
     description: 'Find files whose paths match a glob pattern. Returns matching paths sorted by modification time, '
       + 'including hidden and ignored files (VCS metadata directories are excluded). '
@@ -152,28 +160,44 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
       path: { type: 'string', description: 'Directory to search in. Defaults to the session workspace; a relative path resolves against it.' },
     },
     timeoutMs: caps.timeoutMs,
-    async execute(args, exec): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          paths: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps.maxResults) }],
+    },
+    async execute(args, exec) {
       const input = parseGlobArgs(args)
       const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes)
-      if (run.noMatches) return [{ type: 'text', text: 'No files found' }]
+      if (run.noMatches) return { paths: [] }
 
-      const retainer = new ItemRetainer<string>({ kind: 'head', maxItems: caps.maxResults })
       const all: string[] = []
       for (const line of run.stdout.split('\n')) {
         if (line.length === 0) continue
         const displayPath = toWorkdirRelative(line, run.workdir)
         all.push(displayPath)
-        retainer.push(displayPath)
       }
-      const retained = retainer.finish()
-
-      // The complete sorted list is the recovery artifact; save it only when
-      // the inline page omitted paths (an uncapped result needs no spill file).
-      const spillRef = retained.truncated
-        ? await trySaveFormattedResult(ctx, exec, 'glob-results.txt', all.join('\n'))
-        : undefined
-      return [{ type: 'text', text: formatGlobOutput(retained, spillRef) }]
+      return { paths: all }
     },
     presentCall: presentGlobCall,
-  }))
+  })
+  ctx.tools.register(tool)
+
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    const value = acceptedSurfaceValue(ctx, tool, exec, result, decision) as { paths: string[] } | undefined
+    if (value === undefined) return decision
+    const paths = value.paths
+    if (paths.length <= caps.maxResults) return decision
+    const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
+    return {
+      kind: 'accept',
+      content: [{ type: 'text', text: renderGlobPaths(paths, caps.maxResults, spillRef) }],
+      ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
+    }
+  })
 }

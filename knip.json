@@ -66,15 +66,11 @@
     },
     "packages/host/runtime": {
       "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
-      ],
-      "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-.+"
       ]
     },
     "packages/client/web-ui": {
@@ -273,6 +269,10 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/session-query/session-query-sqlite": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/code-runtime/code-runtime-worker": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -387,8 +387,14 @@
       ]
     },
     "packages/examples/agent-spine-demo": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
     },
     "packages/ui/jsonrpc": {
       "entry": [
@@ -544,21 +550,21 @@
         "tests/**/*.tsx"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-ui-theme",
-        "@deepseek-ai/dsh-client-connection"
+        "@deepseek-ai/dsh-client-ui-theme"
       ]
     },
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",
-        "tests/support.ts"
+        "tests/**/*.snapshot.ts",
+        "tests/support.ts",
+        "src/node-module-stub.ts"
       ],
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-web-react",
@@ -566,6 +572,32 @@
         "@types/react-dom",
         "react",
         "react-dom"
+      ]
+    },
+    "apps/cli": {
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-client-.+"
+      ]
+    },
+    "packages/client/modules": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/client/hmr": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     }
   }

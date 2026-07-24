@@ -86,6 +86,7 @@ describe('buildWindow', () => {
     it('caps output at a custom maxBytes', async () => {
       const result = await buildWindow(whole('aaaa\nbbbb\ncccc'), { offset: 1, limit: 10, maxLineLength: 2000, maxBytes: 9 }, 'f')
       expect(result.lines.map(l => l.text)).toEqual(['aaaa', 'bbbb'])
+      expect(result.totalLines).toBe(3)
       expect(result.truncatedByBytes).toBe(true)
     })
   })
@@ -105,6 +106,7 @@ describe('buildWindow', () => {
     it('caps output bytes mid-stream', async () => {
       const big = Array.from({ length: 2000 }, () => 'y'.repeat(100)).join('\n')
       const result = await buildWindow(chunked(big, 512), READ_ALL, 'f')
+      expect(result.totalLines).toBe(2000)
       expect(result.truncatedByBytes).toBe(true)
     })
 

@@ -25,9 +25,10 @@ Directories layer as follows:
 
 - `packages/host/*`: packages provide host-side capability only (representing the Node.js engineering core built on the existing harness plugin system), and additionally
     - the unified backend protocol (fetch, HTTP, streaming interfaces…) — definitions and support, see the "Message protocol" sections below
-- `packages/client/*`: packages provide client-side capability only; every package stays single-sided. Two kinds live here:
-    - **Pure libraries** (`ui-slots`, `web-react`, `ui-primitives`): ordinary root-index packages, statically bundled into the shell and seeded into the browser plugin loader's module table.
-    - **dshClient plugin packages** (`connection`, `runtime`, `ui-theme`, `i18n`, `ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dshClient` declaration); the entire implementation and its types live under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle), and cross-package consumption imports the `/client` form. `runtime` additionally exports `./loader` (the shell-held browser bundle loader — a loader cannot load itself).
+- `packages/client/*`: packages provide client-side capability only; every package stays single-sided. Three kinds live here (the axes are owned by the [client plugin loading RFC](2026-07-23-client-plugin-loading-model.md)):
+    - **Pure libraries** (`ui-slots`, `web-react`, `ui-primitives`, plus the `loader` kernel package): ordinary root-index packages, statically bundled into the shell; the first three are seeded into the module table.
+    - **Static-arrival entry packages** (`connection`, `runtime`, `ui-theme`, `i18n`, `hmr`): no `dshClient` key and no browser bundle — the shell bundles their `src/client/` half and registers it with `ctx.modules`; they are governed as entries of the host-authored graph like everything else.
+    - **Fetch-arrival plugin packages** (`ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dshClient` declaration); the implementation lives under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle). Cross-plugin consumption of `/client` is type-only; value cooperation goes through cordis services.
 - `apps/` holds the externally exported application shapes, assembled from Client / Host mixtures.
     - `apps/web` (`dsh-frontend`) is the vite application: a thin `main.ts` over the shell surface exported by `dsh-client-web`.
     - `apps/cli` (`@deepseek-ai/dsh`) dispatches shapes: `dsh web` = startHost + webserver + the built `dsh-frontend` dist; `dsh -p` = headless in-process calls, zero HTTP.
@@ -51,7 +52,7 @@ Direction discipline (every rule auditable from package deps):
 - `runtime → apiproxy` is one-way; apiproxy depends only on type definitions.
 - Client-side packages **never import** host-side package runtime (they consume only the two browser-safe subpaths `/api` and `/client`).
 - `webserver` does not depend on `runtime`: it provides a `{ fetch }`-shaped implementation — "webserver ← runtime" is a runtime injection relationship, not a package dependency.
-- Cross-package client imports use the `/client` subpath for plugin packages (a bare package name would inline a second runtime instance into a browser bundle; the tsdown purity gate rewrites or rejects it).
+- Cross-package client imports use the `/client` subpath for plugin packages, and between plugin packages they are type-only — a cross-plugin value import is a build error at the tsdown purity gate (value cooperation goes through cordis services; the [client plugin loading RFC](2026-07-23-client-plugin-loading-model.md) owns the edge rules).
 
 TypeScript checks in **two aggregate programs** referenced by a solution root (`tsconfig.json` = solution; `tsconfig.host.json` = host side + tests, excluding `packages/client`; `tsconfig.client.json` = client packages and their tests): both sides merge the cordis `Context` interface under the same keys (`sessions`, `loader`) with different services, so one program would see both declaration merges and report a collision. Shared leaves (session/llm/tools/apiproxy…) build once and are referenced by both programs ([topology](../process/2026-07-22-tsconfig-solution-root-two-aggregates.md)).
 
@@ -70,7 +71,7 @@ On the protocol side: TS interfaces (`packages/host/apiproxy/src/api/`, zero Nod
 
 #### Naming rule
 
-Packages under `packages/host/*` and `packages/client/*` **must carry the directory-group prefix in the package name**: host/runtime → `dsh-host-runtime`, client/runtime → `dsh-client-runtime`. The directory name does not repeat the group prefix (host/ already expresses it). The package-name tail therefore ≠ the directory name, so the `dsh-*` wildcard in tsconfig.base.json (which resolves by directory name) misses them — **each package in these two groups needs an explicit paths entry**, including separate entries for the plugin packages' `/client` (and runtime's `/loader`) subpaths so source-level resolution matches the exports map.
+Packages under `packages/host/*` and `packages/client/*` **must carry the directory-group prefix in the package name**: host/runtime → `dsh-host-runtime`, client/runtime → `dsh-client-runtime`. The directory name does not repeat the group prefix (host/ already expresses it). The package-name tail therefore ≠ the directory name, so the `dsh-*` wildcard in tsconfig.base.json (which resolves by directory name) misses them — **each package in these two groups needs an explicit paths entry**, including separate entries for the client packages' `/client` subpaths so source-level resolution matches the exports map.
 
 #### How to integrate a new shape (operational checklist)
 

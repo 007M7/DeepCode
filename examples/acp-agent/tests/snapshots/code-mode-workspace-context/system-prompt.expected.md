@@ -28,19 +28,21 @@ Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop o
 
 Pass `run_code` the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped). Inside the program:
 
-- Call tools as `await tools.name(args)` — quoted access for exotic names: `tools["my-tool"](args)`. Every call resolves to the tool's text output as a string. Tool arguments must be JSON-serializable.
-- A FAILED tool call rejects with an `Error` carrying the tool's error text — `try/catch` it to handle and continue.
+- Call tools as `await tools.name(args)` — quoted access for exotic names: `tools["my-tool"](args)`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
+- A FAILED tool call rejects with `ToolCallError`, whose `toolName` identifies the failed tool and whose `message` is human-readable — `try/catch` it to handle and continue.
 - Calls execute sequentially, even under `Promise.all`.
 - Emit results with `return` and/or `console.log(...)`. ONLY what you print or return comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
 
 The available tools:
 
 ```ts
-declare const tools: {
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
+interface ToolArgsMap {
   /** Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer. */
-  ask_user_question(args: {
+  ask_user_question: {
     /** Questions to ask the user before continuing. */
-    questions: {
+    questions: ({
       /** Stable id for this question; echoed in the answer. */
       id: string;
       /** The specific question to ask the user. */
@@ -48,18 +50,18 @@ declare const tools: {
       /** Optional short heading for the question, such as "Confirm" or "Choose Mode". */
       header?: string;
       /** Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label. */
-      options?: {
+      options?: ({
         /** Short user-facing option label. */
         label: string;
         /** One sentence explaining the tradeoff or impact. */
         description?: string;
-      }[];
+      } & Record<string, JsonValue>)[];
       /** Whether the user may select more than one option. Defaults to false. */
       multi_select?: boolean;
-    }[];
-  }): Promise<string>;
+    } & Record<string, JsonValue>)[];
+  } & Record<string, JsonValue>;
   /** Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later. */
-  bash(args: {
+  bash: {
     /** The bash command to execute. */
     command: string;
     /** Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; "git status" → "Show working tree status"; "npm install" → "Install package dependencies". */
@@ -74,16 +76,16 @@ declare const tools: {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access. */
     justification?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority. */
-  create_goal(args: {
+  create_goal: {
     /** The concrete completion objective inferred from the direct human request. */
     objective: string;
     /** Optional positive safe-integer limit on automatic continuation rounds. */
     max_goal_rounds?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Edit an existing UTF-8 text file by replacing literal text. */
-  edit(args: {
+  edit: {
     /** Path to edit, resolved by the filesystem backend. */
     file_path: string;
     /** Literal text to replace. Must match exactly. */
@@ -96,83 +98,83 @@ declare const tools: {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
     justification?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again. */
-  exit_plan_mode(args: {
+  exit_plan_mode: {
     /** The complete plan, as markdown, starting with a # heading that names it. */
     plan: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
-  get_goal(args: Record<string, unknown>): Promise<string>;
+  get_goal: Record<string, JsonValue>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
-  ralph(args: {
+  ralph: {
     /** The immutable completion objective for every fresh Ralph round. */
     objective: string;
     /** Optional positive safe-integer round cap, bounded by the deployment ceiling. */
     maxRounds?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Read a UTF-8 text file and return line-numbered content. */
-  read(args: {
+  read: {
     /** Path to read, resolved by the filesystem backend. */
     file_path: string;
     /** 1-based first line to return. Defaults to 1. */
     offset?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill. */
-  skill(args: {
+  skill: {
     /** The exact skill name from the available skills list. */
     name: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
-  subagent(args: {
+  subagent: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. */
     prompt: string;
     /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
     run_in_background?: boolean;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
-  subagent_fork(args: {
+  subagent_fork: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
     /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
     run_in_background?: boolean;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops. */
-  task_kill(args: {
+  task_kill: {
     /** Task id returned by the tool that started the background work. */
     task_id: string;
     /** Optional short reason, recorded in the log and forwarded to the task. */
     reason?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** List your background tasks (running and finished) with their ids, kinds, and statuses. */
-  task_list(args: Record<string, unknown>): Promise<string>;
+  task_list: Record<string, JsonValue>;
   /** Read a background task. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap. */
-  task_output(args: {
+  task_output: {
     /** Task id returned by the tool that started the background work. */
     task_id: string;
     /** Block until the task reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the task alive. */
     wait?: boolean;
     /** Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum. */
     timeout_ms?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
   /** Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Keep AT MOST ONE todo `in_progress` at a time; while work remains, exactly one active task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished). */
-  todo_write(args: {
+  todo_write: {
     /** The COMPLETE task list, replacing any previous list. */
     todos: ({
       /** What the task is — a short imperative line. */
       content: string;
       /** pending (not started) | in_progress (now) | completed (done). */
       status: "pending" | "in_progress" | "completed";
-    })[];
-  }): Promise<string>;
+    } & Record<string, JsonValue>)[];
+  } & Record<string, JsonValue>;
   /** Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason. */
-  update_goal(args: {
+  update_goal: {
     /** Exact id returned by get_goal. */
     goal_id: string;
     /** Exact positive revision returned by get_goal. */
@@ -185,9 +187,9 @@ declare const tools: {
     max_goal_rounds?: number;
     /** Concrete blocking condition; required only with action blocked. */
     blocked_reason?: string;
-  }): Promise<string>;
-  /** Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn. The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result. Script-body hooks: - `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly. - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages. - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`. - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim. Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item `null`. Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes. */
-  workflow(args: {
+  } & Record<string, JsonValue>;
+  /** Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn. The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result. Script-body hooks: - `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly. - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages. - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`. - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim. Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item `null`. Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes. */
+  workflow: {
     /** The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`). */
     script: string;
     /** The workflow identity block (plain JSON — never code). */
@@ -199,7 +201,7 @@ declare const tools: {
       /** Optional guidance on when this workflow applies. */
       whenToUse?: string;
       /** Optional phase declarations matched by phase() calls. */
-      phases?: {
+      phases?: ({
         /** The phase title phase() calls match by exact string. */
         title: string;
         /** Optional one-line description of the phase. */
@@ -208,13 +210,13 @@ declare const tools: {
         provider?: string;
         /** Optional model override this phase is expected to use. */
         model?: string;
-      }[];
-    };
+      } & Record<string, JsonValue>)[];
+    } & Record<string, JsonValue>;
     /** Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}). */
-    args?: Record<string, unknown>;
-  }): Promise<string>;
+    args?: Record<string, JsonValue>;
+  } & Record<string, JsonValue>;
   /** Create or fully replace a UTF-8 text file. */
-  write(args: {
+  write: {
     /** Path to write, resolved by the filesystem backend. */
     file_path: string;
     /** Full UTF-8 text content to write. */
@@ -223,6 +225,213 @@ declare const tools: {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
     justification?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>;
+}
+
+interface ToolOutputMap {
+  ask_user_question: {
+    answers: {
+      id: string;
+      selected: string[];
+      custom?: string;
+    }[];
+  };
+  bash: {
+    kind: "background";
+    taskId: string;
+  } | {
+    kind: "foreground";
+    exitCode: number | null;
+    signal: string | null;
+    timedOut: boolean;
+    aborted: boolean;
+    timeoutMs: number;
+    stdout: {
+      text: string;
+      truncated: boolean;
+      spillPath?: string;
+    };
+    stderr: {
+      text: string;
+      truncated: boolean;
+      spillPath?: string;
+    };
+    sandbox?: {
+      mode: string;
+      denied: boolean;
+      enforcement?: string;
+      runnerFailed?: boolean;
+    };
+  };
+  create_goal: {
+    goal: null;
+  } | {
+    goal: {
+      id: string;
+      revision: number;
+      objective: string;
+      phase: "active" | "paused" | "blocked" | "complete";
+      roundsStarted: number;
+      maxGoalRounds: number;
+      blockedReason?: {
+        code: string;
+        message: string;
+      };
+    };
+    activation: "armed" | "disarmed";
+  };
+  edit: {
+    path: string;
+    before: string;
+    after: string;
+  };
+  exit_plan_mode: {
+    approved: true;
+  };
+  get_goal: {
+    goal: null;
+  } | {
+    goal: {
+      id: string;
+      revision: number;
+      objective: string;
+      phase: "active" | "paused" | "blocked" | "complete";
+      roundsStarted: number;
+      maxGoalRounds: number;
+      blockedReason?: {
+        code: string;
+        message: string;
+      };
+    };
+    activation: "armed" | "disarmed";
+  };
+  ralph: {
+    runId: string;
+    agentsStarted: number;
+    result: JsonValue;
+  };
+  read: {
+    path: string;
+    offset: number;
+    lines: {
+      number: number;
+      text: string;
+    }[];
+    totalLines: number;
+  };
+  skill: {
+    name: string;
+    provider: string;
+    resourceBase?: {
+      kind: "directory";
+      path: string;
+    } | {
+      kind: "url";
+      url: string;
+    } | {
+      kind: "opaque";
+      description: string;
+    };
+    content: string;
+  };
+  subagent: {
+    kind: "background";
+    taskId: string;
+  } | {
+    kind: "foreground";
+    runId: string;
+    output: JsonValue[];
+  };
+  subagent_fork: {
+    kind: "background";
+    taskId: string;
+  } | {
+    kind: "foreground";
+    runId: string;
+    output: JsonValue[];
+  };
+  task_kill: {
+    outcome: "cancellation-requested" | "already-finished";
+    task: {
+      id: string;
+      kind: string;
+      label: string;
+      status: "running" | "stopping" | "completed" | "killed" | "failed";
+      detail?: string;
+      startedAt: number;
+      finishedAt?: number;
+    };
+  };
+  task_list: ({
+    id: string;
+    kind: string;
+    label: string;
+    status: "running" | "stopping" | "completed" | "killed" | "failed";
+    detail?: string;
+    startedAt: number;
+    finishedAt?: number;
+  })[];
+  task_output: {
+    text: string;
+    task: {
+      id: string;
+      kind: string;
+      label: string;
+      status: "running" | "stopping" | "completed" | "killed" | "failed";
+      detail?: string;
+      startedAt: number;
+      finishedAt?: number;
+    };
+  };
+  todo_write: {
+    todos: ({
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+    })[];
+    counts: {
+      pending: number;
+      inProgress: number;
+      completed: number;
+    };
+  };
+  update_goal: {
+    goal: null;
+  } | {
+    goal: {
+      id: string;
+      revision: number;
+      objective: string;
+      phase: "active" | "paused" | "blocked" | "complete";
+      roundsStarted: number;
+      maxGoalRounds: number;
+      blockedReason?: {
+        code: string;
+        message: string;
+      };
+    };
+    activation: "armed" | "disarmed";
+  };
+  workflow: {
+    runId: string;
+    agentsStarted: number;
+    result: JsonValue;
+  };
+  write: {
+    path: string;
+    operation: "create" | "update";
+    before: string | null;
+    after: string;
+  };
+}
+
+type ToolName = keyof ToolOutputMap
+
+declare class ToolCallError extends Error {
+  readonly name: "ToolCallError";
+  readonly toolName: ToolName;
+}
+
+declare const tools: {
+  [K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;
 }
 ```
