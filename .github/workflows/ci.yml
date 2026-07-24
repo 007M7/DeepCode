@@ -27,8 +27,10 @@ env:
 
 jobs:
 
-  # Three enterprise jobs isolate coverage, static analysis, and the
-  # build-backed consumer tail. The static job publishes its exact build so
+  # Three independent Linux jobs isolate coverage, static analysis, and the
+  # build-backed consumer tail: static and consumers on hosted enterprise
+  # 32-core pools; coverage on the in-house self-hosted pool for trusted PRs
+  # (hosted for forks/Dependabot). The static job publishes its exact build so
   # consumers do not repeat the longest part of their critical path.
   node-24:
     if: github.event_name == 'pull_request'
