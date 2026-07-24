@@ -22,9 +22,6 @@
       "path": "../../packages/client/web"
     },
     {
-      "path": "../../packages/host/webserver"
-    },
-    {
       "path": "../../packages/client/modules"
     }
   ]

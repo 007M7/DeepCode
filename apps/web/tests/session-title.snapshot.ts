@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules'
-import { bootWebShell } from '@deepseek-ai/dsh-client-web'
+import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules/client'
+import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
 
 const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
@@ -81,13 +81,15 @@ it('projects initial and revised durable titles through the built eight-plugin f
   const root = document.querySelector<HTMLElement>('#root')
   if (root === null) throw new Error('snapshot root missing')
   act(() => {
-    unmount = bootWebShell(root, {
+    const entry = new AppWebEntry(root, {
       fetchBundle: (url) => {
         const code = bundles.get(url)
         return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
       },
       executeBundle: (code) => { (0, eval)(code) },
     })
+    void entry.run()
+    unmount = () => { entry.dispose() }
   })
 
   const projectLabel = await screen.findByText('fixture', {}, { timeout: 10_000 })
