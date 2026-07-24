@@ -14,6 +14,7 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-model-selector', dir: 'ui-model-selector', url: '/plugins/ui-model-selector.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
@@ -77,7 +78,7 @@ function titleSurfaces(label: string): { sidebar: string; breadcrumb: string; do
   return { sidebar, breadcrumb, documentTitle: document.title }
 }
 
-it('projects initial and revised durable titles through the built eight-plugin fixture app', async () => {
+it('projects initial and revised durable titles through the built nine-plugin fixture app', async () => {
   const root = document.querySelector<HTMLElement>('#root')
   if (root === null) throw new Error('snapshot root missing')
   act(() => {

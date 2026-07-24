@@ -128,4 +128,11 @@ describe('error strip and variants', () => {
     expect(view.getByTestId('acc')).toBeTruthy()
     expect(view.container.querySelector('[class*="hero"]')).not.toBeNull()
   })
+
+  it('renders the optional composer control immediately before the primary button', () => {
+    const { view } = setup({ control: <button type="button">model</button> })
+    const buttons = view.getAllByRole('button')
+    expect(buttons.map(button => button.textContent)).toEqual(['model', ''])
+    expect(buttons[1]?.getAttribute('aria-label')).toBe('发送')
+  })
 })

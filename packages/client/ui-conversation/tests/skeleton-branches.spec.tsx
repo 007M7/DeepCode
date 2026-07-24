@@ -30,7 +30,8 @@ function snapshotBase(): ConversationSnapshot {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
     pending: [], running: false, removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
-  } as ConversationSnapshot
+    modelSelection: { current: null, groups: [], failures: [], status: 'idle', error: null },
+  }
 }
 
 function sessionSource(over?: Partial<ConversationSnapshot>) {
@@ -58,7 +59,9 @@ function listHook(rows: { id: string; title: string; cwd?: string; parentId?: st
 describe('ConversationRoot branches', () => {
   const chatTab: ViewTab = { id: 'chat', label: 'Chat' }
   /** renderSlot stub in the outlet's baked shape (ring key + only filter marker). */
-  const stubRenderSlot = (() => <div data-testid="view-body" />) as unknown as ConversationRootProps['renderSlot']
+  const stubRenderSlot = ((key: string) =>
+    key === 'conversation.view' ? <div data-testid="view-body" /> : null
+  ) as unknown as ConversationRootProps['renderSlot']
   /** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
   const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
 

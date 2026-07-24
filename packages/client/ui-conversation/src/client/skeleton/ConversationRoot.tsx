@@ -68,6 +68,7 @@ export function ConversationRoot({
       disabled={removed}
       error={error}
       variant="composer"
+      control={renderSlot('conversation.composer.control', {})}
       onDraftChange={actions.setDraft}
       onSend={(mode) => { send(draft, mode) }}
       onStop={stop}

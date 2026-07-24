@@ -30,6 +30,28 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: { ok: false, error: { code: 'session-not-found', message: 'nope', details: { sessionId: request.payload.sessionId } } },
         }
       },
+      async models(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              groups: [],
+              failures: [],
+            },
+          },
+        }
+      },
+      async selectModel(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { selected: { provider: request.payload.provider, model: request.payload.model } },
+          },
+        }
+      },
       async prompt(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
@@ -78,6 +100,12 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
   it('covers create/prompt/cancel/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
+    expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
+    expect((await c.sessions.selectModel({
+      sessionId: 's' as never,
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+    })).result.ok).toBe(true)
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)

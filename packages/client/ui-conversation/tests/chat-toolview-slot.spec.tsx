@@ -41,7 +41,8 @@ function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [],
     pending: [], running: false, removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
-  } as ConversationSnapshot
+    modelSelection: { current: null, groups: [], failures: [], status: 'idle', error: null },
+  }
 }
 
 /** Test-owned AppFrame role: declares the layout-owned children and renders the conversation area under the framework session provider. */

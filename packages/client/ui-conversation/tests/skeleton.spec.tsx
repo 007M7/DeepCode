@@ -177,8 +177,11 @@ describe('ConversationRoot', () => {
   })
 
   it('hides the tab strip with a single view; composer writes the store draft and sends it', () => {
-    const { chat, send } = bench([tab('chat', 'Chat')])
+    const { chat, send, renderSlot } = bench([tab('chat', 'Chat')])
     expect(screen.queryByRole('tablist')).toBeNull()
+    expect(renderSlot).toHaveBeenCalledWith('conversation.composer.control', {})
+    expect(screen.getByTestId('view-(all)').getAttribute('data-slot'))
+      .toBe('conversation.composer.control')
     const box = screen.getByPlaceholderText(/输入消息/)
     fireEvent.change(box, { target: { value: 'hi' } })
     // Typing goes through actions.setDraft into the shared store.

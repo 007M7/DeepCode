@@ -97,6 +97,7 @@ export default defineConfig({
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
         'packages/client/ui-question/src/client/QuestionComposer.tsx',
+        'packages/client/ui-model-selector/src/client/ModelSelector.tsx',
         'packages/client/web-react/src/*',
         'packages/client/runtime/src/*',
         'packages/client/ui-conversation/src/*',

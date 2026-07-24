@@ -124,7 +124,12 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 8px;
   padding: 0 10px 10px 12px;
+}
+
+.control {
+  min-width: 0;
 }
 
 /* Primary send (figma IconButton 34:10465): 34px circle, #3964FE light /

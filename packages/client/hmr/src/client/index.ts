@@ -5,7 +5,7 @@
  * `rebuilt` frame it re-fetches the entry's bundle and swaps the cordis
  * fiber in place. Every graph entry is a plugin bundle under the web2 model
  * — `immediately` rows differ only in stage-one prefetch (a boot
- * optimization), so all nine plugin packages share these reload semantics;
+ * optimization), so all rostered plugin packages share these reload semantics;
  * normal packages (react family, cordis, shell, pure libs) are not entries
  * and shell changes still mean a page reload. Cascade is zero-touch:
  * downstream fibers key their activation epoch on provider fiber uids

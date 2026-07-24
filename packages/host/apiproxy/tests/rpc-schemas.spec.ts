@@ -8,8 +8,9 @@ import { z } from 'zod'
 import {
   contentBlockSchema, sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
-  sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionPromptRequestSchema,
-  sessionPromptValueSchema, sessionSummarySchema,
+  sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
+  sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
+  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
@@ -31,6 +32,11 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
     expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
+    expect(rpcErrorSchema.parse({
+      code: 'model-unavailable',
+      message: 'm',
+      details: { provider: 'p', model: 'm' },
+    }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
@@ -99,7 +105,39 @@ describe('sessions domain schemas', () => {
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
-    expect(sessionHistoryValueSchema.parse({ events: [], hasMore: false }).hasMore).toBe(false)
+    expect(sessionHistoryValueSchema.parse({
+      events: [],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }).hasMore).toBe(false)
+    expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(sessionModelsValueSchema.parse({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      groups: [{
+        id: 'deepseek',
+        name: 'DeepSeek',
+        models: [{
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek V4 Flash',
+          description: 'fast',
+          unlisted: true,
+        }],
+      }],
+      failures: [{ id: 'broken', name: 'Broken', message: 'offline' }],
+    }).groups[0]?.models[0]?.id).toBe('deepseek-v4-flash')
+    expect(sessionSelectModelRequestSchema.parse({
+      sessionId: 's1',
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+    }).model).toBe('deepseek-v4-pro')
+    expect(sessionSelectModelValueSchema.parse({
+      selected: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+    }).selected.model).toBe('deepseek-v4-pro')
+    expect(() => sessionSelectModelRequestSchema.parse({
+      sessionId: 's1',
+      provider: '',
+      model: 'm',
+    })).toThrow()
     const prompt = sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
     expect(prompt.mode).toBe('queue')
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()

@@ -6,15 +6,16 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, ToolEventView,
+  HistoryEntry, IApiClient, ModelTarget, MuxFrame, RpcError, RpcId, RpcResult,
+  SessionId, SessionModels, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  ConversationNode, ConversationSnapshot, OpenState, PromptError, RunningToolCall,
+  ConversationNode, ConversationSnapshot, ModelSelectionSnapshot, OpenState, PromptError,
+  RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -69,6 +70,17 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
+  private modelSelection: ModelSelectionSnapshot = {
+    current: null,
+    groups: [],
+    failures: [],
+    status: 'idle',
+    error: null,
+  }
+  /** Latest model-directory/selection operation; stale responses drop all writes. */
+  private modelGeneration = 0
+  /** Failed selection target; null means the retryable operation is a directory refresh. */
+  private modelRetryTarget: ModelTarget | null = null
   /** Buffer for live events arriving while open/resync is in flight (stitched by seq once history lands, §D.3). */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
   /** Gap-repair (resync-lite) in flight: acceptLiveEvent detours to liveBuffer until the tail page lands (audit S3). */
@@ -126,6 +138,102 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Refresh the advisory provider/model directory. Independent provider
+   * failures remain in a successful snapshot; whole-request failures preserve
+   * the last usable groups and current target.
+   * @returns the model-directory RPC result.
+   */
+  async refreshModels(): Promise<RpcResult<SessionModels>> {
+    const generation = ++this.modelGeneration
+    this.modelRetryTarget = null
+    this.modelSelection = {
+      ...this.modelSelection,
+      status: 'loading',
+      error: null,
+    }
+    this.notifier.markDirty()
+    let result: RpcResult<SessionModels>
+    try {
+      result = (await this.api.sessions.models({ sessionId: this.sessionId })).result
+    } catch (error: unknown) {
+      result = transportError(error)
+    }
+    if (generation !== this.modelGeneration) return result
+    this.modelSelection = result.ok
+      ? {
+        current: result.value.current,
+        groups: result.value.groups,
+        failures: result.value.failures,
+        status: 'ready',
+        error: null,
+      }
+      : {
+        ...this.modelSelection,
+        status: 'error',
+        error: result.error,
+      }
+    this.notifier.markDirty()
+    return result
+  }
+
+  /**
+   * Select the complete route for this session. The host snapshots it at the
+   * next prompt-assembly boundary, so running work keeps its assembled target.
+   * @param target - Provider and provider-owned model id.
+   * @returns the selection RPC result.
+   */
+  async selectModel(target: ModelTarget): Promise<RpcResult<{ selected: ModelTarget }>> {
+    const generation = ++this.modelGeneration
+    this.modelRetryTarget = target
+    this.modelSelection = {
+      ...this.modelSelection,
+      status: 'selecting',
+      error: null,
+    }
+    this.notifier.markDirty()
+    let result: RpcResult<{ selected: ModelTarget }>
+    try {
+      result = (await this.api.sessions.selectModel({
+        sessionId: this.sessionId,
+        provider: target.provider,
+        model: target.model,
+      })).result
+    } catch (error: unknown) {
+      result = transportError(error)
+    }
+    if (generation !== this.modelGeneration) return result
+    if (result.ok) this.modelRetryTarget = null
+    this.modelSelection = result.ok
+      ? {
+        ...this.modelSelection,
+        current: result.value.selected,
+        status: 'ready',
+        error: null,
+      }
+      : {
+        ...this.modelSelection,
+        status: 'error',
+        error: result.error,
+      }
+    this.notifier.markDirty()
+    return result
+  }
+
+  /**
+   * Repeat the operation that produced the visible model error.
+   * A failed selection retains its exact target; directory failures refresh.
+   * @returns Whether a model selection succeeded; directory retries return false.
+   */
+  async retryModelOperation(): Promise<boolean> {
+    const target = this.modelRetryTarget
+    if (target === null) {
+      await this.refreshModels()
+      return false
+    }
+    return (await this.selectModel(target)).ok
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -318,6 +426,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.openError = null
     this.notifier.markDirty()
     try {
+      let modelGeneration = this.modelGeneration
       let { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       if (generation !== this.openGeneration) return
       if (!result.ok) {
@@ -325,13 +434,24 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore)
+      this.installWindow(
+        result.value.events,
+        result.value.hasMore,
+        modelGeneration === this.modelGeneration ? result.value.modelTarget : undefined,
+      )
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
+        modelGeneration = this.modelGeneration
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore)
+        if (result.ok) {
+          this.installWindow(
+            result.value.events,
+            result.value.hasMore,
+            modelGeneration === this.modelGeneration ? result.value.modelTarget : undefined,
+          )
+        }
       }
       this.openState = 'open'
     } catch (error) {
@@ -349,13 +469,30 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
    *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean): void {
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, modelTarget?: ModelTarget): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
+    if (modelTarget !== undefined) {
+      const current = this.modelSelection.current
+      if (
+        current === null
+        || current.provider !== modelTarget.provider
+        || current.model !== modelTarget.model
+        || this.modelSelection.error !== null
+      ) {
+        this.modelRetryTarget = null
+        this.modelSelection = {
+          ...this.modelSelection,
+          current: modelTarget,
+          status: this.modelSelection.groups.length > 0 ? 'ready' : 'idle',
+          error: null,
+        }
+      }
+    }
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -400,11 +537,16 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.stitching) return
     this.stitching = true
     const generation = this.openGeneration
+    const modelGeneration = this.modelGeneration
     try {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore)
+        this.installWindow(
+          result.value.events,
+          result.value.hasMore,
+          modelGeneration === this.modelGeneration ? result.value.modelTarget : undefined,
+        )
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
@@ -539,6 +681,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
       lastAgentError: this.lastAgentError,
+      modelSelection: this.modelSelection,
     }
   }
 }

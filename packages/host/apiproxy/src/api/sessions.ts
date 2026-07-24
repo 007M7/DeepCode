@@ -31,6 +31,56 @@ export interface HistoryEntry {
   view?: ToolEventView
 }
 
+/** Complete provider/model route selected for one session. */
+export interface ModelTarget {
+  /** Registered provider route. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+}
+
+/** One model displayed inside its provider group. */
+export interface ModelCatalogModel {
+  /** Provider-owned model id. */
+  id: string
+  /** Provider-supplied display name. */
+  name: string
+  /** Optional provider-supplied description. */
+  description?: string
+  /** The current model was inserted because the advisory catalog omitted it. */
+  unlisted?: true
+}
+
+/** One provider and the models it advertised successfully. */
+export interface ModelProviderGroup {
+  /** Provider route id used for requests. */
+  id: string
+  /** Provider display name. */
+  name: string
+  /** Models in provider-preferred order. */
+  models: ModelCatalogModel[]
+}
+
+/** A provider whose asynchronous catalog lookup failed. */
+export interface ModelCatalogFailure {
+  /** Provider route id. */
+  id: string
+  /** Provider display name. */
+  name: string
+  /** Lookup failure diagnostic. */
+  message: string
+}
+
+/** Detached model-directory snapshot for one session. */
+export interface SessionModels {
+  /** Target selected for the session's next assembled step. */
+  current: ModelTarget
+  /** Successfully loaded provider groups. */
+  groups: ModelProviderGroup[]
+  /** Provider-local failures; successful groups remain usable. */
+  failures: ModelCatalogFailure[]
+}
+
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
@@ -62,7 +112,17 @@ export interface SessionsApi {
    * rebuilds the surface from the events with the shared fold.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; modelTarget: ModelTarget }>>
+
+  /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
+  models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
+
+  /**
+   * Selects the complete route for this session. The registered provider is
+   * validated, while model catalog membership remains advisory.
+   */
+  selectModel(request: RpcRequest<{ sessionId: SessionId; provider: string; model: string }>):
+  Promise<RpcResponse<{ selected: ModelTarget }>>
 
   /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):

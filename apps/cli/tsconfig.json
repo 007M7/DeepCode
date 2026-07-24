@@ -54,6 +54,9 @@
       "path": "../../packages/client/ui-conversation"
     },
     {
+      "path": "../../packages/client/ui-model-selector"
+    },
+    {
       "path": "../../packages/client/ui-trajectory"
     },
     {

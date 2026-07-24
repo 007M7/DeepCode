@@ -32,7 +32,7 @@ export type {
 } from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, ContextMessageNode, ConversationNode, ConversationSnapshot,
-  RunningToolCall, SteeringMessageNode,
+  ModelSelectionSnapshot, ModelSelectionStatus, RunningToolCall, SteeringMessageNode,
   ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 // PendingWait is a value export: tests construct fixture waits directly.

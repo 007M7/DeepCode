@@ -4,7 +4,10 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { RpcError, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  ModelCatalogFailure, ModelProviderGroup, ModelTarget, RpcError, SessionId,
+  ToolCallView, ToolResultView,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 
 /** Assistant content blocks sorted by what the UI cares about
@@ -139,6 +142,23 @@ export interface PromptError {
   error: RpcError
 }
 
+/** Lifecycle of the session-local model directory and selection requests. */
+export type ModelSelectionStatus = 'idle' | 'loading' | 'ready' | 'selecting' | 'error'
+
+/** Immutable model-selector state owned by the Session object layer. */
+export interface ModelSelectionSnapshot {
+  /** Target selected for the next assembled step, or null before history opens. */
+  current: ModelTarget | null
+  /** Last successfully loaded provider groups. */
+  groups: readonly ModelProviderGroup[]
+  /** Provider-local failures from the last successful directory response. */
+  failures: readonly ModelCatalogFailure[]
+  /** Current directory or selection operation state. */
+  status: ModelSelectionStatus
+  /** Whole-request or selection failure; partial provider failures use {@link failures}. */
+  error: RpcError | null
+}
+
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
@@ -158,4 +178,6 @@ export interface ConversationSnapshot {
   loadingOlder: boolean
   promptError: PromptError | null
   lastAgentError: string | null
+  /** Session-local model target and advisory directory state. */
+  modelSelection: ModelSelectionSnapshot
 }

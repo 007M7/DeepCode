@@ -7,7 +7,8 @@
 
 export type {
   ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
-  ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
+  ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ModelCatalogFailure,
+  ModelCatalogModel, ModelProviderGroup, ModelTarget, SessionModels, ToolEventView,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 export type {

@@ -10,6 +10,8 @@ The layering/protocol decisions are recorded in the [GUI layering and RPC protoc
 
 The mux stream projects the latest log-backed title as a validated `session/title` control frame after each attached-session subscription baseline and immediately after the corresponding live raw title event. This projection does not add titles to `session.list`; cold sessions remain metadata-only there until opening or resuming attaches their logs.
 
+Session model routing is a session-domain contract. `session.history` returns the selected `modelTarget`, `session.models` returns that target with provider-grouped advisory model metadata and provider-local lookup failures, and `session.selectModel` replaces the target selected for the next prompt-assembly boundary. Catalog membership is not validation: a registered provider may accept an unlisted model, while an unregistered provider returns `model-unavailable`.
+
 ## Carrier layer (`/client` + root)
 
 `AbstractApiClient` holds every protocol invariant — rpcId minting, envelope wrap/unwrap, zod parsing, SSE frame decoding, unary timeout, microtask-batched envelope observation (`subscribeEnvelopes`) — while platform subclasses supply only the `doFetch` transport aspect. `InProcessApiClient` over `toFetchHandler(api)` is the isomorphic point: the full wire serialization/validation path with no network, used by `dsh -p` headless.

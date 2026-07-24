@@ -528,11 +528,11 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmDeepSeek, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
     ])
     await expect(ctx.llm.resolveModelContext('deepseek', 'deepseek-v4-flash'))
-      .resolves.toEqual({ contextWindow: 128_000 })
+      .resolves.toEqual({ contextWindow: 256_000 })
   })
 
   it('uses the default model catalog when apply is called directly', async () => {
@@ -540,8 +540,8 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     LlmDeepSeek.apply(ctx, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
     ])
   })
 

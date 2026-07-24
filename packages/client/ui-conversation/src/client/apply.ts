@@ -74,6 +74,7 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.view': { kind: 'list', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
+      'conversation.composer.control': { kind: 'single', scope: 'session' },
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ConversationInjected => {

@@ -24,7 +24,11 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
 
 function histResponse(events: SessionEvent[], hasMore = false) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
+  return Promise.resolve(ok({
+    events: entries(events) as never[],
+    hasMore,
+    modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+  }))
 }
 
 describe('open', () => {
@@ -75,11 +79,174 @@ describe('open', () => {
     const page = plainTurn(10, 0, '早', '安')
     session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: ev.turnStart(15, 1) })
     session.handleMuxEnvelope('r2' as never, { type: 'session/event', sessionId: SID, event: ev.user(16, '插进来的') })
-    gate.resolve(ok({ events: entries(page) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(page) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await opening
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     // Overlapping seq-15 frame (== page tail turn/end) was dropped; 16 appended once.
     expect(seqs).toEqual([11, 13, 16])
+  })
+})
+
+describe('model selection', () => {
+  it('restores the current target from history, then refreshes grouped models with partial failures', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse([])
+    api.onModels = () => Promise.resolve(ok({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      groups: [{
+        id: 'deepseek',
+        name: 'DeepSeek',
+        models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' }],
+      }],
+      failures: [{ id: 'offline', name: 'Offline', message: 'catalog down' }],
+    }))
+    await session.open()
+    expect(session.getSnapshot().modelSelection).toEqual({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      groups: [],
+      failures: [],
+      status: 'idle',
+      error: null,
+    })
+
+    const refreshing = session.refreshModels()
+    expect(session.getSnapshot().modelSelection.status).toBe('loading')
+    await refreshing
+    expect(session.getSnapshot().modelSelection).toEqual({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      groups: [{
+        id: 'deepseek',
+        name: 'DeepSeek',
+        models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' }],
+      }],
+      failures: [{ id: 'offline', name: 'Offline', message: 'catalog down' }],
+      status: 'ready',
+      error: null,
+    })
+  })
+
+  it('keeps the previous target and directory when selection fails, then accepts a retry', async () => {
+    const { api, session } = makeSession()
+    await session.open()
+    await session.refreshModels()
+    const before = session.getSnapshot().modelSelection
+    api.onSelectModel = () => Promise.resolve(err({
+      code: 'model-unavailable',
+      message: 'gone',
+      details: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+    }))
+
+    const failed = session.selectModel({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    expect(session.getSnapshot().modelSelection.status).toBe('selecting')
+    await failed
+    const errored = session.getSnapshot().modelSelection
+    expect(errored.current).toBe(before.current)
+    expect(errored.groups).toBe(before.groups)
+    expect(errored).toMatchObject({ status: 'error', error: { code: 'model-unavailable' } })
+
+    api.onSelectModel = payload => Promise.resolve(ok({
+      selected: { provider: payload.provider, model: payload.model },
+    }))
+    await session.retryModelOperation()
+    expect(api.callsOf('session.selectModel').at(-1)).toEqual({
+      sessionId: SID,
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+    })
+    expect(session.getSnapshot().modelSelection).toMatchObject({
+      current: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      status: 'ready',
+      error: null,
+    })
+  })
+
+  it('drops stale directory responses after a newer selection operation wins', async () => {
+    const { api, session } = makeSession()
+    await session.open()
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onModels']>>>()
+    api.onModels = () => stale.promise
+    const refreshing = session.refreshModels()
+    await session.selectModel({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    const selected = session.getSnapshot().modelSelection
+
+    stale.resolve(ok({
+      current: { provider: 'deepseek', model: 'stale' },
+      groups: [{ id: 'deepseek', name: 'Old', models: [{ id: 'stale', name: 'Stale' }] }],
+      failures: [],
+    }))
+    await refreshing
+    expect(session.getSnapshot().modelSelection).toBe(selected)
+    expect(session.getSnapshot().modelSelection.current)
+      .toEqual({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+  })
+
+  it('does not let an older history response overwrite a newer selected target', async () => {
+    const { api, session } = makeSession()
+    const history = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => history.promise
+    const opening = session.open()
+    await session.selectModel({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    history.resolve(ok({
+      events: [],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
+    await opening
+    expect(session.getSnapshot().modelSelection.current)
+      .toEqual({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+  })
+
+  it('folds directory and selection transport failures without discarding usable state', async () => {
+    const { api, session } = makeSession()
+    await session.open()
+    await session.refreshModels()
+    const groups = session.getSnapshot().modelSelection.groups
+    api.onModels = () => Promise.reject(new Error('directory transport down'))
+    await session.refreshModels()
+    expect(session.getSnapshot().modelSelection).toMatchObject({
+      groups,
+      status: 'error',
+      error: { code: 'internal', message: 'directory transport down' },
+    })
+    api.onModels = () => Promise.resolve(ok({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      groups: [...groups],
+      failures: [],
+    }))
+    await session.retryModelOperation()
+    expect(session.getSnapshot().modelSelection.status).toBe('ready')
+
+    api.onSelectModel = () => Promise.reject(new Error('selection transport down'))
+    await session.selectModel({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    expect(session.getSnapshot().modelSelection).toMatchObject({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      groups,
+      status: 'error',
+      error: { code: 'internal', message: 'selection transport down' },
+    })
+  })
+
+  it('reconciles a failed selection from authoritative history on reconnect', async () => {
+    const { api, session } = makeSession()
+    await session.open()
+    api.onSelectModel = () => Promise.reject(new Error('lost response'))
+    await session.selectModel({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    expect(session.getSnapshot().modelSelection.status).toBe('error')
+    api.onHistory = () => Promise.resolve(ok({
+      events: [],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+    }))
+    await session.resync()
+    expect(session.getSnapshot().modelSelection).toMatchObject({
+      current: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      status: 'idle',
+      error: null,
+    })
   })
 })
 
@@ -210,7 +377,11 @@ describe('paging', () => {
     api.onHistory = () => gate.promise
     const first = session.loadOlder()
     const second = session.loadOlder()
-    gate.resolve(ok({ events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
   })
@@ -482,7 +653,11 @@ describe('remaining branches', () => {
     const opening = session.open()
     api.onHistory = () => histResponse(plainTurn(6, 1, '新', '代'))
     const resynced = session.resync()
-    stale.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '代')) as never[], hasMore: false })) // success, but its generation is gone
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '代')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // success, but its generation is gone
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9]) // only the fresh generation's window
   })
@@ -501,7 +676,11 @@ describe('remaining branches', () => {
     const opening = session.open() // triggers the second pull, which parks
     await vi.waitFor(() => { expect(call).toBe(2) })
     const resynced = session.resync()
-    secondPull.resolve(ok({ events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[], hasMore: false }))
+    secondPull.resolve(ok({
+      events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    }))
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().openState).toBe('open')
   })
@@ -515,7 +694,11 @@ describe('remaining branches', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(9, '洞') }) // starts repairGap
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
     const resynced = session.resync() // bumps the generation
-    repairPull.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '页')) as never[], hasMore: false })) // repair result: stale, dropped
+    repairPull.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '页')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // repair result: stale, dropped
     await resynced
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
   })
@@ -559,6 +742,7 @@ describe('remaining branches', () => {
         { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
       ] as never[],
       hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
@@ -662,6 +846,7 @@ describe('reference stability (the memo contract)', () => {
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
+    expect(after.modelSelection).toBe(before.modelSelection)
     // And a mutation on the tracked domain swaps that array.
     feed(ev.toolResult(10, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()

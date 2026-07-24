@@ -1,7 +1,7 @@
 // Keyless boot-chain smoke over the REAL carrier: startWebServer + entry
 // graph (__DSH_BOOT__ web2 shape) injection + built shell dist in a real
 // chromium. First describe: graph injection + the fail-loud half. Second
-// describe: the settled success pass — all nine REAL tsdown bundles load
+// describe: the settled success pass — all ten REAL tsdown bundles load
 // through the module system + vendored Loader chain in ?fixture mode (the
 // infrastructure four ride the immediately prefetch tier, the UI rows fetch
 // on demand), the three-column frame appears in one flip, and the resident
@@ -31,6 +31,7 @@ const REAL_PLUGINS: { id: string; dir: string; inject?: string[]; immediately?: 
   { id: LAYOUT_ID, dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: SIDEBAR_ID, dir: 'ui-sidebar', inject: [LAYOUT_ID] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: [LAYOUT_ID] },
+  { id: '@deepseek-ai/dsh-client-ui-model-selector', dir: 'ui-model-selector', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
   { id: '@deepseek-ai/dsh-client-ui-question', dir: 'ui-question', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
@@ -118,7 +119,7 @@ describe('web boot chain (keyless, real carrier)', () => {
   })
 })
 
-describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', () => {
+describe('web boot chain success pass (keyless, ten real bundles, ?fixture)', () => {
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
   let page: Page
@@ -244,6 +245,37 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
     const external = page.getByRole('link', { name: 'DeepSeek' })
     expect(await external.getAttribute('target')).toBe('_blank')
     expect(await external.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('selects a model from a provider group and uses it for the next fixture request', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-model-selector'))
+    await page.getByRole('button', { name: 'New session', exact: true }).click()
+    const emptyInput = page.locator('textarea[placeholder]')
+    await emptyInput.fill('selector seed')
+    await page.getByRole('button', { name: '发送' }).click()
+
+    const selector = page.getByRole('button', { name: '选择模型，当前 DeepSeek-V4-Flash' })
+    await selector.waitFor({ state: 'visible', timeout: 15_000 })
+    expect(await selector.innerText()).toBe('DeepSeek-V4-Flash')
+    await selector.click()
+    const menu = page.getByRole('menu', { name: '模型' })
+    await menu.waitFor()
+    const triggerBox = await selector.boundingBox()
+    const menuBox = await menu.boundingBox()
+    expect(triggerBox).not.toBeNull()
+    expect(menuBox).not.toBeNull()
+    expect((menuBox?.y ?? 0) + (menuBox?.height ?? 0)).toBeLessThanOrEqual((triggerBox?.y ?? 0) + 1)
+    expect(await page.getByRole('group', { name: 'DeepSeek' }).getByRole('menuitemradio').allTextContents())
+      .toEqual(expect.arrayContaining(['DeepSeek-V4-Flash快速响应', 'DeepSeek-V4-Pro复杂任务']))
+    await page.getByRole('group', { name: 'OpenAI' }).getByRole('menuitemradio', { name: 'GPT-5' }).click()
+    await menu.waitFor({ state: 'detached' })
+    expect(await page.getByRole('button', { name: '选择模型，当前 GPT-5' }).innerText()).toBe('GPT-5')
+
+    const residentInput = page.locator('textarea[placeholder]')
+    await expect.poll(() => residentInput.isEnabled(), { timeout: 15_000 }).toBe(true)
+    await residentInput.fill('report model')
+    await page.getByRole('button', { name: '发送' }).click()
+    await page.getByText('当前模型：openai/gpt-5', { exact: true }).waitFor({ timeout: 15_000 })
   })
 
   it('renders and completes the resident question through the composer slot', async () => {

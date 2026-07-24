@@ -1898,6 +1898,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-model-selector` ([`packages/client/ui-model-selector/src/index.ts`](../packages/client/ui-model-selector/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-question` — requires `tools` · `userInteraction` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-theme` ([`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts))

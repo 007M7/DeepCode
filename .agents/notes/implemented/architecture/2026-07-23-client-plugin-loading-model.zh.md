@@ -27,7 +27,7 @@ host 侧，cordis 插件装载站在 Node 的模块机制之上——require cac
 什么让一个包成为插件？只有一条规则：**一个包的消费方式一旦是 cordis 依赖注入，它就是插件包；在此之前它是普通包。**代码怎么到达页面不属于分类体系——到达方式由包的类别推得，而不是反过来定义类别。
 
 - **普通包**是模块系统自身所需的绝对基座，加上尚未转成 DI 的库：react 家族、cordis、`@deepseek-ai/dsh-client-modules`（模块系统本身——它永远不可能是插件，因为模块先于一切模块）、web 壳内核，以及——暂时——ui-slots、web-react、ui-primitives。普通包打进壳 bundle、播种进模块表、对 host 图不可见。
-- **插件包**是其余一切。每个都携带 `dshClient` manifest（元数据清单）声明（`{ platform, inject, immediately? }`）和同一种统一形态：共享 tsdown 预设产出 `lib/client.js`，`exports["./client"]` 指向该 bundle。每个都是 host 独家撰写的图里受治理的 entry。现有九个：connection、runtime、ui-theme、i18n、hmr（仅进 dev 图）、ui-layout、ui-sidebar、ui-conversation、ui-trajectory。
+- **插件包**是其余一切。每个都携带 `dshClient` manifest（元数据清单）声明（`{ platform, inject, immediately? }`）和同一种统一形态：共享 tsdown 预设产出 `lib/client.js`，`exports["./client"]` 指向该 bundle。每个都是 host 独家撰写的图里受治理的 entry。当前包括：connection、runtime、ui-theme、i18n、hmr（仅进 dev 图）、ui-layout、ui-sidebar、ui-conversation、ui-model-selector、ui-question、ui-trajectory。
 
 manifest 拥有包的装载契约：它的 `inject` 依赖边，加可选的 `immediately` 预取标记（缺省即 lazy）。负责组合的 app 只拥有名册与 `--dev` 开关。
 
@@ -39,7 +39,7 @@ manifest 拥有包的装载契约：它的 `inject` 依赖边，加可选的 `im
 
 - **插件 ↔ 插件的值 import 是构建错误。**与两侧的 `immediately` 声明无关——规则不得依赖一个人人可翻转的标记。协作走 cordis inject/服务。`import type` 豁免；类型链分毫未动。这条规则正是 `scopeOf` 是 `SessionsService` 方法、`transportError` 住在 `dsh-host-apiproxy` wire 层（它的 `RpcResult` 老家，内联安全）的原因。
 - **插件 → 普通包的值 import 外置为 external**，按平台清单判定。清单是壳里的一个常量（`platform.ts`：react 家族、cordis、ui-slots、web-react、ui-primitives），tsdown 预设（external 判定）与 `seed.ts`（模块表预热）都 import 它。一个常量、两个消费方——人肉同步这一漂移缺陷类死透。
-- **纯度门禁覆盖全部九个插件包。**它的三条分支：平台 import 外置为 external；INLINE_SAFE wire 层内联；其余任何 workspace 泄漏即构建错误。正是统一的 bundle 形态让这一覆盖不留死角——每个插件都经同一预设构建，没有包能坐在门禁之外。
+- **纯度门禁覆盖每个插件包。**它的三条分支：平台 import 外置为 external；INLINE_SAFE wire 层内联；其余任何 workspace 泄漏即构建错误。正是统一的 bundle 形态让这一覆盖不留死角——每个插件都经同一预设构建，没有包能坐在门禁之外。
 - **壳自足。**内核（boot + loading 页）对任何插件包零值 import；其状态 store 为手写。大声失败的呈现不得依赖它所报告失败的那个系统。
 
 ### 一套模块系统，一个插件治理器
@@ -88,7 +88,7 @@ vendored Loader 经其 `internal` seam 消费模块系统——唯一调用点�
 6. `entry.refresh()`——重新 import，物化新工厂。CSS 在这里重新注入，沿用同一批稳定标签 id。
 7. `fiber.await()`——让失败大声重抛。
 
-九个插件共享这同一套语义；`immediately` 行的重载与 lazy 行分毫不差。依赖级联不花一行 client 代码：fiber 的激活纪元串接着它各服务提供方的 uid，因此换掉提供方的 fiber，每个依赖方都会经 cordis 本身重新装载。重载 connection 或 runtime 会级联整个 UI——正确，虽然重。
+每个插件都共享同一套语义；`immediately` 行的重载与 lazy 行分毫不差。依赖级联不花一行 client 代码：fiber 的激活纪元串接着它各服务提供方的 uid，因此换掉提供方的 fiber，每个依赖方都会经 cordis 本身重新装载。重载 connection 或 runtime 会级联整个 UI——正确，虽然重。
 
 支持边界，如实陈述。重载粒度刻意做粗：全新 fiber、全新组件、React 状态丢失、数据层不动——react-refresh 级的状态保留与「重执行 bundle 即重跑工厂」相冲突，属刻意不做。普通包（react 家族、壳内核、尚未升格的库）不是 entry：改它们意味着壳重建加整页刷新。v1 不做回滚：import 失败让 entry 失去 fiber，下一个 rebuilt 帧从头重试；apply 失败留下 FAILED fiber 交给状态投影；两者都大声记录。自我重载可行——在途的重载在旧 bundle 的闭包里跑完，新的 apply 再开一条新 SSE 通道——但空窗期到达的帧会丢失，下次重建会再次通知。一处已知的仅限 dev 竞态：rebuilt 帧与仍在途的 boot 到达重叠时共享那次到达的任务，可能物化重建前的字节；下一帧自愈。
 
