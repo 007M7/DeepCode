@@ -9,7 +9,14 @@ import AgentRegistry, {
   agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
 
-import type { AgentCancelCause, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type {
+  AgentCancelCause,
+  AgentFactory,
+  ContinuationStop,
+  CreateAgentOptions,
+  ResumeAgentOptions,
+  SendOptions,
+} from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
@@ -27,6 +34,28 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     ...overrides,
   })
 }
+
+describe('Agent delivery aliases', () => {
+  it('materializes complete SendOptions for every preset', () => {
+    const calls: SendOptions[] = []
+    const agent = stubAgent('aliases', {
+      send(_content, options) {
+        if (options !== undefined) calls.push(options)
+        return AgentMessageId('stub')
+      },
+    })
+
+    agent.followup([])
+    agent.steer([])
+    agent.inject([])
+
+    expect(calls).toEqual([
+      { target: 'next-turn', wakeup: true, source: { kind: 'user' } },
+      { target: 'next-step', wakeup: true, source: { kind: 'user' } },
+      { target: 'next-step', wakeup: false, source: { kind: 'plugin', plugin: '' } },
+    ])
+  })
+})
 
 describe('AgentRegistry', () => {
   it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {

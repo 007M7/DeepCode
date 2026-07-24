@@ -106,7 +106,11 @@ describe('Agent.cancel()', () => {
     ctx.on('agent/inbox/discard', (subject, items) => { if (subject === agent) discards.push(items) })
 
     // Queue a turn WITHOUT waking the driver, so it sits in the inbox.
-    agent.send([{ type: 'text', text: 'preserved' }], { target: 'next-turn', wakeup: false })
+    agent.send([{ type: 'text', text: 'preserved' }], {
+      target: 'next-turn',
+      wakeup: false,
+      source: { kind: 'user' },
+    })
     // keepInbox cancel: no active turn, work preserved, no discard event.
     agent.cancel({ kind: 'user' }, { keepInbox: true })
     expect(discards).toEqual([])
@@ -124,7 +128,11 @@ describe('Agent.cancel()', () => {
 
     // A quiet item alone must NOT wake the driver: no turn runs and whenIdle
     // resolves (the agent is quiescent), leaving the item queued.
-    agent.send([{ type: 'text', text: 'quiet' }], { target: 'next-turn', wakeup: false })
+    agent.send([{ type: 'text', text: 'quiet' }], {
+      target: 'next-turn',
+      wakeup: false,
+      source: { kind: 'user' },
+    })
     await agent.whenIdle()
     expect(agent.status).toBe('idle')
     expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
@@ -140,7 +148,11 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'quiet' }], { target: 'next-turn', wakeup: false })
+    agent.send([{ type: 'text', text: 'quiet' }], {
+      target: 'next-turn',
+      wakeup: false,
+      source: { kind: 'user' },
+    })
     const idle = agent.whenIdle()
     // Cancel reaches quiescence with no status transition and no waking send;
     // whenIdle must still resolve (previously it hung until the next send).

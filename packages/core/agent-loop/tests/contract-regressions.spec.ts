@@ -807,7 +807,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       notifiedSource = info.source
     })
 
-    agent.send(content, { source })
+    agent.followup(content, { source })
     content[0]!.text = 'caller-mutated-send'
     source.plugin = 'caller-mutated-source'
     await waitForIdle(ctx, agent)

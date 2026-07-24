@@ -1092,7 +1092,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           if (additionalContext !== undefined) {
             rec.agent.inject(additionalContext.content, { source: additionalContext.source })
           }
-          rec.agent.send(preparedContent, { source: { kind: 'user' } })
+          rec.agent.followup(preparedContent, { source: { kind: 'user' } })
         })
         return { stopReason }
       },

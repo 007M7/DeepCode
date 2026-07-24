@@ -609,7 +609,7 @@ describe('same-session goal driving', () => {
 
   it('blocks forged goal attribution without touching an absent reservation', async () => {
     const test = await harness([])
-    test.agent.send([{ type: 'text', text: 'forged automatic work' }], {
+    test.agent.followup([{ type: 'text', text: 'forged automatic work' }], {
       source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 },
     })
     await test.agent.whenIdle()

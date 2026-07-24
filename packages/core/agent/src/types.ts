@@ -57,25 +57,29 @@ export type SendTarget = 'next-turn' | 'next-step'
  * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
  * {@link Agent.inject} (`next-step`/no-wakeup).
  *
- * An omitted source attests direct human input as `{ kind: 'user' }` and may
- * authorize policy consumers, so non-human producers must label their content.
+ * Omitting the whole options object selects the ordinary user-message preset.
+ * A supplied object is complete so its routing and provenance are explicit.
  */
 export interface SendOptions {
-  /** Queue the item joins; defaults to `next-turn`. */
-  target?: SendTarget
+  /** Queue the item joins. */
+  target: SendTarget
   /**
    * Whether this item makes the model run: wake a parked driver (`next-turn`)
-   * or force a continuation step (`next-step` while running). Defaults to
-   * `true`. A `false` `next-turn` item queues without waking; a `false`
+   * or force a continuation step (`next-step` while running). A `false`
+   * `next-turn` item queues without waking; a `false`
    * `next-step` item attaches durable context without forcing another step
    * (the injection preset).
    */
-  wakeup?: boolean
-  source?: MessageSource
+  wakeup: boolean
+  /** Producer provenance; direct human input uses `{ kind: 'user' }`. */
+  source: MessageSource
 }
 
 /** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
-export type AliasSendOptions = Omit<SendOptions, 'target' | 'wakeup'>
+export interface AliasSendOptions {
+  /** Producer provenance; each alias supplies its documented default when omitted. */
+  source?: MessageSource
+}
 
 /**
  * Opaque id assigned to one accepted {@link Agent.send} message; returned by
@@ -225,7 +229,11 @@ export abstract class Agent {
    * @returns the accepted message's {@link AgentMessageId}.
    */
   followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, { ...options, target: 'next-turn', wakeup: true })
+    return this.send(content, {
+      target: 'next-turn',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+    })
   }
 
   /**
@@ -240,7 +248,11 @@ export abstract class Agent {
    * @returns the accepted message's {@link AgentMessageId}.
    */
   steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, { ...options, target: 'next-step', wakeup: true })
+    return this.send(content, {
+      target: 'next-step',
+      wakeup: true,
+      source: options?.source ?? { kind: 'user' },
+    })
   }
 
   /**
@@ -254,7 +266,11 @@ export abstract class Agent {
    * @returns the accepted message's {@link AgentMessageId}.
    */
   inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
-    return this.send(content, { ...options, target: 'next-step', wakeup: false })
+    return this.send(content, {
+      target: 'next-step',
+      wakeup: false,
+      source: options?.source ?? { kind: 'plugin', plugin: '' },
+    })
   }
 
   /**

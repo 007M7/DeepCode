@@ -53,7 +53,11 @@ describe('inbox acceptance', () => {
       agent.send([{ type: 'text', text: 'first', bad: 1n } as never])
     }).toThrow(/losslessly JSON-serializable/)
     expect(() => {
-      agent.send([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
+      agent.send([{ type: 'text', text: 'first' }], {
+        target: 'next-turn',
+        wakeup: true,
+        source: { kind: 'plugin', plugin: 'p', bad: 1n } as never,
+      })
     }).toThrow(/losslessly JSON-serializable/)
     expect(queued).toBe(0)
     expect(agent.session.events).toHaveLength(0)

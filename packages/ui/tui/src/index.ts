@@ -2507,7 +2507,7 @@ export function createTuiChat(
     } else if (agent.status === 'running') {
       agent.steer(content, { source: { kind: 'user' } })
     } else {
-      agent.send(content, { source: { kind: 'user' } })
+      agent.followup(content, { source: { kind: 'user' } })
     }
   }
 

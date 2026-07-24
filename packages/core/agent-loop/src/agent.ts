@@ -127,12 +127,13 @@ export class ReactLoopAgent extends Agent {
   }
 
   /** Accept and route one unified send item. */
-  send(content: ContentBlock[], options: SendOptions = {}): AgentMessageIdType {
+  send(
+    content: ContentBlock[],
+    options: SendOptions = { target: 'next-turn', wakeup: true, source: { kind: 'user' } },
+  ): AgentMessageIdType {
     const id = AgentMessageId(randomUUID())
-    const target = options.target ?? 'next-turn'
-    const wakeup = options.wakeup ?? true
+    const { target, wakeup, source } = options
     if (target === 'next-step' && !wakeup) {
-      const source = options.source ?? { kind: 'plugin', plugin: '' }
       if (this.turnOpen) {
         this.outbox.push({ content, source })
         return id
@@ -150,7 +151,7 @@ export class ReactLoopAgent extends Agent {
     const message: PendingMessage = {
       id,
       content,
-      source: options.source ?? { kind: 'user' },
+      source,
       wakeup,
     }
     if (steering) {
