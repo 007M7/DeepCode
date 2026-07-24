@@ -52,6 +52,7 @@ export const LINK_MAP: Record<string, string> = {
   SessionEvent: 'core.md',
   SessionId: 'core.md',
   SessionStartSource: 'core.md',
+  SessionLogSnapshot: 'session-query.md',
   SessionSurfaceSnapshot: 'session-query.md',
   ApprovalOutcome: 'approval.md',
   ApprovalPolicy: 'approval.md',

@@ -5,6 +5,7 @@
 ## Reads
 
 - `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
+- `readSession(sessionId)` returns one complete detached raw log after the same core replay validation used by resume; it never enters the session into the live store.
 - `filterSessions(filters)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
 - `filterEvents(sessionId, filters)` extracts first-party semantic documents and applies provider-independent metadata and literal-text predicates in ascending seq order.
 - `readTitleSnapshot(sessionId)` loads one live-preferred or persisted log and returns the cloned source header with its latest folded `session/title` event. `readTitle(sessionId)` is the title-only convenience view; it returns `undefined` when the known session has no title.

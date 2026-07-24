@@ -67,7 +67,7 @@ The shipped loop runs prompt-to-checkpoint work through plugin services and even
 
 A **session** is append-only. Each ordinary **turn** claims one queued `send()` item; injection claims none. A successor awaits the preceding claimed turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it; a **step** is one model request plus tools. In the [sequence below](agent-lifecycle.md), quotes mark durable events.
 
-Without an id, creation mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication. Setup failures emit `agent-loop/config-start-failed`; teardown is silent.
+Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` restores-or-creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication. Startup failures emit `agent-loop/config-start-failed`; teardown is otherwise silent.
 
 ### Turn Flow
 
@@ -147,7 +147,7 @@ The session log is authoritative. `deriveMessages()` projects model history; raw
 
 Durability is a plugin concern. Backends buffer synchronous `session/event` notifications. The semantic checkpoint policy drains requests before adapter dispatch, recorded top-level calls before tool dispatch, and complete response/result batches at `agent/post-step`; the loop retains the final turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
-`ctx.sessions.appendOutOfBand()` joins plugin-owned log-only events to an open turn or creates a balanced, flushed zero-step turn. `session/title` folds latest-wins with source seqs and provenance; its immediate fallback and sole optional async provider never delay the agent response. Forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
+`ctx.sessions.appendOutOfBand()` joins log-only events to an open turn or creates a flushed zero-step turn. `session/title` folds latest-wins with source seqs/provenance; fallback and its optional provider never delay responses. Forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
 ### Model Content
 
