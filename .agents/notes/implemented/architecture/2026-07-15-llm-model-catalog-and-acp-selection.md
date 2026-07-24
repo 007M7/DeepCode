@@ -59,4 +59,4 @@ The request header remains the durable source of truth. When a selected target i
 
 ## Testing
 
-Unit coverage validates catalog detachment and malformed metadata, pi-ai and DeepSeek catalog projection, provider/model request routing, prompt-variable alignment, and per-agent target isolation. ACP transport tests validate fixed provider/model forwarding independently of catalog discovery; the TUI suite covers selector interaction and header-based restoration.
+Unit coverage validates catalog detachment and malformed metadata, pi-ai and DeepSeek catalog projection, provider/model request routing, and prompt-variable alignment; per-agent isolation follows from installing the listeners on the agent-scoped context. ACP transport tests validate fixed provider/model forwarding independently of catalog discovery; the TUI suite covers selector interaction and header-based restoration.

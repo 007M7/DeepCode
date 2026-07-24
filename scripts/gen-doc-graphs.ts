@@ -533,7 +533,7 @@ const APP_EXAMPLES = [
     title: 'ACP Automation App Composition',
     label: 'examples/acp-agent',
     config: 'examples/acp-agent/cordis.yml',
-    summary: 'The ACP demo exposes fresh text-only agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.',
+    summary: 'The ACP demo exposes fresh baseline-prompt agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.',
   },
 ]
 
