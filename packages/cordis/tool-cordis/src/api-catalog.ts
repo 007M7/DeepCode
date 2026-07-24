@@ -499,6 +499,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
       },
       {
+        signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
+        jsDoc: '/**\n * Read and replay-validate one complete logical session log without making it live.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned header and complete raw event log from one observation.\n * @throws when persistence, header compatibility, or replay validation fails.\n */',
+      },
+      {
         signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
         jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
@@ -1808,6 +1812,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionLocation',
     declaration: 'export interface SessionLocation {\n    readonly kind: string;\n    readonly path: string;\n}',
+  },
+  {
+    name: 'SessionLogSnapshot',
+    declaration: 'export interface SessionLogSnapshot {\n    session: SessionHeader;\n    events: SessionEvent[];\n}',
   },
   {
     name: 'SessionPersistenceRevision',
