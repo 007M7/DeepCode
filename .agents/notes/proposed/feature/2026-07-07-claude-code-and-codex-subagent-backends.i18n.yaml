@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-07-claude-code-and-codex-subagent-backends.md: ee8576f97a9fdef8c88dcad3a73f28b63ca3ebe1
-2026-07-07-claude-code-and-codex-subagent-backends.zh.md: bd7133a4b8e761ebeb61cea1d26631eab40f13d2
+2026-07-07-claude-code-and-codex-subagent-backends.zh.md: 3d5ccf33b105f9beeca760f82ec849d2ded5ac01
