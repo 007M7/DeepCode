@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-MVP 要求严格的基于事件的追踪，以及完全可回放的会话（严格的基于事件的 trace、logging 系统，session 完全可回放）。
+MVP 要求严格的基于事件的追踪，以及完全可回放的会话（严格的基于事件的 trace、logging 系统，会话完全可回放）。
 
 ## 决策
 

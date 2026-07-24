@@ -6,9 +6,9 @@ Status: implemented
 
 ## 问题
 
-试图理解 harness 的读者可以在 [architecture.md](../../../../docs/architecture.md) 中找到它的*行为*（服务图、session/轮次/步骤生命周期、事件分类），却找不到一个统一描述其*词汇*的地方，也就是这些行为所传递的数据结构。类型形状只存在于源码中，散落在 `packages/*/src/types.ts` 各处，因此要理解“什么是 `Message`、`SessionEvent`、`StreamChunk`”，就必须直接阅读声明。文字目录会有所帮助，但复述或复制粘贴类型定义的目录会在字段发生变化时立即腐化，而不同步的类型文档比没有文档更糟，因为读者会信任它。
+试图理解 harness 的读者可以在 [architecture.md](../../../../docs/architecture.md) 中找到它的*行为*（服务图、会话/轮次/步骤生命周期、事件分类），却找不到一个统一描述其*词汇*的地方，也就是这些行为所传递的数据结构。类型形状只存在于源码中，散落在 `packages/*/src/types.ts` 各处，因此要理解“什么是 `Message`、`SessionEvent`、`StreamChunk`”，就必须直接阅读声明。文字目录会有所帮助，但复述或复制粘贴类型定义的目录会在字段发生变化时立即腐化，而不同步的类型文档比没有文档更糟，因为读者会信任它。
 
-因此，这项工作有两个相互交织的问题：**这样的目录应包含什么**（范围问题——harness 有数十个跨包类型，把它们全部倾倒进来对谁都没有帮助），以及**如何避免粘贴的类型定义发生漂移**（持久性问题）。本 Agent Note（agent 决策记录）记下了这两项决策。与它配套的[生成式 Cordis 事件与服务目录](2026-06-20-generated-cordis-catalog.md)从*接线*维度形成补充：本文对数据结构编目，另一篇则对传递这些结构的事件和服务编目。
+因此，这项工作有两个相互交织的问题：**这样的目录应包含什么**（范围问题——harness 有数十种跨包（package）边界的类型，把它们全部倾倒进来对谁都没有帮助），以及**如何避免粘贴的类型定义发生漂移**（持久性问题）。本 Agent Note（agent 决策记录）记下了这两项决策。与它配套的[生成式 Cordis 事件与服务目录](2026-06-20-generated-cordis-catalog.md)从*接线*维度形成补充：本文对数据结构编目，另一篇则对传递这些结构的事件和服务编目。
 
 ## 决策
 
@@ -25,7 +25,7 @@ Status: implemented
 - `ToolSchema` 是核心（它是流经每个步骤的模型请求 `GenerateOptions` 的一个字段），即使它在概念上属于工具流水线——当*流经主干*与*概念归属*冲突时，前者胜出。
 - 工具展示词汇（`ToolCallView`/`ToolResultView` 等）、`SessionPersistence` 持久性 seam 以及 bash 词汇是子页面。
 
-`core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到子页面获取各 seam 的细节。子页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从 session 拆出）、`tools.md` 和 `bash.md`。
+`core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到子页面获取各 seam 的细节。子页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从会话页面拆出）、`tools.md` 和 `bash.md`。
 
 ### `ts type-equiv` 机制——既逐字又防漂移
 
@@ -48,7 +48,7 @@ Status: implemented
 
 ## 验证教训
 
-主干与 seam 规则在采纳前经过了 `BashExecRequest`、工具 schema 与定义、schema DSL、展示类型以及 session/persistence 拆分的逐一测试。
+主干与 seam 规则在采纳前经过了 `BashExecRequest`、工具 schema 与定义、schema DSL、展示类型以及会话/持久化拆分的逐一测试。
 
 `verify-type-equiv` 必须扫描完整的 Markdown 范围，而不仅是清单点名的文档。否则，未列入清单的 `type-equiv` 块就会逃过所宣称的一一检查。因此，门禁会将此类块报告为孤儿。本 Agent Note 将这条失败关闭扫描规则，连同主干与 seam 的分界决策及逐字匹配决策一并记录；生成式 Cordis 目录在[其 Agent Note](2026-06-20-generated-cordis-catalog.md) 中有对称的设计记录。
 

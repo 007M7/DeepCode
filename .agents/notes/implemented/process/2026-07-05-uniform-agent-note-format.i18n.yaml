@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-05-uniform-agent-note-format.md: 06082251c1b96c90ed470d84224662e00e29791b
-2026-07-05-uniform-agent-note-format.zh.md: 61ade75f179d64fa73390dc85bcd47c30deb112a
+2026-07-05-uniform-agent-note-format.zh.md: df6b0f4dfacf122f452807491680091827f69c25

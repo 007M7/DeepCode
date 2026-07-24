@@ -10,13 +10,13 @@ Status: implemented
 
 `agent/steering` 以相同的 payload 重复了紧接其前的持久事件 `steering/message`。`agent/queued` 仍保留为纯瞬态信号，因为它在持久化之前触发，覆盖了可能在进入日志前被取消的工作。
 
-Steering 承载真实生产流量——hook bridge 的轮次延续决策通过 `inbox.steer()` 注入其理由，最终成为由 hook 矩阵预期输出固定的持久 `steering/message` 事件——而这些消费方无一例外都观察持久事件。没有任何内容观察镜像。
+Steering 承载真实生产流量——钩子 bridge 的轮次延续决策通过 `inbox.steer()` 注入其理由，最终成为由钩子矩阵预期输出固定的持久 `steering/message` 事件——而这些消费方无一例外都观察持久事件。没有任何内容观察镜像。
 
 ## 决策
 
 `agent/steering` 已从 agent 事件分类中移除：包括 `packages/core/agent/src/types.ts` 中的声明（以及其中实时事件 JSDoc 列表对它的提及）、`drainSteering` 中的 emit（当时已无用的 `ctx` 参数也随之移除）、`packages/core/agent/README.md` 中的表格行，以及循环伪代码块（`packages/core/agent-loop/src/loop.ts` 模块文档和 [architecture.md](../../../../docs/architecture.md)）中的 emit 行；Cordis 目录重新生成后不再包含它。唯一的回归测试改为在持久 `steering/message` 事件上固定来源保留行为——所固定的事实存在于日志上。
 
-三份已实现 Agent Note（agent 决策记录）曾说明保留该事件；按照 [implemented/AGENTS.md](../AGENTS.md)，每份记录都已修改并指向本文作为移除记录：包括[边界 Agent Note](2026-06-20-remove-agent-boundary-mirror-events.md) 的保留列表条目、[stream chunk Agent Note](2026-07-02-remove-stream-chunk-mirror.md) 的范围条款，以及[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 的瞬态 emit 枚举。
+三份已实现 Agent Note（agent 决策记录）曾说明保留该事件；按照 [implemented/AGENTS.md](../AGENTS.md)，每份记录都已修改并指向本文作为移除记录：包括[边界 Agent Note](2026-06-20-remove-agent-boundary-mirror-events.md) 的保留列表条目、[流分片 Agent Note](2026-07-02-remove-stream-chunk-mirror.md) 的范围条款，以及[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 的瞬态 emit 枚举。
 
 ## 曾考虑的替代方案
 

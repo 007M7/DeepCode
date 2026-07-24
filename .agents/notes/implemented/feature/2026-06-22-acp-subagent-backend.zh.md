@@ -38,7 +38,7 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 ## 测试
 
-- **无需密钥的单元/集成测试：** 一个脚本化的 ACP 子进程通过真实 stdio 测试 prompt/output 流、所有 stop-reason 映射、信号与 dispose 取消（包括 pre-abort、pre-session 竞态和管道断裂场景）、两种权限策略、被忽略的非消息更新、命令缺失时的清理、提供方重载以及命名空间导出。
+- **无需密钥的单元/集成测试：** 一个脚本化的 ACP 子进程通过真实 stdio 测试提示词/输出流、所有 stop-reason 映射、信号与 dispose 取消（包括 pre-abort、会话前竞态和管道断裂场景）、两种权限策略、被忽略的非消息更新、命令缺失时的清理、提供方重载以及命名空间导出。
 - **无需密钥的 Loader 组合测试：** 仅用于测试的 cordis.yml 通过真实 Loader 启动 stdio 应用，并省略后端的 `cwd`；脚本化模型委派一次，脚本化子进程则证明它在父会话工作区中运行，且 ACP 也对外公布了该工作区，从而端到端覆盖 cwd 继承分支。
 - **需要密钥的 e2e 测试：** 后端 spawn 真实的 ACP 示例；其模型回答 `PONG`，写入 `proof.txt`，父进程验证该文件。
 - **快照缺口：** 每个 ACP 子 agent 是独立进程，拥有自己的回放会话，不同于进程内的按会话回放。确定性 mock 服务器覆盖率已具备；`TODO(acp-subagent-replay)` 跟踪父进程对回放中子 agent 的回放支持。
@@ -59,4 +59,4 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 ## 后续提供方
 
-同样的进程外 spawn/prompt/stream/cancel 形态可泛化到 seam Agent Note 中列出的其他传输方式——A2A、Codex app-server 和 Claude Code Agent SDK——每个都是按名称注册的兄弟提供方。ACP 后端证明了 seam 支持跨进程边界；其余在机制上类似。
+同样的进程外启动/提示词/流式输出/取消形态可泛化到 seam Agent Note 中列出的其他传输方式——A2A、Codex app-server 和 Claude Code Agent SDK——每个都是按名称注册的兄弟提供方。ACP 后端证明了 seam 支持跨进程边界；其余在机制上类似。

@@ -1,6 +1,6 @@
 # Agent Note: 仅持久化组装后的 assistant 消息，不存储流式分片
 
-Status: rejected — 高保真 chunk 重放、部分失败流与快照重放目前依赖持久化的 `assistant/chunk` 事件。只有具备不丢失信息的重放/artifact 替代方案后，才能删除 chunk。
+Status: rejected — 高保真分片回放、部分失败流与快照回放目前依赖持久化的 `assistant/chunk` 事件。只有具备不丢失信息的回放/产物替代方案后，才能删除分片。
 
 [English](2026-06-20-assembled-assistant-messages-only.md) | 中文
 

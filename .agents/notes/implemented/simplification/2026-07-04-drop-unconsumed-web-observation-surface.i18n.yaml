@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-drop-unconsumed-web-observation-surface.md: 5b1cb1307c63ef7c298200ee1655119026b9ebf5
-2026-07-04-drop-unconsumed-web-observation-surface.zh.md: ea97b59332d2c78810d0a6c43f2b7d99d96ccc5f
+2026-07-04-drop-unconsumed-web-observation-surface.zh.md: c4351c7e66d00f47e1bf9ed117c5f7b043045808

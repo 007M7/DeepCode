@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-dev-invariants-over-deep-readonly.md: 8f0e79f15af82ce3125b1f6f767d4ea727aa6d29
-2026-06-11-dev-invariants-over-deep-readonly.zh.md: 9998ddd784f956e3497a0bb9d8f5096047f14a70
+2026-06-11-dev-invariants-over-deep-readonly.zh.md: 2f787bbd55b5a9a91bc5342351756e45cb0515d3

@@ -15,11 +15,11 @@ harness 将其核心词汇——内容块、消息来源、结束原因、轮次
 
 由此引出问题：事件词汇是否应迁移到 **Zod** 或其他运行时 schema 库，使持久化和插件边界拥有运行时 schema 而非被擦除的类型。
 
-本 Agent Note 界定该问题的范围，不提出具体实现。
+本 Agent Note（agent 决策记录）界定该问题的范围，不提出具体实现。
 
 ## 为什么这不是一个持久化层的改动
 
-很容易把「用 Zod 做序列化」理解为对 `dsh-session-persistence-jsonl/src/format.ts` 的局部修改。但它不是，原因在于一个结构性事实：**插件无法对 Zod schema 进行声明合并。** 声明合并是 TypeScript 编译期机制；Zod schema 是运行时值。要用 Zod 校验事件，就需要一个**运行时注册表**，每个产出事件的包（package）向其贡献自己的 schema（如 `ctx.sessionEvents.register('compaction/marker', z.object({…}))`），每个消费方从中读取。这个注册表——而非持久化后端——将成为词汇的真源，取代 merge-extensible interface。
+很容易把「用 Zod 做序列化」理解为对 `dsh-session-persistence-jsonl/src/format.ts` 的局部修改。但它不是，原因在于一个结构性事实：**插件无法对 Zod schema 进行声明合并。** 声明合并是 TypeScript 编译期机制；Zod schema 是运行时值。要用 Zod 校验事件，就需要一个**运行时注册表**，每个产出事件的包（package）向其贡献自己的 schema（如 `ctx.sessionEvents.register('compaction/marker', z.object({…}))`），每个消费方从中读取。这个注册表——而非持久化后端——将成为词汇的真源，取代 merge-extensible 接口。
 
 因此，真正的提案是：**用运行时 schema 注册表替换编译期的 merge-extensible-map 模式，范围覆盖整个仓库。** 这是一次核心词汇的重新设计。
 

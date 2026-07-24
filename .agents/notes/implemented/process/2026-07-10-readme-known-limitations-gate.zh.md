@@ -1,4 +1,4 @@
-# Agent Note: 在每个 package README 中设置受门禁保护的 Known Limitations 章节
+# Agent Note: 每个包（package）README 中受门禁保护的 Known Limitations 章节
 
 Status: implemented
 
@@ -26,4 +26,4 @@ Status: implemented
 
 - 新建的包须声明符合条件的限制事项，或显式加入白名单；缺失、漂移或空的章节会在本地和 CI 的 `doc-sync` 中失败。
 - 门禁为 `doc-sync` 新增一个无外部依赖的 TypeScript 脚本。
-- 重命名受强制的标题需要同时修改脚本和所有 package README。
+- 重命名受强制的标题需要同时修改脚本和所有包 README。

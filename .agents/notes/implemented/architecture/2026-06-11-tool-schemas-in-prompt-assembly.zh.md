@@ -20,4 +20,4 @@ Status: implemented
 
 - 一条 waterfall 统管模型的常驻上下文；plan 模式等插件可以在一个监听器中同时替换提示词文本和可见工具。
 - assembly 接口通过声明合并实现可扩展（没有无类型的 `extras` 包——扩展即声明合并），为未来的槽位预留空间。
-- 将 schema 放在「提示词」服务中略有概念上的意外感，已在本文及 package README 中加以说明。
+- 将 schema 放在「提示词」服务中略有概念上的意外感，已在本文及包 README 中加以说明。

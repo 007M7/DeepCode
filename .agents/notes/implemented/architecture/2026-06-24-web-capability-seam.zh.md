@@ -10,7 +10,7 @@ harness 需要面向模型的 web 工具，但不能将模型契约绑定到某�
 
 面向模型的接口必须保持稳定，而后端可以更换。更换搜索提供方不应改变模型发起查询的方式；更换 fetch 实现不应改变模型请求 URL 的方式。反过来，提供方包也不应仅仅因为自己有额外的提供方特有旋钮就暴露自己的面向模型工具 schema。
 
-如果把搜索和 fetch 直接放进 `dsh-tool-web`，面向模型的工具就要同时承担提供方选择、后端请求映射、传输策略、结果归一化、prompt 引导、展示和 schema 注册。让每个提供方注册自己的工具则有相反的问题：工具的可用性、名称、描述和参数将取决于恰好加载了哪些提供方包，提供方特有字段会泄漏到模型契约中。
+如果把搜索和 fetch 直接放进 `dsh-tool-web`，面向模型的工具就要同时承担提供方选择、后端请求映射、传输策略、结果归一化、提示词引导、展示和 schema 注册。让每个提供方注册自己的工具则有相反的问题：工具的可用性、名称、描述和参数将取决于恰好加载了哪些提供方包，提供方特有字段会泄漏到模型契约中。
 
 还有一个提供方选择的问题。现有的 `tool-bash` 和 `tool-fs` 可以依赖 Cordis 的 `inject`，因为只有一个后端服务键。Web 有两项独立能力（`search` 和 `fetch`），每项能力可能有多个提供方。`inject: ['web']` 能证明 seam 存在，但不能证明存在可用的搜索或 fetch 提供方，也无法定义多个提供方注册时谁胜出。
 
@@ -20,9 +20,9 @@ Web 访问是一个一等能力 seam，遵循[能力 seam Agent Note](2026-06-13
 
 1. `@deepseek-ai/dsh-web`（`packages/web/web`）拥有 `ctx.web`、提供方注册、提供方选择、共享的请求/结果词汇，以及 web 特有的错误。
 2. 提供方包实现具体后端并向 `ctx.web` 注册能力，例如 `@deepseek-ai/dsh-web-search-exa`、`@deepseek-ai/dsh-web-search-perplexity`、`@deepseek-ai/dsh-web-search-deepseek` 和 `@deepseek-ai/dsh-web-fetch-local`。
-3. `@deepseek-ai/dsh-tool-web`（`packages/web/tool-web`）拥有面向模型的 `web_search` 和 `web_fetch` 工具 schema、prompt 段落、参数校验、结果格式化，以及通过 `ctx.web` 实现的工具展示。
+3. `@deepseek-ai/dsh-tool-web`（`packages/web/tool-web`）拥有面向模型的 `web_search` 和 `web_fetch` 工具 schema、提示词段落、参数校验、结果格式化，以及通过 `ctx.web` 实现的工具展示。
 
-提供方不注册工具。提供方注册能力。`dsh-tool-web` 是面向模型的名称、描述、prompt 引导、JSON Schema、展示的唯一所有者。
+提供方不注册工具。提供方注册能力。`dsh-tool-web` 是面向模型的名称、描述、提示词引导、JSON Schema、展示的唯一所有者。
 
 搜索和 fetch 是两个独立工具，但属于同一个 web 访问 seam。`ctx.web` 为两个并行注册表统一拥有提供方选择、abort/错误词汇和部署配置。它们的请求 schema 和提供方逻辑保持独立；共享的服务是触达 web 的产品边界。
 
@@ -66,7 +66,7 @@ flowchart LR
   toolWeb -->|ctx.tools.register| webFetch["tool: web_fetch"]
 ```
 
-`@deepseek-ai/dsh-web` 仅依赖 Cordis 和底层 harness 支持。它声明 `ctx.web`、提供方接口、请求/结果类型、提供方可用性契约和错误码。它不导入 tool、agent、session、LLM 或提供方包。
+`@deepseek-ai/dsh-web` 仅依赖 Cordis 和底层 harness 支持。它声明 `ctx.web`、提供方接口、请求/结果类型、提供方可用性契约和错误码。它不导入工具、agent、会话、LLM 或提供方包。
 
 提供方包仅依赖 `dsh-web` 和 Cordis。它们拥有凭证、端点、协议格式映射、解析和 `WebError` 转换，使用平台 `fetch`。每个提供方注入共享服务并注册后端；只有 `dsh-web` 拥有 `ctx.web` 键。提供方私有的协议形状不会产生对 `ctx.llm` 或 Cordis HTTP 服务的依赖。
 
@@ -161,7 +161,7 @@ interface WebService {
 
 `max_results` 不暴露给模型。它是 `dsh-tool-web` 层的决策：工具设定结果上限——`searchMaxResults` 插件配置，默认 `8`（与 OpenCode 的 Exa 默认值对齐），类似 `dsh-tool-fs` 的 `readLimit`——并作为 `WebSearchRequest` 上的 `maxResults` 传给 seam。将其排除在模型 schema 之外意味着模型只需提问，产品控制返回多少上下文；该字段日后可以提升为面向模型的参数而不破坏 seam。
 
-`maxResults` 沿 tool → seam → provider 流动，上限在返回路径上强制执行：
+`maxResults` 沿工具 → seam → 提供方流动，上限在返回路径上强制执行：
 
 - `dsh-tool-web` 拥有该值并将其放在 `WebSearchRequest.maxResults` 上。
 - `ctx.web` 将请求原样传递给选定的提供方。
@@ -244,7 +244,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 ## 工具消费方行为
 
-`dsh-tool-web` 拥有两个 `ToolDefinition`：`web_search` 和 `web_fetch`。它拥有面向模型的 JSON Schema、snake_case 参数名、prompt 段落、结果渲染为 `ContentBlock[]`、`presentCall` 和 `presentResult`。
+`dsh-tool-web` 拥有两个 `ToolDefinition`：`web_search` 和 `web_fetch`。它拥有面向模型的 JSON Schema、snake_case 参数名、提示词段落、结果渲染为 `ContentBlock[]`、`presentCall` 和 `presentResult`。
 
 `dsh-tool-web` 禁止枚举提供方或直接调用提供方的 `available()`。它进入 seam 的唯一路径是 `ctx.web.search()`/`ctx.web.fetch()`。这将提供方选择保持在单一层；否则工具包可能判定某个提供方可用，而执行时解析出不同的状态。
 
@@ -252,7 +252,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 提供方可用性变化影响执行结果和诊断信息，而非面向模型的 schema 是否存在。如果产品完全不需要 web 工具，在配置中禁用 `dsh-tool-web` 或单个 web 工具即可；如果需要 web 工具但后端配置有误，模型在执行时看到结构化的工具错误。
 
-prompt 引导解释了语义分工——`web_search` 用于发现和获取当前信息，`web_fetch` 用于模型需要特定 URL 内容的场景——prompt 和工具结果告诉模型用 Markdown 链接引用相关 URL。
+提示词引导解释了语义分工——`web_search` 用于发现和获取当前信息，`web_fetch` 用于模型需要特定 URL 内容的场景——提示词和工具结果告诉模型用 Markdown 链接引用相关 URL。
 
 面向模型的输出以文本为先，因为工具结果是 `ContentBlock[]`，但 seam 的产出保持结构化，以便 UI 展示和未来的适配器无需解析渲染后的文本。
 
@@ -286,7 +286,7 @@ prompt 引导解释了语义分工——`web_search` 用于发现和获取当前
 
 ### 让每个提供方注册自己的面向模型工具
 
-这与最灵活的提供方插件系统一致：每个提供方可以暴露其完整的原生 schema。在 harness 中被否决，因为它将面向模型的名称、描述、prompt 引导和结果格式化的所有权交给了提供方包。多个搜索提供方会产生重复的工具名或提供方特有的工具名，模型将学到后端细节而非稳定的产品能力。
+这与最灵活的提供方插件系统一致：每个提供方可以暴露其完整的原生 schema。在 harness 中被否决，因为它将面向模型的名称、描述、提示词引导和结果格式化的所有权交给了提供方包。多个搜索提供方会产生重复的工具名或提供方特有的工具名，模型将学到后端细节而非稳定的产品能力。
 
 ### 将提供方调度直接放在 `dsh-tool-web` 中
 
@@ -324,7 +324,7 @@ prompt 引导解释了语义分工——`web_search` 用于发现和获取当前
 
 ## 推迟工作
 
-- `web_fetch` 的 SSRF/私有网络防护：阻断私有、回环、链路本地、多播及其他非公开目的地，使 `web_fetch` 不再是 SSRF 原语。正确实现不仅仅是 URL 字符串检查——需要先 DNS 解析再连接到已验证的 IP（防御 DNS rebinding/TOCTOU）、跨重定向的每跳重新验证，以及 IPv6 边缘处理（私有范围、IPv4 映射地址）。所调研的参考实现均未做 IP 级阻断（OpenCode 做前缀检查后直接 fetch；Claude Code 依赖集中式主机名黑名单加「私有 URL 会失败」的 prompt），因此没有可复制的实现，且这是 harness 唯一的 SSRF 防线——值得一次专门的设计/spike。在其落地之前，`web_fetch` 只能在无法触达敏感内部目标的部署中启用。
+- `web_fetch` 的 SSRF/私有网络防护：阻断私有、回环、链路本地、多播及其他非公开目的地，使 `web_fetch` 不再是 SSRF 原语。正确实现不仅仅是 URL 字符串检查——需要先 DNS 解析再连接到已验证的 IP（防御 DNS rebinding/TOCTOU）、跨重定向的每跳重新验证，以及 IPv6 边缘处理（私有范围、IPv4 映射地址）。所调研的参考实现均未做 IP 级阻断（OpenCode 做前缀检查后直接 fetch；Claude Code 依赖集中式主机名黑名单加「私有 URL 会失败」的提示词），因此没有可复制的实现，且这是 harness 唯一的 SSRF 防线——值得一次专门的设计/spike。在其落地之前，`web_fetch` 只能在无法触达敏感内部目标的部署中启用。
 - `pdf` `WebFetchBody` 类别：`local-http` 提供方将可文本提取的 PDF 解码（尽力而为、有上限、`truncated`）为 `{ kind: 'pdf'; content; pageCount? }` 分支，`tool-web` 渲染它。这是 fetch 而非 `web_extract`——PDF 获取是具体的 HTTP 200 加确定性的本地解码，不是提供方侧对非 HTTP 资源的提取。添加它是跨 `dsh-web`（声明分支）、提供方（解码 + 将「二进制拒绝」收窄为「拒绝二进制，但可文本提取的 PDF 除外」；需要 OCR 的扫描/图片 PDF 不在范围内）和 `tool-web`（渲染）的协调变更。封闭的 `WebFetchBody` 联合类型使消费方在新分支被处理之前编译失败。
 - 提供方支撑的提取作为独立的 `web_extract` 能力，而非静默扩展 `web_fetch`。
 - 推迟的权限系统落地后的权限策略集成。

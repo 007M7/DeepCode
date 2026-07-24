@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-ACP（Agent Client Protocol）桥接层为每个会话提供独立的工作区：`session/new` 将编辑器的项目目录记录为 `SessionHeader.cwd`，`dsh-tool-bash` 将每次 bash 调用的 `workdir` 默认设为调用方 agent（智能体）的 `session.header.cwd`（见 [`packages/ui/acp`](../../../../packages/ui/acp) 中的 per-session cwd Agent Note 工作与 `dsh-tool-bash` 中的 `resolveWorkdir`）。因此会话 A 中的 bash 命令在 A 的项目目录执行，会话 B 中的在 B 的项目目录执行——一个服务器进程，N 个工作区。
+ACP（Agent Client Protocol）桥接层为每个会话提供独立的工作区：`session/new` 将编辑器的项目目录记录为 `SessionHeader.cwd`，`dsh-tool-bash` 将每次 bash 调用的 `workdir` 默认设为调用方 agent（智能体）的 `session.header.cwd`（见 [`packages/ui/acp`](../../../../packages/ui/acp) 中的每会话 cwd Agent Note 工作与 `dsh-tool-bash` 中的 `resolveWorkdir`）。因此会话 A 中的 bash 命令在 A 的项目目录执行，会话 B 中的在 B 的项目目录执行——一个服务器进程，N 个工作区。
 
 文件系统解析使用的是插件加载时的 cwd，而 bash 使用的是会话的项目目录。因此，当编辑器项目目录与服务器启动目录不同时，相对路径的解析结果就会不一致；快照测试因为让这两个路径相同而掩盖了这个 bug。
 
@@ -34,6 +34,6 @@ ACP（Agent Client Protocol）桥接层为每个会话提供独立的工作区�
 
 - 在 ACP 演示中，fs 工具与 bash 现在对每个会话的工作区达成一致；编辑器可以打开任意项目目录，两类工具都在该目录下操作。
 - 对于包含 `symlink/..` 的会话 cwd，或普通符号链接 cwd 搭配含父目录遍历的相对路径，bash、文件系统工具和沙箱授权都会从同一个物理工作区解析；词法父目录不会获得授权。
-- `FsTarget` 的标识不变：`targetKey` 仍为解析后绝对路径的 realpath，因此 observed-state 键控与符号链接标识不受影响——正确的 per-session cwd 产生与 bash 目标相同的 key。
+- `FsTarget` 的标识不变：`targetKey` 仍为解析后绝对路径的 realpath，因此 observed-state 键控与符号链接标识不受影响——正确的每会话 cwd 产生与 bash 目标相同的 key。
 - 向后兼容：所有现有的 `resolve(path)` 调用（均在测试中）继续正常工作；新参数是可选的。
 - 单会话 stdio 演示不受影响：它不提供会话 cwd（其 agent 的会话没有 `cwd`），因此解析回退到 `config.cwd = process.cwd()`，即工作区本身。

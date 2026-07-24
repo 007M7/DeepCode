@@ -13,15 +13,15 @@ Status: proposed
 | 接口 | 生产证据 | 简化方式 |
 | --- | --- | --- |
 | `SurfaceManager.invalidate()` | 只有其单元测试调用它；seeding 在惰性创建的 manager 存在之前就已完成，且会话从不替换其日志引用。 | 删除它及其不可能触发的整体替换契约。 |
-| `ToolExecutionResult.callId` | 每个钩子已经接收不可变的 `ToolExecution`；循环和 ACP（Agent Client Protocol）通过 call/session 事件关联。没有消费方读取这个重复的结果字段。 | 移除该字段、复制/不匹配守卫，以及证明该重复不可能不一致的测试。 |
+| `ToolExecutionResult.callId` | 每个钩子已经接收不可变的 `ToolExecution`；循环和 ACP（Agent Client Protocol）通过调用/会话事件关联。没有消费方读取这个重复的结果字段。 | 移除该字段、复制/不匹配守卫，以及证明该重复不可能不一致的测试。 |
 | `ReactLoopAgent` 根导出 | 包外的命名导入都是测试；生产代码面向 `Agent` 编程，通过 `ctx.agents` 创建/恢复。 | 返回/接口类型为 `Agent`，将具体循环类改为包内部；保留有意设计的同步、仅配置的 `AgentLoop.create()` 路径。 |
-| `workflow-workerthread` 的 protocol/runtime/session 再导出与命名的 `WorkerWorkflowEngine` | 每个包名消费方都使用默认引擎；workflow Agent Note 已将 worker 协议格式（wire format）定义为私有。 | 保留默认插件类/配置契约；移除重复的命名类导出，将协议模块保持为源码私有。 |
+| `workflow-workerthread` 的 protocol/runtime/session 再导出与命名的 `WorkerWorkflowEngine` | 每个包名消费方都使用默认引擎；工作流 Agent Note 已将 worker 协议格式（wire format）定义为私有。 | 保留默认插件类/配置契约；移除重复的命名类导出，将协议模块保持为源码私有。 |
 | `code-runtime-worker` 的 protocol/bootstrap 再导出 | 包外的生产/e2e 消费方使用 `WorkerCodeRuntime` 和配置，而非 `BootstrapPort`、`PatchableStream` 或 worker 消息/启动类型。 | 保留运行时类/配置契约，将其协议格式/bootstrap 词汇改为源码私有。 |
 | ACP 的 translation/presenter 根导出 | `agentOptions`、`streamSessionEventUpdate`、`todosToPlan`、`ToolPresenter`、`nullToolPresenter` 和 `TerminalRendering` 只有同文件或 ACP 测试消费方；唯一的包外生产消费方挂载的是插件命名空间。 | 保留 `name`、`inject`、`Config`、`AcpConfig` 和 `apply`；将 translation/presentation 辅助函数改为源码私有，在包内测试。 |
 | `providerWording` 与 `completedTurnPrefix` 根导出 | 各有一个同包生产调用者；只有 balanced-prefix 辅助函数有一个同包白盒测试。 | 改为源码私有，测试提供方行为。 |
 | `depthOf`、`SubagentDepthError`、`SENSITIVE_ENV_PATTERN`、`waitForExit` 与 `exitsWithin` 根导出 | 生产 subagent 后端消费的是进程内 runner 和子进程构造/dispose（资源释放）辅助函数，而非这些强制/测试内部实现。 | 保留深度/环境/退出行为，但将辅助函数和 error/regex 改为源码私有；通过 spawn 和 dispose 测试。 |
 | `PersistenceCoordinator.inits`、后端 `inits` 访问器、`seedCoversPrefix` 与 `assertSerializable` | 访问器为白盒测试而存在；`seedCoversPrefix` 没有包外生产导入者；`assertSerializable` 没有生产调用者，且与 coordinator append 边界的无损快照重复。 | 通过 `session/flush` 观察初始化，将 `seedCoversPrefix` 改为源码私有，删除 `assertSerializable`。保留两个后端、`SessionHeader` 和 SQLite 的版本契约。 |
-| `LlmError.status` 与 replay status | 适配器/replay 填充它，但生产分支基于稳定的 error code/message 判断，从不读取原始 status。 | 移除未读字段和 replay 管道，保留错误分类。 |
+| `LlmError.status` 与回放 status | 适配器/回放填充它，但生产分支基于稳定的错误码/消息判断，从不读取原始 status。 | 移除未读字段和回放管道，保留错误分类。 |
 | `BlockAssembler.push()` 返回值 | 两个生产调用者都忽略返回的已完成块。 | 返回 `void`；保留有意公开的 `blocks()`/`message()` 契约。 |
 | `compactRegion` 的独立 `session` 参数 | 固定调用者传入的对象与 `agent.session` 上已有的是同一个；模型可见的 mount API 也能调用该方法，但接受两个身份允许挂载的插件提供不一致的配对。 | 保留手动 region seam，同时有意将其收窄为以 `agent.session` 为唯一真源。 |
 | `CompactionResult.startSeq`、`summarySeq`、`endSeq` 与 `summary` | 生产消费方只读取 shadowed range/seq/token 统计；持久日志拥有 summary 和事件标识。 | 移除四个结果回显，保留两个共享的 transcript（文本记录）渲染器。 |
@@ -49,15 +49,15 @@ Status: proposed
 
 **保留测试便利函数和自包含的结果字段为公开。** 公开辅助函数可以让白盒测试更方便，自包含的结果字段看起来更符合人体工学，未来的嵌入者可能需要具体循环类或枚举方法。这些好处是假设性的；当前它们让每处实现和文档都要解释没有已交付调用者能观察到的状态。真正的消费方可以引入它所需的最小契约，其所有权和失败语义明确。
 
-**保留所有 catalog 成员以供模型编写的 mount 使用。** 自引用工具集是一条真实的通用消费路径，而非生成文档的噪音。然而，它的价值来自准确、可组合的服务接口，而非无限期保留重复字段或不一致的参数对；上述每一项 catalog 收缩都移除了在同一 execution、agent（智能体）或 result 上其他位置已可获得的事实，并在同一变更中更新 API 参考。
+**保留所有 catalog 成员以供模型编写的 mount 使用。** 自引用工具集是一条真实的通用消费路径，而非生成文档的噪音。然而，它的价值来自准确、可组合的服务接口，而非无限期保留重复字段或不一致的参数对；上述每一项 catalog 收缩都移除了在同一次执行、同一个 agent（智能体）或同一结果中其他位置已可获得的事实，并在同一变更中更新 API 参考。
 
 ## 验收标准
 
 - 精确符号搜索显示：在本 Agent Note 及任何已实现 Agent Note 修正之外，没有被移除的接口。
 - 本 Agent Note 列出的每个接口均按指定方式缺失或降级；清单之外有意保留的扩展/测试契约不变。
-- 工具执行、上下文压缩（context compaction）、两个 LLM 适配器、两个持久化后端、workflow 隔离以及 agent 创建/恢复保持其已交付行为。
+- 工具执行、上下文压缩（context compaction）、两个 LLM 适配器、两个持久化后端、工作流隔离以及 agent 创建/恢复保持其已交付行为。
 - 类型检查、覆盖率、快照、doc-sync（文档同步门禁）、module-graph 校验、构建和 hygiene 通过。
 
 ## 风险
 
-大多数移除在编译时可见但对运行时无影响。上下文压缩参数清理有意禁止 session/context 不匹配，同时保留手动 region seam。外部预发布嵌入者和现有模型编写的 mount 可能导入更少的辅助函数、传递更少的参数或接收更窄的结果形状；这是有意的产品接口收缩，而非仅仅是生成 catalog 的清理。仓库尚未发布，因此承载不受支持的接口才是更大的基础成本。
+大多数移除在编译时可见但对运行时无影响。上下文压缩参数清理有意禁止会话/上下文不匹配，同时保留手动 region seam。外部预发布嵌入者和现有模型编写的 mount 可能导入更少的辅助函数、传递更少的参数或接收更窄的结果形状；这是有意的产品接口收缩，而非仅仅是生成 catalog 的清理。仓库尚未发布，因此承载不受支持的接口才是更大的基础成本。

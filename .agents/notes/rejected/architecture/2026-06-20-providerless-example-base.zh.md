@@ -1,6 +1,6 @@
 # Agent Note: 使共享示例基础配置与提供方无关
 
-Status: rejected — 已由[将示例应用提取到 packages 中](../../implemented/architecture/2026-06-20-extract-example-app-packages.md)取代；后者把 spine 移入 `dsh-agent-spine-demo` bundle 并删除 `base*.yml` 文件，因此已不存在可重命名的共享基础 YAML。
+Status: rejected — 已由[将示例应用提取到 packages 中](../../implemented/architecture/2026-06-20-extract-example-app-packages.md)取代；后者把主干移入 `dsh-agent-spine-demo` bundle 并删除 `base*.yml` 文件，因此已不存在可重命名的共享基础 YAML。
 
 [English](2026-06-20-providerless-example-base.md) | 中文
 
@@ -12,9 +12,9 @@ Status: rejected — 已由[将示例应用提取到 packages 中](../../impleme
 
 ## 提案
 
-将与提供方无关的核心重命名为 `examples/base.yml`，让适配器选择在每个具体示例中显式声明。编码和 ACP 真实配置添加一小段 `llm-deepseek` include 或本地块；快照配置添加 `llm-replay`。删除 `examples/base-core.yml`。
+将与提供方无关的核心重命名为 `examples/base.yml`，让适配器选择在每个具体示例中显式声明。编码和 ACP（Agent Client Protocol）真实配置添加一小段 `llm-deepseek` include 或本地块；快照配置添加 `llm-replay`。删除 `examples/base-core.yml`。
 
-共享基础应仅包含提供方无关的服务与工具：`llm`、会话、系统提示词、工具、agent、不变式、bash 执行器和 bash 工具 schema。任何涉及模型提供方选择的内容都应放在叶子配置中。
+共享基础应仅包含提供方无关的服务与工具：`llm`、会话、系统提示词、工具、agent（智能体）、不变式、bash 执行器和 bash 工具 schema。任何涉及模型提供方选择的内容都应放在叶子配置中。
 
 ## 验收标准
 
@@ -22,7 +22,7 @@ Status: rejected — 已由[将示例应用提取到 packages 中](../../impleme
 - `examples/base-core.yml` 已删除。
 - 真实演示配置显式添加 DeepSeek 适配器。
 - 快照回放配置 include 同一个与提供方无关的基础，并加入其回放适配器。
-- [examples README](../../../../examples/README.md)、各示例 README 及 Agent Note 引用不再解释「base = base-core 加适配器」。
+- [examples README](../../../../examples/README.md)、各示例 README 及 Agent Note（agent 决策记录）引用不再解释「base = base-core 加适配器」。
 
 ## 放弃了什么
 

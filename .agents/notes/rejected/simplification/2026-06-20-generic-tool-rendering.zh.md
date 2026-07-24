@@ -1,14 +1,14 @@
 # Agent Note: 收拢工具自有的 UI 展示逻辑
 
-Status: rejected — 工具拥有的呈现机制应等到出现更多真实工具后再进行泛化或删除。Bash 与 ACP 目前仍需要现有的丰富呈现路径。
+Status: rejected — 工具拥有的呈现机制应等到出现更多真实工具后再进行泛化或删除。Bash 与 ACP（Agent Client Protocol）目前仍需要现有的丰富呈现路径。
 
 [English](2026-06-20-generic-tool-rendering.md) | 中文
 
 ## 问题
 
-工具可以定义 `presentCall()` 和 `presentResult()` 回调，返回 `ToolCallPresentation`、`ToolResultPresentation` 以及可选的 `ToolTerminal` 字段。代码本身就标记了这个设计的混乱：title、kind、raw input、content、terminal cwd、terminal output、exit code 和 signal 逐步增长为一堆可选字段。ACP（Agent Client Protocol）随后维护 pending call 状态以将 result 与原始 args 配对，在 `session/load` 时创建仅用于回放的 presenter，并将 terminal 子字段映射为 Zed 特有的 `_meta`。`dsh-tool-bash` 甚至从渲染后的文本中反向解析退出状态，因为纯回放安全的 presenter 已经拿不到结构化的 `BashRunResult`。
+工具可以定义 `presentCall()` 和 `presentResult()` 回调，返回 `ToolCallPresentation`、`ToolResultPresentation` 以及可选的 `ToolTerminal` 字段。代码本身就标记了这个设计的混乱：title、kind、raw input、content、terminal cwd、terminal output、exit code 和 signal 逐步增长为一堆可选字段。ACP 随后维护 pending call 状态以将 result 与原始 args 配对，在 `session/load` 时创建仅用于回放的 presenter，并将 terminal 子字段映射为 Zed 特有的 `_meta`。`dsh-tool-bash` 甚至从渲染后的文本中反向解析退出状态，因为纯回放安全的 presenter 已经拿不到结构化的 `BashRunResult`。
 
-真正的第一方用途是为 ACP 提供 bash 展示。这不足以作为冻结一个跨包 UI 展示 API 的依据。
+真正的第一方用途是为 ACP 提供 bash 展示。这不足以作为冻结一个跨包（package）UI 展示 API 的依据。
 
 ## 提案
 

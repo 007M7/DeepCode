@@ -8,7 +8,7 @@ Status: implemented
 
 harness 的扩展面是其类型化的拦截 seam（见[拦截 seam Agent Note](2026-06-30-interception-seams.md)）：所谓「原生钩子」不过是一个普通的 Cordis 插件，订阅 `agent/session-start`、`agent/prompt-submit`、`tools/pre-execute`、`tools/post-execute`、`agent/turn-continuation`、`subagent/start`、`subagent/end`。但用户带着**既有的** Claude Code（CC）和 Codex 钩子配置到来，一个 `hooks.json`（或 settings 文件中的 `hooks` 键）里满是 shell 命令钩子，并希望它们原样运行。本 Agent Note 引入两个**桥接插件**，将外部 shell 钩子协议翻译到类型化 seam 上，构建于共享的协议格式（wire format）库之上（见 [hook-protocol-lib Agent Note](2026-06-30-hook-protocol-lib.md)）。
 
-贯穿整个设计的定位：**桥接是兼容性适配器，不是高级工具。** 桥接能做的事（阻止工具、注入上下文、强制继续、观察 subagent），原生 Cordis 插件都能做得更强——类型化返回值、完整 `ctx`、无序列化边界。桥接存在的理由是运行外部 CC/Codex 命令钩子中被明确支持的子集。这使每个桥接保持精简：解析配置、选择匹配模式、构建每事件的 payload、调用共享库的 `runHook` + `mergeHookOutputs`，再将中性结果映射为 seam Decision。各 package 的 README 维护着当前不支持的事件和部分字段的完整清单，以官方协议为参照。
+贯穿整个设计的定位：**桥接是兼容性适配器，不是高级工具。** 桥接能做的事（阻止工具、注入上下文、强制继续、观察 subagent），原生 Cordis 插件都能做得更强——类型化返回值、完整 `ctx`、无序列化边界。桥接存在的理由是运行外部 CC/Codex 命令钩子中被明确支持的子集。这使每个桥接保持精简：解析配置、选择匹配模式、构建每事件的 payload、调用共享库的 `runHook` + `mergeHookOutputs`，再将中性结果映射为 seam Decision。各包的 README 维护着当前不支持的事件和部分字段的完整清单，以官方协议为参照。
 
 ## 决策
 
@@ -39,7 +39,7 @@ CC 桥接的 `ask` 结果是一条真正的权限路径，而非终态桥接决�
 
 ### 添加上下文不是否决——先 delegate，再 prepend
 
-仅附加 `additionalContext`（没有 block/deny）的钩子并不是桥接可以独自返回的决策：在 waterfall 监听器中不调用 `next()` 就返回 `allow`/`accept`，会短路其后的每个 `agent/prompt-submit` / `tools/post-execute` 监听器，使注册在桥接之后的策略/沙箱插件看不到该提示词。因此，每个桥接都会先通过 `next()` 委托，再将自身上下文加入下游决策。两个 seam 都携带有序的 `additionalContexts` 数组，因此桥接会在保留所有下游来源、信封和元数据字段的同时，前置加入其独立来源的条目；下游 prompt block 仍会丢弃所有上下文，因为提示词从未到达模型，而 post-tool block 语义可以显式保留上下文。Code Mode 会通过外层 `run_code` 结果转送同一数组。只有钩子本身真正返回 `deny`/`block` 才会短路。测试断言：上下文钩子允许后，较晚的监听器仍能阻止提示词，且保留的 prompt 和 post-tool 上下文仍彼此分离。
+仅附加 `additionalContext`（没有 block/deny）的钩子并不是桥接可以独自返回的决策：在 waterfall 监听器中不调用 `next()` 就返回 `allow`/`accept`，会短路其后的每个 `agent/prompt-submit` / `tools/post-execute` 监听器，使注册在桥接之后的策略/沙箱插件看不到该提示词。因此，每个桥接都会先通过 `next()` 委托，再将自身上下文加入下游决策。两个 seam 都携带有序的 `additionalContexts` 数组，因此桥接会在保留所有下游来源、信封和元数据字段的同时，前置加入其独立来源的条目；下游提示词阻止仍会丢弃所有上下文，因为提示词从未到达模型，而工具后阻止语义可以显式保留上下文。Code Mode 会通过外层 `run_code` 结果转送同一数组。只有钩子本身真正返回 `deny`/`block` 才会短路。测试断言：上下文钩子允许后，较晚的监听器仍能阻止提示词，且保留的提示词和工具后上下文仍彼此分离。
 
 ### CLAUDE_PROJECT_DIR 默认为会话工作区
 
@@ -67,4 +67,4 @@ Claude Code 始终导出 `CLAUDE_PROJECT_DIR`，常见的未修改钩子引用 `
 
 ## 后果
 
-匹配语义、退出码处理和合并优先级位于 `dsh-hook-protocol`；每个桥接只负责解析配置、构建方言 payload 和映射结果。逐文件覆盖率包含配置分支以及通过真实循环、`dsh-bash-local` 和 shell 脚本的端到端映射，同时一个真实 Loader 冒烟测试守护 package 的导出形态。原生插件绕过协议格式，直接返回类型化决策。
+匹配语义、退出码处理和合并优先级位于 `dsh-hook-protocol`；每个桥接只负责解析配置、构建方言 payload 和映射结果。逐文件覆盖率包含配置分支以及通过真实循环、`dsh-bash-local` 和 shell 脚本的端到端映射，同时一个真实 Loader 冒烟测试守护包的导出形态。原生插件绕过协议格式，直接返回类型化决策。

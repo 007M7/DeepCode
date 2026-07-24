@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-17-ts-build-config.md: 1275a635242ea887c941db9dc0554fd33acd4102
-2026-06-17-ts-build-config.zh.md: 3b20d30011f84ae1a40182c23fa0743c608bb2ab
+2026-06-17-ts-build-config.zh.md: 7691118dd152874e2849f1ace686069c9ea3f61f

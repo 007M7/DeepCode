@@ -10,7 +10,7 @@ Status: implemented
 
 直接的压力来自 skill（技能）加载：读取单个 `SKILL.md` 已经可以走 `ctx.get('fs')`，但发现哪些 skill 根目录包含 `<name>/SKILL.md` 或 `<name>.md` 仍需要目录枚举。如果仅在 `dsh-skill` 中添加目录列举，要么保留对 Node 的直接依赖，要么在文件系统提供方栈之外发明一个一次性的本地辅助函数。
 
-本决策只添加提供方能力，不涉及面向模型的 `ls`/`list` 工具或 skill 发现机制的变更。那些消费方需要独立的 UX、prompt 与策略决策。
+本决策只添加提供方能力，不涉及面向模型的 `ls`/`list` 工具或 skill 发现机制的变更。那些消费方需要独立的 UX、提示词与策略决策。
 
 ## 决策
 
@@ -26,7 +26,7 @@ Status: implemented
 
 它从不读取文件内容。递归遍历、glob 匹配、分页、搜索、文件监听和面向模型的渲染均有意不在范围内。
 
-本地后端通过 `readdir({ withFileTypes: true })`、`resolveLocalTarget` 以及元数据 `stat`/`realpath` 探测来实现。结果顺序是确定性的（`name.localeCompare`），以保持未来消费方的 prompt/列表输出稳定，并提高前缀缓存复用率。
+本地后端通过 `readdir({ withFileTypes: true })`、`resolveLocalTarget` 以及元数据 `stat`/`realpath` 探测来实现。结果顺序是确定性的（`name.localeCompare`），以保持未来消费方的提示词/列表输出稳定，并提高前缀缓存复用率。
 
 损坏或已消失的子项可以表示为 `type: 'other'`（不带 `version`/`size`）；它们不会中止整个列举。在列举目录或解析/探测子项元数据时遇到权限或后端 I/O 故障，则以结构化的 `FsError` 错误码使整个列举失败：
 
@@ -38,7 +38,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**在添加 seam 的同时添加面向模型的 list 工具。** 否决。其 prompt、schema 和渲染契约与提供方原语相互独立。
+**在添加 seam 的同时添加面向模型的 list 工具。** 否决。其提示词、schema 和渲染契约与提供方原语相互独立。
 
 **让每个消费方自行枚举目录。** 否决。这会将 `dsh-skill` 等产品包绑定到 Node/本地文件系统行为上，绕过策略/远程/沙箱后端。
 

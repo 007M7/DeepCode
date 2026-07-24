@@ -14,7 +14,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 ### 脚本契约（兼容 Claude Code）
 
-一次工作流调用包含 JSON `meta`（`name`、`description`，以及可选的 `whenToUse`/`phases`）和一段支持顶层 `await` 并返回 JSON 值的 JavaScript `script` 正文。元数据作为数据校验，从不被执行。正文接收 `agent(prompt, options)`、`parallel(thunks)`、`pipeline(items, ...stages)`、`phase(title)`、`log(message)` 和 `args`。pipeline 各阶段接收 `(prev, item, index)`，阶段之间无屏障；失败的子 agent 和普通阶段错误将受影响的 item 解析为 `null` 并跳过其剩余阶段。Claude Code 的确定性限制通过日志化延迟处理，因此兼容的脚本正文在将 meta 头移入参数后可以使用时钟和随机数。
+一次工作流调用包含 JSON `meta`（`name`、`description`，以及可选的 `whenToUse`/`phases`）和一段支持顶层 `await` 并返回 JSON 值的 JavaScript `script` 正文。元数据作为数据校验，从不被执行。正文接收 `agent(prompt, options)`、`parallel(thunks)`、`pipeline(items, ...stages)`、`phase(title)`、`log(message)` 和 `args`。流水线各阶段接收 `(prev, item, index)`，阶段之间无屏障；失败的子 agent 和普通阶段错误将受影响的 item 解析为 `null` 并跳过其剩余阶段。Claude Code 的确定性限制通过日志化延迟处理，因此兼容的脚本正文在将 meta 头移入参数后可以使用时钟和随机数。
 
 与 CC 有一处刻意的严格性差异：钩子误用——未知或延迟的选项（`effort`/`isolation`/`agentType`）、格式错误的参数、超出支持子集的 schema、触发上限、seam 启动失败——会抛出带 `fatal: true` 的 `WorkflowError`，组合器会重新抛出 fatal 错误而非将 item 置为 null。如果不这样做，一个拼错的选项会悄然变成一个与子 agent 失败无法区分的 `null`——这正是本仓库禁止的「被接受后被忽略」的失败模式。另有一处新增：工具的 `args` 参数是一个 JSON 对象（裸列表被包装为一个字段），使协议格式（wire format）保持诚实。
 
@@ -26,7 +26,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 **信任前提**：工作流脚本与模型的 bash 访问具有相同的信任级别。引擎容纳有缺陷的脚本，并保证结果已 settled、值为 JSON 安全、取消后静默；它不防御恶意代码。vm 上下文和 worker 线程不是安全边界：脚本可以逃逸到具有进程级权限的 Node API。沙箱化需要在此 seam 背后使用独立进程或 isolated-vm 引擎。
 
-**为何选择 `node:worker_threads`**：每次运行获得一个非池化的 worker。vm 上下文限制了文档化的脚本表面，而 message-port RPC 将 `agent()` 桥接到宿主侧的子循环。worker 防止脚本的同步工作阻塞宿主，提供序列化边界，并允许取消后强制终止。`isolated-vm` 因其维护状态和部署要求被否决。
+**为何选择 `node:worker_threads`**：每次运行获得一个非池化的 worker。vm 上下文限制了文档化的脚本表面，而消息端口 RPC 将 `agent()` 桥接到宿主侧的子循环。worker 防止脚本的同步工作阻塞宿主，提供序列化边界，并允许取消后强制终止。`isolated-vm` 因其维护状态和部署要求被否决。
 
 宿主在发布前校验元数据并解析正文。私有枚举键 payload 映射定义协议格式；待启动记录、已发布子记录、单一取消信号、worker 死亡回收、结果优先级与 dispose 静默，在此协议上保持 subagent run 契约。这些竞态算法归[agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records)所有。
 
@@ -38,7 +38,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 ### 消费方（dsh-tool-workflow）
 
-一个 `workflow` 工具，镜像 `dsh-tool-subagent` 的同步形态：启动、await、`try/finally` dispose、abort 桥接 `exec.signal`、非 `completed` → `isError`。渲染意图：一张以调用的 `meta.name` 参数为标题的 `generic` 卡片（展示是参数的纯函数）。工具描述即面向模型的编写规范。使用策略以工具自身的 `tool:<toolName>` prompt 段落随工具发布（显式请求才使用的引导——工具引导存在于工具插件中，从不在部署 persona 中）；harness 没有 ultracode 风格的 effort 门控。
+一个 `workflow` 工具，镜像 `dsh-tool-subagent` 的同步形态：启动、await、`try/finally` dispose、abort 桥接 `exec.signal`、非 `completed` → `isError`。渲染意图：一张以调用的 `meta.name` 参数为标题的 `generic` 卡片（展示是参数的纯函数）。工具描述即面向模型的编写规范。使用策略以工具自身的 `tool:<toolName>` 提示词段落随工具发布（显式请求才使用的引导——工具引导存在于工具插件中，从不在部署 persona 中）；harness 没有 ultracode 风格的 effort 门控。
 
 ### 基础：subagent seam 上的结构化输出
 
@@ -56,7 +56,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 
 - **后台收集**（启动工具 → run id → 完成通知 → 收集），与 bash/subagent 后台统一一起设计。
 - **日志化 + 恢复**（`resumeFromRunId`、缓存的 agent() 前缀）：实现它会以脚本契约收紧的形式重新引入 CC 的确定性禁令（脚本目前可以读取时钟）。
-- **保存/打包的工作流**（`.deepseek/workflows/` 注册表、斜杠命令界面）和**脚本持久化到运行目录**（tool-call 事件已经持久记录了脚本）。
+- **保存/打包的工作流**（`.deepseek/workflows/` 注册表、斜杠命令界面）和**脚本持久化到运行目录**（工具调用事件已经持久记录了脚本）。
 - **嵌套 `workflow()`**、**token `budget`**，以及 `effort`/`isolation`/`agentType` agent 选项（每个都以命名延迟的消息大声拒绝）。
 - **整体运行的挂钟超时**：取消总能释放调用方（result 在宽限期内 settle），因此总运行时间上限是后台重设计的策略旋钮，不是此处的正确性需求。
 - **超越 worker 线程的引擎加固**：在同一 seam 背后使用 isolated-vm 或独立进程引擎（真正的沙箱化；内存限制）。
@@ -67,7 +67,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 
 - **宿主侧的恶意值防护**（无 trap 代理拒绝、从不调用访问器的描述符遍历、realm 侧预渲染抛出值、realm 构建的 promise/array/error 克隆加结构化 fatal 识别）：否决。每项防御针对的都是信任前提所接受的作者，而线程的序列化边界已经从构造上使跨 realm 值全量化。
 - **进程内 `node:vm` 执行**：机械上最简——无 RPC、无线程——但 `start()` 会在脚本的初始同步切片期间阻塞调用方，第一个 await 之后的同步自旋无法在进程内终止（vm `timeout` 仅覆盖第一个切片），且 `dispose()` 只能在宿主循环上放弃一个未 settle 的脚本。worker 线程引擎保持相同的 vm 上下文脚本表面，同时解除宿主阻塞并使终止成为现实。
-- **后台执行作为默认**（CC 的形态）：延迟。前台同步与 `dsh-tool-subagent` 的当前形态一致，后台语义应在 bash/subagent/workflow 之间统一设计一次，而非逐工具设计。
+- **后台执行作为默认**（CC 的形态）：延迟。前台同步与 `dsh-tool-subagent` 的当前形态一致，后台语义应在 bash、subagent 和工作流之间统一设计一次，而非逐工具设计。
 - **工作流层为 `agent({schema})` 做 JSON 解析**：在一个消费方重复 seam 关注点，而 seam 的能力标志仍不诚实地为 `false`。
 - **Meta 嵌入脚本中作为 `export const meta = {...}`**（CC 的确切格式）：保持脚本自包含且 CC 脚本可直接使用，但获取 meta 需要在宿主上执行模型编写的文本。即使一个空的限时 vm 上下文也无法约束脚本控制的 getter（当宿主读取结果对象时）。JSON 参数消除了扫描器、执行和宿主自旋漏洞；代价是 CC 脚本的 meta 头必须移入参数（正文保持可直接使用）。
 - **`ValueSchemaSpec` 作为 `outputSchema` 协议类型**：面向作者的形式如今具有等价词汇，但工作流提供的是来自其他 realm 的原始 JSON Schema 数据；将这类运行时数据假装成可信的作者声明，会跳过原始 schema 断言边界。
@@ -77,4 +77,4 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 
 ## 后果
 
-扇出计划现在存在于可重运行的脚本中，`outputSchema` 提供权威的结构化子 agent 结果。每次运行付出 worker 启动和 message-port RPC 成本，但宿主启动保持非阻塞，取消可以终止 worker，序列化强制执行值边界。worker 线程不是安全边界。无效选项快速失败而非退化为 Claude Code 的 `null`；消费方通过 run handle 保持控制权，观察者仅接收快照。
+扇出计划现在存在于可重运行的脚本中，`outputSchema` 提供权威的结构化子 agent 结果。每次运行付出 worker 启动和消息端口 RPC 成本，但宿主启动保持非阻塞，取消可以终止 worker，序列化强制执行值边界。worker 线程不是安全边界。无效选项快速失败而非退化为 Claude Code 的 `null`；消费方通过 run handle 保持控制权，观察者仅接收快照。

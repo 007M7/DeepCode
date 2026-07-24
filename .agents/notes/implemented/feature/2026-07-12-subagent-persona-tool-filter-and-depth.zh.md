@@ -18,7 +18,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 | 控制 | 问题 | 结果 |
 |---|---|---|
-| `persona` | 什么角色指令替换该子 agent 的部署人设？ | 一个子 agent 局部的 prompt 段落遮蔽 `deployment:persona` |
+| `persona` | 什么角色指令替换该子 agent 的部署人设？ | 一个子 agent 局部的提示词段落遮蔽 `deployment:persona` |
 | `toolFilter` | 部署全局工具中哪些进入该子 agent 的可见工具视图？ | 一个有作用域的限制在添加子 agent 局部工具之前过滤全局工具 |
 | `maxDepth` | 这棵委派树最深可以长到多少层？ | 子 agent 深度超过绝对上限时，启动请求被拒绝 |
 
@@ -26,11 +26,11 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 ### 人设是有作用域的遮蔽
 
-人设控制改变一个子 agent 的行为，而不改变部署级的 prompt 组装。在未发布的设置阶段，进程内提供方在子 agent 作用域中注册一个名为 `deployment:persona` 的段落；普通的最具体者优先解析规则仅在该子 agent 的组装中替换全局段落。
+人设控制改变一个子 agent 的行为，而不改变部署级的提示词组装。在未发布的设置阶段，进程内提供方在子 agent 作用域中注册一个名为 `deployment:persona` 的段落；普通的最具体者优先解析规则仅在该子 agent 的组装中替换全局段落。
 
 其值与部署人设具有相同的严格模板语义。省略时通过全局层继承部署段落；显式空字符串则以空段落遮蔽全局人设。父级和兄弟级的人设永远不会进入子 agent 的扁平作用域。
 
-这使用的是常规的系统提示词注册机制，而非第二条人设通道。因此第一次 prompt 看到的命名贡献与后续 prompt 和 prompt 检查工具看到的一致。
+这使用的是常规的系统提示词注册机制，而非第二条人设通道。因此第一次提示词看到的命名贡献与后续提示词和提示词检查工具看到的一致。
 
 ### 工具过滤是一条作用于全局视图的活规则
 
@@ -51,7 +51,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 深度限制独立于工具可见性来约束递归委派。顶层 agent 深度为零；进程内子 agent 的深度为其父级已验证深度加一。`maxDepth` 是一个绝对的非负安全整数，当推导出的子 agent 深度大于上限时，启动在子 agent 所有权开始之前即被拒绝。
 
-有效父级深度取持久 `SessionHeader.delegationDepth` 与运行时 `AgentOptions.subagentDepth` 中的较大值。进程内子 agent 把推导出的深度记录在 session header 中，resume 会恢复该 header，因此重启无法降低递归计数。
+有效父级深度取持久 `SessionHeader.delegationDepth` 与运行时 `AgentOptions.subagentDepth` 中的较大值。进程内子 agent 把推导出的深度记录在会话 header 中，恢复时会重新载入该 header，因此重启无法降低递归计数。
 
 每个公开入口都自行验证值域，而非依赖单一的面向模型配置路径。负值、小数、负零、非有限值、不安全整数、格式错误的存储父级深度以及推导溢出均被拒绝。直接的 `SubagentStartRequest` 可以省略上限，让此机制不约束深度；经 Loader 解析的 `dsh-tool-subagent` 配置则默认值为 `3`、接受数值覆盖，并使用显式的 `'provider-managed'` 来省略由进程外提供方部署拥有递归预算时的上限。三是一个较小的有限默认值，仍允许 root 加三代后代：[SDK 辅助函数生成的 subagent 条目](../../../../packages/sdk/helper/src/features/builtin/index.ts)和 [JSON-RPC 示例](../../../../examples/jsonrpc-agent/cordis.yml)采用这项通用策略，而已交付的交互式 ACP、headless 和 REPL 示例固定为一。提供方缺少 `depthLimit` 时，数值工具上限会在提供方挂载阶段失败。
 
@@ -67,7 +67,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 所有子 agent 局部的组合在子 agent 变得可观察之前完成。进程内提供方向 agent 创建提供一个设置回调；该回调在子 agent 作用域中安装人设、工具限制和结构化输出贡献。只有设置成功后，创建才发布会话和 agent 并允许驱动器启动。
 
-设置失败会回滚私有子 agent。没有观察者能获取到一个「第一次 prompt 使用了部署人设或未过滤工具集、后续 prompt 才使用所请求配置」的子 agent。
+设置失败会回滚私有子 agent。没有观察者能获取到一个「第一次提示词使用了部署人设或未过滤工具集、后续提示词才使用所请求配置」的子 agent。
 
 ## 可见性不是授权
 
@@ -85,7 +85,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 **在子 agent 创建时快照允许的全局工具。** 冻结的 allow 集合使未来注册统一不可用，但它改变了热注册语义并开启了授权设计。已实现的过滤器保持为活跃的注册表谓词，并直接记录 allow 与 deny 的行为。
 
-**仅隐藏工具 schema。** 仅呈现层的过滤让模型可以通过 Code Mode 或伪造调用执行一个 prompt 声称不存在的工具。改为由一个解析器同时管控呈现和执行。
+**仅隐藏工具 schema。** 仅呈现层的过滤让模型可以通过 Code Mode 或伪造调用执行一个提示词声称不存在的工具。改为由一个解析器同时管控呈现和执行。
 
 **把深度上限编码为自动工具过滤器。** 创建时过滤器会快照一个可能依赖运行时状态的决策，只影响一个已配置工具名，且不保护直接服务调用方或替代委派工具。提供方改为在每次启动时强制绝对上限。
 

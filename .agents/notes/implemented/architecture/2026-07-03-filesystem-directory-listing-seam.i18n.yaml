@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-03-filesystem-directory-listing-seam.md: c7db576ff3c7a56622f90a4400bd9297c9591bef
-2026-07-03-filesystem-directory-listing-seam.zh.md: 44996d4c680bb2a0c3e880a120e0f9bd420493cd
+2026-07-03-filesystem-directory-listing-seam.zh.md: 75ee6851127ca6d8c3fc60a66115d521d4627cdc

@@ -105,7 +105,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 `compact/end` 保留其 `error?` 字段（与 `tool/result` 的自包含错误一致——一个事件即可区分成功与失败，无需关联兄弟事件）。没有单独的 `compact/error` 事件。
 
-**核心 session 修复保持对压缩无感知——这是有意为之。** `interruptedTurnClosers` 从不被教导 `compact/*`。如果教导它，每个未来的 `xxx/start … xxx/end` 插件对都必须修补核心模块——这恰好是能力 seam 架构存在的意义所要避免的耦合。由于仅日志的孤儿是惰性的，不需要特殊修复：通用轮次修复加上未落地 surface 变更的惰性就足够了。
+**核心会话修复保持对压缩无感知——这是有意为之。** `interruptedTurnClosers` 从不被教导 `compact/*`。如果教导它，每个未来的 `xxx/start … xxx/end` 插件对都必须修补核心模块——这恰好是能力 seam 架构存在的意义所要避免的耦合。由于仅日志的孤儿是惰性的，不需要特殊修复：通用轮次修复加上未落地 surface 变更的惰性就足够了。
 
 ## 曾考虑的替代方案
 
@@ -119,7 +119,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 - **包**：`packages/compact/compact` 提供接口，`compact-basic` 提供后端，`compact-tool-result-prune` 提供可选的确定性重写。`packages/llm/token-meter` 独立拥有回放感知的测量。消费方层推迟。
 - **自动 seam**：`agent/post-step`（`@mode serial`）处理成功调用的压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。通用 `agent/pre-step` 保持为四参数检查点，不携带压缩专属的提示词/前缀 payload。
-- **`SessionEventMap`** 通过声明合并（merge-extensible）获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
+- **`SessionEventMap`** 通过可合并扩展的声明合并获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
 - **`dsh-compact`** 拥有 `COMPACT_CHECKPOINT_SOURCE`、`isCompactCheckpointSource(source)`、`toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`。该标记用于跨后端实现识别替换摘要。带缓存的 surface 边缘检查会防止 `compactRegion` 和 `compactIfNeeded` 拆分工具调用/结果对，按 seq 校验当前成员关系，从每个切割点的一条平衡序列回答两侧边缘，并拒绝陈旧或缺失的 seq 与孤立结果。
 - **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、完整溯源信息和仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用；已校验的替换仍是位于轮次内的重写。
 - **接线**：`examples/tui-agent/cordis.yml` 依次加载零配置的 `dsh-token-meter`、`dsh-compact-tool-result-prune` 和 `dsh-compact-basic`；服务级默认值使组合无需重复数值策略即可使用。

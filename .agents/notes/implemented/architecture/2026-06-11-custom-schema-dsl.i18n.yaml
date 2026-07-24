@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-custom-schema-dsl.md: 947d53555df078bfa9f3dac48eab4b8c0074007c
-2026-06-11-custom-schema-dsl.zh.md: 7317e950a4d9822edfca190ccfc22b65809f078a
+2026-06-11-custom-schema-dsl.zh.md: 26ebfe2fb15a6c034e809b3f51187342fa500193

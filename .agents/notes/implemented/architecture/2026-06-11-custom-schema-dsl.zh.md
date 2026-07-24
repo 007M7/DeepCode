@@ -1,4 +1,4 @@
-# Agent Note: 使用自定义类型化 tool-schema DSL 替代 schemastery
+# Agent Note: 使用自定义类型化工具 schema DSL 替代 schemastery
 
 Status: implemented
 

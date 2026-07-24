@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-hook-snapshot-matrix.md: ceb91a70e1f9582cf2a7cb4cec0ba8aaf5699b8e
-2026-07-04-hook-snapshot-matrix.zh.md: 61c0c06569db17e7daec8d75d4af8150a1f9dd52
+2026-07-04-hook-snapshot-matrix.zh.md: 250995dd1aae566aa5b9d40a14ed281b14fbfe0b

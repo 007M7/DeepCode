@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-26-fsspec-style-fs-seam.md: d496f273e2635624e0ab8e70e06c8729563c5466
-2026-06-26-fsspec-style-fs-seam.zh.md: 54d08b28a7004b47f20f4947a39264819260d9bf
+2026-06-26-fsspec-style-fs-seam.zh.md: 18e4be5177f593253dc100a864b6c741904a90b2

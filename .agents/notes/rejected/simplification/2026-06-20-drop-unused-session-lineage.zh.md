@@ -1,6 +1,6 @@
 # Agent Note: 移除未使用的会话血缘元数据
 
-Status: rejected — `parentSession` 是已记录的 fork/subagent seam 的一部分，并已由 agent/session 恢复路径保留。该字段面向未来，但并非意外遗留的死状态。
+Status: rejected — `parentSession` 是已记录的 fork/subagent seam 的一部分，并已由 agent（智能体）/会话恢复路径保留。该字段面向未来，但并非意外遗留的死状态。
 
 [English](2026-06-20-drop-unused-session-lineage.md) | 中文
 
@@ -19,7 +19,7 @@ Status: rejected — `parentSession` 是已记录的 fork/subagent seam 的一�
 ## 验收标准
 
 - `SessionHeader` 仅包含 version、id、createdAt 和可选的 cwd。
-- JSONL 与 SQLite 元数据 schema 不再存储 parent-session id。
+- JSONL 与 SQLite 元数据 schema 不再存储父会话 id。
 - 恢复与列表 API 不再往返传递 `parentSession`。
 - 文档和测试移除没有生产消费方支撑的 fork 血缘声明。
 - 会话格式版本、后端 schema 版本与记录的 fixture（测试前置数据）按需刷新；按预发布格式策略，非当前版本的存储数据将被拒绝，不提供迁移路径。

@@ -20,7 +20,7 @@ harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent（智�
 
 ### 为何不采用 bash seam 的形状
 
-bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个 context 中只注册恰好一个 `BashExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmService.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三个包构成的结构（接口 / 实现 / 消费方）；只是「一个 vs. 多个实现」这个维度不同。
+bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个上下文中只注册恰好一个 `BashExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmService.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三个包构成的结构（接口 / 实现 / 消费方）；只是「一个 vs. 多个实现」这个维度不同。
 
 ## 决策
 
@@ -59,7 +59,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 提供方选择是配置，不面向模型
 
-`dsh-tool-subagent` 绑定到恰好一个提供方名称（`Config.provider`）；模型只看到 `{ description, prompt }`。若要暴露多种传输方式，请多次加载该工具插件，每次绑定不同的提供方和不同的 `toolName`（工具注册表拒绝重名）。*服务*持有多提供方注册表；*工具*选择其中一个——本版 schema 中没有 provider/type 参数。
+`dsh-tool-subagent` 绑定到恰好一个提供方名称（`Config.provider`）；模型只看到 `{ description, prompt }`。若要暴露多种传输方式，请多次加载该工具插件，每次绑定不同的提供方和不同的 `toolName`（工具注册表拒绝重名）。*服务*持有多提供方注册表；*工具*选择其中一个——本版 schema 中没有提供方/type 参数。
 
 ## 测试
 

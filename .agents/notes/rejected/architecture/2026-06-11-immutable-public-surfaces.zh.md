@@ -6,7 +6,7 @@ Status: rejected — 普遍采用 `DeepReadonly<T>` 的类型翻转已由 `Sessi
 
 ## 问题
 
-被否决的提案针对的是一个所有权漏洞：仅靠 `readonly SessionEvent[]` 类型无法封堵该漏洞，因为其元素在运行时仍然可变，类型强制转换或纯 JavaScript 代码可以改写嵌套的历史记录。已实现的设计在 `Session` 中封堵了这一漏洞：对每个被接受的事件进行物化并深度冻结，返回冻结的数组快照。进行中的 prompt waterfall（瀑布式事件）有意保持可变换，因此不可变性是一条所有权边界，而非一条全局类型规则。
+被否决的提案针对的是一个所有权漏洞：仅靠 `readonly SessionEvent[]` 类型无法封堵该漏洞，因为其元素在运行时仍然可变，类型强制转换或纯 JavaScript 代码可以改写嵌套的历史记录。已实现的设计在 `Session` 中封堵了这一漏洞：对每个被接受的事件进行物化并深度冻结，返回冻结的数组快照。进行中的提示词 waterfall（瀑布式事件）有意保持可变换，因此不可变性是一条所有权边界，而非一条全局类型规则。
 
 ## 提案
 
@@ -24,6 +24,6 @@ Status: rejected — 普遍采用 `DeepReadonly<T>` 的类型翻转已由 `Sessi
 
 ## 风险
 
-`DeepReadonly` 类型在 waterfall 边界处（突变本身就是 API 的地方）可能产生噪音较大的错误。应将可变/只读边界精确地划在「已记录 vs 进行中」，并在 session README 中加以说明。
+`DeepReadonly` 类型在 waterfall 边界处（突变本身就是 API 的地方）可能产生噪音较大的错误。应将可变/只读边界精确地划在「已记录 vs 进行中」，并在会话 README 中加以说明。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-快照层（`pnpm run test:snapshot`）会启动真实 `acp-agent` 子进程，通过 [`dsh-llm-replay`](../../../../packages/support/llm-replay) 重放已记录 session，并将规范化 stdout transcript（文本记录）+ 重新持久化的 session log 与已提交预期输出进行 diff。它是唯一端到端覆盖完整面向编辑器 transcript 的测试层。
+快照层（`pnpm run test:snapshot`）会启动真实 `acp-agent` 子进程，通过 [`dsh-llm-replay`](../../../../packages/support/llm-replay) 重放已记录会话，并将规范化 stdout transcript（文本记录）+ 重新持久化的会话日志与已提交预期输出进行 diff。它是唯一端到端覆盖完整面向编辑器 transcript 的测试层。
 
 该层最初为每个进程只有一个会话而构建，这一假设硬编码在两处：
 

@@ -1,4 +1,4 @@
-# Agent Note: 移除 ACP session/load，直到恢复具备产品形态
+# Agent Note: 移除 ACP（Agent Client Protocol）session/load，直到恢复具备产品形态
 
 Status: rejected — Zed 是当前目标 ACP 客户端，它声明并实际使用支持加载的会话，还为并发的 `session/load` 保留待加载状态。桥接层应保留 `session/load` 并巩固恢复契约。
 
@@ -6,7 +6,7 @@ Status: rejected — Zed 是当前目标 ACP 客户端，它声明并实际使�
 
 ## 问题
 
-ACP（Agent Client Protocol）声明 `loadSession: true` 并实现 `session/load`：向 bridge 注入持久化能力、校验 cwd 与存储元数据的一致性、从持久化日志重建 agent（智能体），并向客户端回放先前的 transcript（文本记录）更新。该路径有自己的竞态处理、loading-id 守卫、回放展示逻辑和测试。它还依赖规范日志保留足够的 UI 数据，以重建旧的分片和工具展示。
+ACP 声明 `loadSession: true` 并实现 `session/load`：向 bridge 注入持久化能力、校验 cwd 与存储元数据的一致性、从持久化日志重建 agent（智能体），并向客户端回放先前的 transcript（文本记录）更新。该路径有自己的竞态处理、loading-id 守卫、回放展示逻辑和测试。它还依赖规范日志保留足够的 UI 数据，以重建旧的分片和工具展示。
 
 持久化仍然是基础能力，但编辑器可见的恢复尚未经过产品流程设计。目前没有会话选择器、没有标题/预览元数据，也没有明确的加载失败或部分加载的用户体验。bridge 正在为一个仅被测试、文档和当前目标客户端的会话模型所使用的功能付出复杂度代价。
 

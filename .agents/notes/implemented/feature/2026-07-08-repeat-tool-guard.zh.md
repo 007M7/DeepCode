@@ -14,7 +14,7 @@ harness 已经具备 pi 扩展所使用的全部 seam，而且更好：[拦截 s
 
 该守卫是一个循环卫生插件，而非面向模型的工具。它统计对同一工具以相同规范化参数发起的连续调用次数，并在配置的阈值处注入建议性提醒。它从不延迟、阻止或改写调用；模型自行决定是换种方式重试还是结束。
 
-插件为 `@deepseek-ai/dsh-repeat-tool-guard`，位于 `packages/guard/repeat-tool-guard/`，开辟 `guard/` 分组用于循环卫生插件（单包（package）分组有先例：[todo-write Agent Note](2026-06-29-todo-write-tool.md)发布了 `todo/tool-todo`）。它注册两个监听器，将状态保存在以存活 `Agent` 对象为键的 `WeakMap` 中——工具注册表是 context 级别的单例，其 waterfall（瀑布式事件）交错所有 agent（智能体）的调用（subagent 运行在同一个 context 上），因此按 agent 分键是正确性要求，而非锦上添花；弱对象键还使得纯清理用途的 disposal 监听器不再必要。
+插件为 `@deepseek-ai/dsh-repeat-tool-guard`，位于 `packages/guard/repeat-tool-guard/`，开辟 `guard/` 分组用于循环卫生插件（单包（package）分组有先例：[todo-write Agent Note](2026-06-29-todo-write-tool.md)发布了 `todo/tool-todo`）。它注册两个监听器，将状态保存在以存活 `Agent` 对象为键的 `WeakMap` 中——工具注册表是上下文级别的单例，其 waterfall（瀑布式事件）交错所有 agent（智能体）的调用（subagent 运行在同一个上下文上），因此按 agent 分键是正确性要求，而非锦上添花；弱对象键还使得纯清理用途的 disposal 监听器不再必要。
 
 - **`tools/post-execute`（waterfall）**——唯一的检测点。监听器同时接收 `(exec, result)`，因此计数和提醒投递无需跨事件的 pending map（pi 扩展需要它，仅因为其 `tool_call`/`tool_result` 钩子是分开的事件）。它始终通过 `next()` 委托，当命中阈值时，将提醒前置到下游决策的 `additionalContexts`——这正是[钩子桥接](2026-06-30-hook-bridges.md)已采用的「观察并丰富」姿态，遵守 waterfall 契约。计数放在此处而非 `tools/pre-execute`，因为 post-execute 也会为被拒绝的调用触发（`ToolRegistry.execute` 将 deny 路由到同一条流水线），而模型反复敲击一个被拒绝的调用恰恰是值得打破的循环。
 - **`agent/prompt-submit`（waterfall）**——纯重置钩子：通过 `next()` 委托，清除提交 agent 的链。用户介入改变了上下文；跨越介入的重复不是循环。
@@ -30,7 +30,7 @@ harness 已经具备 pi 扩展所使用的全部 seam，而且更好：[拦截 s
 
 ### 提醒投递
 
-提醒作为独立条目搭载在 `additionalContexts` 上（source 为 `{kind: 'plugin', plugin: 'repeat-tool-guard'}`——依照 `HookContext`，该标签承载语义），绝不替换 `content`：`tool/result` 事件仍是工具自身的审计输出，循环则在步骤结果之后把缓冲的上下文追加为 `context/message`，session 将其渲染为带标签的合成 user 信封，并由派生历史回放。阈值逐级升级：第一个配置阈值获得简短的「你正在重复自己，请分析先前结果」提示；后续各阈值获得详细形式，包含工具、重复计数和规范参数（在头部截断到 `argumentsPreviewChars`，默认 500——循环中的 `write` 级 payload 不得无界地进入下一次请求；链键始终比较完整规范字符串），并说明这些调用没有取得进展。pi 原版把温和文本硬编码为字面计数 3；本守卫以 `thresholds[0]` 为键，修复了移植中的这一 bug。下游钩子桥贡献仍是独立数组条目，因此两个插件都保留各自的 source、信封与元数据。
+提醒作为独立条目搭载在 `additionalContexts` 上（source 为 `{kind: 'plugin', plugin: 'repeat-tool-guard'}`——依照 `HookContext`，该标签承载语义），绝不替换 `content`：`tool/result` 事件仍是工具自身的审计输出，循环则在步骤结果之后把缓冲的上下文追加为 `context/message`，会话将其渲染为带标签的合成 user 信封，并由派生历史回放。阈值逐级升级：第一个配置阈值获得简短的「你正在重复自己，请分析先前结果」提示；后续各阈值获得详细形式，包含工具、重复计数和规范参数（在头部截断到 `argumentsPreviewChars`，默认 500——循环中的 `write` 级 payload 不得无界地进入下一次请求；链键始终比较完整规范字符串），并说明这些调用没有取得进展。pi 原版把温和文本硬编码为字面计数 3；本守卫以 `thresholds[0]` 为键，修复了移植中的这一 bug。下游钩子桥贡献仍是独立数组条目，因此两个插件都保留各自的 source、信封与元数据。
 
 ### 配置
 
@@ -48,7 +48,7 @@ harness 已经具备 pi 扩展所使用的全部 seam，而且更好：[拦截 s
 
 ## 测试
 
-- **单元测试：** 使用脚本化适配器的真实循环，覆盖计数与重置规则、未追踪透明性、dispose（资源释放）清理、按 agent 隔离、规范化参数键序、升级、被拒绝的调用、无 agent 执行、通配符转义、无效配置，以及下游 block 或 replacement 决策，达到逐文件 100% 覆盖率。
+- **单元测试：** 使用脚本化适配器的真实循环，覆盖计数与重置规则、未追踪透明性、dispose（资源释放）清理、按 agent 隔离、规范化参数键序、升级、被拒绝的调用、无 agent 执行、通配符转义、无效配置，以及下游阻止或 replacement 决策，达到逐文件 100% 覆盖率。
 - **快照测试：** keyless 的 `repeat-tool-guard` 场景发起五次相同的 `todo_write` 调用，在 ACP 输出和会话日志中固定第三次调用的温和提醒与第五次调用的详细提醒。该插件在实时示例中加载，但在其他场景中保持静默。
 - **E2e 测试：** 无。该插件是确定性的且与提供方无关，其 seam 契约由各自的所有者覆盖。
 

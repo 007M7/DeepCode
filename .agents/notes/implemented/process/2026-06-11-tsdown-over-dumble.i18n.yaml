@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-tsdown-over-dumble.md: e8cdaeb1e3331ffb04de024acff5b0e6ca3e6366
-2026-06-11-tsdown-over-dumble.zh.md: 97cbfe8cda6c2f2a5738c8221843735454b34183
+2026-06-11-tsdown-over-dumble.zh.md: bb5feef585c1748f41d1b204313f1a4d8b357a17

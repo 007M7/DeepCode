@@ -38,7 +38,7 @@ claude-code V1 的条目是 `{ content, status, activeForm }`；后来（V2）�
 
 ### 校验：低成本的中间路线
 
-schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重复的 `content`，以及超过一个 `in_progress` 任务。claude-code 将单一 in_progress 交给 prompt 约束；oh-my-pi 在代码中强制。我们取中间路线：强制执行使计划*连贯*的低成本不变式（无空任务、无重复、最多一个活跃），但将排序和保持列表最新的纪律通过工具描述交给模型。被拒绝的写入返回 `isError` 结果，使模型自行修正。
+schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重复的 `content`，以及超过一个 `in_progress` 任务。claude-code 将单一 in_progress 交给提示词约束；oh-my-pi 在代码中强制。我们取中间路线：强制执行使计划*连贯*的低成本不变式（无空任务、无重复、最多一个活跃），但将排序和保持列表最新的纪律通过工具描述交给模型。被拒绝的写入返回 `isError` 结果，使模型自行修正。
 
 ## 为何没有 cordis-catalog 条目 / 没有 `@mode`
 
@@ -51,7 +51,7 @@ schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重�
 - **真实 Loader 路径**——插件通过 `Loader.unwrapExports` 运行，断言命名空间导出形状存活（它有 `inject`，因此一个意外的 default 导出会在加载时崩溃——postmortem/0001）。
 - **全循环集成**——一个脚本化的 mock 模型通过真实 agent loop（智能体循环）调用 `todo_write`；`todo/write` 事件落地，第二次调用替换它。
 - **`session/load` 回放**——持久化的 `todo/write` 在新的 ACP bridge 加载会话时重新发出 `plan` 更新。
-- **带密钥 e2e + 快照**——真实 prompt 诱导一次 `todo_write`；快照预期输出获得 `plan` 通知和日志事件。
+- **带密钥 e2e + 快照**——真实提示词诱导一次 `todo_write`；快照预期输出获得 `plan` 通知和日志事件。
 
 ## 曾考虑的替代方案
 

@@ -1,14 +1,14 @@
 # Agent Note: 移除轮次中途引导
 
-Status: rejected — 轮次中途 steering 是一项有意设计的 agent 能力，用于接收步骤之间的用户/插件输入以及未来的 goal/loop 工作流。它是面向产品方向的复杂度，而非 `send()` 的意外重复。
+Status: rejected — 轮次中途 steering（中途引导）是一项有意设计的 agent（智能体）能力，用于接收步骤之间的用户/插件输入以及未来的 goal/loop 工作流。它是面向产品方向的复杂度，而非 `send()` 的意外重复。
 
 [English](2026-06-20-retire-mid-turn-steering.md) | 中文
 
 ## 问题
 
-agent（智能体）暴露了两条用户消息路径，外观相近但生命周期语义不同：`send()` 将一条普通用户轮次排入队列，而 `steer()` 在当前运行轮次的步骤之间注入一条消息，空闲时则回退为 `send()`。这一区分贯穿整个栈：`Agent.steer()` 是公开 API；会话日志有持久化的 `steering/message` 事件；agent 事件分类体系有 `agent/steering`；agent loop（智能体循环）在排队消息 FIFO 之外还维护一个 steering FIFO；取消操作需要清空两个队列；`deriveMessages()` 必须将 steering 渲染为带标签的合成用户消息，而非普通提示词。
+agent 暴露了两条用户消息路径，外观相近但生命周期语义不同：`send()` 将一条普通用户轮次排入队列，而 `steer()` 在当前运行轮次的步骤之间注入一条消息，空闲时则回退为 `send()`。这一区分贯穿整个栈：`Agent.steer()` 是公开 API；会话日志有持久化的 `steering/message` 事件；agent 事件分类体系有 `agent/steering`；agent loop（智能体循环）在排队消息 FIFO 之外还维护一个 steering FIFO；取消操作需要清空两个队列；`deriveMessages()` 必须将 steering 渲染为带标签的合成用户消息，而非普通提示词。
 
-续行 seam 进一步放大了成本。`agent/turn-continuation` 默认条件为 `hadToolCalls || steeringInjected`，因此同一轮次内的 steering（中途引导）消息即使模型未请求工具调用，也会强制循环再次调用模型。注释中提到了未来 `/goal`、`/loop` 和预算守卫的用途，但当前仓库没有生产级监听器；只有测试注册了该 waterfall（瀑布式事件）。另外，唯一调用 `steer()` 的生产 UI 是 stdio 演示。ACP（Agent Client Protocol）在轮次运行期间已经通过普通队列发送提示词。
+续行 seam 进一步放大了成本。`agent/turn-continuation` 默认条件为 `hadToolCalls || steeringInjected`，因此同一轮次内的 steering 消息即使模型未请求工具调用，也会强制循环再次调用模型。注释中提到了未来 `/goal`、`/loop` 和预算守卫的用途，但当前仓库没有生产级监听器；只有测试注册了该 waterfall（瀑布式事件）。另外，唯一调用 `steer()` 的生产 UI 是 stdio 演示。ACP（Agent Client Protocol）在轮次运行期间已经通过普通队列发送提示词。
 
 ## 提案
 

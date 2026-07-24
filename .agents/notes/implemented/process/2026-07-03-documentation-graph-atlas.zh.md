@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-仓库已经有若干高可信文档表面，各自覆盖不同维度：[module-graph.md](../../../../docs/module-graph.md) 根据包的 `peerDependencies` 生成；生成式 [Cordis 事件](../../../../docs/cordis-catalog/events.md)和[服务](../../../../docs/cordis-catalog/services.md)目录根据 Cordis `Events` 和 `Context` 声明生成；[tool-catalog.md](../../../../docs/tool-catalog.md) 通过启动已发布工具插件生成；[core-data-structures/](../../../../docs/core-data-structures/core.md) 则使用 `ts type-equiv` 块使粘贴的类型定义与源码保持同步。
+仓库已经有若干高可信文档表面，各自覆盖不同维度：[module-graph.md](../../../../docs/module-graph.md) 根据包（package）的 `peerDependencies` 生成；生成式 [Cordis 事件](../../../../docs/cordis-catalog/events.md)和[服务](../../../../docs/cordis-catalog/services.md)目录根据 Cordis `Events` 和 `Context` 声明生成；[tool-catalog.md](../../../../docs/tool-catalog.md) 通过启动已发布工具插件生成；[core-data-structures/](../../../../docs/core-data-structures/core.md) 则使用 `ts type-equiv` 块使粘贴的类型定义与源码保持同步。
 
 这些参考文档是准确的，但大多是目录式的。维护者仍需自行综合关系：哪些包构成一个能力 seam、哪个应用组装了具体的主干、哪些事件是持久的而哪些是实时的、钩子或策略插件在哪里可以拦截工作、以及哪个面向模型的工具依赖哪个服务。SDK 用户从另一个角度面临同样的问题：「我想要某种行为，应该安装或加载哪个包？应该扩展哪个事件/服务/工具？」
 
@@ -32,7 +32,7 @@ Status: implemented
 
 | 关系图 | 维护模式 | 真源 |
 |---|---|---|
-| [模块依赖图](../../../../docs/module-graph.md) | 生成式 | `packages/*/*/package.json` 的 peer dependency 与包分组路径 |
+| [模块依赖图](../../../../docs/module-graph.md) | 生成式 | `packages/*/*/package.json` 的对等依赖（peer dependency）与包分组路径 |
 | [工具 schema 目录与包映射](../../../../docs/tool-catalog.md) | 生成式 | 启动后采集的工具 schema，以及工具包服务/效应元数据 |
 | [能力 seam 与核心服务](../../../../docs/capability-seams.md) | 混合生成式 | Cordis 服务声明，以及 `gen-doc-graphs.ts` 中的角色清单 |
 | [tui-agent 应用组合](../../../../examples/tui-agent/composition.md) | 混合生成式 | `examples/tui-agent/cordis.yml` 插件列表，以及人工维护的应用/bundle 展开 |
@@ -40,7 +40,7 @@ Status: implemented
 | [cordis-agent 应用组合](../../../../examples/cordis-agent/composition.md) | 混合生成式 | `examples/cordis-agent/cordis.yml` 插件列表，以及人工维护的应用/bundle 展开 |
 | [acp-agent 应用组合](../../../../examples/acp-agent/composition.md) | 混合生成式 | `examples/acp-agent/cordis.yml` 插件列表加人工策划的应用/bundle 展开 |
 | [事件生产者/消费方矩阵](../../../../docs/event-producer-consumer.md) | 混合生成式 | Cordis 事件声明、经 AST 扫描的 `ctx.on/emit/parallel/serial/waterfall` 位置，以及显式动态分派覆盖 |
-| [agent 轮次与步骤生命周期](../../../../docs/agent-lifecycle.md) | 人工维护 | architecture.md 循环生命周期、Cordis 目录链接，以及 session 事件语义 |
+| [agent 轮次与步骤生命周期](../../../../docs/agent-lifecycle.md) | 人工维护 | architecture.md 循环生命周期、Cordis 目录链接，以及会话事件语义 |
 | [工具执行管线](../../../../docs/tool-execution-pipeline.md) | 人工维护 | 工具管线语义与 `tools/execute` waterfall（瀑布式事件）|
 | [ACP（Agent Client Protocol）快照回放](../../../../packages/ui/acp/snapshot-replay.md) | 人工策划 | 快照 harness 行为 |
 

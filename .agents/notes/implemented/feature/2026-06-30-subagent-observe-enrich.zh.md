@@ -14,17 +14,17 @@ Status: implemented
 
 **在 `SubagentRunEndInfo` 中添加 `lastAssistantMessage`——子 agent 的最终输出。** 在正常结束路径上，它是只读的类型化 `SubagentResult.output`，观察者无需持有 run 即可看到子 agent 产出了什么。在基础设施拒绝（不存在 `SubagentResult`）的情况下，该字段缺失，事件报告 `stopReason: 'error'`。提供方与监听方是受信任的同进程协作者，遵守借用不可变载荷的契约。
 
-两个事件仍为普通 **`emit`**。异步的 `SubagentService.start()` 将结果观察附加到就绪的 provider run 上，发出 `subagent/start`，然后返回该 run；进程内监听方因此可以通过 `ctx.agents.get(info.id)` 访问已发布的子 agent，而远程 provider 无需在本地注册表中有对应条目。provider 启动被拒绝时不发出任何事件。回调保持仅观察，且逐监听方隔离确保一个异常订阅者不会阻塞活跃 run 或饿死后续监听方。
+两个事件仍为普通 **`emit`**。异步的 `SubagentService.start()` 将结果观察附加到就绪的提供方 run 上，发出 `subagent/start`，然后返回该 run；进程内监听方因此可以通过 `ctx.agents.get(info.id)` 访问已发布的子 agent，而远程提供方无需在本地注册表中有对应条目。提供方启动被拒绝时不发出任何事件。回调保持仅观察，且逐监听方隔离确保一个异常订阅者不会阻塞活跃 run 或饿死后续监听方。
 
 ## 曾考虑的替代方案
 
-**`agentType` subagent 类别标签**（CC 的 `subagent_type` 在 harness 中的对应物），放在请求与两个生命周期载荷上。早期草案曾包含它；评审中移除，因为它是 Claude Code 的概念，不适合我们自己的 seam（此处没有任何逻辑解释它，唯一消费方是 CC 方言桥接层）。CC 桥接层改为直接为其 SubagentStart/Stop 的 `agent_type` matcher 填入 Claude Code 自身的默认值 `"general-purpose"`，因此本 Agent Note 只交付**一项**丰富化：`lastAssistantMessage`。
+**`agentType` subagent 类别标签**（CC 的 `subagent_type` 在 harness 中的对应物），放在请求与两个生命周期载荷上。早期草案曾包含它；评审中移除，因为它是 Claude Code 的概念，不适合我们自己的 seam（此处没有任何逻辑解释它，唯一消费方是 CC 方言桥接层）。CC 桥接层改为直接为其 SubagentStart/Stop 的 `agent_type` matcher 填入 Claude Code 自身的默认值 `"general-purpose"`，因此本 Agent Note 只交付一项丰富化：`lastAssistantMessage`。
 
 **控制流式 `subagent/end`**：推迟；见下文。
 
 ## 为何仅观察，以及推迟了什么
 
-控制流式 `subagent/end`（一个被 await 的 waterfall，返回停止/继续决策，与其他拦截 seam 一致）需要：将 `subagent/end` 从 emit 改为 waterfall、重构 `SubagentService.start` 使其在结算前 await 监听方、在进程内 provider 中实现 `resume` 能力以便「继续」能真正重新运行子 agent。这属于[能力 seam Agent Note](2026-06-21-subagent-capability-seam.md) 已推迟的后台/steering（中途引导）subagent 重设计（同一个重设计还将统一 subagent 与 bash 之间的长时间运行工具处理）。本 Agent Note 交付钩子桥接层当前所需的仅观察丰富化；`FIXME(subagent-continuation)` / `TODO` 锚点标记了控制流版本在重设计发生时的落点。
+控制流式 `subagent/end`（一个被 await 的 waterfall，返回停止/继续决策，与其他拦截 seam 一致）需要：将 `subagent/end` 从 emit 改为 waterfall、重构 `SubagentService.start` 使其在结算前 await 监听方、在进程内提供方中实现 `resume` 能力以便「继续」能真正重新运行子 agent。这属于[能力 seam Agent Note](2026-06-21-subagent-capability-seam.md) 已推迟的后台/steering（中途引导）subagent 重设计（同一个重设计还将统一 subagent 与 bash 之间的长时间运行工具处理）。本 Agent Note 交付钩子桥接层当前所需的仅观察丰富化；`FIXME(subagent-continuation)` / `TODO` 锚点标记了控制流版本在重设计发生时的落点。
 
 ## 后果
 

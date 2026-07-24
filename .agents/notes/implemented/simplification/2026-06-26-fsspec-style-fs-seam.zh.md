@@ -30,7 +30,7 @@ provider      dsh-fs-local      local implementation of ctx.fs
 
 `dsh-tool-fs` 保持相同的面向模型的 `read`/`write`/`edit` schema。它是执行器：注入 `fs`（不是策略服务）并直接访问 `ctx.fs`，拥有读取窗口化逻辑，并分发 `fs/*` 事件以便 `dsh-fs-policy` 进行门控和记录。
 
-本 Agent Note 决定了四层拆分、provider 契约和新鲜度策略。随后，[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 细化了工具↔策略耦合：`dsh-fs-policy` 是通过 `fs/*` 事件参与的门禁插件，而非 `ctx.fileContext` 方法服务，因此工具不会在方法层与其耦合；读取窗口和 fs I/O 位于 `dsh-tool-fs`。本文描述已经落地的事件门禁形状；provider 的版本守卫可选（省略即无条件裸 provider）。
+本 Agent Note 决定了四层拆分、提供方契约和新鲜度策略。随后，[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 细化了工具↔策略耦合：`dsh-fs-policy` 是通过 `fs/*` 事件参与的门禁插件，而非 `ctx.fileContext` 方法服务，因此工具不会在方法层与其耦合；读取窗口和 fs I/O 位于 `dsh-tool-fs`。本文描述已经落地的事件门禁形状；提供方的版本守卫可选（省略即无条件裸提供方）。
 
 ## 提供方契约
 
@@ -65,11 +65,11 @@ type FsWriteIntent =
 
 这是一个*文本存储* seam，刻意比字节级 fsspec（`cat`/`open` 返回原始字节）高半个层次。UTF-8 解码、二进制/NUL 拒绝、受保护的全文件写入和受保护的字面文本编辑都在提供方内完成，因此策略层从不接触原始字节、不重新实现跨分片解码、也不将陈旧检查与变更临界区分离。面向模型的概念仍然不下沉到提供方：行窗口、带行号的行、渲染的页脚、观测状态存储都不会泄漏下去。
 
-从 `dsh-fs` 删除：`readPage`、`FsExpectation`、`FsView`、`FsStateSource`、`FsReadRequest`、`FsTextLine`、行/窗口常量、`formatReadBody` 和 observed-state `WeakMap`。`applyEdit` 由更窄的 provider 原语 `editText` 取代，其契约是带版本守卫的字面文本变更，而非策略层读取授权。`FS_PARTIAL_OBSERVATION` code 也从 `FsErrorCode` 分类中移除：新鲜度授权没有部分/完整之分，因此没有任何路径会抛出它。`FsTargetKey` 和 `FsVersion` 按现有[品牌化 id Agent Note](../architecture/2026-06-20-branded-ids.md) 成为品牌化不透明 id。
+从 `dsh-fs` 删除：`readPage`、`FsExpectation`、`FsView`、`FsStateSource`、`FsReadRequest`、`FsTextLine`、行/窗口常量、`formatReadBody` 和 observed-state `WeakMap`。`applyEdit` 由更窄的提供方原语 `editText` 取代，其契约是带版本守卫的字面文本变更，而非策略层读取授权。`FS_PARTIAL_OBSERVATION` code 也从 `FsErrorCode` 分类中移除：新鲜度授权没有部分/完整之分，因此没有任何路径会抛出它。`FsTargetKey` 和 `FsVersion` 按现有[品牌化 id Agent Note](../architecture/2026-06-20-branded-ids.md) 成为品牌化不透明 id。
 
 ## 策略契约
 
-`@deepseek-ai/dsh-fs-policy` 是插件，而非服务：它不注册任何 `ctx.*` 键，也不注入任何内容。它拥有不应位于 `FileSystem` provider 基类上的写入/编辑新鲜度策略和 observed state（否则 sandbox/远程后端会继承不该由其承载的面向模型观察策略）。它通过 executor 分派的 `fs/*` 事件门禁贡献该策略。（本 Agent Note 最初提议带有 `read`/`write`/`edit` 方法的具体 `ctx.fileContext` 服务；[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 将其细化为本文所述插件，使工具永远不会在方法层与策略耦合。）
+`@deepseek-ai/dsh-fs-policy` 是插件，而非服务：它不注册任何 `ctx.*` 键，也不注入任何内容。它拥有不应位于 `FileSystem` 提供方基类上的写入/编辑新鲜度策略和 observed state（否则沙箱/远程后端会继承不该由其承载的面向模型观察策略）。它通过执行器分派的 `fs/*` 事件门禁贡献该策略。（本 Agent Note 最初提议带有 `read`/`write`/`edit` 方法的具体 `ctx.fileContext` 服务；[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 将其细化为本文所述插件，使工具永远不会在方法层与策略耦合。）
 
 观测状态以 `WeakMap<owner, Map<targetKey, FsVersion>>` 的形式存放于此。当且仅当 owner 读取、写入或编辑过该目标时，条目才存在（每次成功都会发出 `fs/observed`），因此条目的存在*本身就是*先前观测的记录——没有单独的 `hasRead` 标志。owner 从不透明的事件 actor（`{ agent?: { session? } }`）结构化派生，该形状定义在 `dsh-fs-policy` 中而非 `dsh-fs` 中。
 

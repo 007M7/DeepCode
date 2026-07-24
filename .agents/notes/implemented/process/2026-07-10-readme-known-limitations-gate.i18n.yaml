@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-10-readme-known-limitations-gate.md: 2ca1168d795692730d17b6ab23dd113e8be277e5
-2026-07-10-readme-known-limitations-gate.zh.md: a64f15d9c6f1b48413e06d2a46b33f6f228f2f02
+2026-07-10-readme-known-limitations-gate.zh.md: 4e42492f501cca1a45a90694acea4ca78e920780

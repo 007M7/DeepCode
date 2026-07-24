@@ -167,7 +167,7 @@ MCP 仅保证工具名在[单个服务器内](https://modelcontextprotocol.io/sp
 
 延后。ACP 桥接已将 harness 暴露为 agent 服务器。再加一层 MCP server 会以不同协议重复这一功能，而用户的首要需求是消费外部工具，而非暴露自身工具。
 
-### 能力 seam 三包拆分（interface / impl / consumer）
+### 能力 seam 三包拆分（接口 / 实现 / 消费方）
 
 否决。可预见范围内不会有替代的 MCP 客户端实现——MCP 只有一个协议、一个 SDK。约定是「不要预防性拆分」，直到出现第二种实现。
 

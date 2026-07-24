@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-collapse-trace-only-session-events.md: fce5c48ef6fcb1abc6e2fbb95dc7e83d22956660
-2026-06-20-collapse-trace-only-session-events.zh.md: 48a63cdae1217e8244b66603db8b5501239cb9f4
+2026-06-20-collapse-trace-only-session-events.zh.md: 5be2d77644c7b4084b892013a2c1e5b97a333d74

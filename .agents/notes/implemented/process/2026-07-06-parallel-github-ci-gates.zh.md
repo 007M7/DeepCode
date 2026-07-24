@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-无密钥 GitHub CI 门禁大多相互正交：类型检查、lint、文档新鲜度、覆盖率、快照重放、构建、包发布卫生、demo 冒烟和已构建二进制冒烟会因不同原因失败，也不需要彼此的运行时状态。将它们作为一条有序命令链运行，会使工作流墙钟时间等于所有门禁耗时之和；而把每个短小叶子拆成独立 GitHub job，又会反复执行 checkout、Node 设置、pnpm 恢复和安装，直到编排开销成为瓶颈。
+无密钥 GitHub CI 门禁大多相互正交：类型检查、lint、文档新鲜度、覆盖率、快照重放、构建、包（package）的发布卫生检查、demo 冒烟和已构建二进制冒烟会因不同原因失败，也不需要彼此的运行时状态。将它们作为一条有序命令链运行，会使工作流墙钟时间等于所有门禁耗时之和；而把每个短小叶子拆成独立 GitHub job，又会反复执行 checkout、Node 设置、pnpm 恢复和安装，直到编排开销成为瓶颈。
 
 随着 workspace 增长，原有的宽车道拆分不再满足这一平衡。PR（Pull Request）#404 合并时，Linux 的静态、覆盖率、快照和产物 job 分别耗时 148、195、94 和 230 秒；Windows 的静态和产物 job 分别耗时 251 和 482 秒。每个包都调用一次包管理器打包，主导了两个产物验证器的耗时；覆盖率在仅运行源码的套件前无谓地重建输出；CPU 密集型门禁则在静态与覆盖率车道内争用资源。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 产物使用两个车道：一个元数据车道负责 `publint`、NodeNext 声明和已编译不变量加载，另一个负责已构建二进制冒烟。每个车道都会在其消费方之前自行构建。重复短时构建会消耗 runner 分钟数，但避免了上传/下载依赖，并使每个 job 的关键路径保持有界。
 
-[scripts/publint-all.ts](../../../../scripts/publint-all.ts) 在进程内针对内存发布视图调用 publint 支持的 API；该视图由每份清单声明的文件和 npm 强制元数据文件构成。这样无需生成 103 次包管理器打包命令，也能保留 workspace 文件与已发布文件之间的区别。[scripts/verify-built-package-invariants.mjs](../../../../scripts/verify-built-package-invariants.mjs) 在真实包下暂存这些经过结构验证、由清单声明的 `lib/` 文件，再通过纯 Node 和 Cordis Loader 规范化导入已编译的自引用。若伴随项触及未声明的运行时 chunk，仍会失败。
+[scripts/publint-all.ts](../../../../scripts/publint-all.ts) 在进程内针对内存发布视图调用 publint 支持的 API；该视图由每份清单声明的文件和 npm 强制元数据文件构成。这样无需生成 103 次包管理器打包命令，也能保留 workspace 文件与已发布文件之间的区别。[scripts/verify-built-package-invariants.mjs](../../../../scripts/verify-built-package-invariants.mjs) 在真实包下暂存这些经过结构验证、由清单声明的 `lib/` 文件，再通过纯 Node 和 Cordis Loader 规范化导入已编译的自引用。若伴随项触及未声明的运行时分片，仍会失败。
 
 兼容性车道会在每条声明支持的 Node 版本线上运行源码 worker 和 Zstandard 运行时冒烟。TypeScript 在专用的主 Node 24 车道中只检查一次源码图；在运行时兼容性 job 中重复同一编译器分析只会增加耗时，不会提供运行时特有信号。
 

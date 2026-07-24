@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-remove-redundant-snapshot-log-expected-output.md: c2452f971d3cb76dceb766072dbc0a5c81465e78
-2026-06-20-remove-redundant-snapshot-log-expected-output.zh.md: b584bfa0154c71c1bbb683c3041dc7baf7a3548e
+2026-06-20-remove-redundant-snapshot-log-expected-output.zh.md: e6175181589eabae064c34044f353efae537961b

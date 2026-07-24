@@ -8,9 +8,9 @@ Status: implemented
 
 可合并扩展的词汇映射表设计上通过声明合并来增长，代码库已在 `TurnEndReasonMap`（`packages/core/session/src/types.ts`）上明确了准入策略：像 `refusal` 这样的变体「在适配器或循环首次发出它之前，有意不纳入」。三个已声明的词汇项违反了该策略——每个都既无生产者也无消费方，其中两个甚至没有测试：
 
-- **`TextBlock`/`ToolResultBlock` 上的 `CacheHint` 及其 `cache?: CacheHint` 块字段**（`packages/llm/llm/src/types.ts`；图像块曾有第三个此类字段，已随图像块一同移除——参见[删除图像 Agent Note（agent 决策记录）](2026-07-04-drop-image-content-block.md)）。任何地方都没有构造带 `cache:` 的块——src、测试和文档粘贴均为空——两个 adapter 也都不读取 `.cache`：DeepSeek prompt caching 是自动的，因此 adapter 会从响应中映射出 `prompt_cache_hit_tokens`，却从不向请求中发送 hint。这是没有任何 provider 能够遵守的 Anthropic 风格 `cache_control` 表面。
-- **`MessageSourceMap.agent`**（`{ kind: 'agent'; agentId: string }`，同一文件）。零个构造点，包括测试在内。它预期的生产者在实现时并未使用它：subagent 后端将父级的 prompt 发送给子级时不带 `source`，因此记录为 `{ kind: 'user' }`，通用信封渲染器在插值 `source.kind` 时也从未对其做路由。
-- **`TurnTriggerMap.continuation`**（`packages/core/session/src/types.ts`）。agent loop（智能体循环）在结构上不可能发出它——continuation 发生在一个轮次*内部*作为后续步骤，而非作为新轮次——循环只构造 `message` 和 `injection` 触发器。唯一的写入者是一个手工构建的测试 fixture（测试前置数据），它只需要一个任意的非 message 触发器（`packages/support/llm-replay/tests/llm-replay.spec.ts`），`injection` 触发器同样满足需求；唯一的生产环境触发器读取方 ACP（Agent Client Protocol）桥接层只过滤 `kind === 'message'`。
+- **`TextBlock`/`ToolResultBlock` 上的 `CacheHint` 及其 `cache?: CacheHint` 块字段**（`packages/llm/llm/src/types.ts`；图像块曾有第三个此类字段，已随图像块一同移除——参见[删除图像 Agent Note（agent 决策记录）](2026-07-04-drop-image-content-block.md)）。任何地方都没有构造带 `cache:` 的块——src、测试和文档粘贴均为空——两个适配器也都不读取 `.cache`：DeepSeek 的提示词缓存是自动的，因此适配器会从响应中映射出 `prompt_cache_hit_tokens`，却从不向请求中发送 hint。这是没有任何提供方能够遵守的 Anthropic 风格 `cache_control` 表面。
+- **`MessageSourceMap.agent`**（`{ kind: 'agent'; agentId: string }`，同一文件）。零个构造点，包括测试在内。它预期的生产者在实现时并未使用它：subagent 后端将父级的提示词发送给子级时不带 `source`，因此记录为 `{ kind: 'user' }`，通用信封渲染器在插值 `source.kind` 时也从未对其做路由。
+- **`TurnTriggerMap.continuation`**（`packages/core/session/src/types.ts`）。agent loop（智能体循环）在结构上不可能发出它——continuation 发生在一个轮次*内部*作为后续步骤，而非作为新轮次——循环只构造 `message` 和 `injection` 触发器。唯一的写入者是一个手工构建的测试 fixture（测试前置数据），它只需要一个任意的非消息触发器（`packages/support/llm-replay/tests/llm-replay.spec.ts`），`injection` 触发器同样满足需求；唯一的生产环境触发器读取方 ACP（Agent Client Protocol）桥接层只过滤 `kind === 'message'`。
 
 ## 决策
 
@@ -22,7 +22,7 @@ Status: implemented
 
 ### 为什么不保留它们？
 
-[内容块词汇 Agent Note](../architecture/2026-06-11-content-block-vocabulary.md)曾把“cache hint……有了归属”列为设计后果，预留槽位也确实能表明意图。但空槽位是每个实现和消费方都必须考虑的契约表面（我的 adapter 是否必须遵守 `cache`？我的 renderer 是否必须路由 `agent` 来源？），而相邻 map 自身的 JSDoc 已经拒绝“无 emitter 先预留”——`refusal` 和 `max_turn_requests` 被点名为*首次有内容发出它们时*再添加的变体，而不是提前声明。让已经声明但无用的变体遵守同一标准，才能使词汇真正有意义：只要它位于 map 中，就必须有内容生产它。
+[内容块词汇 Agent Note](../architecture/2026-06-11-content-block-vocabulary.md)曾把“cache hint……有了归属”列为设计后果，预留槽位也确实能表明意图。但空槽位是每个实现和消费方都必须考虑的契约表面（我的适配器是否必须遵守 `cache`？我的 renderer 是否必须路由 `agent` 来源？），而相邻 map 自身的 JSDoc 已经拒绝“无 emitter 先预留”——`refusal` 和 `max_turn_requests` 被点名为*首次有内容发出它们时*再添加的变体，而不是提前声明。让已经声明但无用的变体遵守同一标准，才能使词汇真正有意义：只要它位于 map 中，就必须有内容生产它。
 
 ## 验证
 
@@ -30,4 +30,4 @@ Status: implemented
 
 ## 后果
 
-操作行为没有变化——原本就没有内容能够构造这些值。镜像事件移除（[边界镜像 Agent Note](2026-06-20-remove-agent-boundary-mirror-events.md)、[stream chunk Agent Note](2026-07-02-remove-stream-chunk-mirror.md)）只触及瞬态 `agent/*` 事件，从不触及持久词汇，因此不存在冲突。其他位置已经遵守准入策略：`rejected`、`prompt/blocked` 和 `hook/invoked`/`hook/result` 都有实时生产者——本 Agent Note 将同一门槛扩展到缺少生产者的三个变体。图像块自身的 `cache?` 字段归属[删除图像 Agent Note](2026-07-04-drop-image-content-block.md)，后者将其与该块一同移除；本 Agent Note 覆盖剩余块类型上的两个字段。
+操作行为没有变化——原本就没有内容能够构造这些值。镜像事件移除（[边界镜像 Agent Note](2026-06-20-remove-agent-boundary-mirror-events.md)、[流分片 Agent Note](2026-07-02-remove-stream-chunk-mirror.md)）只触及瞬态 `agent/*` 事件，从不触及持久词汇，因此不存在冲突。其他位置已经遵守准入策略：`rejected`、`prompt/blocked` 和 `hook/invoked`/`hook/result` 都有实时生产者——本 Agent Note 将同一门槛扩展到缺少生产者的三个变体。图像块自身的 `cache?` 字段归属[删除图像 Agent Note](2026-07-04-drop-image-content-block.md)，后者将其与该块一同移除；本 Agent Note 覆盖剩余块类型上的两个字段。

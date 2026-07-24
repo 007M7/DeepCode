@@ -110,7 +110,7 @@ interface Events {
 
 ## 工具契约（`dsh-tool-fs`）
 
-工具保留其面向模型的 schema（`read`/`write`/`edit`，逐字节不变）和 prompt 段落。prompt 引导仍以策略优先，因为加载 fs 工具的部署预期也会加载 `dsh-fs-policy`：模型仍被告知在覆写或编辑前先读取，任何声称「后端」要求如此的措辞应修正为 fs-policy 插件要求如此。裸提供方回退不改变 prompt 立场。
+工具保留其面向模型的 schema（`read`/`write`/`edit`，逐字节不变）和提示词段落。提示词引导仍以策略优先，因为加载 fs 工具的部署预期也会加载 `dsh-fs-policy`：模型仍被告知在覆写或编辑前先读取，任何声称「后端」要求如此的措辞应修正为 fs-policy 插件要求如此。裸提供方回退不改变提示词立场。
 
 `dsh-tool-fs` 获得从旧 `fileContext` 方法服务迁移来的执行器职责，包括**读取渲染**（`read-render.ts`：`buildWindow` + `formatReadOutput`、`READ_MAX_BYTES`、`READ_MAX_LINE_LENGTH`、`FileReadOutcome`/`FileTextLine`，以及 `read.ts` 中的 `STREAM_MIN_SIZE`），这些现在是工具的渲染细节，因为读取已由工具拥有。这些读取渲染类型和辅助函数移入 `dsh-tool-fs`；策略插件不得继续作为工具的类型依赖。
 
@@ -118,7 +118,7 @@ interface Events {
 
 通过让 waterfall 惰性产出期望值来最小化 `stat` 预算——裸默认返回 `undefined`（无守卫），从不 stat：
 
-- **read**——一次 `stat`（类型 + 大小路由 + 版本），然后 `readText`/`streamText`，然后 `buildWindow`，然后 `emit('fs/observed', target, info.version, exec)`。旧 `fileContext.read` 中读后确认的 `stat` 被移除；在路由 stat 和读取之间竞争的写入者最多只能使*后续*有守卫的编辑误报 `FS_STALE_VERSION`（快速失败：模型重新读取，从不基于错误版本写入，因为 `editText` 在其锁内重新检查）。
+- **read**——一次 `stat`（类型 + 大小路由 + 版本），然后 `readText`/`streamText`，然后 `buildWindow`，然后 `emit('fs/observed', target, info.version, exec)`。旧 `fileContext.read` 中读后确认的 `stat` 被移除；在路由 stat 和读取之间竞争的写入者最多只能使*后续*有守卫的编辑误报 `FS_STALE_VERSION`（为安全起见拒绝写入：模型会重新读取；由于 `editText` 会在其锁内复查，模型绝不会基于错误版本写入）。
 - **write**——`expectation = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)`，然后 `ctx.fs.writeText(target, content, expectation)`，然后 `emit('fs/observed', target, outcome.version, exec)`。无论是否有 `dsh-fs-policy`，**工具内零 stat**。
 - **edit**——`expectation = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)`，然后 `ctx.fs.editText(target, edit, expectation)`，然后 `emit('fs/observed', target, outcome.version, exec)`。两种情况下**工具内零 stat**：裸默认为 `undefined`（无条件编辑），因此工具从不 stat 来制造基准。如果目标不存在，提供方即使在无守卫路径上也报告 `FS_STALE_VERSION`。
 
@@ -165,7 +165,7 @@ interface Events {
 ## 后果
 
 - **事件间接层取代方法调用。** 一次 waterfall + emit 不如 `await ctx.fileContext.edit(...)` 直接。收益是移除了工具到策略的方法依赖，同时保留默认策略插件；代价是多一套事件词汇需要学习。通过保持三个事件的窄小范围并在每个事件上记录 default-thunk 语义来缓解。
-- **策略事件位于存储 seam 中。** `dsh-fs` 增加了两个版本决策事件和一个记录事件，尽管它「只是存储」。这是解耦的代价（发射方不能依赖策略插件）。这些事件只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不携带面向模型的概念，因此 seam 不沾染行窗口/观测策略类型，也不沾染 agent/session owner 结构。
+- **策略事件位于存储 seam 中。** `dsh-fs` 增加了两个版本决策事件和一个记录事件，尽管它「只是存储」。这是解耦的代价（发射方不能依赖策略插件）。这些事件只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不携带面向模型的概念，因此 seam 不沾染行窗口/观测策略类型，也不沾染 agent/会话所有者结构。
 - **单一策略占位者，按约定先到先得。** `fs/write-intent`/`fs/edit-intent` 槽位恰好容纳一个决策者；先注册（或 `prepend`）的监听器获胜，其余被短路。`dsh-fs-policy` 占据该槽位是部署约定，而非事件系统强制的不变式——一个先注册的第二决策者会绕过它。这是可接受的，因为第二个 fs 版本策略决策者是配置错误，而非功能。如果未来出现*分层* fs 版本策略的需求，那是一个新 Agent Note（可组合的值传递 seam），而非在这些事件上静默添加第二个监听器。分层的权限/审计/沙箱拦截已有其归属：`tools/execute`。
-- **移除读后确认 stat** 使后续*有守卫*的编辑在 read/write 竞争下偶尔快速失败（`FS_STALE_VERSION` → 重新读取）。这是丢失的 UX 便利，绝非正确性漏洞；提供方锁仍阻止基于错误版本的写入。
+- **移除读后确认 stat** 使后续*有守卫*的编辑在 read/write 竞争下偶尔为安全起见拒绝写入（`FS_STALE_VERSION` → 重新读取）。这是丢失的 UX 便利，绝非正确性漏洞；提供方锁仍阻止基于错误版本的写入。
 - **裸提供方不做先读后写/编辑，也不做版本检查。** 没有 `dsh-fs-policy` 的部署允许模型无条件覆写或编辑任何已有文件。这正是保持工具独立于策略服务的有意含义：安全纪律存在于 `dsh-fs-policy` 插件中。省略它的部署是有意选择无约束的文件系统；对于发布 fs 工具的配置而言，这不是预期的姿态。

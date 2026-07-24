@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`SessionEventMap` 是磁盘格式的词汇，但其声明分散在所属 session 包和声明合并中。生成式持久化目录是所有事件、各自完整 payload 声明与源码 JSDoc，以及共享 `SessionEvent` 信封的唯一参考；手工维护的表格会发生漂移，因此被移除。这些记录不是 Cordis 事件——观察者通过唯一的 `session/event` 总线事件接收它们——所以 Cordis 目录无法覆盖。生成器会发现所有声明，文档同步新鲜度门禁会拒绝遗漏或陈旧输出。
+`SessionEventMap` 是磁盘格式的词汇，但其声明分散在所属的会话包（package）和声明合并中。生成式持久化目录是所有事件、各自完整 payload 声明与源码 JSDoc，以及共享 `SessionEvent` 信封的唯一参考；手工维护的表格会发生漂移，因此被移除。这些记录不是 Cordis 事件——观察者通过唯一的 `session/event` 总线事件接收它们——所以 Cordis 目录无法覆盖。生成器会发现所有声明，文档同步新鲜度门禁会拒绝遗漏或陈旧输出。
 
 ## 决策
 
@@ -21,12 +21,12 @@ Status: implemented
 - **专用围栏。** 声明块使用 ` ```ts persistence-catalog ` 信息字符串，`doc-typecheck` 会识别并跳过这些块，将其排除在退出检查比例之外——处理方式与 `ts cordis-catalog` 相同（这些声明引用所属模块中的类型，无法独立编译）。
 - **仓库范围。** 目录枚举本仓库中的包，与兄弟文档的 packages-only 范围一致；下游插件可以合并更多事件类型，它们在设计上不在目录范围内。遍历过程用硬错误保护自身假设：拥有方的顶层 `interface SessionEventMap` 必须是 `@deepseek-ai/dsh-session` 中唯一的导出声明（无关的、局部的或同名重复的接口不能被当作磁盘词汇编入目录）；任何声明不得携带 `extends`（继承的键会加入 `keyof SessionEventMap` 却没有对应的目录行）；每个成员必须是带有显式 payload 类型的属性签名（方法形式的成员会加入 `keyof` 却在静默遍历中被漏过）；跨声明的重复成员也会失败。
 
-本方案取代了手工副本：session.md 的 `hook/*` 表格、精简版 README 的事件表格、hook-protocol README 的 payload 条目列表，以及 session README 的名称列表现在链接到目录，而不再重述 payload（周围的语义说明文字保留原位）。hook-protocol 合并成员上的两个误加的 `@mode emit` 标签已被移除——新门禁将它们作为类别错误拒绝。
+本方案取代了手工副本：session.md 的 `hook/*` 表格、精简版 README 的事件表格、hook-protocol README 的 payload 条目列表，以及会话 README 的名称列表现在链接到目录，而不再重述 payload（周围的语义说明文字保留原位）。hook-protocol 合并成员上的两个误加的 `@mode emit` 标签已被移除——新门禁将它们作为类别错误拒绝。
 
 ## 曾考虑的替代方案
 
 - **基于启动的生成器（类似工具目录）**：日志词汇完全是静态的，AST 遍历无需启动任何东西即可读取全部真相。
-- **保留手工副本**：手工副本只能检查作者已经写下的名称；目录落地时，session README 的合并说明已经漂移。
+- **保留手工副本**：手工副本只能检查作者已经写下的名称；目录落地时，会话 README 的合并说明已经漂移。
 
 ## 后果
 

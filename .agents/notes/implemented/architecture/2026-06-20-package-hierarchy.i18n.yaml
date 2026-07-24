@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-package-hierarchy.md: ab0732172934414f2361b9e4976b54e5daee298c
-2026-06-20-package-hierarchy.zh.md: a347b055d92d4cc6431833765bed083c92bc04c7
+2026-06-20-package-hierarchy.zh.md: 57058860de5b4cba3e8a45ecad9d611d068fb82c

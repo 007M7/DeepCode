@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-[逐 session 快照重放 Agent Note（agent 决策记录）](2026-06-22-subagent-snapshot-replay.md)使快照层能够表达嵌套 agent 形状：一个父项加上每个进程内 subagent 的一份记录日志，每份日志都按调用 session 作为键，以独立脚本重放。它曾指出（§ 范围，最后一个项目符号），fork 快照“只是未来很容易添加的一项，并非键控缺口”。这一判断对 fork 子项而言是错误的——问题不在键控，而在*脚本派生*。
+[逐会话快照重放 Agent Note（agent 决策记录）](2026-06-22-subagent-snapshot-replay.md)使快照层能够表达嵌套 agent 形状：一个父项加上每个进程内 subagent 的一份记录日志，每份日志都按调用会话作为键，以独立脚本重放。它曾指出（§ 范围，最后一个项目符号），fork 快照“只是未来很容易添加的一项，并非键控缺口”。这一判断对 fork 子项而言是错误的——问题不在键控，而在*脚本派生*。
 
 subagent 脚本由 [`deriveReplayScript`](../../../../packages/support/llm-replay) 从已录制的会话日志推导：它按 `(turn, step)` 对日志中的 `assistant/chunk` 事件分组，每次 `stream()` 调用对应一条回放条目。对 **spawn** 子会话而言这是正确的，因为其日志只包含自身的模型调用。
 
 **fork** 子会话不同。fork 后端用*父日志的一段平衡的已完成轮次前缀*（[`dsh-subagent-inprocess`](../../../../packages/subagent/subagent-inprocess)）来播种子会话，而该 seed 会成为子会话持久化的 `log`（`Session` 构造函数将 seed 复制进 `this.log`）。因此 fork 子会话的 `.jsonl` 以**父会话**的事件开头——包括父会话的 `assistant/chunk` 事件——之后才是子会话自身的轮次。
 
-从 fork 子会话的完整日志推导脚本，会把**父会话**的已录制响应当作**子会话**的模型调用来回放：实际运行的 fork 子会话第一次调用 `stream()` 时，会收到父会话的第一段 chunk 序列而非自身的。目前已录制的场景全部是 spawn，所以这从未触发——但 fork 快照会静默地错误路由，恰好属于快照层存在的意义所要捕获的那类 bug。
+从 fork 子会话的完整日志推导脚本，会把**父会话**的已录制响应当作**子会话**的模型调用来回放：实际运行的 fork 子会话第一次调用 `stream()` 时，会收到父会话的第一段分片序列而非自身的。目前已录制的场景全部是 spawn，所以这从未触发——但 fork 快照会静默地错误路由，恰好属于快照层存在的意义所要捕获的那类 bug。
 
 ## 决策
 
@@ -22,7 +22,7 @@ subagent 脚本由 [`deriveReplayScript`](../../../../packages/support/llm-repla
 
 `SessionHeader` 新增可选字段 `seedLength: number`——表示有多少前导事件是通过 seed 继承而来、而非本会话产生的。fork 后端在创建子会话时设置它（= 播种前缀的长度）；全新的 spawn 子会话不设置（等同于 0）。它通过 `CreateSessionOptions.meta`（及 `CreateAgentOptions.meta`）传递，在 `SessionStore.prepare` 中设置。
 
-`seedLength` 是**显式**的，绝不从 `seed.length` 推断。重建（resume/load）时用会话的完整已存储日志作为 seed，此时 `seed.length` 是全长而非原始边界——resume 路径改为从加载的 header 中取回持久化的 `seedLength`。（形状与 `createdAt` 相同：重建时显式保留，而非重新默认为当前时间。）
+`seedLength` 是**显式**的，绝不从 `seed.length` 推断。恢复/加载时用会话的完整已存储日志作为 seed，此时 `seed.length` 是全长而非原始边界——恢复路径改为从加载的 header 中取回持久化的 `seedLength`。（形状与 `createdAt` 相同：恢复时显式保留，而非重新默认为当前时间。）
 
 ### 2. 两个持久化后端均完整往返
 
@@ -46,4 +46,4 @@ subagent 脚本由 [`deriveReplayScript`](../../../../packages/support/llm-repla
 
 - core 与两个后端新增一个持久化 header 字段；核心数据结构目录（`persistence.md`）在同一变更中更新（其 `SessionHeader` / `CreateSessionOptions` 的 `type-equiv` 块）。
 - 既有的 schema v2 SQLite 数据库在打开时被拒绝（预发布阶段无用户数据）。
-- spawn 回放不变（`seedLength` 为 0）。fork 回放现在将子会话路由到自身的脚本；由 `llm-replay` 测试中的一个回归用例覆盖（一个子会话 fixture，其播种前缀包含父会话的 chunk——推导出的子会话脚本必须排除它，不做 slice 时该用例为红）以及一个持久化往返测试（两个后端，通过共享的 coordinator 契约）。
+- spawn 回放不变（`seedLength` 为 0）。fork 回放现在将子会话路由到自身的脚本；由 `llm-replay` 测试中的一个回归用例覆盖（一个子会话 fixture，其播种前缀包含父会话的分片——推导出的子会话脚本必须排除它，不做 slice 时该用例为红）以及一个持久化往返测试（两个后端，通过共享的 coordinator 契约）。

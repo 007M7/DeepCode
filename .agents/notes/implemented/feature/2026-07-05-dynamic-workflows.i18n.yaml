@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-05-dynamic-workflows.md: 4c8606fb617b3fb6b2e8ad9c35d77c585b1fe8b1
-2026-07-05-dynamic-workflows.zh.md: 2405e6e6746569e9327f9eb5ecbb8b37e5ef1bee
+2026-07-05-dynamic-workflows.zh.md: 9ac94d491e14915841d55b6f6f7ad631a61a98f3

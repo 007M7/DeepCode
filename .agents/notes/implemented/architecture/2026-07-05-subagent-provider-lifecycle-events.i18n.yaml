@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-05-subagent-provider-lifecycle-events.md: afd45027e8b56cbf1d17e6dec749d8602c81124d
-2026-07-05-subagent-provider-lifecycle-events.zh.md: 98bcaed31d88c0b6c10ffd7942e77f8048733302
+2026-07-05-subagent-provider-lifecycle-events.zh.md: 58d439936a3f2cc51d8190cbebe8e68cdb14c855

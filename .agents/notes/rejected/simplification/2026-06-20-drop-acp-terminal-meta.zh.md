@@ -1,4 +1,4 @@
-# Agent Note: 移除 ACP 终端 `_meta` 渲染
+# Agent Note: 移除 ACP（Agent Client Protocol）终端 `_meta` 渲染
 
 Status: rejected — Zed 是当前目标客户端，terminal `_meta` 约定是有意设计的 Zed UX，同时为其他客户端保留普通 ACP 回退。
 
@@ -6,7 +6,7 @@ Status: rejected — Zed 是当前目标客户端，terminal `_meta` 约定是�
 
 ## 问题
 
-ACP（Agent Client Protocol）桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。已实现的[富 ACP bash 渲染 Agent Note（agent 决策记录）](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md)刻意回避了 ACP 客户端侧的 `terminal/create`（因为 bash 执行属于 harness 职责），但仍采用了参考 agent（智能体）的纯展示 `_meta` 约定。这在 Zed 中带来了更好的卡片效果，代价是桥接状态、能力协商、终端 id、特殊的 update 映射、文本回退测试，以及 `dsh-tool-bash` 中的 exit-pill 解析。
+ACP 桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。已实现的[富 ACP bash 渲染 Agent Note（agent 决策记录）](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md)刻意回避了 ACP 客户端侧的 `terminal/create`（因为 bash 执行属于 harness 职责），但仍采用了参考 agent（智能体）的纯展示 `_meta` 约定。这在 Zed 中带来了更好的卡片效果，代价是桥接状态、能力协商、终端 id、特殊的 update 映射、文本回退测试，以及 `dsh-tool-bash` 中的 exit-pill 解析。
 
 回退路径已经存在：将工具调用和完成输出渲染为普通 ACP 内容块。非 Zed 客户端本来就依赖这条路径，但 Zed 终端卡片是当前目标客户端的功能特性，而非推测性装饰。
 

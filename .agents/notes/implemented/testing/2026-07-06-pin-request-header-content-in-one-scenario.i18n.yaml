@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-06-pin-request-header-content-in-one-scenario.md: bca6d9eb943e758d68efaf3a76ec367179cd15fd
-2026-07-06-pin-request-header-content-in-one-scenario.zh.md: 9637602aca34977bee7c0efd5dc57b848ed93e2c
+2026-07-06-pin-request-header-content-in-one-scenario.zh.md: e01c84c63583e2fe14b0b4fe0381a18b209d2346

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-12-simplify-session-log-representation.md: a40f4013a97a9c940012dbb37d59beb2faf8fb22
-2026-07-12-simplify-session-log-representation.zh.md: a880a74cf41ca7d06f2278792e1abb4ea46ea969
+2026-07-12-simplify-session-log-representation.zh.md: a4ecd8c7340affda71d95505ab44910539e36bb9
