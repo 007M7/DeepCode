@@ -428,6 +428,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(unchanged.prepare('PRAGMA application_id').get())
       .toEqual({ application_id: SESSION_PERSISTENCE_SQLITE_APPLICATION_ID })
     expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
     unchanged.close()
   })
 

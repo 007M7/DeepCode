@@ -87,30 +87,28 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
 
 function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode): void {
   db.exec('PRAGMA foreign_keys = ON')
-  // `PRAGMA user_version` always returns exactly one row { user_version }.
-  const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
-  const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
-  const { count: userObjectCount } = db.prepare(
-    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
-  ).get() as { count: number }
-  if (onDisk === 0 && (applicationId !== 0 || userObjectCount > 0)) {
-    throw new Error(`session database at "${path}" has an unversioned schema or application identity`)
-  }
-  if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
-    throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
-  }
-  if (onDisk === SCHEMA_VERSION && applicationId !== SESSION_PERSISTENCE_SQLITE_APPLICATION_ID) {
-    throw new Error(
-      `session database at "${path}" has application id ${applicationId}, expected ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`,
-    )
-  }
-  // The validated union is safe to interpolate into a non-bindable PRAGMA.
-  // Apply it only after rejecting incompatible existing databases.
-  db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
   let began = false
   try {
     db.exec('BEGIN IMMEDIATE')
     began = true
+    // Validate while holding the write lock so no other connection can change
+    // schema ownership between inspection and initialization.
+    const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+    const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
+    const { count: userObjectCount } = db.prepare(
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
+    ).get() as { count: number }
+    if (onDisk === 0 && (applicationId !== 0 || userObjectCount > 0)) {
+      throw new Error(`session database at "${path}" has an unversioned schema or application identity`)
+    }
+    if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
+      throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
+    }
+    if (onDisk === SCHEMA_VERSION && applicationId !== SESSION_PERSISTENCE_SQLITE_APPLICATION_ID) {
+      throw new Error(
+        `session database at "${path}" has application id ${applicationId}, expected ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`,
+      )
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS persistence_state (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -148,6 +146,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
     }
     db.exec('COMMIT')
+    began = false
   } catch (error: unknown) {
     /* v8 ignore next -- a BEGIN failure leaves no transaction to roll back. */
     if (began) {
@@ -160,6 +159,9 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
     }
     throw error
   }
+  // The validated union is safe to interpolate into a non-bindable PRAGMA.
+  // Apply it only after ownership validation and initialization commit.
+  db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
 }
 
 /**
