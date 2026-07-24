@@ -93,7 +93,16 @@ jobs:
           || fromJSON('["self-hosted", "linux", "x64", "vm-backup"]') }}
     name: node 24 / coverage
     env:
-      DSH_COVERAGE_MAX_WORKERS: '24'
+      # Worker bound is per-leg: the hosted 32-core runner is exclusive to
+      # one job, but the self-hosted pool shares one 64-core VM across four
+      # runner instances, so concurrent PRs would otherwise stack up to
+      # 4×24 = 96 workers and re-trigger the aggregate-contention failures
+      # documented for the timing-sensitive process suites. 12 per job caps
+      # the shared host at 48 workers even fully loaded.
+      DSH_COVERAGE_MAX_WORKERS: >-
+        ${{ (github.event.pull_request.head.repo.full_name != github.repository
+             || github.event.pull_request.user.login == 'dependabot[bot]')
+            && '24' || '12' }}
       DSH_GATE_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
