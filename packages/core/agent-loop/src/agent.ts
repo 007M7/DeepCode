@@ -17,11 +17,12 @@ import type {
   CancelOptions,
   HookContext,
   InjectOptions,
+  ResolvedAgentInput,
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import { deepFreeze, errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { snapshotJsonValue, type JsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { DISPOSED_INTERRUPT_REASON, TurnCancellation } from './cancellation.ts'
 import { Inbox, agentMessage, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
@@ -40,17 +41,6 @@ const bindContext = Symbol('dsh.agent-loop.bind-context')
 
 /** Module-private publication marker. */
 const publishAgent = Symbol('dsh.agent-loop.publish-agent')
-
-/** Fully resolved input accepted only by the concrete driver's private delivery mechanism. */
-type ResolvedAgentInput = {
-  content: ContentBlock[]
-  source: MessageSource
-  meta: JsonValue | undefined
-} & (
-  | { target: 'next-turn'; wakeup: boolean; contexts: HookContext[] }
-  | { target: 'next-step'; wakeup: true; contexts: HookContext[] }
-  | { target: 'next-step'; wakeup: false; contexts: [] }
-)
 
 /** Factory-owned controls that can operate only on the agent created with them. */
 export interface PreparedReactLoopAgent {
@@ -241,8 +231,8 @@ export class ReactLoopAgent implements Agent {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
   }
 
-  /** Accept one fully resolved agent input through the concrete driver's private routing matrix. */
-  #acceptInput(input: ResolvedAgentInput): AgentMessageId {
+  /** Accept one fully resolved agent input through the concrete driver's routing matrix. */
+  acceptInput(input: ResolvedAgentInput): AgentMessageId {
     this.assertNotDisposed()
     const id = AgentMessageId(randomUUID())
     const { target, wakeup } = input
@@ -262,7 +252,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   send(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.#acceptInput({
+    return this.acceptInput({
       content,
       target: 'next-turn',
       wakeup: true,
@@ -273,7 +263,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   queue(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.#acceptInput({
+    return this.acceptInput({
       content,
       target: 'next-turn',
       wakeup: false,
@@ -284,7 +274,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   steer(content: ContentBlock[], options?: SendOptions): AgentMessageId {
-    return this.#acceptInput({
+    return this.acceptInput({
       content,
       target: 'next-step',
       wakeup: true,
@@ -295,7 +285,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId {
-    return this.#acceptInput({
+    return this.acceptInput({
       content,
       target: 'next-step',
       wakeup: false,

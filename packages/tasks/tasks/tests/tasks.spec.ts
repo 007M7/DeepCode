@@ -27,6 +27,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject: () => AgentMessageId('stub'),
+    acceptInput: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

@@ -388,6 +388,26 @@ interface InjectOptions {
 }
 ```
 
+The advanced acceptance form makes every default explicit and rules out attached contexts on injection:
+
+```ts type-equiv
+/**
+ * Fully specified input for {@link Agent.acceptInput}. Unlike the intent-named
+ * helpers, this form applies no defaults: callers provide content, source,
+ * contexts, metadata (including explicit `undefined`), target, and wakeup.
+ * The union excludes attached contexts from non-waking next-step injection.
+ */
+type ResolvedAgentInput = {
+  content: ContentBlock[]
+  source: MessageSource
+  meta: JsonValue | undefined
+} & (
+  | { target: 'next-turn'; wakeup: boolean; contexts: HookContext[] }
+  | { target: 'next-step'; wakeup: true; contexts: HookContext[] }
+  | { target: 'next-step'; wakeup: false; contexts: [] }
+)
+```
+
 FIFO delivery methods return an opaque `AgentMessageId`, stable across that message's `agent/inbox/*` events. Injection returns an id but bypasses those events:
 
 ```ts type-equiv
@@ -403,16 +423,17 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
 ```ts type-equiv
 /**
  * One accepted FIFO message, carried by the `agent/inbox/*` live events. `id`
- * is the value `send`, `queue`, or `steer` returned to the caller, stable across
- * this message's enqueue, dequeue, and discard events. Source defaults are
- * already applied, so these are the exact values the item was accepted with.
+ * is the value returned by the accepting helper or {@link Agent.acceptInput},
+ * stable across this message's enqueue, dequeue, and discard events. Source
+ * defaults, when applicable, are already applied, so these are the exact values
+ * the item was accepted with.
  * `steering` is true for an item drained between steps; otherwise it is claimed
  * at a turn boundary. `SendOptions.meta` is intentionally omitted: it is durable
  * model-hidden state that lands on the eventual `user/message`/
  * `steering/message`, not live-event routing data.
  */
 interface AgentMessage {
-  /** The id returned by the accepting `send`, `queue`, or `steer` call. */
+  /** The id returned by the accepting helper or {@link Agent.acceptInput}. */
   id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
@@ -443,7 +464,7 @@ type AgentCancelCause =
   | { readonly kind: 'parent' }
 ```
 
-The structural `Agent` interface exposes four delivery intents. The concrete driver resolves them into a private routing mechanism rather than exporting the target/wakeup matrix.
+The structural `Agent` interface exposes four intent helpers plus the fully resolved acceptance method. The concrete driver implements the matrix once, and each helper supplies its fixed routing and defaults.
 
 ```ts type-equiv
 /** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
@@ -506,6 +527,19 @@ interface Agent {
    * @returns the accepted injection's {@link AgentMessageId}; injection emits no `agent/inbox/*` events.
    */
   inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId
+
+  /**
+   * Accept one fully specified input through the same snapshot and routing path
+   * as the four intent-named helpers. `next-turn` targets the ordinary FIFO;
+   * `next-step`/wakeup targets steering (falling back to an ordinary waking turn
+   * while idle); and `next-step` without wakeup injects durable context without
+   * running the model. Every field is mandatory and no source or routing default
+   * is applied. Invalid input throws synchronously before notification, enqueue,
+   * or append.
+   * @param input - the resolved content, attribution, context, metadata, and routing facts.
+   * @returns the accepted input's {@link AgentMessageId}, carried by FIFO lifecycle events when applicable.
+   */
+  acceptInput(input: ResolvedAgentInput): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active

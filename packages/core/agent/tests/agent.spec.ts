@@ -15,6 +15,7 @@ import type {
   ContinuationStop,
   CreateAgentOptions,
   InjectOptions,
+  ResolvedAgentInput,
   ResumeAgentOptions,
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
@@ -31,6 +32,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject: () => AgentMessageId('stub'),
+    acceptInput: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
     ...overrides,
@@ -38,10 +40,20 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
 }
 
 describe('AgentRegistry', () => {
-  it('keeps concrete delivery routing out of public options', () => {
+  it('keeps helper options semantic and makes advanced input fully specified', () => {
+    type OptionalInputKey = {
+      [Key in keyof ResolvedAgentInput]-?: Record<never, never> extends Pick<ResolvedAgentInput, Key>
+        ? Key
+        : never
+    }[keyof ResolvedAgentInput]
+
     expectTypeOf<'target' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
     expectTypeOf<'wakeup' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
     expectTypeOf<'contexts' extends keyof InjectOptions ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<Parameters<Agent['acceptInput']>[0]>().toEqualTypeOf<ResolvedAgentInput>()
+    expectTypeOf<OptionalInputKey>().toEqualTypeOf<never>()
+    expectTypeOf<Extract<ResolvedAgentInput, { target: 'next-step'; wakeup: false }>['contexts']>()
+      .toEqualTypeOf<[]>()
   })
 
   it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {

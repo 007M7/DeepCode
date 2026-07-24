@@ -12,7 +12,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 ## 决策
 
-**一个私有机制，四种公开意图。** 具体循环把 `send`、`queue`、`steer` 和 `inject` 解析到同一个私有的（`target` × `wakeup`）投递机制中。`send` 是 `next-turn`/wakeup，`queue` 是 `next-turn`/no-wakeup，`steer` 是 `next-step`/wakeup，`inject` 是 `next-step`/no-wakeup。公开的结构化接口不暴露路由字段或抽象基类；取代旧接口的选择由[按意图命名的投递决策](2026-07-24-intent-named-agent-delivery.md)负责说明。内部的 `wakeup` 表示「让模型运行」：为一条普通消息唤醒处于停泊状态的驱动器，或强制运行中的 steering 继续执行。
+**一种接受机制，四种意图辅助方法。** 具体循环把 `send`、`queue`、`steer` 和 `inject` 解析到同一个（`target` × `wakeup`）接受机制中。`send` 是 `next-turn`/wakeup，`queue` 是 `next-turn`/no-wakeup，`steer` 是 `next-step`/wakeup，`inject` 是 `next-step`/no-wakeup。公开的结构化接口还将该机制暴露为 `acceptInput(ResolvedAgentInput)`；调用方若已持有完全解析的路由信息，即可使用该方法。使用时必须提供所有字段，可辨识输入类型也不允许注入携带附加上下文。取代旧接口的选择由[按意图命名的投递决策](2026-07-24-intent-named-agent-delivery.md)负责说明。内部的 `wakeup` 表示「让模型运行」：为一条普通消息唤醒处于停泊状态的驱动器，或强制运行中的 steering 继续执行。
 
 **inject 保留其机制。** `inject` 在当前日志位置追加持久、面向模型的上下文（在执行中的工具批处理之后延迟处理），或在空闲时开启一个一次性的 `injection` 轮次。它完全绕过 FIFO，不接受附加上下文，并把来源默认设为 `{ kind: 'plugin', plugin: '' }`，绝不是 `{ kind: 'user' }`。
 
@@ -43,4 +43,4 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 - [one-send-one-turn](../simplification/2026-07-17-one-send-one-turn.md)——本决策所依托的“每轮次只认领一条消息”规则。
 - [remove-agent-steering-mirror](../simplification/2026-07-04-remove-agent-steering-mirror.md)——折叠镜像实时事件的先例。
 - [explicit-turn-cancellation](2026-07-16-explicit-turn-cancellation.md)——`keepInbox` 所扩展的取消原因信号。
-- [intent-named-agent-delivery](2026-07-24-intent-named-agent-delivery.md)——公开接口和私有路由的归属位置。
+- [intent-named-agent-delivery](2026-07-24-intent-named-agent-delivery.md)——公开辅助方法以及接受完全解析输入的接口。

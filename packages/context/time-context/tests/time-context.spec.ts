@@ -52,6 +52,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
+    acceptInput: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

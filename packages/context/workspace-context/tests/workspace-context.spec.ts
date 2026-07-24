@@ -188,6 +188,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
+    acceptInput: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

@@ -166,6 +166,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       return AgentMessageId('stub')
     },
     inject: () => AgentMessageId('stub'),
+    acceptInput: () => AgentMessageId('stub'),
     cancel(cause = { kind: 'user' }) {
       cancelled.push(cause)
     },

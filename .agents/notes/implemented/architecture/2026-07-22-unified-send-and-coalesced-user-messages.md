@@ -12,7 +12,7 @@ Separately, `context/message` and `user/message` had converged: the surface proj
 
 ## Decision
 
-**One private mechanism, four public intents.** The concrete loop resolves `send`, `queue`, `steer`, and `inject` into one private (`target` × `wakeup`) delivery mechanism. `send` is `next-turn`/wakeup, `queue` is `next-turn`/no-wakeup, `steer` is `next-step`/wakeup, and `inject` is `next-step`/no-wakeup. The public structural interface exposes no routing fields or abstract base; the [intent-named delivery decision](2026-07-24-intent-named-agent-delivery.md) owns that superseding interface choice. Internally, `wakeup` means “make the model run”: wake a parked driver for an ordinary item or force a continuation for running steering.
+**One acceptance mechanism, four intent helpers.** The concrete loop resolves `send`, `queue`, `steer`, and `inject` into one (`target` × `wakeup`) acceptance mechanism. `send` is `next-turn`/wakeup, `queue` is `next-turn`/no-wakeup, `steer` is `next-step`/wakeup, and `inject` is `next-step`/no-wakeup. The public structural interface also exposes that mechanism as `acceptInput(ResolvedAgentInput)` for callers that already have fully resolved routing; every field is mandatory, and the discriminated input type excludes attached contexts from injection. The [intent-named delivery decision](2026-07-24-intent-named-agent-delivery.md) owns that superseding interface choice. Internally, `wakeup` means “make the model run”: wake a parked driver for an ordinary item or force a continuation for running steering.
 
 **inject keeps its mechanism.** `inject` appends durable model-facing context at the current log position (deferred behind an executing tool batch), or opens a one-shot `injection` turn when idle. It bypasses the FIFOs entirely, accepts no attached contexts, and defaults its source to `{ kind: 'plugin', plugin: '' }`, never `{ kind: 'user' }`.
 
@@ -43,4 +43,4 @@ Internally, `wakeup` is the “should the model run” signal, so the inbox dist
 - [one-send-one-turn](../simplification/2026-07-17-one-send-one-turn.md) — the one-claimed-message-per-turn rule this builds on.
 - [remove-agent-steering-mirror](../simplification/2026-07-04-remove-agent-steering-mirror.md) — the precedent for collapsing a mirrored live event.
 - [explicit-turn-cancellation](2026-07-16-explicit-turn-cancellation.md) — the cancel-cause signal `keepInbox` extends.
-- [intent-named-agent-delivery](2026-07-24-intent-named-agent-delivery.md) — the public interface and private routing placement.
+- [intent-named-agent-delivery](2026-07-24-intent-named-agent-delivery.md) — the public helpers and fully resolved acceptance interface.

@@ -43,6 +43,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
+    acceptInput: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

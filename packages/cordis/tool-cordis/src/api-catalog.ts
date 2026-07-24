@@ -899,7 +899,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/inbox/enqueue',
     mode: 'emit',
     signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
-    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `message` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection\n * through `agent.inject()` bypasses the FIFOs and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `message` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection through\n * `agent.inject()` or equivalent `acceptInput()` routing bypasses the FIFOs\n * and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A detached, frozen item entered the agent\'s inbox (queued or steering FIFO).',
   },
   {
@@ -1181,7 +1181,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    queue(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId;\n    cancel(cause?: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    queue(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId;\n    acceptInput(input: ResolvedAgentInput): AgentMessageId;\n    cancel(cause?: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -1714,6 +1714,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RequestHeaderReason',
     declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
+  },
+  {
+    name: 'ResolvedAgentInput',
+    declaration: 'export type ResolvedAgentInput = {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta: JsonValue | undefined;\n} & ({\n    target: \'next-turn\';\n    wakeup: boolean;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: true;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: false;\n    contexts: [\n    ];\n});',
   },
   {
     name: 'ResumeAgentOptions',

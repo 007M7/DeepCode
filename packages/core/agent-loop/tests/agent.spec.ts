@@ -83,6 +83,40 @@ describe('Agent', () => {
     await ctx.fiber.dispose()
   })
 
+  it('acceptInput exposes the fully resolved delivery path without applying helper defaults', async () => {
+    const adapter = new MockAdapter([textResponse('accepted')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const enqueued = Promise.withResolvers<{ id: string; source: unknown; wakeup: boolean }>()
+    ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject === agent) enqueued.resolve(message)
+    })
+
+    const id = agent.acceptInput({
+      content: [{ type: 'text', text: 'advanced input' }],
+      source: { kind: 'plugin', plugin: 'advanced-caller' },
+      contexts: [],
+      meta: { caller: 'advanced' },
+      target: 'next-turn',
+      wakeup: true,
+    })
+    await waitForIdle(ctx, agent)
+
+    expect(await enqueued.promise).toMatchObject({
+      id,
+      source: { kind: 'plugin', plugin: 'advanced-caller' },
+      wakeup: true,
+    })
+    expect(agent.session.events.find(event => event.type === 'user/message'))
+      .toMatchObject({
+        data: {
+          source: { kind: 'plugin', plugin: 'advanced-caller' },
+          meta: { caller: 'advanced' },
+        },
+      })
+    await ctx.fiber.dispose()
+  })
+
   it('send() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)

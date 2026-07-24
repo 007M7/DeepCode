@@ -72,6 +72,7 @@ function stubAgentForSession(session: Session): StubAgent {
       else appendInjection(session, content, options)
       return AgentMessageId('stub')
     },
+    acceptInput: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }
