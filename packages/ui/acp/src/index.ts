@@ -1088,7 +1088,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
-          rec.agent.send(preparedContent, { contexts: preparedContexts })
+          rec.agent.send(preparedContent, { source: { kind: 'user' }, contexts: preparedContexts })
         })
         return { stopReason }
       },

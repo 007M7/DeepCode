@@ -48,7 +48,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       SessionId(`${String(session.id)}-invariant-rebuild`),
       structuredClone(events.slice(0, boundary)),
     )
-    const expected = [...header.messagePrefix ?? [], ...rebuilt.deriveMessages()]
+    const expected = rebuilt.deriveMessages()
     if (JSON.stringify(options.messages) !== JSON.stringify(expected)) {
       fail(`llm request for session "${String(session.id)}" diverges from the boundary derivation (log-reconstruction desync)`)
     }

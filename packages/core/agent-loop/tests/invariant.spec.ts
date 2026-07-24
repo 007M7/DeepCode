@@ -47,15 +47,14 @@ describe('request-reconstruction invariant', () => {
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
-  it('requires the folded session prefix ahead of derived history', async () => {
+  it('requires the messages to equal the boundary derivation exactly (no unlogged prefix)', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    const prefix = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
-    session.append('request/header', { header: { config: { provider: 'mock', model: 'm' }, messagePrefix: [prefix] }, reason: 'change' })
-    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([prefix, ...boundary]), sessionId: session.id })) })
-      .not.toThrow()
+    const extra = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary]), sessionId: session.id })) })
+      .not.toThrow()
+    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([extra, ...boundary]), sessionId: session.id })) })
       .toThrow(/diverges from the boundary derivation/)
-    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary, prefix]), sessionId: session.id })) })
+    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary, extra]), sessionId: session.id })) })
       .toThrow(/diverges from the boundary derivation/)
   })
 

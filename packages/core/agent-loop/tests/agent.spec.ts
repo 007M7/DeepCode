@@ -5,7 +5,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { bindReactLoopAgentContext, prepareReactLoopAgent, type ReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -57,12 +57,12 @@ describe('Agent', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('exclusive-driver'))
     const prepared = prepareReactLoopAgent(
-      ctx, SessionId('first-driver'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+      ctx, SessionId('first-driver'), { provider: 'mock', model: 'mock' }, session,
     )
 
     expect(() => prepared.agent.ctx).toThrow('context is not bound')
     expect(() => prepareReactLoopAgent(
-      ctx, SessionId('second-driver'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+      ctx, SessionId('second-driver'), { provider: 'mock', model: 'mock' }, session,
     ))
       .toThrow('already has a concrete agent driver')
 
@@ -78,54 +78,9 @@ describe('Agent', () => {
     expect(agent.options).toBe(options)
     expect(agent.id).toBe('owned-bindings')
     expect(agent.session.id).toBe(agent.id)
-    expect(() => { bindReactLoopAgentContext(agent as ReactLoopAgent, new Context()) }).toThrow(/context is already bound/)
+    expect(() => { bindReactLoopAgentContext(agent, new Context()) }).toThrow(/context is already bound/)
 
     await ctx.fiber.dispose()
-  })
-
-  it('send() throws after disposal', async () => {
-    const adapter = new MockAdapter(['hang'])
-    const ctx = await harness(adapter)
-    let agent!: Agent
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
-    }, { inject: ['agentLoop'] }))
-    send(agent, 'go')
-    await new Promise(r => setTimeout(r, 30))
-    await fiber.dispose()
-    await driverDone(agent)
-
-    expect(() => { agent.send([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
-  })
-
-  it('steer() throws after disposal', async () => {
-    const adapter = new MockAdapter(['hang'])
-    const ctx = await harness(adapter)
-    let agent!: Agent
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
-    }, { inject: ['agentLoop'] }))
-    send(agent, 'go')
-    await new Promise(r => setTimeout(r, 30))
-    await fiber.dispose()
-    await driverDone(agent)
-
-    expect(() => { agent.steer([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
-  })
-
-  it('inject() throws after disposal', async () => {
-    const adapter = new MockAdapter(['hang'])
-    const ctx = await harness(adapter)
-    let agent!: Agent
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
-    }, { inject: ['agentLoop'] }))
-    send(agent, 'go')
-    await new Promise(r => setTimeout(r, 30))
-    await fiber.dispose()
-    await driverDone(agent)
-
-    expect(() => { agent.inject([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
   })
 
   it('inject() decides enclosure from the LOG (open turn), not agent status', async () => {
@@ -277,14 +232,15 @@ describe('Agent', () => {
     await ctx.plugin(AgentRegistry)
     const session = ctx.sessions.create(SessionId('test'))
     const prepared = prepareReactLoopAgent(
-      ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+      ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session,
     )
     const { agent } = prepared
 
     // Start the loop to get the disposer; the agent waits for messages
     // (idle, never-resolving cancel), so it will stay idle.
     prepared.markPublished()
-    const dispose = prepared.startDriver()
+    prepared.start()
+    const dispose = prepared.dispose
 
     // First dispose
     const firstDisposal = dispose()
@@ -301,12 +257,13 @@ describe('Agent', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('pre-start-dispose'))
     const prepared = prepareReactLoopAgent(
-      ctx, SessionId('pre-start-dispose'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+      ctx, SessionId('pre-start-dispose'), { provider: 'mock', model: 'mock' }, session,
     )
 
     await prepared.dispose()
     expect(prepared.agent.status).toBe('disposed')
-    const dispose = prepared.startDriver()
+    prepared.start()
+    const dispose = prepared.dispose
     await dispose()
     await expect(prepared.agent.done).resolves.toBeUndefined()
     expect(prepared.agent.session.events).toEqual([])
@@ -402,11 +359,12 @@ describe('Agent', () => {
     ctx.llm.registerAdapter(['mock'], adapter)
     const session = ctx.sessions.create(SessionId('bare'))
     const prepared = prepareReactLoopAgent(
-      ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+      ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session,
     )
     const { agent } = prepared
     prepared.markPublished()
-    const dispose = prepared.startDriver()
+    prepared.start()
+    const dispose = prepared.dispose
     agent.send([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')

@@ -5,15 +5,14 @@
  * contribution is ordinary reconstructed request state.
  *
  * Capture commits only after the authoritative `tools/result` succeeds; Code Mode capture also
- * waits for the enclosing `run_code` result. The terminal turn-stop and monotonic tool guard
- * then prevent later listeners or calls from reopening a completed structured run.
+ * waits for the enclosing `run_code` result. The terminal result marker and monotonic tool
+ * guard prevent later calls from reopening a completed structured run.
  * @module @deepseek-ai/dsh-subagent-inprocess/structured
  */
 
 import type { Context } from 'cordis'
-import type { ContinuationStop } from '@deepseek-ai/dsh-agent'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateJsonSchemaValue, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 
 /** The model-facing tool name a structured child must call to finish. */
@@ -83,7 +82,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
       },
       render: () => [{ type: 'text', text: 'Structured output recorded.' }],
     },
-    execute(args: unknown, exec: ToolExecution): Promise<{ recorded: true }> {
+    execute(args: unknown, exec: ToolRunContext): Promise<{ recorded: true }> {
       const violations = validateJsonSchemaValue(schema, args)
       // ToolArgsError → isError result with INVALID_ARGS: the model retries
       // within the same turn, exactly like a schema-validated defineTool call.
@@ -92,6 +91,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
       // waterfalls may still turn the success into an error. ToolRegistry has
       // already frozen model-bound arguments at the actual input boundary.
       staged.set(exec, { value: args })
+      exec.concludeTurn()
       return Promise.resolve({ recorded: true })
     },
   })
@@ -100,13 +100,6 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
     name: `tool:${STRUCTURED_OUTPUT_TOOL}`,
     order: 190,
     text: STRUCTURED_OUTPUT_INSTRUCTION,
-  })
-
-  // Stop the child's turn once its output is captured. This monotonic serial
-  // checkpoint runs after the ordinary continuation waterfall, its reason,
-  // and late-steering folding, so no ordering trick can resume a finished run.
-  childCtx.on('agent/turn-stop', function (this: unknown, _agent, _turn, _signal): ContinuationStop | undefined {
-    return captured === undefined ? undefined : { action: 'stop' }
   })
 
   // Terminal WITHIN the step. Guards run after the whole pre-execute

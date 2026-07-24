@@ -307,6 +307,8 @@ export interface ToolRunContext extends ToolExecution {
    * are emitted in call order.
    */
   deferContext(context: HookContext): void
+  /** Mark a successful final result as terminal for the current agent turn. */
+  concludeTurn(): void
 }
 
 /** Registry-owned live execution object; public pipeline views stay readonly. */
@@ -439,6 +441,8 @@ export interface ToolExecutionSuccess {
   readonly error?: never
   readonly meta?: JsonValue
   readonly additionalContexts?: HookContext[]
+  /** The agent loop stops after committing this successful result batch. */
+  readonly concludesTurn?: true
 }
 
 /** Failed canonical tool execution; failures never carry a successful value. */
@@ -449,6 +453,7 @@ export interface ToolExecutionFailure {
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
   readonly additionalContexts?: HookContext[]
+  readonly concludesTurn?: never
 }
 
 /** The discriminated, execution-local outcome of one tool call. */
@@ -648,6 +653,10 @@ export class ToolRegistry extends Service {
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
   private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
+  /** Successful executions whose tool body declared the current turn complete. */
+  private concludingExecutions = new WeakSet<ToolExecution>()
+  /** Enclosing transport tokens marked terminal by a successful nested call. */
+  private concludingParents = new Set<ToolExecutionToken>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   /** Definition-owned final content transform snapshotted before policy begins. */
@@ -969,6 +978,8 @@ export class ToolRegistry extends Service {
     const signal = exec.signal
     const definition = this.get(name, agent)
     const finalizeContent = definition?.finalizeContent?.bind(definition)
+    const concludingExecutions = this.concludingExecutions
+    const concludingParents = this.concludingParents
     const base = {
       token,
       callId,
@@ -978,6 +989,10 @@ export class ToolRegistry extends Service {
       ...parent !== undefined ? { parent } : {},
       deferContext(context: HookContext): void {
         deferredContexts.push(context)
+      },
+      concludeTurn(): void {
+        if (parent === undefined) concludingExecutions.add(this as unknown as ToolExecution)
+        else concludingParents.add(parent)
       },
     }
     try {
@@ -1192,6 +1207,7 @@ export class ToolRegistry extends Service {
       finalResult = this.materializeFinalResult(toolErrorResult(error))
     }
     this.notifyResult(exec, finalResult)
+    this.concludingParents.delete(exec.token)
     return finalResult
   }
 
@@ -1362,11 +1378,13 @@ export class ToolRegistry extends Service {
       }
       meta = snapshotProjection(tool.name, 'presentationMeta', projected)
     }
+    const concludesTurn = this.concludingExecutions.has(exec) || this.concludingParents.has(exec.token)
     return this.markCanonical(exec, this.materializeFinalResult({
       isError: false,
       value,
       content,
       ...meta !== undefined ? { meta } : {},
+      ...concludesTurn ? { concludesTurn: true as const } : {},
     }) as ToolExecutionSuccess)
   }
 
@@ -1397,6 +1415,7 @@ export class ToolRegistry extends Service {
       content: result.content,
       ...result.meta !== undefined ? { meta: result.meta } : {},
       ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
+      ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
     }
     if (result.isError) {
       return materializePresentation({ isError: true as const, error: result.error, ...presentation })

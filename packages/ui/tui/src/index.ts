@@ -2522,9 +2522,9 @@ export function createTuiChat(
     if (agent.status === 'disposed') {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
-      agent.steer(content, { contexts })
+      agent.steer(content, { source: { kind: 'user' }, contexts })
     } else {
-      agent.send(content, { contexts })
+      agent.send(content, { source: { kind: 'user' }, contexts })
     }
   }
 

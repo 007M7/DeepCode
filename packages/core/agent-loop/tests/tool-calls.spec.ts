@@ -9,9 +9,9 @@ import { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
-import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
@@ -61,7 +61,7 @@ function multiCall(calls: { id: string; name: string; args: object }[]): StreamC
 function gatedTool(name: string, parallel: boolean) {
   const gates = new Map<string, () => void>()
   const started: string[] = []
-  const tool = defineContentToolFixture({
+  const tool = defineTool({
     name,
     description: `gated ${name}`,
     parameters: { id: { type: 'string', required: true } },
@@ -123,12 +123,12 @@ describe('tool-call scheduler: grouping and barriers', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineContentToolFixture({
+    ctx.tools.register(defineTool({
       name: 'r', description: 'read', parameters: { id: { type: 'string', required: true } },
       isConcurrencySafe: () => true,
       async execute(args) { order.push(`r-start-${args.id}`); order.push(`r-end-${args.id}`); return [{ type: 'text', text: 'r' }] },
     }))
-    ctx.tools.register(defineContentToolFixture({
+    ctx.tools.register(defineTool({
       name: 'w', description: 'write', parameters: { id: { type: 'string', required: true } },
       async execute(args) { order.push(`w-${args.id}`); return [{ type: 'text', text: 'w' }] },
     }))
@@ -150,14 +150,14 @@ describe('tool-call scheduler: grouping and barriers', () => {
     ])
     const ctx = await harness(adapter)
     const replacement = gatedExclusiveTool('x')
-    const disposeSafe = ctx.tools.register(defineContentToolFixture({
+    const disposeSafe = ctx.tools.register(defineTool({
       name: 'x',
       description: 'initially safe',
       parameters: { id: { type: 'string', required: true } },
       isConcurrencySafe: () => true,
       async execute(args) { return [{ type: 'text', text: `old-${args.id}` }] },
     }))
-    ctx.tools.register(defineContentToolFixture({
+    ctx.tools.register(defineTool({
       name: 'replace',
       description: 'replace x',
       parameters: { id: { type: 'string', required: true } },
@@ -280,7 +280,8 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
 
-    expect(() => new AgentLoop(ctx, { agents: [] })).not.toThrow()
+    const loop = new AgentLoop(ctx, { agents: [] })
+    expect(loop.config.maxParallelToolCalls).toBe(DEFAULT_MAX_PARALLEL_TOOL_CALLS)
     await ctx.fiber.dispose()
   })
 
@@ -539,14 +540,10 @@ describe('tool-call scheduler: abort handling', () => {
       .toEqual([CallId('c1'), CallId('c2'), CallId('c3'), CallId('c4')])
     expect(events(agent).filter(e => e.type === 'tool/result').map(e => e.data.callId))
       .toEqual([CallId('c1'), CallId('c2'), CallId('c3'), CallId('c4')])
-    expect(events(agent).filter(e => e.type === 'tool/result').slice(-2).map(e => ({
-      callId: e.data.callId,
-      isError: e.data.isError,
-      errorInfo: e.data.error,
-    })))
+    expect(events(agent).filter(e => e.type === 'tool/result').slice(-2).map(e => e.data))
       .toEqual([
-        { callId: CallId('c3'), isError: true, errorInfo: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
-        { callId: CallId('c4'), isError: true, errorInfo: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
+        expect.objectContaining({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
+        expect.objectContaining({ callId: CallId('c4'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
       ])
     const settled = events(agent).filter(e => e.type === 'tool/result'
       || (e.type === 'user/message' && e.data.source.kind === 'plugin'))
@@ -570,7 +567,7 @@ describe('tool-call scheduler: abort handling', () => {
     const gated = gatedParallelTool('p')
     const exclusive: string[] = []
     ctx.tools.register(gated.tool)
-    ctx.tools.register(defineContentToolFixture({
+    ctx.tools.register(defineTool({
       name: 'x',
       description: 'exclusive',
       parameters: { id: { type: 'string', required: true } },

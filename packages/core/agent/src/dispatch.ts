@@ -1,7 +1,11 @@
 /**
- * Agent-scoped dispatch and prompt assembly helpers. Ordinary events use the
- * fused dispatcher so subject and scope key cannot diverge; registry lifecycle
- * code instead captures one stable carrier for both edges.
+ * Agent-scoped dispatch helpers. An agent-subject event travels with the
+ * agent's scope carrier as `thisArg` (so scoped listeners filter to their own
+ * agent) and the agent itself as the first argument. Composable seams are
+ * plain `ctx.waterfall(carrier, name, agent, …, next)` calls at the machine's
+ * call sites — concrete event names type-check against the real Cordis
+ * overloads, so no generic wrapper (and none of its casts) is needed. The one
+ * helper here is {@link emitAgentEvent}: a contained fire-and-forget emit.
  * @module @deepseek-ai/dsh-agent/dispatch
  */
 
@@ -10,11 +14,6 @@ import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from './types.ts'
-
-/** Extract the parameter tuple from an event handler type (its `this` is not part of the tuple). */
-type Params<F> = F extends (...args: infer P) => unknown ? P : never
-/** Extract the return type from an event handler type. */
-type Return<F> = F extends (...args: never[]) => infer R ? R : never
 
 /**
  * The event names whose subject is an agent: handler parameters start with an
@@ -30,84 +29,43 @@ export type AgentSubjectEvent = {
 }[keyof Events]
 
 /** The event arguments AFTER the injected agent subject. */
-type Tail<K extends AgentSubjectEvent> = Params<Events[K]> extends [Agent, ...infer R] ? R : never
+type Tail<K extends AgentSubjectEvent> = Events[K] extends (...args: infer P) => unknown
+  ? P extends [Agent, ...infer R] ? R : never
+  : never
 
 /**
- * The fused dispatcher {@link agentEvents} returns: each method dispatches the
- * named agent-subject event with the agent's scope carrier as `thisArg` and
- * the agent itself injected as the first event argument.
+ * The scope carrier for an agent-subject dispatch: the agent fused as both
+ * the carrier key and the event subject, so the two cannot diverge. Pass it
+ * as the `thisArg` of `ctx.serial` / `ctx.waterfall` for agent events.
+ * @param agent - the subject agent.
+ * @returns the fused carrier.
  */
-export interface AgentEventDispatch {
-  /**
-   * Fire-and-forget notification in the agent's scope. Every listener is
-   * invoked; synchronous throws and returned-promise rejections are logged and
-   * contained per listener, so a notification cannot veto lifecycle progress
-   * or starve a later observer.
-   * @param name - the agent-subject event to emit.
-   * @param rest - the event's arguments after the injected agent.
-   */
-  emit<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): void
-  /**
-   * Awaited in-order dispatch (Cordis `serial`) in the agent's scope.
-   * @param name - the agent-subject event to dispatch.
-   * @param rest - the event's arguments after the injected agent.
-   * @returns the serial chain's result (the first bail value, if any).
-   */
-  serial<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Promise<Awaited<Return<Events[K]>>>
-  /**
-   * Around-middleware dispatch (Cordis `waterfall`) in the agent's scope. The
-   * declared event parameters already end with the `next` callback, so `rest`
-   * is exactly the event's arguments after the injected agent — the final
-   * element being the innermost `next` (the default the listener chain wraps).
-   * @param name - the agent-subject event to dispatch.
-   * @param rest - the event's arguments after the injected agent.
-   * @returns the waterfall's composed result.
-   */
-  waterfall<K extends AgentSubjectEvent>(name: K, ...rest: Tail<K>): Return<Events[K]>
+export function agentCarrier(agent: Agent): Scoped<Agent> {
+  return scopeTarget(agent, agent)
 }
 
 /**
- * Build a dispatcher that couples the agent subject to its scope carrier.
+ * Fire-and-forget notification in the agent's scope. Every listener is
+ * invoked; synchronous throws and returned-promise rejections are logged and
+ * contained per listener, so a notification cannot veto lifecycle progress or
+ * starve a later observer. (Raw Cordis `emit` maps callbacks unguarded — one
+ * synchronous throw would starve the rest and escape into the caller.)
  * @param ctx - the context to dispatch through (any context of the app).
  * @param agent - the subject agent; also the scope-carrier key.
- * @returns the fused dispatcher.
+ * @param name - the agent-subject event to emit.
+ * @param rest - the event's arguments after the injected agent.
  */
-export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
-  const carrier: Scoped<Agent> = scopeTarget(agent, agent)
-  // The ordinary dispatch methods forward through Cordis' variadic mixins. The
-  // fused (carrier, name, agent, ...rest) tuple is provably a valid argument
-  // list for the matching thisArg overload, but TypeScript cannot relate the
-  // generic Tail<K> spread back to that overload's conditional parameter
-  // tuple — hence one contained, shape-preserving cast per method.
-  return {
-    emit(name, ...rest) {
-      // Cordis emit invokes callbacks through Array.map: one synchronous throw
-      // starves later listeners, and returned promises are discarded. Agent
-      // notifications are non-vetoing, so resolve the same filtered callback
-      // set ourselves and contain both failure modes independently.
-      const args: unknown[] = [carrier, name, agent, ...rest]
-      const callbacks = ctx.events.dispatch('emit', args)
-      for (const callback of callbacks) {
-        try {
-          const returned: unknown = callback(...args)
-          void Promise.resolve(returned).catch((error: unknown) => {
-            ctx.logger.warn(`agent event "${name}" listener rejected: ${String(error)}`)
-          })
-        } catch (error: unknown) {
-          ctx.logger.warn(`agent event "${name}" listener threw: ${String(error)}`)
-        }
-      }
-    },
-    async serial(name, ...rest) {
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
-      const serial = ctx.serial as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => Promise<never>
-      return await serial(carrier, name, agent, ...rest)
-    },
-    waterfall(name, ...rest) {
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
-      const waterfall = ctx.waterfall as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => never
-      return waterfall(carrier, name, agent, ...rest)
-    },
+export function emitAgentEvent<K extends AgentSubjectEvent>(ctx: Context, agent: Agent, name: K, ...rest: Tail<K>): void {
+  const args: unknown[] = [agentCarrier(agent), name, agent, ...rest]
+  for (const callback of ctx.events.dispatch('emit', args)) {
+    try {
+      const returned: unknown = callback(...args)
+      void Promise.resolve(returned).catch((error: unknown) => {
+        ctx.logger.warn(`agent event "${name}" listener rejected: ${String(error)}`)
+      })
+    } catch (error: unknown) {
+      ctx.logger.warn(`agent event "${name}" listener threw: ${String(error)}`)
+    }
   }
 }
 
