@@ -22,7 +22,7 @@ subagent seam（[seam Agent Note（agent 决策记录）](../../implemented/feat
 
 两个集成面在本提案之前均已针对固定版本进行了验证——阅读类型与打包源码、运行无需密钥的 spike——而非仅依赖厂商文档。固定版本是验证基线，不是运行时契约：后端不执行运行时版本探测（无 `codex --version` 门禁、无 SDK 版本嗅探）。兼容性在开发时强制执行——每次依赖升级都会针对真实加载路径重跑无密钥套件——在运行时则通过大声失败来保障：协议层面的意外通过 `onError` 结算为 `error`，绝不静默异常。
 
-**`@anthropic-ai/claude-agent-sdk` 0.3.202。** `options.env` 会替换子进程环境（不与 `process.env` 合并），恰好满足清洗需求。`settingSources` 默认加载所有文件系统设置——隔离要求显式传入 `[]`。结果子类型为 `success` | `error_during_execution` | `error_max_turns` | `error_max_budget_usd` | `error_max_structured_output_retries`。中止时 SDK 自行升级 CLI 子进程：立即关闭 stdin，约 2 秒后若子进程未退出则发送 SIGTERM（已观察到；无残留进程）——无需自定义 kill 回退。`outputFormat: {type: 'json_schema'}` 和 `agents` 选项已存在，为 seam 的 `outputSchema` 能力和命名 subagent 类型提供了未来着陆点；两者均不在本 Agent Note 范围内。
+**`@anthropic-ai/claude-agent-sdk` 0.3.202。** `options.env` 会替换子进程环境（不与 `process.env` 合并），恰好满足清洗需求。`settingSources` 默认加载所有文件系统设置——隔离要求显式传入 `[]`。结果子类型为 `success` | `error_during_execution` | `error_max_turns` | `error_max_budget_usd` | `error_max_structured_output_retries`。中止时 SDK 自行逐级加强对 CLI 子进程的终止措施：立即关闭 stdin，约 2 秒后若子进程未退出则发送 SIGTERM（已观察到；无残留进程）——无需自定义 kill 回退。`outputFormat: {type: 'json_schema'}` 和 `agents` 选项已存在，为 seam 的 `outputSchema` 能力和命名 subagent 类型提供了未来着陆点；两者均不在本 Agent Note 范围内。
 
 **codex CLI 0.142.5，`codex app-server`（v2 词汇）。** LF 分隔的 JSON，JSON-RPC 2.0 形状但省略 `"jsonrpc"` 头。
 
