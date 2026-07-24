@@ -298,13 +298,14 @@ export class ReactLoopAgent implements Agent {
   /** The `next-step`/no-wakeup injection path: durable context, no FIFO, no run. */
   private injectContext(input: Extract<ResolvedAgentInput, { target: 'next-step'; wakeup: false }>): void {
     const { content, source, meta } = input
-    const context = {
+    // Detach and validate the payload before any append, so malformed input
+    // cannot open a one-shot turn or otherwise mutate the session.
+    const accepted = this.acceptContext({
       content,
       source,
       ...meta !== undefined ? { meta } : {},
-    }
+    })
     if (isTurnOpen(this.session)) {
-      const accepted = this.acceptContext(context)
       // Provider protocols require every assistant tool-call batch to be
       // followed only by its tool results. Historical interrupted batches do
       // not own new context; only the currently executing batch may defer it.
@@ -316,23 +317,25 @@ export class ReactLoopAgent implements Agent {
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
-    // turn-enclosed (the durability/replay boundary is the turn).
+    // turn-enclosed (the durability/replay boundary is the turn). The payload is
+    // validated above, but `Session.append` can still reject a turn/start
+    // pre-commit (append re-entrancy from a session/event listener, or an
+    // internal-dispatch veto), so the finally owes a turn/end only when
+    // turn/start actually committed.
     const turn = lastTurnNumber(this.session) + 1
-    // Once turn/start enters the log, a turn/end is owed even if the message
-    // append fails acceptance or pre-commit validation. The finally re-checks
-    // the log and closes only a turn that actually opened; post-commit observers
-    // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('user/message', context, { surfaceOp: 'append' })
+      this.session.append('user/message', accepted, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. A pre-commit veto
       // must escape rather than being mistaken for a committed turn/end.
       if (isTurnOpen(this.session)) {
         this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
       }
-      // Decide the durability checkpoint from the log: an accepted one-shot
-      // turn must be flushed even when its message append was the failing step.
+      // Checkpoint only an accepted one-shot turn: a turn/start rejected
+      // pre-commit recorded nothing, so it owes no flush (and a spurious flush
+      // would emit a phantom-turn agent/error). The payload is validated up
+      // front, so a committed turn/start is always followed by its user/message.
       const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
       // Keep inject() synchronous: report checkpoint failures live instead of
       // rejecting the caller, and track the task so disposal still drains it.
@@ -483,8 +486,21 @@ export class ReactLoopAgent implements Agent {
    */
   private [stopDriver](): Promise<void> | void {
     if (this._status !== 'disposed') {
+      // Snapshot any still-pending inbox items, then CLEAR and mark disposed
+      // BEFORE emitting the discard — mirroring cancel()'s snapshot→clear→emit
+      // order so a re-entrant send()/cancel() from a discard listener throws
+      // `disposed` (or finds an empty inbox) instead of leaking or double-
+      // discarding an id. `send()` emits enqueue unconditionally, so the discard
+      // is unconditional too (even on an unpublished rollback) to keep every
+      // enqueued id matched.
+      const discarded = this.#inbox.pending()
+      this.#inbox.clear()
       this._status = 'disposed'
       this.resolveDisposed()
+      if (discarded.length > 0) {
+        const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
+        agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
+      }
       // Release whenIdle waiters BEFORE the (guarded) event emit — they are
       // internal state that must settle even if a listener throws below. Each
       // waiter chains `done`, so it resolves only once the loop actually exits.

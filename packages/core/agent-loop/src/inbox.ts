@@ -29,7 +29,14 @@ export interface InboxMessage {
  * @returns the live-event message for enqueue/dequeue/discard.
  */
 export function agentMessage(message: InboxMessage, steering: boolean): AgentMessage {
-  return { id: message.id, content: message.content, source: message.source, contexts: message.contexts, steering, wakeup: message.wakeup }
+  // Frozen: the fused emitter passes this exact object to every listener in
+  // turn, so one listener must not be able to mutate a field (`id`, `steering`,
+  // `content`, …) a later listener then observes. `message` is already a frozen
+  // inbox record, so its nested fields need no re-clone.
+  return Object.freeze({
+    id: message.id, content: message.content, source: message.source,
+    contexts: message.contexts, steering, wakeup: message.wakeup,
+  })
 }
 
 /**

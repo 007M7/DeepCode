@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { AgentMessageId } from '@deepseek-ai/dsh-agent'
-import { Inbox } from '../src/inbox.ts'
+import { Inbox, agentMessage } from '../src/inbox.ts'
 
 function message(text: string) {
   return { id: AgentMessageId(text), content: [{ type: 'text' as const, text }], source: { kind: 'user' as const }, contexts: [], wakeup: true }
 }
+
+describe('agentMessage', () => {
+  it('returns a frozen payload so a listener cannot mutate it for later listeners', () => {
+    const payload = agentMessage(message('m'), false)
+    expect(Object.isFrozen(payload)).toBe(true)
+    expect(() => { (payload as { id: string }).id = 'mutated' }).toThrow()
+    expect(payload.id).toBe(AgentMessageId('m'))
+  })
+})
 
 function resolverPair() {
   let r!: () => void

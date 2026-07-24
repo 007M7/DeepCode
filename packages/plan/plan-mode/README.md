@@ -6,7 +6,7 @@ Logged, per-agent plan collaboration state with deployment-owned guidance, direc
 
 `plan/mode` (`{ active: boolean }`) is a log-only, whole-value-replace `SessionEventMap` member. `foldPlanMode(events)` returns the last logged value or `false`, so resume, fork, and compaction recover plan state directly from the session log. UIs observe committed flips through `session/event`.
 
-`ctx.planMode.set(agent, active)` records a pending selection and flushes it inside the next turn boundary. `get(agent)` returns `{ active, pending? }`, separating the logged state shaping the current step from a user's optimistic selection. Prompt submission, ordinary continuation, and request-recovery retry are all covered; a changed user selection contributes one `context/message` notice when the last logged request header described the other state.
+`ctx.planMode.set(agent, active)` records a pending selection and flushes it inside the next turn boundary. `get(agent)` returns `{ active, pending? }`, separating the logged state shaping the current step from a user's optimistic selection. Prompt submission, ordinary continuation, and request-recovery retry are all covered; a changed user selection contributes one plugin-sourced `user/message` notice when the last logged request header described the other state.
 
 ## Model and human surfaces
 

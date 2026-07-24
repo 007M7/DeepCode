@@ -325,11 +325,15 @@ declare module 'cordis' {
      */
     'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
     /**
-     * `cancel()` (without `keepInbox`) dropped pending inbox items without
-     * delivering them. Fires once per effective clearing call with every
-     * discarded item, after `agent/cancel-requested` and before the abort.
-     * @param agent - the agent whose inbox was cleared.
-     * @param messages - the discarded messages in FIFO order (queued then steering); empty when nothing was pending.
+     * Pending inbox items were dropped without delivering them, so every
+     * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR
+     * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after
+     * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`
+     * dropping pending steering (in-turn and on the post-turn late-steering
+     * drain); and disposal of any still-pending items (before
+     * `agent/status('disposed')`). Fires once per drop with every dropped item.
+     * @param agent - the agent whose inbox items were dropped.
+     * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
