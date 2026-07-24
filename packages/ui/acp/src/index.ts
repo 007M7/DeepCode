@@ -60,7 +60,7 @@ import {
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
-import { displayPromptContent, SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
+import { displayPromptContent, hasOpenTurn, SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -708,17 +708,6 @@ export function apply(ctx: Context, config: AcpConfig): void {
     }]
   }
 
-  /** Whether the log has an open turn in which a config switch can be enclosed. */
-  const isTurnOpen = (agent: Agent): boolean => {
-    const events = agent.session.events
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      const type = (events[index] as SessionEvent).type
-      if (type === 'turn/start') return true
-      if (type === 'turn/end') return false
-    }
-    return false
-  }
-
   /** Anchor last-write-wins idle switches into a just-opened turn. */
   const flushPendingSwitches = (rec: SessionRecord): void => {
     const pending = rec.pendingSwitches
@@ -1159,7 +1148,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             if (!presets.names.includes(params.value)) {
               throw invalidParams(`unknown permission value ${JSON.stringify(params.value)}`)
             }
-            if (isTurnOpen(rec.agent)) presets.set(rec.agent.session, params.value)
+            if (hasOpenTurn(rec.agent.session.events)) presets.set(rec.agent.session, params.value)
             else rec.pendingSwitches.preset = params.value
             break
           }

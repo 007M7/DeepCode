@@ -30,6 +30,8 @@ export interface InputBarProps {
   placeholder?: string
   /** Optional leading accessory row above the textarea (kept for callers; empty state no longer uses it). */
   accessory?: ReactNode
+  /** Host-wired access-mode control (the composer mounts the permission chip here); replaces the visual-only placeholder. */
+  controls?: ReactNode
   onDraftChange: (text: string) => void
   onSend: (mode: 'queue' | 'steer') => void
   onStop: () => void
@@ -56,7 +58,7 @@ const MODEL_OPTIONS: readonly SelectOption[] = [
 ]
 
 export function InputBar({
-  draft, running, disabled, error, variant, placeholder, accessory, onDraftChange, onSend, onStop,
+  draft, running, disabled, error, variant, placeholder, accessory, controls, onDraftChange, onSend, onStop,
 }: InputBarProps) {
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -177,7 +179,8 @@ export function InputBar({
             </button>
             <div className={css.modes}>
               {renderSelect('Plan mode', planId, PLAN_OPTIONS, setPlanId)}
-              {renderSelect('Access mode', readonlyId, READONLY_OPTIONS, setReadonlyId)}
+              {/* The wired permission chip supersedes the visual-only Access placeholder. */}
+              {controls ?? renderSelect('Access mode', readonlyId, READONLY_OPTIONS, setReadonlyId)}
             </div>
           </div>
           <div className={css.trailing}>

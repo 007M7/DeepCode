@@ -280,9 +280,45 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
     await composer.getByRole('checkbox', { name: 'Agent 产品判断' }).press('Enter')
 
     await composer.waitFor({ state: 'detached' })
+    // The composer does not fall back to the InputBar yet: fx-alpha's resident
+    // approval is still pending, so the approval takeover elects next (the
+    // approval scenario below answers it and watches the InputBar return).
+    await page.locator('[data-approval-key]').waitFor({ state: 'visible', timeout: 10_000 })
+  })
+
+  it('answers the composer-takeover approval panel; the InputBar returns on the resolved frame', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-approval-answer'))
+    // fx-alpha carries the resident pending approval; the session is already
+    // selected by the previous scenario. With the question settled, the
+    // approval owns the composer slot — no textarea is mounted.
+    const panel = page.locator('[data-approval-key]')
+    await panel.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await panel.getByText('等待审批').count()).toBe(1)
+    expect(await page.locator('textarea').count()).toBe(0)
+    // Sidebar mirrors the blocked state: the session row shows the amber
+    // warning dot in place of the running ring.
+    expect(await page.locator('[role="treeitem"] [data-state="warning"]').count()).toBeGreaterThan(0)
+    await panel.getByRole('button', { name: '允许一次' }).click()
+    // The broadcast resolved frame removes the panel and restores the
+    // composer; the sidebar dot clears with it.
+    await panel.waitFor({ state: 'detached', timeout: 5000 })
     const restoredInput = page.locator('textarea[placeholder]')
-    await restoredInput.waitFor()
+    await restoredInput.waitFor({ state: 'visible', timeout: 5000 })
     expect(await restoredInput.getAttribute('placeholder')).toBe('回复生成中，可停止后再输入')
+    await expect.poll(() => page.locator('[role="treeitem"] [data-state="warning"]').count(), { timeout: 5000 }).toBe(0)
+  })
+
+  it('switches the permission preset through the composer select', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-permission-select'))
+    const select = page.locator('select').filter({ hasText: 'Workspace Write' }).first()
+    await select.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await select.inputValue()).toBe('workspace-write')
+    await select.selectOption('danger-full-access')
+    // The control disables during the round trip and adopts the confirmed
+    // value; host-side persistence across re-reads is covered by the fixture
+    // unit suite (fixture.spec.ts permissions/setPermission).
+    await expect.poll(() => select.inputValue(), { timeout: 5000 }).toBe('danger-full-access')
+    await expect.poll(() => select.isDisabled(), { timeout: 5000 }).toBe(false)
   })
 
   it('stayed clean: no page errors across the whole load chain', () => {

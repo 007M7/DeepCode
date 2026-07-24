@@ -1,0 +1,71 @@
+// ApprovalPanel: the composer-takeover approval prompt (designer draft
+// approval.png), registered as a selector-routed entry of the
+// conversation-declared composer chain. While an approval question is
+// pending, this panel occupies the composer slot in place of the InputBar:
+// an amber "Waiting for approval" strip on the card top, the model's
+// justification as the headline, the paired command in muted code text, and
+// a right-aligned refuse/allow action row. One-shot: the buttons disable
+// after a click and the panel leaves (the InputBar returns) on the broadcast
+// resolved frame. The draft's "Always allow this type" is deferred with
+// grant storage.
+
+import { useMemo, useState } from 'react'
+import type { RunningToolCall } from '@deepseek-ai/dsh-client-runtime/client'
+import { PendingApproval, type ApprovalComposerProps } from '../contract/slots.ts'
+import css from './ApprovalPanel.module.css'
+
+/** Extract the shell command from an approval's paired running call (bash-family args carry `command`); undefined hides the line. */
+export function commandOf(call: RunningToolCall | undefined): string | undefined {
+  if (call === undefined) return undefined
+  try {
+    const args = JSON.parse(call.argsRaw) as Record<string, unknown>
+    return typeof args.command === 'string' ? args.command : undefined
+  } catch {
+    // Unparseable model args: the panel still renders, just without the command line.
+    return undefined
+  }
+}
+
+/**
+ * Composer takeover boundary: mints the domain face on the carrier's stable
+ * identity and remounts the flow per request key, so the one-shot answered
+ * latch never leaks to the next pending approval.
+ * @param props - the selector-matched pending approval carrier plus the framework standard kit.
+ * @returns The approval prompt for this request.
+ */
+export function ApprovalPanel(props: ApprovalComposerProps) {
+  const approval = useMemo(() => new PendingApproval(props.matched), [props.matched])
+  const command = props.useSession(s => commandOf(
+    approval.callId === undefined ? undefined : s.runningCalls.find(call => call.callId === approval.callId)))
+  return <ApprovalFlow key={approval.key} pending={approval} {...command === undefined ? {} : { command }} />
+}
+
+function ApprovalFlow({ pending, command }: { pending: PendingApproval; command?: string }) {
+  // Local one-shot latch: the panel leaves only when the resolved frame
+  // lands; until then the buttons must not re-fire. An answer failure
+  // (rejected receipt / transport) re-arms them for retry.
+  const [answered, setAnswered] = useState(false)
+  const answer = (outcome: 'allowed-once' | 'rejected'): void => {
+    setAnswered(true)
+    void pending.answer(outcome).catch(() => { setAnswered(false) })
+  }
+  return (
+    <div className={css.root} data-approval-key={pending.key}>
+      <div className={css.card}>
+        <div className={css.strip}><span className={css.dot} />等待审批</div>
+        <div className={css.body}>
+          <div className={css.headline}>{pending.reason ?? `工具 ${pending.toolName} 请求越权执行`}</div>
+          {command !== undefined && <div className={css.command}>{command}</div>}
+          <div className={css.actionRow}>
+            <button type="button" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
+              拒绝
+            </button>
+            <button type="button" className={css.allow} disabled={answered} onClick={() => { answer('allowed-once') }}>
+              允许一次
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

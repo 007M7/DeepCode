@@ -38,6 +38,8 @@ export interface SessionRow {
   hasChildren: boolean
   expanded: boolean
   running: boolean
+  /** An approval question is pending (amber warning dot outranks the running ring). */
+  waitingApproval: boolean
   updatedAt: number
 }
 
@@ -159,6 +161,7 @@ function sessionRow(g: Group, s: SessionSummary, depth: number, hasChildren: boo
     hasChildren,
     expanded,
     running: s.running,
+    waitingApproval: s.waitingApproval,
     updatedAt: s.updatedAt,
   }
 }

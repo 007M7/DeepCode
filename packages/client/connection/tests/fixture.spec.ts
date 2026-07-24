@@ -255,6 +255,61 @@ describe('createFixtureApi', () => {
     })).toEqual({ accepted: true })
   })
 
+  it('respond answers the resident approval once: routing, validation, resolved broadcast, then not-pending', async () => {
+    const api = createFixtureApi()
+    // Discover the resident approval's stable rpcId from the mux baseline.
+    const abort = new AbortController()
+    const seen: { rpcId: string; frame: MuxFrame }[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.mux(req({}), abort.signal)) seen.push({ rpcId: envelope.rpcId, frame: envelope.payload })
+    })()
+    await vi.waitFor(() => {
+      expect(seen.some(s => s.frame.type === 'approval/requested')).toBe(true)
+    })
+    const requested = seen.find(s => s.frame.type === 'approval/requested')
+    if (requested === undefined || requested.frame.type !== 'approval/requested') throw new Error('unreachable')
+    const approvalId = requested.frame.approvalId
+
+    // Routed but malformed answers.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: false, error: { code: 'internal', message: 'x', details: {} } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { approvalId: 'wrong', outcome: 'rejected' } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { approvalId, outcome: 'maybe' } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    // The real answer settles the question and broadcasts resolved.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { sessionId: sid('fx-alpha'), approvalId, outcome: 'allowed-once' } } }))
+      .toEqual({ accepted: true })
+    await vi.waitFor(() => {
+      expect(seen.some(s => s.frame.type === 'approval/resolved' && s.frame.outcome === 'allowed-once')).toBe(true)
+    })
+    // Settled: a duplicate answer is late, and a fresh mux open replays nothing.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { sessionId: sid('fx-alpha'), approvalId, outcome: 'rejected' } } }))
+      .toEqual({ accepted: false, reason: 'not-pending' })
+    abort.abort()
+    await consuming
+    const abort2 = new AbortController()
+    const replayed = await collect(api.events.mux(req({}), abort2.signal), abort2, frames => frames.length === 2)
+    expect(replayed.some(f => f.type === 'approval/requested')).toBe(false)
+  })
+
+  it('permissions/setPermission mirror the host select: read, switch, validation', async () => {
+    const api = createFixtureApi()
+    const read = await api.sessions.permissions(req({ sessionId: sid('fx-alpha') }))
+    expect(read.result).toMatchObject({ ok: true, value: { currentValue: 'workspace-write' } })
+    const switched = await api.sessions.setPermission(req({ sessionId: sid('fx-alpha'), value: 'danger-full-access' }))
+    expect(switched.result).toMatchObject({ ok: true, value: { currentValue: 'danger-full-access' } })
+    const reread = await api.sessions.permissions(req({ sessionId: sid('fx-alpha') }))
+    expect(reread.result).toMatchObject({ ok: true, value: { currentValue: 'danger-full-access' } })
+    // Validation: ghost session and unknown value.
+    const ghostRead = await api.sessions.permissions(req({ sessionId: sid('fx-ghost') }))
+    expect(ghostRead.result.ok).toBe(false)
+    const ghostSwitch = await api.sessions.setPermission(req({ sessionId: sid('fx-ghost'), value: 'workspace-write' }))
+    expect(ghostSwitch.result.ok).toBe(false)
+    const unknown = await api.sessions.setPermission(req({ sessionId: sid('fx-alpha'), value: 'nope' }))
+    expect(unknown.result.ok).toBe(false)
+  })
+
   it('describe answers the fixture identity', async () => {
     const api = createFixtureApi()
     const response = await api.host.describe(req({}))
@@ -345,6 +400,8 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     expect((await client.sessions.history({ sessionId: id })).result.ok).toBe(true)
     expect((await client.sessions.prompt({ sessionId: id, mode: 'queue', content: [{ type: 'text', text: '嗨' }] })).result.ok).toBe(true)
     expect((await client.sessions.cancel({ sessionId: id })).result.ok).toBe(true)
+    expect((await client.sessions.permissions({ sessionId: id })).result.ok).toBe(true)
+    expect((await client.sessions.setPermission({ sessionId: id, value: 'danger-full-access' })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
   })
 

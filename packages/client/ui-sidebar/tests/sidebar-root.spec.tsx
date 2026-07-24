@@ -31,6 +31,7 @@ interface SummaryInit {
   cwd?: string
   parentId?: string
   running?: boolean
+  waitingApproval?: boolean
   updatedAt?: number
 }
 
@@ -40,6 +41,7 @@ function summary(init: SummaryInit): SessionSummary {
     title: init.title ?? init.id,
     displayTitle: init.title ?? init.id,
     running: init.running ?? false,
+    waitingApproval: init.waitingApproval ?? false,
     updatedAt: init.updatedAt ?? 0,
   }
   if (init.cwd !== undefined) s.cwd = init.cwd
@@ -289,5 +291,18 @@ describe('SidebarRoot', () => {
     const idleRow = screen.getByText('idle one').closest('[role="treeitem"]')!
     expect(busyRow.querySelector('[data-state="ongoing"]')).toBeTruthy()
     expect(idleRow.querySelector('[data-state="ongoing"]')).toBeNull()
+  })
+
+  it('waiting-approval shows the amber warning dot and outranks the running ring', () => {
+    mount(
+      summary({ id: 'blocked', title: 'blocked one', cwd: '/p', running: true, waitingApproval: true, updatedAt: 2 }),
+      summary({ id: 'busy', title: 'busy one', cwd: '/p', running: true, updatedAt: 1 }),
+    )
+    act(() => { fireEvent.click(screen.getByText('p')) })
+    const blockedRow = screen.getByText('blocked one').closest('[role="treeitem"]')!
+    const busyRow = screen.getByText('busy one').closest('[role="treeitem"]')!
+    expect(blockedRow.querySelector('[data-state="warning"]')).toBeTruthy()
+    expect(blockedRow.querySelector('[data-state="ongoing"]')).toBeNull()
+    expect(busyRow.querySelector('[data-state="ongoing"]')).toBeTruthy()
   })
 })

@@ -61,6 +61,10 @@ async function bench() {
       () => Promise.resolve({ ok: true, value: { accepted: true } })),
     cancel: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
       () => Promise.resolve({ ok: true, value: { accepted: true } })),
+    permissions: vi.fn<() => Promise<{ ok: boolean; value?: { options: { value: string; name: string }[]; currentValue: string }; error?: { code: string; message: string } }>>(
+      () => Promise.resolve({ ok: true, value: { options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' } })),
+    setPermission: vi.fn<() => Promise<{ ok: boolean; value?: { currentValue: string }; error?: { code: string; message: string } }>>(
+      () => Promise.resolve({ ok: true, value: { currentValue: 'danger-full-access' } })),
   }
   const scopes = new Map<SessionId, Context>()
   const mint = (id: SessionId): Context => {
@@ -141,6 +145,32 @@ describe('conversation slot inject surface', () => {
     const chatView = b.chatViewSurface(ROOT)
     chatView.injected.loadOlder()
     expect(b.sessionFake.loadOlder).toHaveBeenCalledTimes(1)
+  })
+
+  it('permissions/setPermission thread the object layer; empty options and failures fold to null', async () => {
+    const b = await bench()
+    const { injected } = b.conversationSurface(ROOT)
+    expect(await injected.permissions()).toMatchObject({ currentValue: 'workspace-write' })
+    expect(await injected.setPermission('danger-full-access')).toBe('danger-full-access')
+    // Empty options (permission-less host) and the error branch both hide the control.
+    b.sessionFake.permissions.mockResolvedValueOnce({ ok: true, value: { options: [], currentValue: 'custom' } })
+    expect(await injected.permissions()).toBeNull()
+    b.sessionFake.permissions.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'x' } })
+    expect(await injected.permissions()).toBeNull()
+    b.sessionFake.setPermission.mockResolvedValueOnce({ ok: false, error: { code: 'bad-request', message: 'x' } })
+    expect(await injected.setPermission('nope')).toBeNull()
+  })
+
+  it('registers the approval takeover on the composer chain: routing selector, no inject face', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('conversation.composer')[0]!
+    expect(entry.inject).toBeUndefined()
+    // The selector narrows the chain currency: approval wait in → that wait; none → null.
+    const select = entry.select as (owner: { interactions: readonly { kind: string }[] }) => unknown
+    const approval = { kind: 'approval' }
+    expect(select({ interactions: [{ kind: 'question' }, approval] })).toBe(approval)
+    expect(select({ interactions: [{ kind: 'question' }] })).toBeNull()
+    expect(select({ interactions: [] })).toBeNull()
   })
 
   it('send trims, optimistically clears through actions, restores on failure without clobbering new typing', async () => {

@@ -254,7 +254,9 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
             ))}
           </div>
         )}
-        {pending.map((item) => <PendingCard key={item.key} item={item} />)}
+        {/* Approvals take over the composer (ApprovalPanel); only question
+            placeholders remain in the flow. */}
+        {pending.filter((item) => item.kind === 'question').map((item) => <PendingCard key={item.key} item={item} />)}
         </div>
       </div>
       <StatsLine useSession={useSession} />

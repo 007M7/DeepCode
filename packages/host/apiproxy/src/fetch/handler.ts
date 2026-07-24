@@ -19,7 +19,9 @@ import {
   sessionCreateRequestSchema,
   sessionHistoryRequestSchema,
   sessionListRequestSchema,
+  sessionPermissionsRequestSchema,
   sessionPromptRequestSchema,
+  sessionSetPermissionRequestSchema,
 } from '../api/sessions.schema.ts'
 import { hostDescribeRequestSchema } from '../api/host.schema.ts'
 
@@ -43,6 +45,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
+  'session.permissions': { schema: sessionPermissionsRequestSchema, invoke: (api, r) => api.sessions.permissions(r) },
+  'session.setPermission': { schema: sessionSetPermissionRequestSchema, invoke: (api, r) => api.sessions.setPermission(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
 }
 

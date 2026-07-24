@@ -1,0 +1,49 @@
+/* Composer bottom-row permission chip (draft start.jpeg `Read-only ∨`): a
+   quiet text chip with a chevron; hover paints the standard interactive pill.
+   The native select is stretched invisibly over the chip so the platform
+   dropdown does the menu work — keyboard/AT semantics come free. */
+
+.root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 20px;
+  pointer-events: none; /* the overlaid select owns the interaction */
+}
+
+.root:hover .chip {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.chevron {
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Invisible native select stretched over the chip: real menu, zero drawing. */
+.select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.select:disabled {
+  cursor: default;
+}
+
+.root:has(.select:disabled) .chip {
+  opacity: 0.5;
+}

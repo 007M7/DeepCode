@@ -1,19 +1,31 @@
 /**
- * Host-side ApiProxy implementation. Signature discipline: unary takes the
- * narrow RpcRequest<P> and echoes request.rpcId on the RpcResponse<T>.
+ * Host-side ApiProxy implementation. Unary methods, both streams, and the
+ * pending-interaction registries are real: the approval registry turns
+ * `ctx.approval` asks into answerable `approval/requested` mux frames and the
+ * question provider does the same for `ask_user_question`; both are answered
+ * through `respond` (routed by the echoed rpcId). Signature discipline: unary
+ * takes the narrow RpcRequest<P> and echoes request.rpcId on the RpcResponse<T>.
  */
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import { hasOpenTurn } from '@deepseek-ai/dsh-session'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
+// Side-effect type imports: resolve `ctx.approval` / `ctx.get('permission')`
+// without value dependencies on the seams (both are optional compositions here).
+import type {} from '@deepseek-ai/dsh-user-approval'
+import type {} from '@deepseek-ai/dsh-permission'
 import type {
   ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { approvalResponsePayloadSchema } from '@deepseek-ai/dsh-host-apiproxy/api/approvals.schema'
 import { questionResponsePayloadSchema } from '@deepseek-ai/dsh-host-apiproxy/api/questions.schema'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -183,6 +195,36 @@ interface ToolCallData { callId: string; name: string; arguments: string }
 /** The tool/result payload fields the presenter path reads. */
 interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: JsonValue }
 
+/**
+ * One outstanding approval question: the stable server-request id, the frame
+ * material replayed to late mux subscribers, and the resolver that settles the
+ * answerer's promise back into `ctx.approval`.
+ */
+interface PendingApproval {
+  rpcId: RpcId
+  sessionId: SessionId
+  approvalId: ApprovalRequestId
+  toolName: string
+  callId?: CallId
+  reason?: string
+  resolve(outcome: ApprovalOutcome): void
+}
+
+/** Project a pending entry into its answerable mux frame (initial push and mux-open replay share it). */
+function requestedFrame(pending: PendingApproval): RpcRequest<MuxFrame> {
+  return {
+    rpcId: pending.rpcId,
+    payload: {
+      type: 'approval/requested',
+      sessionId: pending.sessionId,
+      approvalId: pending.approvalId,
+      toolName: pending.toolName,
+      ...pending.callId === undefined ? {} : { callId: pending.callId },
+      ...pending.reason === undefined ? {} : { reason: pending.reason },
+    },
+  }
+}
+
 /** One host-owned question wait, addressed by the stable server-request id. */
 interface PendingQuestion {
   rpcId: RpcId
@@ -283,6 +325,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
   const resumes = new Map<SessionId, Promise<Agent>>()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
+  const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
 
   /** Send one transient frame to every connected mux consumer. */
@@ -340,6 +383,95 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         'web user-interaction provider was disposed', 'ASK_ABORTED'))
     }
   }, 'api-proxy: user-interaction provider')
+
+  // --- Approval pending registry ------------------------------------------
+  // The proxy is the approval channel for every agent this host owns: an ask
+  // through `ctx.approval` becomes an answerable server-request on the mux
+  // stream (stable rpcId), settled by POST /api/respond. The entry survives
+  // client disconnects — mux-open replays still-pending requested frames with
+  // the same rpcId (the refresh-recovery baseline) — and withdraws on the
+  // ask's own abort signal (turn cancel), pushing `cancelled` to subscribers.
+  if (ctx.get('approval') !== undefined) {
+    ctx.on('approval/request', (req, next) => {
+      // The audit pair `approval/asked` is already appended by the service
+      // before dispatch, but dispatch rides a microtask: parallel tool calls
+      // can append several asked events before any answerer runs. THIS
+      // request's event is therefore the newest asked event that is still
+      // undecided, unclaimed by another pending entry, and — when the ask
+      // names a call — carries the same callId.
+      const events = req.agent.session.events
+      const claimed = new Set<ApprovalRequestId>()
+      for (const entry of pendingApprovals.values()) claimed.add(entry.approvalId)
+      const decided = new Set<ApprovalRequestId>()
+      let approvalId: ApprovalRequestId | undefined
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i] as SessionEvent
+        if (event.type === 'approval/decided') {
+          decided.add(event.data.id)
+        } else if (event.type === 'approval/asked') {
+          if (decided.has(event.data.id) || claimed.has(event.data.id)) continue
+          if (req.callId !== undefined && event.data.callId !== req.callId) continue
+          approvalId = event.data.id
+          break
+        }
+      }
+      // No asked event means the request bypassed the service's audit path —
+      // not this channel's question; delegate to the fail-closed default.
+      if (approvalId === undefined) return next()
+      const id = approvalId
+      return new Promise<ApprovalOutcome>((resolve) => {
+        const settle = (outcome: ApprovalOutcome): void => {
+          /* v8 ignore next 3 -- defensive double-settle guard: respond() routes
+             through the pending table (a settled id is not-pending before it can
+             re-settle) and the first settle removes the abort listener, so no
+             reachable path settles twice; kept against future settle callers. */
+          if (!pendingApprovals.delete(pending.rpcId)) return
+          req.signal?.removeEventListener('abort', onAbort)
+          broadcast({ type: 'approval/resolved', sessionId: pending.sessionId, approvalId: id, outcome })
+          // A cancelled ask was already settled by the service's own signal
+          // race, which discards this late resolution; resolving is a no-op
+          // there and keeps this promise from dangling forever.
+          resolve(outcome)
+        }
+        const onAbort = (): void => { settle('cancelled') }
+        const pending: PendingApproval = {
+          rpcId: RpcId(randomUUID()),
+          sessionId: req.agent.session.id,
+          approvalId: id,
+          toolName: req.toolName,
+          ...req.callId === undefined ? {} : { callId: req.callId },
+          ...req.reason === undefined ? {} : { reason: req.reason },
+          resolve: settle,
+        }
+        pendingApprovals.set(pending.rpcId, pending)
+        req.signal?.addEventListener('abort', onAbort, { once: true })
+        const envelope = requestedFrame(pending)
+        for (const queue of muxQueues) queue.push(envelope)
+      })
+    })
+  }
+
+  // --- Permission switch anchoring ----------------------------------------
+  // Knob events (`permission/preset`, `sandbox/mode`, `approval/policy`) must
+  // be turn-enclosed for durable replay, so an idle switch is held here
+  // last-write-wins and flushed when the next prompted turn opens (the ACP
+  // bridge's pendingSwitches pattern; prompt-submit is inside the new turn but
+  // before prompt assembly, so the switch is visible to that turn's request).
+  const pendingSwitches = new Map<SessionId, string>()
+  ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
+    const preset = pendingSwitches.get(agent.session.id)
+    if (preset !== undefined) {
+      pendingSwitches.delete(agent.session.id)
+      const presets = ctx.get('permission')
+      /* v8 ignore next -- a pending preset exists only if setPermission saw the
+         service; it cannot unmount between that and the next turn here. */
+      if (presets !== undefined) presets.set(agent.session, preset)
+    }
+    return next()
+  })
+  ctx.on('session/disposed', (session: Session) => {
+    pendingSwitches.delete(session.id)
+  })
 
   /**
    * Gate the cold path on the store: an id absent from it, or naming a legacy
@@ -468,6 +600,48 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         agent.cancel()
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
+
+      async permissions(request) {
+        const { sessionId } = request.payload
+        const presets = ctx.get('permission')
+        // A permission-less composition advertises an empty select (client
+        // hides the control) rather than erroring — the control's absence is
+        // deployment shape, not a caller mistake.
+        if (presets === undefined) return ok(request, { options: [], currentValue: 'custom' })
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const events = found.agent.session.events
+        const currentValue = pendingSwitches.get(sessionId) ?? presets.current(events)
+        const options = [
+          ...presets.names.map(name => presets.optionOf(name)),
+          // `custom` echoes the current derived state but is never a target.
+          ...currentValue === 'custom' ? [presets.optionOf('custom')] : [],
+        ]
+        return ok(request, { options, currentValue })
+      },
+
+      async setPermission(request) {
+        const { sessionId, value } = request.payload
+        const presets = ctx.get('permission')
+        if (presets === undefined) {
+          return err(request, { code: 'bad-request', message: 'no permission service is composed on this host', details: { issues: [] } })
+        }
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const agent = found.agent
+        // A current-value echo is acknowledged without recording a switch.
+        const current = pendingSwitches.get(sessionId) ?? presets.current(agent.session.events)
+        if (value === current) return ok(request, { currentValue: value })
+        if (!presets.names.includes(value)) {
+          return err(request, { code: 'bad-request', message: `unknown permission value ${JSON.stringify(value)}`, details: { issues: [] } })
+        }
+        // Turn-anchoring (the ACP bridge pattern): knob events must be enclosed
+        // by the durable log's turn boundary, so an idle switch is held
+        // last-write-wins and flushed into the next prompted turn.
+        if (hasOpenTurn(agent.session.events)) presets.set(agent.session, value)
+        else pendingSwitches.set(sessionId, value)
+        return ok(request, { currentValue: value })
+      },
     },
 
     host: {
@@ -499,6 +673,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             },
           })
         }
+        // Refresh recovery: still-pending approval questions replay with their
+        // stable rpcId so a reconnecting client can still answer them.
+        for (const pending of pendingApprovals.values()) queue.push(requestedFrame(pending))
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
         // opened mid-turn) backscans the session's in-memory events instead.
@@ -564,6 +741,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Route by the echoed rpcId (the wire correlation): approvals first,
+      // then questions — the two registries share one id space of UUIDs.
+      const approval = pendingApprovals.get(message.rpcId)
+      if (approval !== undefined) {
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const parsed = approvalResponsePayloadSchema.safeParse(message.result.value)
+        // The payload's audit correlation must match the entry the rpcId routed
+        // to — a mismatched answer is malformed, not merely late.
+        if (!parsed.success || parsed.data.approvalId !== approval.approvalId || parsed.data.sessionId !== approval.sessionId) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approval.resolve(parsed.data.outcome)
+        return Promise.resolve({ accepted: true })
+      }
       const pending = pendingQuestions.get(message.rpcId)
       if (pending === undefined) return Promise.resolve({ accepted: false, reason: 'not-pending' })
       if (!message.result.ok) {

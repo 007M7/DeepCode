@@ -281,3 +281,42 @@ describe('connected generation', () => {
     })
   })
 })
+
+describe('waiting-approval list bit', () => {
+  it('lights on requested, survives replay duplicates, and clears on resolved — without instantiation', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    // Mux-open replay of the same question (same approvalId) is idempotent.
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    manager.handleMuxEnvelope({ rpcId: 'rx' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'ap1' as never, outcome: 'allowed-once' as never } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+  })
+
+  it('clears only when the last outstanding question resolves; session-removed drops the bit', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    manager.handleMuxEnvelope({ rpcId: 'r1' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a1' as never, toolName: 'rm' } })
+    manager.handleMuxEnvelope({ rpcId: 'r2' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a2' as never, toolName: 'rm' } })
+    manager.handleMuxEnvelope({ rpcId: 'rx' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'a1' as never, outcome: 'rejected' as never } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    manager.handleMuxEnvelope({ rpcId: 'ry' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'a2' as never, outcome: 'rejected' as never } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    // Removed sessions drop their bit outright.
+    manager.handleMuxEnvelope({ rpcId: 'r3' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a3' as never, toolName: 'rm' } })
+    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-removed', sessionId: S1 } })
+    expect(manager.getListSnapshot().items).toHaveLength(0)
+  })
+
+  it('drops stale bits on reconnect — the reopen replay re-adds still-pending questions', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    manager.handleConnected() // resolved-while-disconnected questions send no frame
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+  })
+})

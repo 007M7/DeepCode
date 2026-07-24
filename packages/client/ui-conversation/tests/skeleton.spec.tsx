@@ -221,6 +221,8 @@ describe('ConversationRoot', () => {
         send={send}
         stop={stop}
         open={open}
+        permissions={() => Promise.resolve(null)}
+        setPermission={() => Promise.resolve(null)}
       />)
     return { ui, chat, send, stop, open, renderSlot }
   }

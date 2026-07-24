@@ -15,12 +15,13 @@ import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ChatViewInjected, ConversationInjected, DetailsInjected, EmptyStateInjected,
+  ApprovalWait, ChatViewInjected, ComposerChainProps, ConversationInjected, DetailsInjected, EmptyStateInjected,
 } from './contract/slots.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import { ChatView } from './chat/ChatView.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { EmptyState } from './skeleton/EmptyState.tsx'
@@ -35,6 +36,11 @@ function scopedConversation(sessions: SessionsService, id: SessionId): Conversat
   const conversation = scoped.get('conversation')
   if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable through the session scope')
   return conversation
+}
+
+/** Chain routing: claim the composer while an approval wait is pending (pure — owner props only). */
+function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | null {
+  return interactions.find((i): i is ApprovalWait => i.kind === 'approval') ?? null
 }
 
 /**
@@ -104,9 +110,30 @@ export function apply(ctx: Context): void {
           })
         },
         open: (target: SessionId) => { sessions.open(target) },
+        permissions: async () => {
+          const result = await sessions.manager.get(sessionId).permissions()
+          // Empty options = permission-less host composition: hide the control
+          // rather than show an empty select (deployment shape, not an error).
+          if (!result.ok || result.value.options.length === 0) return null
+          return result.value
+        },
+        setPermission: async (value) => {
+          const result = await sessions.manager.get(sessionId).setPermission(value)
+          return result.ok ? result.value.currentValue : null
+        },
       }
     },
   }, ConversationRoot)
+
+  // The approval takeover: a selector-routed entry of the chain this package
+  // just declared (the ui-question registration pattern; the entry lives here
+  // because approval answering is core conversation UX, not an optional tool).
+  // Zero business face — data and verbs both ride the matched carrier.
+  // priority 1: question takeovers (default 0) win when both kinds are
+  // pending — a question is a conversation the model is waiting on, while an
+  // approval only blocks one tool call; answering the question first cannot
+  // strand the approval (it re-elects the moment the question resolves).
+  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1 }, ApprovalPanel)
 
   // The chat view: first entry of the ring this package just declared.
   // Declaring the keyed toolview hole here is claiming it: ChatView is the

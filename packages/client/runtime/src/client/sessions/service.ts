@@ -32,6 +32,8 @@ export interface SessionSummary {
   cwd?: string
   parentId?: SessionId
   running: boolean
+  /** An approval question is pending on this session (sidebar amber-dot state). */
+  waitingApproval: boolean
   updatedAt: number
 }
 
@@ -310,6 +312,7 @@ export class SessionsService {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
+        waitingApproval: entry.waitingApproval,
         updatedAt: entry.updatedAt,
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),

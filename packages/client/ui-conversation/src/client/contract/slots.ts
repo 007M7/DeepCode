@@ -11,7 +11,7 @@
  * here.
  */
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { PendingInteraction, SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PendingInteraction, PendingWait, PermissionSelect, SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -113,6 +113,10 @@ export interface ConversationInjected {
   stop(): void
   /** Navigate to another session (breadcrumb ancestors). */
   open(id: SessionId): void
+  /** Read the permission select (options + effective current value); null hides the control. */
+  permissions(): Promise<PermissionSelect | null>
+  /** Switch the permission preset; resolves the confirmed value, or null on failure (caller keeps the old value). */
+  setPermission(value: string): Promise<string | null>
 }
 
 /**
@@ -131,6 +135,68 @@ export interface ComposerChainProps {
 export type ConversationSlotProps =
   PropsRuntime<'conversation'> & PropsRenderSlots<'conversation.view' | 'conversation.composer'>
   & PropsStore<ChatStore> & ConversationInjected
+
+/** The pending approval carrier the owner dispatches into the composer chain. */
+export type ApprovalWait = PendingWait<'approval'>
+
+/**
+ * Approval domain face over the carrier (the ui-question PendingQuestion
+ * pattern): render identity and question material forwarded transparently;
+ * answer owns the wire encoding — the ApprovalResponsePayload value shape
+ * with the audit correlation the host reconciles — and turns a rejected
+ * carrier receipt into a thrown error. Minted per carrier via useMemo.
+ */
+export class PendingApproval {
+  /**
+   * @param wait - the runtime carrier for one pending approval question.
+   */
+  constructor(private readonly wait: ApprovalWait) {}
+
+  /** Opaque render identity (React key / one-shot latch remount axis), forwarded from the carrier. */
+  get key(): string {
+    return this.wait.key
+  }
+
+  /** The tool the question is about (headline fallback), forwarded from the carrier payload. */
+  get toolName(): string {
+    return this.wait.payload.toolName
+  }
+
+  /** The asker's human-readable WHY (headline when present), forwarded from the carrier payload. */
+  get reason(): string | undefined {
+    return this.wait.payload.reason
+  }
+
+  /** The paired tool call's id when the ask names one (command-line lookup key), forwarded from the carrier payload. */
+  get callId(): string | undefined {
+    return this.wait.payload.callId
+  }
+
+  /**
+   * Deliver the user's decision; a rejected carrier receipt throws. Panel
+   * removal stays frame-driven: the broadcast `approval/resolved` settles the
+   * wait and drops it from the pending list.
+   * @param outcome - the only two client-answerable outcomes.
+   */
+  async answer(outcome: 'allowed-once' | 'rejected'): Promise<void> {
+    const receipt = await this.wait.respond({
+      ok: true,
+      value: { sessionId: this.wait.sessionId, approvalId: this.wait.payload.approvalId, outcome },
+    })
+    if (!receipt.accepted) {
+      throw new Error(`approval response rejected: ${receipt.reason}`)
+    }
+  }
+}
+
+/**
+ * Full approval-composer props: the framework runtime share (chain currency +
+ * session/global standard kit) plus the chain `matched` share — the entry's
+ * selector result, already narrowed to the approval carrier. No injected
+ * share: the carrier plus the domain face above carry the whole behavior
+ * surface; the paired command line derives from useSession in-component.
+ */
+export type ApprovalComposerProps = PropsRuntime<'conversation.composer'> & { matched: ApprovalWait }
 
 /**
  * Injected share of the chat view entry: the two callbacks whose targets live

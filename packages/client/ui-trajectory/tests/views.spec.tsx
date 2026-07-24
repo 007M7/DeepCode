@@ -144,6 +144,8 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       send={vi.fn()}
       stop={vi.fn()}
       open={vi.fn()}
+      permissions={() => Promise.resolve(null)}
+      setPermission={() => Promise.resolve(null)}
     />,
   )
 }

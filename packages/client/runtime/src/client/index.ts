@@ -38,7 +38,15 @@ export type {
 // PendingWait is a value export: tests construct fixture waits directly.
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
-export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+export type { PermissionOption, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+
+/** The permission select material as the object layer serves it to UI plugins. */
+export interface PermissionSelect {
+  /** Switchable presets plus (when derived) the current-only `custom`. */
+  options: { value: string; name: string; description?: string }[]
+  /** The effective current value (`custom` when knobs match no preset). */
+  currentValue: string
+}
 
 // ---- Narrowed aliases (the single narrowing point of the slot type chain:
 // ui-slots/web-react stay generic and dependency-inverted; the client-tree

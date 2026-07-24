@@ -31,6 +31,8 @@ function scriptedApi(overrides: {
       history: r => ok(r, { events: [], hasMore: false }),
       prompt: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
+      permissions: r => ok(r, { options: [], currentValue: 'custom' }),
+      setPermission: r => ok(r, { currentValue: r.payload.value }),
       ...overrides.sessions,
     },
     host: { describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }), ...overrides.host },

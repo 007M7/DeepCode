@@ -24,6 +24,6 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **`respond` routing is shipped, but pending-interaction state is host-side work** — the wire shape (POST `/api/respond`, `RpcReceipt`) is final; the pending table that makes late/duplicate answers meaningful lives in `dsh-host-runtime` and is still a stub there.
+- **`respond` is routed by host-side pending tables** — the wire shape (POST `/api/respond`, `RpcReceipt`) is final here; the approval and question registries that make late/duplicate answers meaningful live in `dsh-host-runtime`.
 - **Reserved seams stay out of `RpcMethodMap`** — `session.fork`, `prompt.mode: 'inject'`, `task.list`, `host.listModels`, and a describe `hostInstanceId` are documented reservations; an unknown method fails loud at envelope parse rather than getting a not-implemented code.
 - **No protocol version field** — client and host ship together; `host.describe` gains a version negotiation field only when an independently released client exists.

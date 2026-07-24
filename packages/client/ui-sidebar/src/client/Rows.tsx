@@ -102,7 +102,11 @@ export function SessionRowItem({ row, selected, now, onOpen, onToggle }: {
             </button>
           )
         : <span className={css.slot} />}
-      <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
+      {/* Waiting-approval (amber) outranks the running ring: the session is
+          blocked on the user, which is the more actionable fact. */}
+      <span className={css.slot}>
+        {row.waitingApproval ? <StateDot state="warning" /> : row.running && <StateDot state="ongoing" />}
+      </span>
       <span className={css.title}>{row.title}</span>
       <span className={css.time}>{formatRelativeTime(row.updatedAt, now)}</span>
       <span className={css.rowActions}>

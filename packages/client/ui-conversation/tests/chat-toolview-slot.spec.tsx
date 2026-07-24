@@ -75,7 +75,14 @@ async function bench(nodes: ToolResultNode[]) {
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   ctx.provide('sessions', {
     list,
-    manager: { get: () => ({ loadOlder: vi.fn() }) },
+    manager: {
+      get: () => ({
+        loadOlder: vi.fn(),
+        // The mounted PermissionSelect loads on mount; empty options hide the control.
+        permissions: vi.fn(() => Promise.resolve({ ok: true, value: { options: [], currentValue: 'custom' } })),
+        setPermission: vi.fn(() => Promise.resolve({ ok: false, error: { code: 'bad-request', message: 'unused', details: { issues: [] } } })),
+      }),
+    },
     scope: () => ({ get: () => scoped }),
     cell: (id: string) => (id === SID ? cell : undefined),
     create: vi.fn(),

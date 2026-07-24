@@ -15,6 +15,7 @@ interface SummaryInit {
   cwd?: string
   parentId?: string
   running?: boolean
+  waitingApproval?: boolean
   updatedAt?: number
 }
 
@@ -23,6 +24,7 @@ function summary(init: SummaryInit): SessionSummary {
     id: sid(init.id),
     displayTitle: init.displayTitle ?? init.title ?? init.id,
     running: init.running ?? false,
+    waitingApproval: init.waitingApproval ?? false,
     updatedAt: init.updatedAt ?? 0,
   }
   if (init.title !== undefined) s.title = init.title

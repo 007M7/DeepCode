@@ -420,7 +420,7 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [ApprovalService](../core-data-structures/approval.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:30`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:31`](../../packages/ui/user-approval/src/index.ts)
 
 ## `commands/*`
 
@@ -572,7 +572,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:98`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -593,7 +593,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:89`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:108`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -616,7 +616,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:101`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:120`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -637,7 +637,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:111`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:130`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 

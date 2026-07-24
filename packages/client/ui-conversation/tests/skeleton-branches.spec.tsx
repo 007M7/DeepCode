@@ -82,6 +82,8 @@ describe('ConversationRoot branches', () => {
         send={vi.fn()}
         stop={vi.fn()}
         open={open}
+        permissions={() => Promise.resolve(null)}
+        setPermission={() => Promise.resolve(null)}
       />,
     )
     return { view, open, chat }
@@ -141,6 +143,8 @@ describe('ConversationRoot branches', () => {
         send={vi.fn()}
         stop={vi.fn()}
         open={vi.fn()}
+        permissions={() => Promise.resolve(null)}
+        setPermission={() => Promise.resolve(null)}
       />,
     )
     expect(view.getByTestId('view-body')).toBeTruthy()

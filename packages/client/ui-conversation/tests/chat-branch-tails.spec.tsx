@@ -44,11 +44,11 @@ describe('MessageItem arms', () => {
 })
 
 describe('small branch tails', () => {
-  it('PendingCard approval reason renders when present', () => {
+  it('PendingCard renders the question count', () => {
     const view = render(
-      <PendingCard item={new PendingWait('approval', RpcId('r1'), 's1' as SessionId, { approvalId: 'a1', toolName: 'rm', reason: 'careful' } as PendingWait<'approval'>['payload'], vi.fn())} />,
+      <PendingCard item={new PendingWait('question', RpcId('r1'), 's1' as SessionId, { questions: [{ id: 'q1', question: '选择' }] } as PendingWait<'question'>['payload'], vi.fn())} />,
     )
-    expect(view.getByText('careful')).toBeTruthy()
+    expect(view.getByText(/等待回答（1 题）/)).toBeTruthy()
   })
 
   it('AssistantMarkdown single-line reasoning summary skips the newline cut', () => {

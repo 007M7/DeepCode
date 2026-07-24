@@ -299,10 +299,19 @@ export function createFixtureApi(): ApiProxy {
   let nextSession = 1
   let nextRpc = 1
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
-  /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
+  /** Resident pending approval (stable rpcId: every mux open replays the same id while unanswered, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
+  const pendingApprovalId = 'fx-approval-1' as Extract<MuxFrame, { type: 'approval/requested' }>['approvalId']
+  /** Cleared once answered through respond; replay stops and approval/resolved is broadcast. */
+  let approvalPending = true
   const pendingQuestionRpcId = mint()
   let questionPending = true
+  /** Per-session permission preset (fixture mirror of the host permission select). */
+  const permissionValues = new Map<SessionId, string>()
+  const PERMISSION_OPTIONS = [
+    { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+    { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access without approval prompts.' },
+  ]
   const fixtureQuestions: Extract<MuxFrame, { type: 'question/requested' }>['questions'] = [
     {
       id: 'harness-profile',
@@ -522,6 +531,24 @@ export function createFixtureApi(): ApiProxy {
         }
         return ok(request, { accepted: true as const })
       },
+      permissions: (request) => {
+        const { sessionId: id } = request.payload
+        if (summaryOf(id) === undefined) {
+          return err(request, { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
+        }
+        return ok(request, { options: PERMISSION_OPTIONS, currentValue: permissionValues.get(id) ?? 'workspace-write' })
+      },
+      setPermission: (request) => {
+        const { sessionId: id, value } = request.payload
+        if (summaryOf(id) === undefined) {
+          return err(request, { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
+        }
+        if (!PERMISSION_OPTIONS.some(option => option.value === value)) {
+          return err(request, { code: 'bad-request', message: `unknown permission value ${JSON.stringify(value)}`, details: { issues: [] } })
+        }
+        permissionValues.set(id, value)
+        return ok(request, { currentValue: value })
+      },
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),
@@ -539,14 +566,16 @@ export function createFixtureApi(): ApiProxy {
           const title = titleFrameOf(s.sessionId, logs.get(s.sessionId) ?? [])
           if (title !== undefined) conn.push({ rpcId: mint(), payload: title })
         }
-        conn.push({
-          rpcId: pendingApprovalRpcId,
-          payload: {
-            type: 'approval/requested', sessionId: sid('fx-alpha'),
-            approvalId: 'fx-approval-1' as MuxFrame extends never ? never : Extract<MuxFrame, { type: 'approval/requested' }>['approvalId'],
-            toolName: 'dangerous_tool', reason: 'fixture 常驻占位审批（可见不可答）',
-          },
-        })
+        if (approvalPending) {
+          conn.push({
+            rpcId: pendingApprovalRpcId,
+            payload: {
+              type: 'approval/requested', sessionId: sid('fx-alpha'),
+              approvalId: pendingApprovalId,
+              toolName: 'dangerous_tool', reason: 'fixture 常驻审批（可答：批准/拒绝后消失）',
+            },
+          })
+        }
         if (questionPending) {
           conn.push({
             rpcId: pendingQuestionRpcId,
@@ -584,6 +613,19 @@ export function createFixtureApi(): ApiProxy {
       },
     },
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Same routing discipline as the host: rpcId first, then the payload's
+      // audit correlation; a settled or unknown id is not-pending.
+      if (message.rpcId === pendingApprovalRpcId) {
+        if (!approvalPending) return Promise.resolve({ accepted: false, reason: 'not-pending' })
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const value = message.result.value as { approvalId?: unknown; outcome?: unknown }
+        if (value.approvalId !== pendingApprovalId || (value.outcome !== 'allowed-once' && value.outcome !== 'rejected')) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approvalPending = false
+        emitMux({ type: 'approval/resolved', sessionId: sid('fx-alpha'), approvalId: pendingApprovalId, outcome: value.outcome })
+        return Promise.resolve({ accepted: true })
+      }
       if (!questionPending || message.rpcId !== pendingQuestionRpcId) {
         return Promise.resolve({ accepted: false, reason: 'not-pending' })
       }
@@ -633,6 +675,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.history': return this.api.sessions.history(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
+      case 'session.permissions': return this.api.sessions.permissions(request)
+      case 'session.setPermission': return this.api.sessions.setPermission(request)
       case 'host.describe': return this.api.host.describe(request)
     }
   }

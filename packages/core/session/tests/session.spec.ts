@@ -4,6 +4,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   displayPromptContent,
   findLastMessageTurnEnd,
+  hasOpenTurn,
   SESSION_FORMAT_VERSION,
   Session,
   SessionEvent,
@@ -89,6 +90,17 @@ describe('Session', () => {
     session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
 
     expect(findLastMessageTurnEnd(session.events)).toBe(messageEnd)
+  })
+
+  it('reports an open turn only between turn/start and its turn/end', () => {
+    const session = new Session(SessionId('open-turn'))
+    expect(hasOpenTurn(session.events)).toBe(false)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(hasOpenTurn(session.events)).toBe(true)
+    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    expect(hasOpenTurn(session.events)).toBe(true)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(hasOpenTurn(session.events)).toBe(false)
   })
 
   it('round-trips the coarse aborted turn outcome', () => {

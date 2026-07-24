@@ -18,11 +18,17 @@ import TaskService from '@deepseek-ai/dsh-tasks'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import SandboxLocal from '@deepseek-ai/dsh-sandbox-local'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import SandboxBashExecutor from '@deepseek-ai/dsh-bash-sandbox'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import PermissionService from '@deepseek-ai/dsh-permission'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as toolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
-import FsLocal from '@deepseek-ai/dsh-fs-local'
+import FsSandbox from '@deepseek-ai/dsh-fs-sandbox'
 import * as fsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as toolFs from '@deepseek-ai/dsh-tool-fs'
 import * as toolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
@@ -73,6 +79,17 @@ export interface BootHostOptions {
   sessionTitle?: SessionTitleConfig
   /** Opt-in first-message model-title policy; `true` selects host defaults and an explicit config overrides them. */
   sessionTitleLlm?: true | SessionTitleLlmConfig
+  /**
+   * Sandbox/approval composition knobs. The host always composes the confined
+   * bash + fs families over `ctx.sandboxPolicy` (the acp-agent composition);
+   * these fields choose the deployment defaults every session starts from.
+   */
+  sandbox?: {
+    /** File-sandbox mode sessions start from (default `workspace-write`). */
+    mode?: SandboxMode
+    /** Approval policy for sessions without an override (default `ask`). */
+    approvalPolicy?: ApprovalPolicy
+  }
   /**
    * Default project directory for sessions created without an explicit cwd
    * (defaults to the host process working directory). A session's cwd is its
@@ -131,16 +148,30 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, {})
   await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
-  await ctx.plugin(LocalBashExecutor, {})
+  // The sandboxed product path (the acp-agent composition, sandbox Agent
+  // Note): per-platform runner provider, the shared policy home, the confined
+  // bash executor, and the approval seam its escalation asks through. Sessions
+  // start from the configured default mode; per-session switches ride the
+  // `sandbox/mode` / `approval/policy` events written by ctx.permission.
+  await ctx.plugin(SandboxLocal, {})
+  await ctx.plugin(SandboxPolicy, {
+    mode: options.sandbox?.mode ?? 'workspace-write',
+    workspaceRoot: defaults.cwd,
+  })
+  await ctx.plugin(SandboxBashExecutor, {})
+  await ctx.plugin(ApprovalService, { policy: options.sandbox?.approvalPolicy ?? 'ask' })
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +
   // the agent-spine bundle) so web sessions get the same coding-agent tool
   // face; deviations are noted inline.
   await ctx.plugin(toolBash, {})
+  // Presets over the two knobs (requires the confining executor + approval).
+  await ctx.plugin(PermissionService, {})
   await ctx.plugin(toolTodo)
   await ctx.plugin(toolTasks, {})
   // fs paths resolve against the host default project rather than the raw
-  // process cwd — the same source create() injects into session.cwd.
-  await ctx.plugin(FsLocal, { cwd: defaults.cwd })
+  // process cwd — the same source create() injects into session.cwd. The
+  // sandboxed backend fences write/edit by the same policy as bash.
+  await ctx.plugin(FsSandbox, { cwd: defaults.cwd })
   await ctx.plugin(fsPolicy)
   await ctx.plugin(toolFs, {})
   await ctx.plugin(toolFsSearch, {})

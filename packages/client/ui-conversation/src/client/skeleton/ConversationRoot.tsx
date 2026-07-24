@@ -15,6 +15,7 @@ import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/d
 import type { ConversationSlotProps } from '../contract/slots.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
+import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './ConversationRoot.module.css'
 
 /** Full props = the automatic shares & injected share — composed by reference
@@ -38,7 +39,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useStore, actions, renderSlot, renderSlotChain,
-  views, send, stop, open,
+  views, send, stop, open, permissions, setPermission,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -68,6 +69,7 @@ export function ConversationRoot({
       disabled={removed}
       error={error}
       variant="composer"
+      controls={<PermissionSelect permissions={permissions} setPermission={setPermission} />}
       onDraftChange={actions.setDraft}
       onSend={(mode) => { send(draft, mode) }}
       onStop={stop}

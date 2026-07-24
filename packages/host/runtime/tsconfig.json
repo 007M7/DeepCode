@@ -48,16 +48,31 @@
       "path": "../../session-persistence/session-persistence-jsonl"
     },
     {
-      "path": "../../bash/bash-local"
+      "path": "../../bash/bash-sandbox"
     },
     {
       "path": "../../bash/tool-bash"
     },
     {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-local"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../ui/user-approval"
+    },
+    {
+      "path": "../../ui/permission"
+    },
+    {
       "path": "../../compact/compact-basic"
     },
     {
-      "path": "../../fs/fs-local"
+      "path": "../../fs/fs-sandbox"
     },
     {
       "path": "../../fs/fs-policy"

@@ -36,6 +36,11 @@ export class SessionManager {
    *  drop-and-backfill path; replayed and cleared on instantiation. Bounded per session (these
    *  frames are low-frequency; overflow drops oldest) and dropped on session-removed (audit S7). */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
+  /** Outstanding approval questions per session, keyed by approvalId (idempotent under mux-open
+   *  replays of the same requested frame). Manager-owned rather than read off Session instances
+   *  because the sidebar must light up for sessions never instantiated. Cleared per connection
+   *  generation — the reopen replay re-adds still-pending questions — and on session-removed. */
+  private readonly waitingApprovals = new Map<SessionId, Set<string>>()
   private readonly titleSnapshots = new Map<SessionId, SessionTitleSnapshot>()
   private summaries: SessionSummary[] = []
   private listState: 'idle' | 'loading' | 'error' = 'idle'
@@ -186,6 +191,22 @@ export class SessionManager {
         this.notifier.markDirty()
       }
     }
+    // List-level waiting-approval bit (the sidebar amber dot): tracked here for
+    // every session, instantiated or not; approvalId keys make replays idempotent.
+    if (frame.type === 'approval/requested') {
+      let ids = this.waitingApprovals.get(frame.sessionId)
+      if (ids === undefined) this.waitingApprovals.set(frame.sessionId, ids = new Set())
+      if (!ids.has(frame.approvalId)) {
+        ids.add(frame.approvalId)
+        this.notifier.markDirty()
+      }
+    } else if (frame.type === 'approval/resolved') {
+      const ids = this.waitingApprovals.get(frame.sessionId)
+      if (ids !== undefined && ids.delete(frame.approvalId)) {
+        if (ids.size === 0) this.waitingApprovals.delete(frame.sessionId)
+        this.notifier.markDirty()
+      }
+    }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
       // Approval/question frames never hit history: buffer for replay on instantiation;
@@ -232,6 +253,7 @@ export class SessionManager {
         this.summaries = this.summaries.filter(s => s.sessionId !== frame.sessionId)
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
+        this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
         this.titleSnapshots.delete(frame.sessionId)
         this.notifier.markDirty()
         return
@@ -254,6 +276,12 @@ export class SessionManager {
 
   /** After each connection generation (first connect included): refresh the list + resync opened instances (reconnect = rebuild). */
   handleConnected(): void {
+    // Approvals resolved while disconnected send no frame: drop the bits and
+    // let the mux-open replay re-add every still-pending question.
+    if (this.waitingApprovals.size > 0) {
+      this.waitingApprovals.clear()
+      this.notifier.markDirty()
+    }
     void this.refreshList()
     for (const session of this.sessions.values()) void session.resync()
   }
@@ -265,13 +293,14 @@ export class SessionManager {
         ? summary
         : { ...summary, title: title.title, updatedAt: Math.max(summary.updatedAt, title.updatedAt) }
     })
-    const fresh = flattenLineage(merged)
+    const fresh = flattenLineage(merged, new Set(this.waitingApprovals.keys()))
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.title === entry.title && prev.depth === entry.depth
+        && prev.waitingApproval === entry.waitingApproval
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry

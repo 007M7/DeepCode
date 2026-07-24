@@ -342,12 +342,17 @@ describe('ChatView', () => {
     expect(lv.getByText('载入历史…')).toBeTruthy()
   })
 
-  it('pending interactions render placeholder cards', () => {
+  it('question waits render placeholder cards; approvals leave the flow (composer takeover)', () => {
     const h = makeHarness({
-      pending: [new PendingWait('approval', RpcId('r1'), SID,
-        { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn())],
+      pending: [
+        new PendingWait('approval', RpcId('r1'), SID,
+          { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn()),
+        new PendingWait('question', RpcId('r2'), SID,
+          { questions: [{ id: 'q1', question: '选择' }] } as PendingWait<'question'>['payload'], vi.fn()),
+      ],
     })
     const view = render(<h.ChatView {...h.props} />)
-    expect(view.getByText(/等待审批/)).toBeTruthy()
+    expect(view.getByText(/等待回答（1 题）/)).toBeTruthy()
+    expect(view.queryByText(/等待审批/)).toBeNull()
   })
 })
