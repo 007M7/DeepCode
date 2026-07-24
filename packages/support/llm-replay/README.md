@@ -24,6 +24,7 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 | `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | Optional path to a `ReplayEntry[]` sidecar that replaces the PRIMARY session's derived script. |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES` (path-delimited) | Recorded subagent child-session logs for a nested scenario; empty for a single-session scenario. |
 | `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Each model may publish `contextWindow`; configured routes dispatch through the replay adapter and never perform provider I/O. |
+| `paceMs` | number | — (burst) | Optional per-chunk delay in ms so downstream transports (e.g. the web SSE mux observed by a real browser) see genuinely incremental delivery. A realism knob only — tests must not depend on it for correctness. Non-negative integer; abort during a pace wait cancels the stream promptly. |
 
 ```yaml
 - id: llm-replay
@@ -43,11 +44,11 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 
 ## Exports
 
-- `installLlmReplay(ctx, config)` — install the configured replay adapter or catch-all `llm/stream` listener; returns the disposer (HMR safety). Use this in tests to drive replay without the Loader or env vars.
+- `installLlmReplay(ctx, config)` — install the configured replay adapter or catch-all `llm/stream` listener; returns a `ReplayHandle` (`dispose()` for HMR safety plus `assertConsumed()`, the teardown check that every recorded script bound to a live session and every bound cursor drained — turning a scenario that silently drove fewer model calls than recorded into a crisp diagnostic). Use this in tests to drive replay without the Loader or env vars.
 - `loadSessionScripts(config)` — resolve the ordered `SessionScript[]` (primary + children) for a scenario, ready to bind to live sessions in first-call order.
 - `loadReplayScript(config)` — resolve the `ReplayEntry[]` for the PRIMARY session only (sidecar override if present, else derived from the JSONL; fail-loud if the fixture is missing).
 - `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)` — the pure helpers that turn a recorded session log into a script and read its header `id`/`createdAt`. A derived group must end in a `finish` chunk; a group without one is the fingerprint of a thrown `stream()` and must instead be expressed via an override sidecar.
-- Types `ReplayEntry` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `Config`.
+- Types `ReplayEntry` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `ReplayHandle` / `Config`.
 
 ## Plugin export shape
 

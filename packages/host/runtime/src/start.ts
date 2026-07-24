@@ -34,9 +34,12 @@ export interface RunningHost {
   /**
    * Root context — a formal seam, not an escape hatch: (1) the mount point for
    * protocol front-door plugins (`dsh acp` = startHost() → ctx.plugin(uiAcp, config));
-   * (2) headless session-event subscription. Discipline: consuming clients must
-   * not bypass `api` through ctx; shells must not ctx.plugin to alter the
-   * assembly (mounting a front door is the shell's own shape, not an assembly change).
+   * (2) headless session-event subscription; (3) filling a capability seam the
+   * boot options deliberately left open (`llm: false` → the embedder installs
+   * its own LLM backend, e.g. keyless replay). Discipline: consuming clients
+   * must not bypass `api` through ctx; shells must not ctx.plugin to alter the
+   * assembly (mounting a front door or filling an explicitly-open seam is the
+   * shell's own shape, not an assembly change).
    */
   ctx: Context
   /** Single shutdown exit (ctx.fiber.dispose()). Idempotent: a second call returns the same promise. */
