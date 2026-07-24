@@ -147,6 +147,27 @@ describe('createHostWebPluginRegistry', () => {
     expect(rebuilds).toHaveLength(1)
   })
 
+  it('watch mode: a write landing during registry construction is still detected (regression: fs.watchFile baseline absorption)', async () => {
+    // The old fs.watchFile watch captured its comparison baseline with an
+    // ASYNCHRONOUS first stat; a rewrite in the same tick as construction was
+    // absorbed into that baseline and never reported (the CI flake). The
+    // record-baseline poll stats synchronously before hashing, so this exact
+    // timing must now always notify.
+    const { deps, root } = makeDeps([{ name: 'watched', pkg: webDecl() }])
+    deps.watch = { intervalMs: 20 }
+    const registry = createHostWebPluginRegistry(deps)
+    const rebuilds: string[] = []
+    registry.onRebuilt(id => rebuilds.push(id))
+    // Same tick as construction — inside the old watch's blind window. The
+    // rewrite deliberately differs in SIZE from the seed: a same-millisecond
+    // same-size rewrite is invisible to any mtime+size poll by construction
+    // (coarse filesystem timestamps), which is a stat-polling limit, not the
+    // regression under test.
+    writeFileSync(join(root, 'watched', 'lib', 'client.js'), '// same-tick rewritten contents')
+    await vi.waitFor(() => { expect(rebuilds).toEqual(['watched']) }, { timeout: 5000 })
+    registry.dispose()
+  })
+
   it('rejects a non-positive or non-integer watch interval at build time', () => {
     for (const intervalMs of [0, -5, 1.5]) {
       const { deps } = makeDeps([{ name: 'p', pkg: webDecl() }])
