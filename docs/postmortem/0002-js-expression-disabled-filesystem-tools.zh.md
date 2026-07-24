@@ -4,11 +4,11 @@
 
 Status: resolved
 
-## 概要
+## 摘要
 
 ACP（Agent Client Protocol）示例试图通过 `disabled: !!js ...` 有条件地启用文件系统插件，但 Cordis 仅在插件 `config` 内部对 JavaScript 表达式求值。原始的表达式对象为 truthy，因此文件系统栈始终处于禁用状态。快照刷新随后将 `UNKNOWN_TOOL` 结果接受为新的预期输出。修复方案改用显式的文件系统 overlay，并增加了静态配置守卫和快照结果守卫。
 
-## 摘要
+## 概述
 
 默认的 ACP 组合有意只启用 bash，因为其沙箱无法约束进程内的文件系统提供方。文件系统快照场景仍然需要 `read`、`write` 和 `edit`，因此这些插件被放在默认的 `cordis.yml` 中，并附带一个 `disabled` 表达式，意图仅在全权限启动和快照模式下启用它们。
 

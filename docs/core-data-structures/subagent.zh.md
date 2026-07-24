@@ -10,7 +10,7 @@ subagent seam：一个 agent（智能体）将工作委派给子 agent。与 [ba
 
 ## 两类能力，两种发现方式
 
-提供方通过一个静态描述符公布其**启动时**特性，服务在 run 存在之前即行检查；如果请求依赖提供方不具备的特性，会被大声拒绝（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不会被接受后静默忽略。**运行时**特性（steering（中途引导）、resume）则是 [`SubagentRun`](#a-live-run-subagentrun) 上的可选方法——方法的存在即为能力，TypeScript 的类型收窄即为发现机制。
+提供方通过一个静态描述符公布其**启动时**特性，服务在 run 存在之前即行检查；如果请求依赖提供方不具备的特性，会被大声拒绝（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不会被接受后静默忽略。**运行时**特性（steering（中途引导）、恢复）则是 [`SubagentRun`](#a-live-run-subagentrun) 上的可选方法——方法的存在即为能力，TypeScript 的类型收窄即为发现机制。
 
 ```ts type-equiv
 /**
