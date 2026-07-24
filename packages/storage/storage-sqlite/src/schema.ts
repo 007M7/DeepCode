@@ -28,6 +28,11 @@ export const STORAGE_SQLITE_SCHEMA_VERSION = 1
  */
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
+/* jscpd:ignore-start -- deliberately mirrors the session-persistence-sqlite /
+   session-query-sqlite open sequence; this group is the third user, and the
+   shared medium helper is deferred to the log-facet migration so the session
+   packages stay untouched this phase (see the domain KV storage Agent Note's
+   reuse audit). */
 /**
  * Exclusively create a missing database file with owner-only permissions.
  * Existing files retain their modes, and errors other than `EEXIST` propagate.
@@ -81,6 +86,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       `storage database at "${path}" has schema version ${onDisk}, incompatible with this build (${STORAGE_SQLITE_SCHEMA_VERSION})`,
     )
   }
+  /* jscpd:ignore-end */
   db.exec(`
     CREATE TABLE IF NOT EXISTS units (
       name    TEXT PRIMARY KEY,
