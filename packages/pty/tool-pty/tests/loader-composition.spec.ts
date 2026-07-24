@@ -40,7 +40,7 @@ function agent(ctx: Context): Agent {
   const id = SessionId('pty-loader-agent')
   const value: Agent = {
     id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
-    send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+    followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
   return value

@@ -36,7 +36,7 @@ export function apply(ctx: Context) {
 
 ## UI 插件
 
-UI 插件从 `session/event` 事件流渲染（助手 token 流以 `assistant/chunk` 形式到达，加上轮次/步骤边界与工具活动），并通过 `agent.send()` / `agent.steer()` 将输入驱动回去。
+UI 插件从 `session/event` 事件流渲染（助手 token 流以 `assistant/chunk` 形式到达，加上轮次/步骤边界与工具活动），并通过 `agent.followup()` / `agent.steer()` 将输入驱动回去。
 
 ```ts
 import type { Context } from 'cordis'
@@ -54,13 +54,13 @@ export function apply(ctx: Context) {
       render(event.data.chunk.text)
     }
   })
-  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.send([{ type: 'text', text }]))
+  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.followup([{ type: 'text', text }]))
 }
 ```
 
 ## 客户端驱动插件（外部协议桥接）
 
-*客户端驱动*是面向协议格式（wire format）对端的 UI 插件。它拥有 stdio，因此必须禁用 stdout 日志；通过工厂创建或恢复 agent（智能体）；将 harness 事件映射为协议消息；将请求映射为 `send()` 或 `cancel()`。每个请求从持久的 `turn/end` 恰好结算一次（即使渲染失败），并通过 `AgentHandle.dispose()` 拆除 agent 以使 dispose（资源释放）达到静止状态。
+*客户端驱动*是面向协议格式（wire format）对端的 UI 插件。它拥有 stdio，因此必须禁用 stdout 日志；通过工厂创建或恢复 agent（智能体）；将 harness 事件映射为协议消息；将请求映射为 `followup()` 或 `cancel()`。每个请求从持久的 `turn/end` 恰好结算一次（即使渲染失败），并通过 `AgentHandle.dispose()` 拆除 agent 以使 dispose（资源释放）达到静止状态。
 
 `packages/ui/acp` 是完整的工作示例：它将 agent 桥接到 ACP（Agent Client Protocol）（基于 stdio 的 JSON-RPC），使 Zed 及其他 ACP 编辑器能够驱动它。其 README 描述了完整的方法接口以及它在审批 seam 上注册的权限提示应答器。
 
@@ -99,9 +99,9 @@ export function apply(ctx: Context) {
 |---|---|
 | 钩子系统（用户级 + 项目级） | `agent/session-start`、`agent/prompt-submit`、`agent/request`、`agent/step-result`、`tools/pre-execute`、`tools/post-execute`、`agent/turn-continuation` 上的监听器——每个拦截 waterfall 返回一个类型化 Decision；`dsh-hooks-claude` / `dsh-hooks-codex` 桥接器将钩子配置文件映射到这些 seam 上 |
 | `/goal` | `ctx.goals` 管理持久状态，`dsh-goal-session` 通过公共 `Agent` 调度同会话回合，独立的命令/工具生产方分别提供人类/模型控制 |
-| `/loop` | 在 `turn/end` 会话事件上 `send()` 下一次迭代；或强制继续 |
+| `/loop` | 在 `turn/end` 会话事件上 `followup()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的 prompt/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和终端 `agent/turn-stop` 来强制输出 |
-| 排队消息 + steering（中途引导） | 核心 `Agent.send()` / `Agent.steer()` |
+| 排队消息 + steering（中途引导） | 核心 `Agent.followup()` / `Agent.steer()` |
 | 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + `dsh-compact-basic`；自动压力检查运行在串行 `agent/post-step`，规范化溢出恢复运行在 `agent/request-error`，手动调用方使用同一个压缩服务（[压缩 Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
 | 系统提示词可配置性 | `ctx.systemPrompt.section()`，支持排序与作用域局部覆盖 |
 | AGENTS.md（根目录） | 一个读取该文件的 section provider |
@@ -118,8 +118,8 @@ export function apply(ctx: Context) {
 | MCP | 每个服务器一个插件：发现工具 → `ctx.tools.register()` |
 | Skill（技能） | section + 工具注册；调用时通过 `inject()` 注入 skill 内容 |
 | 记忆 | section provider + 工具 |
-| 定时任务（cron） | 插件注册面向模型的调度工具；定时器触发 → 空闲时 `send(…, {source: {kind: 'cron', …}})`／忙碌时 `inject()` 通知 |
-| UI（GUI；CLI 输出 JSONL） | 监听 `session/event`（助手分片、边界、工具活动）；输入 → `send()` |
+| 定时任务（cron） | 插件注册面向模型的调度工具；定时器触发 → 空闲时 `followup(…, {source: {kind: 'cron', …}})`／忙碌时 `inject()` 通知 |
+| UI（GUI；CLI 输出 JSONL） | 监听 `session/event`（助手分片、边界、工具活动）；输入 → `followup()` |
 | 遥测 / 可回放 trace | `session/event` → JSONL；回放 = `sessions.create(id, { seed })` |
 | 模型适配器 | 通过 `registerAdapter` 注册 `LlmAdapter` 子类（`dsh-llm-deepseek`、`dsh-llm-pi-ai`） |
 | 插件热重载 | 每个注册都是一个 `ctx.effect` → vendor 的 HMR（热模块替换）直接生效 |

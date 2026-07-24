@@ -48,7 +48,7 @@ function waitForStatus(ctx: Context, agent: Agent, expected: Agent['status']): P
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('Agent', () => {
@@ -83,7 +83,41 @@ describe('Agent', () => {
     await ctx.fiber.dispose()
   })
 
-  it('send() throws after disposal', async () => {
+  it('send exposes the fully resolved delivery path without applying helper defaults', async () => {
+    const adapter = new MockAdapter([textResponse('accepted')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const enqueued = Promise.withResolvers<{ id: string; source: unknown; wakeup: boolean }>()
+    ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject === agent) enqueued.resolve(message)
+    })
+
+    const id = agent.send({
+      content: [{ type: 'text', text: 'advanced input' }],
+      source: { kind: 'plugin', plugin: 'advanced-caller' },
+      contexts: [],
+      meta: { caller: 'advanced' },
+      target: 'next-turn',
+      wakeup: true,
+    })
+    await waitForIdle(ctx, agent)
+
+    expect(await enqueued.promise).toMatchObject({
+      id,
+      source: { kind: 'plugin', plugin: 'advanced-caller' },
+      wakeup: true,
+    })
+    expect(agent.session.events.find(event => event.type === 'user/message'))
+      .toMatchObject({
+        data: {
+          source: { kind: 'plugin', plugin: 'advanced-caller' },
+          meta: { caller: 'advanced' },
+        },
+      })
+    await ctx.fiber.dispose()
+  })
+
+  it('followup() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: Agent
@@ -95,7 +129,7 @@ describe('Agent', () => {
     await fiber.dispose()
     await driverDone(agent)
 
-    expect(() => { agent.send([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
+    expect(() => { agent.followup([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
   })
 
   it('disposal discards still-pending inbox items so every id gets a terminal event', async () => {
@@ -112,7 +146,7 @@ describe('Agent', () => {
 
     // A quiet (non-waking) item stays parked in the inbox; disposal must drop it
     // WITH a discard so its enqueued id is not left dangling forever.
-    const id = agent.send([{ type: 'text', text: 'never runs' }], { target: 'next-turn', wakeup: false })
+    const id = agent.queue([{ type: 'text', text: 'never runs' }])
     await fiber.dispose()
     await driverDone(agent)
 
@@ -303,22 +337,6 @@ describe('Agent', () => {
     expect(agent.session.events).toHaveLength(0)
   })
 
-  it('inject() rejects attached contexts (they belong to inbox messages, not injection)', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-
-    // contexts structurally compile on AliasSendOptions but injection cannot
-    // carry them, so they are rejected rather than silently dropped.
-    expect(() => {
-      agent.inject([{ type: 'text', text: 'x' }], {
-        source: { kind: 'plugin', plugin: 'p' },
-        contexts: [{ content: [{ type: 'text', text: 'ctx' }], source: { kind: 'plugin', plugin: 'p' } }],
-      } as never)
-    }).toThrow(/does not accept attached contexts/)
-    expect(agent.session.events).toHaveLength(0)
-  })
-
   it('steer() when idle falls through to send() and starts a turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
@@ -472,7 +490,7 @@ describe('Agent', () => {
     const { agent } = prepared
     prepared.markPublished()
     const dispose = prepared.startDriver()
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 

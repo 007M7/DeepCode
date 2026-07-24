@@ -38,7 +38,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('inbox acceptance', () => {
@@ -50,10 +50,10 @@ describe('inbox acceptance', () => {
     ctx.on('agent/inbox/enqueue', () => { queued += 1 })
 
     expect(() => {
-      agent.send([{ type: 'text', text: 'first', bad: 1n } as never])
+      agent.followup([{ type: 'text', text: 'first', bad: 1n } as never])
     }).toThrow(/losslessly JSON-serializable/)
     expect(() => {
-      agent.send([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
+      agent.followup([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
     }).toThrow(/losslessly JSON-serializable/)
     expect(queued).toBe(0)
     expect(agent.session.events).toHaveLength(0)

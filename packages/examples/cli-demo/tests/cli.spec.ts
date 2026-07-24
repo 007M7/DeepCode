@@ -471,7 +471,7 @@ describe('runOneShot and executeCli', () => {
     startup.ctx.on('session/event', (session, event) => {
       if (session === startup.agent.session && event.type === 'assistant/chunk') started()
     })
-    startup.agent.send([{ type: 'text', text: 'first' }])
+    startup.agent.followup([{ type: 'text', text: 'first' }])
     await running
     const startupAbort = new AbortController()
     const waiting = runOneShot(startup.ctx, { task: 'second', signal: startupAbort.signal })

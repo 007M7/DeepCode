@@ -219,7 +219,7 @@ export function apply(ctx: Context): void {
     }
     state.attempt = reservation
     try {
-      agent.send(content, {
+      agent.followup(content, {
         source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
       })
     } catch (error: unknown) {

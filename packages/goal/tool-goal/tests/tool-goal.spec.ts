@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import AgentRegistry, { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import { CallId } from '@deepseek-ai/dsh-llm'
@@ -31,10 +31,10 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     session,
     get status() { return status },
     ctx: new Context(),
-    send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content: ContentBlock[], options?: AliasSendOptions) {
+    inject(content: ContentBlock[], options?: InjectOptions) {
       const source = options?.source ?? { kind: 'plugin', plugin: '' }
       session.append('user/message', {
         content,
@@ -43,6 +43,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }
