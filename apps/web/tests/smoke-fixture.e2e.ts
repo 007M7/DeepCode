@@ -1,41 +1,67 @@
-// Keyless boot-chain smoke over the REAL carrier: startWebServer + web-plugins
-// registry surface + __DSH_BOOT__ injection + built shell dist in a real
-// chromium. First describe: manifest injection + static serving. Second
+// Keyless boot-chain smoke over the REAL carrier: startWebServer + entry
+// graph (__DSH_BOOT__ web2 shape) injection + built shell dist in a real
+// chromium. First describe: graph injection + the fail-loud half. Second
 // describe: the settled success pass — all nine REAL tsdown bundles load
-// through the DI chain in ?fixture mode, the three-column frame appears in
-// one flip, and the resident question completes through the real UI stack.
-// The full model round lands in smoke-real under the W5 real-host standard.
+// through the module system + vendored Loader chain in ?fixture mode (the
+// infrastructure four ride the immediately prefetch tier, the UI rows fetch
+// on demand), the three-column frame appears in one flip, and the resident
+// question completes through the real UI stack. The full model round lands
+// in smoke-real under the W5 real-host standard.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { startWebServer } from '@deepseek-ai/dsh-host-webserver'
-import type { WebPluginBootEntry } from '@deepseek-ai/dsh-host-webserver'
+import type { WebBootEntry, WebBootGraph } from '@deepseek-ai/dsh-host-webserver'
 import { DIST_INDEX, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 const bundlePath = (dir: string): string =>
   fileURLToPath(new URL(`../../../packages/client/${dir}/lib/client.js`, import.meta.url))
 
+const LAYOUT_ID = '@deepseek-ai/dsh-client-ui-layout'
+const SIDEBAR_ID = '@deepseek-ai/dsh-client-ui-sidebar'
+
 /** id ↔ bundle table for the success pass (the complete Web UI assembly). */
-const REAL_PLUGINS: { id: string; dir: string; inject: string[]; immediately?: boolean }[] = [
-  { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', inject: [], immediately: true },
+const REAL_PLUGINS: { id: string; dir: string; inject?: string[]; immediately?: boolean }[] = [
+  { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
-  { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', immediately: true },
+  { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', immediately: true },
+  { id: LAYOUT_ID, dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
+  { id: SIDEBAR_ID, dir: 'ui-sidebar', inject: [LAYOUT_ID] },
+  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: [LAYOUT_ID] },
   { id: '@deepseek-ai/dsh-client-ui-question', dir: 'ui-question', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
-/** Manifest served by the fake registry: one live bundle row, one missing row. */
-const ROWS: WebPluginBootEntry[] = [
-  { id: '@deepseek-ai/dsh-client-ui-layout', url: '/plugins/@deepseek-ai/dsh-client-ui-layout/client.js', inject: [] },
-  { id: '@probe/absent', url: '/plugins/@probe/absent/client.js', inject: [] },
-]
-const LAYOUT_BUNDLE = bundlePath('ui-layout')
+const BUNDLE_PATHS = new Map(REAL_PLUGINS.map(p => [p.id, bundlePath(p.dir)]))
+
+const row = (id: string, extra?: Partial<WebBootEntry>): WebBootEntry =>
+  ({ id, url: `/plugins/${id}/client.js?rev=e2e`, rev: 'e2e', ...extra })
+
+const graphRows: WebBootEntry[] = REAL_PLUGINS.map(p => row(p.id, {
+  ...(p.inject !== undefined ? { inject: p.inject } : {}),
+  ...(p.immediately === true ? { immediately: true } : {}),
+}))
+
+/** Graph for the fail-loud half: the immediately tier, one live UI row, one missing row. */
+const FAIL_GRAPH: WebBootGraph = {
+  rev: 'e2e-fail',
+  entries: [...graphRows.filter(r => r.immediately === true), row(LAYOUT_ID), row('@probe/absent')],
+}
+
+/** Graph for the success pass: the complete assembly. */
+const OK_GRAPH: WebBootGraph = { rev: 'e2e-ok', entries: graphRows }
+
+/** Registry stub over a fixed graph (the real HostWebPluginRegistry is webserver-side production code). */
+function fixedRegistry(graph: WebBootGraph, byId: ReadonlyMap<string, string>) {
+  return {
+    graph: () => graph,
+    clientPath: (id: string) => byId.get(id),
+    onRebuilt: () => () => undefined,
+  }
+}
 
 describe('web boot chain (keyless, real carrier)', () => {
   let server: Awaited<ReturnType<typeof startWebServer>>
@@ -52,10 +78,7 @@ describe('web boot chain (keyless, real carrier)', () => {
       port,
       distIndex: DIST_INDEX,
       apiHandler,
-      webPlugins: {
-        snapshot: () => ROWS,
-        clientPath: id => (id === ROWS[0]!.id ? LAYOUT_BUNDLE : undefined),
-      },
+      webPlugins: fixedRegistry(FAIL_GRAPH, BUNDLE_PATHS),
     }, (err) => { pageErrors.push(`server: ${String(err)}`) })
     browser = await chromium.launch()
     page = await browser.newPage()
@@ -68,16 +91,25 @@ describe('web boot chain (keyless, real carrier)', () => {
     await server?.close()
   })
 
-  it('GET / injects the manifest verbatim', async () => {
+  it('GET / injects the entry graph verbatim', async () => {
     onTestFailed(() => saveFailureShot(page, 'smoke-boot-manifest'))
     const boot = await page.evaluate(() => (window as { __DSH_BOOT__?: unknown }).__DSH_BOOT__)
-    expect(boot).toEqual({ plugins: ROWS })
+    expect(boot).toEqual(FAIL_GRAPH)
   })
 
   it('serves a real bundle through the plugins endpoint', async () => {
-    const res = await page.request.get(`${new URL(page.url()).origin}${ROWS[0]!.url}`)
+    const res = await page.request.get(`${new URL(page.url()).origin}/plugins/${LAYOUT_ID}/client.js`)
     expect(res.status()).toBe(200)
-    expect(await res.text()).toContain('window.DSHClientProxy.loadPlugin')
+    expect(await res.text()).toContain('window.__ModuleLoader__.load')
+  })
+
+  it('boots to the loading page and fail-louds the absent entry', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-boot-fail-loud'))
+    await page.waitForSelector('text=HARNESS', { timeout: 10_000 })
+    await page.waitForSelector('text=Failed to load plugins', { timeout: 10_000 })
+    await page.waitForSelector('text=@probe/absent', { timeout: 2000 })
+    // The real UI must not have flipped in: the gate opens only on settled.
+    expect(await page.locator('[class*="frame"]').count()).toBe(0)
   })
 
   it('applies the token sheets before any plugin CSS', async () => {
@@ -87,7 +119,6 @@ describe('web boot chain (keyless, real carrier)', () => {
 })
 
 describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', () => {
-  const missing = REAL_PLUGINS.filter(p => !existsSync(bundlePath(p.dir)))
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
   let page: Page
@@ -95,14 +126,9 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
 
   beforeAll(async () => {
     requireDist()
+    const missing = REAL_PLUGINS.filter(p => !existsSync(bundlePath(p.dir)))
     if (missing.length > 0) throw new Error(`client bundles not built (pnpm --filter <pkg> bundle): ${missing.map(m => m.dir).join(', ')}`)
     const port = await probeFreePort()
-    const rows: WebPluginBootEntry[] = REAL_PLUGINS.map((p) => {
-      const row: WebPluginBootEntry = { id: p.id, url: `/plugins/${p.id}/client.js`, inject: p.inject }
-      if (p.immediately === true) row.immediately = true
-      return row
-    })
-    const byId = new Map(REAL_PLUGINS.map(p => [p.id, bundlePath(p.dir)]))
     // ?fixture never opens HTTP streams; /api is a tripwire like the first describe.
     const apiHandler = { fetch: () => Promise.resolve(new Response('fixture mode must not call /api', { status: 500 })) }
     server = await startWebServer({
@@ -110,7 +136,7 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
       port,
       distIndex: DIST_INDEX,
       apiHandler,
-      webPlugins: { snapshot: () => rows, clientPath: id => byId.get(id) },
+      webPlugins: fixedRegistry(OK_GRAPH, BUNDLE_PATHS),
     }, (err) => { pageErrors.push(`server: ${String(err)}`) })
     browser = await chromium.launch()
     page = await browser.newPage()
@@ -135,8 +161,8 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
   it('every plugin CSS landed with its ownership tag', async () => {
     const owners = await page.evaluate(() =>
       [...document.querySelectorAll('style[data-plugin]')].map(s => (s as HTMLElement).dataset['plugin']))
-    expect(owners).toContain('@deepseek-ai/dsh-client-ui-layout')
-    expect(owners).toContain('@deepseek-ai/dsh-client-ui-sidebar')
+    expect(owners).toContain(LAYOUT_ID)
+    expect(owners).toContain(SIDEBAR_ID)
   })
 
   it('collapsed sidebar animates to a 56px rail with the four controls', async () => {

@@ -76,6 +76,7 @@ async function bench() {
     manager: { get: () => sessionFake },
     scope: (id: SessionId) => mint(id),
     cell: () => undefined,
+    scopeOf,
     create: vi.fn(() => Promise.resolve(ROOT)),
     open: vi.fn(),
   }

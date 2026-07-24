@@ -169,6 +169,18 @@ export class SessionsService {
   }
 
   /**
+   * Read the session scope tag off a context. Service-method seam: fetch
+   * bundles must reach scope resolution through ctx.sessions — a cross-bundle
+   * value import of the standalone helper would inline a second module
+   * instance whose private tag Symbol never matches.
+   * @param ctx - any client context.
+   * @returns the session id, or undefined on root contexts.
+   */
+  scopeOf(ctx: Context): SessionId | undefined {
+    return scopeOf(ctx)
+  }
+
+  /**
    * Resolve the stable session binding (scope-addressed assembly feed). Pure
    * resolution — no staging, no window side effects.
    * @param id - session id.
