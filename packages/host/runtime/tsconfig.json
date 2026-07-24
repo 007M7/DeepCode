@@ -21,6 +21,9 @@
       "path": "../../llm/llm-deepseek"
     },
     {
+      "path": "../../plan/plan-mode"
+    },
+    {
       "path": "../../core/session"
     },
     {

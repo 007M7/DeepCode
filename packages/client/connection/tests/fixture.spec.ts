@@ -48,6 +48,16 @@ describe('createFixtureApi', () => {
     expect(response.result.value.items[1]?.parentSessionId).toBe('fx-alpha') // lineage material
   })
 
+  it('reports plan mode as an unavailable optional fixture capability', async () => {
+    const client = new FixtureApiClient()
+    expect((await client.sessions.planMode({ sessionId: sid('fx-alpha') })).result).toEqual({
+      ok: true, value: null,
+    })
+    expect((await client.sessions.setPlanMode({ sessionId: sid('fx-alpha'), active: true })).result).toEqual({
+      ok: true, value: null,
+    })
+  })
+
   it('pages history backwards on message-boundary cuts with seq-contiguous stitching', async () => {
     const api = createFixtureApi()
     const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))

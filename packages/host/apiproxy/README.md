@@ -10,6 +10,8 @@ The layering/protocol decisions are recorded in the [GUI layering and RPC protoc
 
 The mux stream projects the latest log-backed title as a validated `session/title` control frame after each attached-session subscription baseline and immediately after the corresponding live raw title event. This projection does not add titles to `session.list`; cold sessions remain metadata-only there until opening or resuming attaches their logs.
 
+Plan mode uses two unary methods instead of deriving current state from a history page: `session.planMode` returns the committed state plus any boundary-pending selection, and `session.setPlanMode` records a selection and returns the same authoritative shape. Both return `null` when the optional host service is absent; `null` is capability absence, while `{ active: false }` is a supported inactive session. Committed changes still arrive through the raw logged `plan/mode` session event.
+
 ## Carrier layer (`/client` + root)
 
 `AbstractApiClient` holds every protocol invariant — rpcId minting, envelope wrap/unwrap, zod parsing, SSE frame decoding, unary timeout, microtask-batched envelope observation (`subscribeEnvelopes`) — while platform subclasses supply only the `doFetch` transport aspect. `InProcessApiClient` over `toFetchHandler(api)` is the isomorphic point: the full wire serialization/validation path with no network, used by `dsh -p` headless.

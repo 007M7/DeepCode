@@ -4,7 +4,9 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { RpcError, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  PlanModeState, RpcError, SessionId, ToolCallView, ToolResultView,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 
 /** Assistant content blocks sorted by what the UI cares about
@@ -149,6 +151,8 @@ export interface ConversationSnapshot {
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
   pending: readonly PendingInteraction[]
+  /** Optional host plan capability; null hides plan controls. */
+  planMode: PlanModeState | null
   running: boolean
   /** Set after host/session-removed; the UI grays out and disables input. */
   removed: boolean

@@ -83,6 +83,115 @@ describe('open', () => {
   })
 })
 
+describe('plan mode projection', () => {
+  it('loads the optional capability and applies a host-confirmed pending selection', async () => {
+    const { api, session } = makeSession()
+    api.onPlanMode = () => Promise.resolve(ok({ active: false }))
+    await session.open()
+    expect(session.getSnapshot().planMode).toEqual({ active: false })
+    expect(api.callsOf('session.planMode')).toEqual([{ sessionId: SID }])
+
+    api.onSetPlanMode = () => Promise.resolve(ok({ active: false, pending: true }))
+    const result = await session.setPlanMode(true)
+    expect(result).toEqual({ ok: true, value: { active: false, pending: true } })
+    expect(api.callsOf('session.setPlanMode')).toEqual([{ sessionId: SID, active: true }])
+    expect(session.getSnapshot().planMode).toEqual({ active: false, pending: true })
+  })
+
+  it('retains the prior state when a selection fails at the business or transport layer', async () => {
+    const { api, session } = makeSession()
+    api.onPlanMode = () => Promise.resolve(ok({ active: true }))
+    await session.open()
+    api.onSetPlanMode = () => Promise.resolve(err({
+      code: 'internal', message: 'selection failed', details: {},
+    }))
+    expect((await session.setPlanMode(false)).ok).toBe(false)
+    expect(session.getSnapshot().planMode).toEqual({ active: true })
+
+    api.onSetPlanMode = () => Promise.reject(new Error('wire down'))
+    expect((await session.setPlanMode(false)).ok).toBe(false)
+    expect(session.getSnapshot().planMode).toEqual({ active: true })
+  })
+
+  it('commits a live plan event, clears pending, and ignores malformed or unavailable projections', async () => {
+    const available = makeSession()
+    available.api.onPlanMode = () => Promise.resolve(ok({ active: false, pending: true }))
+    await available.session.open()
+    available.session.handleMuxEnvelope('rp1' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: at(0, { type: 'plan/mode', data: { active: 'yes' } }),
+    })
+    expect(available.session.getSnapshot().planMode).toEqual({ active: false, pending: true })
+    available.session.handleMuxEnvelope('rp2' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: at(1, { type: 'plan/mode', data: { active: true } }),
+    })
+    expect(available.session.getSnapshot().planMode).toEqual({ active: true })
+
+    const unavailable = makeSession()
+    await unavailable.session.open()
+    unavailable.session.handleMuxEnvelope('rp3' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: at(0, { type: 'plan/mode', data: { active: true } }),
+    })
+    expect(unavailable.session.getSnapshot().planMode).toBeNull()
+  })
+
+  it('keeps a mux commit that overtakes the initial query or a selection response', async () => {
+    const initial = makeSession()
+    const initialQuery = deferred<Awaited<ReturnType<FakeApiClient['onPlanMode']>>>()
+    initial.api.onPlanMode = () => initialQuery.promise
+    const opening = initial.session.open()
+    await vi.waitFor(() => {
+      expect(initial.api.callsOf('session.planMode')).toHaveLength(1)
+    })
+    initial.session.handleMuxEnvelope('rp-overtake-open' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: at(0, { type: 'plan/mode', data: { active: true } }),
+    })
+    expect(initial.session.getSnapshot().planMode).toBeNull()
+    initialQuery.resolve(ok({ active: false }))
+    await opening
+    expect(initial.session.getSnapshot().planMode).toEqual({ active: true })
+
+    const selection = makeSession()
+    selection.api.onPlanMode = () => Promise.resolve(ok({ active: false }))
+    await selection.session.open()
+    const selectionResponse = deferred<Awaited<ReturnType<FakeApiClient['onSetPlanMode']>>>()
+    selection.api.onSetPlanMode = () => selectionResponse.promise
+    const selecting = selection.session.setPlanMode(true)
+    selection.session.handleMuxEnvelope('rp-overtake-set' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: at(0, { type: 'plan/mode', data: { active: true } }),
+    })
+    selectionResponse.resolve(ok({ active: false, pending: true }))
+    await selecting
+    expect(selection.session.getSnapshot().planMode).toEqual({ active: true })
+  })
+
+  it('keeps history usable when the independent capability query fails', async () => {
+    const business = makeSession()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    business.api.onPlanMode = () => Promise.resolve(err({
+      code: 'internal', message: 'query failed', details: {},
+    }))
+    await business.session.open()
+    expect(business.session.getSnapshot()).toMatchObject({ openState: 'open', planMode: null })
+
+    const transport = makeSession()
+    transport.api.onPlanMode = () => Promise.reject(new Error('query wire down'))
+    await transport.session.open()
+    expect(transport.session.getSnapshot()).toMatchObject({ openState: 'open', planMode: null })
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+    errorSpy.mockRestore()
+  })
+})
+
 describe('live event path', () => {
   async function opened(events: SessionEvent[] = plainTurn(0, 0, 'a', 'b')) {
     const { api, session } = makeSession()
@@ -596,6 +705,22 @@ describe('resync', () => {
     const cold = makeSession()
     await cold.session.resync()
     expect(cold.api.calls).toEqual([]) // never opened: no traffic
+  })
+
+  it('refreshes plan state and drops a superseded open query result', async () => {
+    const { api, session } = makeSession()
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onPlanMode']>>>()
+    api.onPlanMode = () => stale.promise
+    const opening = session.open()
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.planMode')).toHaveLength(1)
+    })
+    api.onPlanMode = () => Promise.resolve(ok({ active: true }))
+    const resynced = session.resync()
+    stale.resolve(ok({ active: false }))
+    await Promise.all([opening, resynced])
+    expect(api.callsOf('session.planMode')).toHaveLength(2)
+    expect(session.getSnapshot().planMode).toEqual({ active: true })
   })
 
   it('re-mints a replayed requested frame as a fresh wait with the same key (old reference superseded)', async () => {

@@ -522,6 +522,8 @@ export function createFixtureApi(): ApiProxy {
         }
         return ok(request, { accepted: true as const })
       },
+      planMode: request => ok(request, null),
+      setPlanMode: request => ok(request, null),
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),
@@ -633,6 +635,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.history': return this.api.sessions.history(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
+      case 'session.planMode': return this.api.sessions.planMode(request)
+      case 'session.setPlanMode': return this.api.sessions.setPlanMode(request)
       case 'host.describe': return this.api.host.describe(request)
     }
   }

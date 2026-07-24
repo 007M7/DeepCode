@@ -6,6 +6,10 @@ Client cordis boot + core services: SlotsService (Service wrapper over SlotCore 
 
 `SessionManager` retains the latest validated `session/title` control snapshot independently of list and session-instance arrival. Newer event seqs replace older snapshots, title timestamps contribute to list recency, and a subscription baseline discards any retained title beyond its `lastSeq` before the optional folded title arrives. Explicit session removal also clears the retained title. The client-facing `SessionSummary.title` is therefore only the actual durable title; `displayTitle` is always present and falls back through the cwd basename and session id. A cold persisted session keeps that fallback until opening or resuming it causes the host to fold and project its log-backed title.
 
+## Plan-mode projection
+
+Each opened `Session` queries the optional plan capability independently of paginated history and exposes `planMode: null | { active, pending? }` in its `ConversationSnapshot`. `null` hides consumers that require the capability. A successful selection replaces the snapshot with the host-confirmed committed and pending state; failures retain the previous state. Logged live `plan/mode` events commit `active` and clear `pending`, while reconnect re-queries the full state. A failed capability query never makes an otherwise usable conversation fail to open.
+
 ## Model Experience
 
 None, as the client runtime hosts browser-side services and the session object layer; nothing here reaches a model request.

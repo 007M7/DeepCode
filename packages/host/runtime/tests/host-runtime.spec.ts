@@ -13,6 +13,7 @@ import type { Config as SessionTitleLlmConfig } from '@deepseek-ai/dsh-session-t
 import type { HostFrame, MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import { bootHost, startHost, type HostHandle, type RunningHost } from '../src/index.ts'
 
 /** Scripted adapter: each model call consumes the next chunk list; 'hang' streams then waits for abort. */
@@ -230,6 +231,44 @@ describe('sessions.create / list', () => {
     expect(first?.cwd).toBe('/tmp')
     expect(first?.running).toBe(false)
     expect(first?.parentSessionId).toBeUndefined()
+  })
+})
+
+describe('sessions.planMode / setPlanMode', () => {
+  it('reports the optional service absence without conflating it with inactive mode', async () => {
+    const { api } = await boot()
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    expect(expectOk(await api.sessions.planMode(request({ sessionId })))).toBeNull()
+    expect(expectOk(await api.sessions.setPlanMode(request({ sessionId, active: true })))).toBeNull()
+  })
+
+  it('projects committed and pending state from the real plan service', async () => {
+    const running = await boot()
+    await running.ctx.plugin(PlanModeService, { section: 'Plan before acting.' })
+    const { sessionId } = expectOk(await running.api.sessions.create(request({})))
+
+    expect(expectOk(await running.api.sessions.planMode(request({ sessionId })))).toEqual({
+      active: false,
+    })
+    expect(expectOk(await running.api.sessions.setPlanMode(request({ sessionId, active: true })))).toEqual({
+      active: false,
+      pending: true,
+    })
+    expect(expectOk(await running.api.sessions.setPlanMode(request({ sessionId, active: false })))).toEqual({
+      active: false,
+      pending: false,
+    })
+  })
+
+  it('returns the normal session-not-found error for both methods', async () => {
+    const { api } = await boot()
+    const sessionId = 'missing-plan-session' as SessionId
+    expect((await api.sessions.planMode(request({ sessionId }))).result).toMatchObject({
+      ok: false, error: { code: 'session-not-found' },
+    })
+    expect((await api.sessions.setPlanMode(request({ sessionId, active: true }))).result).toMatchObject({
+      ok: false, error: { code: 'session-not-found' },
+    })
   })
 })
 

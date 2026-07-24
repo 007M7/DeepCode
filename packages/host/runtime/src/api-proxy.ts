@@ -21,6 +21,9 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
+// Type-only optional edge: resolves ctx.get('planMode') without requiring the
+// product assembly to mount plan mode.
+import type {} from '@deepseek-ai/dsh-plan-mode'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -457,6 +460,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         agent.cancel()
         return Promise.resolve(ok(request, { accepted: true as const }))
+      },
+
+      async planMode(request) {
+        const found = await agentFor(request.payload.sessionId)
+        if ('error' in found) return err(request, found.error)
+        const planMode = ctx.get('planMode')
+        return ok(request, planMode?.get(found.agent) ?? null)
+      },
+
+      async setPlanMode(request) {
+        const found = await agentFor(request.payload.sessionId)
+        if ('error' in found) return err(request, found.error)
+        const planMode = ctx.get('planMode')
+        if (planMode === undefined) return ok(request, null)
+        planMode.set(found.agent, request.payload.active)
+        return ok(request, planMode.get(found.agent))
       },
     },
 

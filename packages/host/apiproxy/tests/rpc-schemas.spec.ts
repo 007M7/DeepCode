@@ -9,7 +9,8 @@ import {
   contentBlockSchema, sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionPromptRequestSchema,
-  sessionPromptValueSchema, sessionSummarySchema,
+  sessionPlanModeRequestSchema, sessionPlanModeValueSchema, sessionPromptValueSchema,
+  sessionSetPlanModeRequestSchema, sessionSetPlanModeValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
@@ -106,6 +107,13 @@ describe('sessions domain schemas', () => {
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
+    expect(sessionPlanModeRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(sessionPlanModeValueSchema.parse({ active: false, pending: true })).toEqual({ active: false, pending: true })
+    expect(sessionPlanModeValueSchema.parse(null)).toBeNull()
+    expect(sessionSetPlanModeRequestSchema.parse({ sessionId: 's1', active: true }).active).toBe(true)
+    expect(sessionSetPlanModeValueSchema.parse({ active: true })).toEqual({ active: true })
+    expect(() => sessionSetPlanModeRequestSchema.parse({ sessionId: 's1', active: 'yes' })).toThrow()
+    expect(() => sessionPlanModeValueSchema.parse({ active: 'yes' })).toThrow()
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
   })
 })

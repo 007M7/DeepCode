@@ -19,7 +19,9 @@ import {
   sessionCreateValueSchema,
   sessionHistoryValueSchema,
   sessionListValueSchema,
+  sessionPlanModeValueSchema,
   sessionPromptValueSchema,
+  sessionSetPlanModeValueSchema,
 } from '../api/sessions.schema.ts'
 
 /**
@@ -44,6 +46,8 @@ export interface IApiClient {
     history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
+    planMode(payload: RequestPayload<'session.planMode'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.planMode'>>>
+    setPlanMode(payload: RequestPayload<'session.setPlanMode'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.setPlanMode'>>>
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
@@ -66,6 +70,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.history': sessionHistoryValueSchema,
   'session.prompt': sessionPromptValueSchema,
   'session.cancel': sessionCancelValueSchema,
+  'session.planMode': sessionPlanModeValueSchema,
+  'session.setPlanMode': sessionSetPlanModeValueSchema,
   'host.describe': hostDescribeValueSchema,
 }
 
@@ -247,6 +253,8 @@ export abstract class AbstractApiClient implements IApiClient {
     history: (payload, signal) => this.callUnary('session.history', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
+    planMode: (payload, signal) => this.callUnary('session.planMode', payload, signal),
+    setPlanMode: (payload, signal) => this.callUnary('session.setPlanMode', payload, signal),
   }
 
   readonly host: IApiClient['host'] = {

@@ -40,7 +40,7 @@ function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
   return {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [],
     pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null, planMode: null,
   } as ConversationSnapshot
 }
 

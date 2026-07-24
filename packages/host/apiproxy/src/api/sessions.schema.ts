@@ -9,7 +9,7 @@ import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { HistoryEntry, SessionSummary } from './sessions.ts'
+import type { HistoryEntry, PlanModeState, SessionSummary } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
@@ -108,3 +108,28 @@ export const sessionCancelRequestSchema = z.object({
 export const sessionCancelValueSchema = z.object({
   accepted: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.cancel'>>>
+
+/** Plan state shared by the read and selection responses. */
+export const planModeStateSchema = z.object({
+  active: z.boolean(),
+  pending: z.boolean().optional(),
+}) satisfies z.ZodType<Wire<PlanModeState>>
+
+/** session.planMode request payload. */
+export const sessionPlanModeRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.planMode'>>>
+
+/** session.planMode response value; null means the optional service is absent. */
+export const sessionPlanModeValueSchema =
+  planModeStateSchema.nullable() satisfies z.ZodType<Wire<ResponseValue<'session.planMode'>>>
+
+/** session.setPlanMode request payload. */
+export const sessionSetPlanModeRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  active: z.boolean(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.setPlanMode'>>>
+
+/** session.setPlanMode response value; null means the optional service is absent. */
+export const sessionSetPlanModeValueSchema =
+  planModeStateSchema.nullable() satisfies z.ZodType<Wire<ResponseValue<'session.setPlanMode'>>>

@@ -6,7 +6,7 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
+  HistoryEntry, IApiClient, MuxFrame, PlanModeState, RpcError, RpcId, RpcResult,
   SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
@@ -54,6 +54,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
   private frozenNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
+  private planMode: PlanModeState | null = null
+  /** Whether a successful query established capability presence or absence. */
+  private planCapabilityKnown = false
+  /** Monotonic local fence for committed plan events observed on the mux stream. */
+  private planEventVersion = 0
+  /** Latest valid commit, held until the initial capability query resolves. */
+  private latestLivePlanMode: PlanModeState | null = null
   // Revision counters + caches backing the snapshot's reference-stability contract (§A.9.4/§C.2,
   // audit S5): buildSnapshot reuses the previous array when the revision is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
@@ -124,6 +131,29 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (!result.ok) {
       this.promptError = { op: 'stop', error: result.error }
       this.notifier.markDirty()
+    }
+    return result
+  }
+
+  /**
+   * Select plan mode for the next model-request boundary. A successful
+   * response updates the snapshot immediately with the host-confirmed pending
+   * state; failures retain the prior state for the caller to report.
+   *
+   * @param active Whether plan mode should be selected.
+   * @returns The host-confirmed state, or null when plan mode is unavailable.
+   */
+  async setPlanMode(active: boolean): Promise<RpcResult<PlanModeState | null>> {
+    const planEventVersion = this.planEventVersion
+    let result: RpcResult<PlanModeState | null>
+    try {
+      result = (await this.api.sessions.setPlanMode({ sessionId: this.sessionId, active })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    if (result.ok) {
+      this.applyPlanResponse(result.value, planEventVersion)
+      this.notifier.notifyNow()
     }
     return result
   }
@@ -334,6 +364,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore)
       }
       this.openState = 'open'
+      await this.refreshPlanMode(generation)
     } catch (error) {
       if (generation !== this.openGeneration) return
       this.openState = 'error'
@@ -370,6 +401,55 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.views.push(view)
     this.foldAdapter.append(event, view)
     this.applyEventSideEffects(event, view)
+    this.applyLivePlanMode(event)
+  }
+
+  /**
+   * Refresh the optional plan capability without failing an otherwise valid
+   * conversation open. History remains usable when this independent control
+   * query fails; reconnect retries it.
+   */
+  private async refreshPlanMode(generation: number): Promise<void> {
+    const planEventVersion = this.planEventVersion
+    try {
+      const { result } = await this.api.sessions.planMode({ sessionId: this.sessionId })
+      if (generation !== this.openGeneration) return
+      if (result.ok) this.applyPlanResponse(result.value, planEventVersion)
+      else console.error('[web-runtime] plan-mode query failed:', result.error)
+    } catch (error) {
+      if (generation !== this.openGeneration) return
+      console.error('[web-runtime] plan-mode query failed:', error)
+    }
+  }
+
+  /** Apply a committed live plan event only when the host advertised the capability. */
+  private applyLivePlanMode(event: SessionEvent): void {
+    const candidate = event as unknown as { type: string; data: unknown }
+    if (candidate.type !== 'plan/mode') return
+    if (typeof candidate.data !== 'object' || candidate.data === null) return
+    const data = candidate.data as { active?: unknown }
+    if (typeof data.active !== 'boolean') return
+    this.planEventVersion++
+    this.latestLivePlanMode = { active: data.active }
+    if (this.planCapabilityKnown && this.planMode !== null) {
+      this.planMode = this.latestLivePlanMode
+    }
+  }
+
+  /**
+   * Apply a unary plan snapshot unless a newer mux commit crossed the request.
+   * A successful null response establishes absence and never promotes a raw
+   * event into a capability.
+   */
+  private applyPlanResponse(value: PlanModeState | null, requestVersion: number): void {
+    this.planCapabilityKnown = true
+    if (value === null) {
+      this.planMode = null
+      return
+    }
+    this.planMode = requestVersion === this.planEventVersion
+      ? value
+      : this.latestLivePlanMode ?? value
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
@@ -531,6 +611,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       partial: this.partial?.toPartial() ?? null,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
+      planMode: this.planMode,
       running: this.running,
       removed: this.removed,
       openState: this.openState,

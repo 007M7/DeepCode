@@ -2,7 +2,7 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  HostFrame, IApiClient, MuxFrame, RpcRequest, RpcResponse, SessionId,
+  HostFrame, IApiClient, MuxFrame, PlanModeState, RpcRequest, RpcResponse, SessionId,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 
@@ -49,6 +49,10 @@ export class FakeApiClient implements IApiClient {
 
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
+  onPlanMode: (payload: unknown) => Promise<RpcResponse<PlanModeState | null>> =
+    () => Promise.resolve(ok(null))
+  onSetPlanMode: (payload: unknown) => Promise<RpcResponse<PlanModeState | null>> =
+    () => Promise.resolve(ok(null))
   onDescribe: (payload: unknown) => Promise<RpcResponse<{ version: string; cwd: string; attachedSessions: number }>> =
     () => Promise.resolve(ok({ version: '0-fake', cwd: '/f', attachedSessions: 0 }))
 
@@ -65,6 +69,8 @@ export class FakeApiClient implements IApiClient {
       this.record('session.history', payload, this.onHistory(payload)),
     prompt: (payload: unknown) => this.record('session.prompt', payload, this.onPrompt(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
+    planMode: (payload: unknown) => this.record('session.planMode', payload, this.onPlanMode(payload)),
+    setPlanMode: (payload: unknown) => this.record('session.setPlanMode', payload, this.onSetPlanMode(payload)),
   }
 
   readonly host: IApiClient['host'] = {

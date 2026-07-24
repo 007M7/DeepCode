@@ -36,6 +36,12 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async cancel(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
+      async planMode(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: null } }
+      },
+      async setPlanMode(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: null } }
+      },
     },
     host: {
       async describe(request) {
@@ -75,11 +81,13 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     if (!response.result.ok) expect(response.result.error.code).toBe('session-not-found')
   })
 
-  it('covers create/prompt/cancel/describe passthrough', async () => {
+  it('covers create/prompt/cancel/plan/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
+    expect((await c.sessions.planMode({ sessionId: 's' as never })).result).toEqual({ ok: true, value: null })
+    expect((await c.sessions.setPlanMode({ sessionId: 's' as never, active: true })).result).toEqual({ ok: true, value: null })
     expect((await c.host.describe({})).result.ok).toBe(true)
   })
 })
