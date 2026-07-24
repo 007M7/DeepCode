@@ -146,7 +146,16 @@ describe('goal tool registration and presentation', () => {
       goal_id: 'goal-1', revision: 2, action: 'blocked', blocked_reason: 'Waiting for a human choice.',
     })).toEqual({ card: 'generic', title: 'Mark goal', kind: 'other', rawInput: 'Waiting for a human choice.' })
     expect(ctx.tools.get('update_goal')?.presentCall?.({
+      goal_id: 'goal-1', revision: 2, action: 'edit',
+      objective: 'ship', max_goal_rounds: 0, blocked_reason: '',
+    })).toEqual({ card: 'generic', title: 'Edit goal', kind: 'other', rawInput: 'ship' })
+    expect(ctx.tools.get('update_goal')?.presentCall?.({
+      goal_id: 'goal-1', revision: 2, action: 'edit',
+      objective: '', max_goal_rounds: 8, blocked_reason: '',
+    })).toEqual({ card: 'generic', title: 'Edit goal', kind: 'other', rawInput: 8 })
+    expect(ctx.tools.get('update_goal')?.presentCall?.({
       goal_id: 'goal-1', revision: 2, action: 'resume',
+      objective: '', max_goal_rounds: 0, blocked_reason: '',
     })).toEqual({ card: 'generic', title: 'Resume goal', kind: 'other', rawInput: 'goal-1' })
     expect(ctx.tools.get('update_goal')?.presentCall?.({ wrong: true })).toBeUndefined()
   })
@@ -438,9 +447,21 @@ describe('goal tool state transitions', () => {
       revision: goal.revision,
       action: 'edit',
       objective: 'edited',
+      max_goal_rounds: 0,
       blocked_reason: '',
     }, root.agent)
     expect(resultGoal(edited)).toMatchObject({ objective: 'edited' })
+    goal = ctx.goals.get(root.agent)!
+
+    const capped = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'edit',
+      objective: '',
+      max_goal_rounds: 8,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(capped)).toMatchObject({ objective: 'edited', maxGoalRounds: 8 })
     goal = ctx.goals.get(root.agent)!
 
     const paused = await execute(ctx, 'update_goal', {

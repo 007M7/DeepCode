@@ -16,11 +16,11 @@ The surface also needs to preserve the separation between durable state and live
 
 ### Tools and model contract
 
-`get_goal()` returns the current goal or `null`. A non-null result contains the compare-and-set id and revision, objective, durable phase, admitted and maximum goal rounds, any blocker reason, plus the process-local activation observation. `create_goal(objective, max_goal_rounds?)` creates one long-running same-session objective. `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` supports `edit`, `pause`, `resume`, `complete`, and `blocked`; replacement fields are valid only for `edit`, while a non-empty `blocked_reason` is required only for `blocked` and persists under the stable `model-reported` code.
+`get_goal()` returns the current goal or `null`. A non-null result contains the compare-and-set id and revision, objective, durable phase, admitted and maximum goal rounds, any blocker reason, plus the process-local activation observation. `create_goal(objective, max_goal_rounds?)` creates one long-running same-session objective. `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` supports `edit`, `pause`, `resume`, `complete`, and `blocked`; replacement fields are valid only for `edit`, while a non-empty `blocked_reason` is required only for `blocked` and persists under the stable `model-reported` code. The executor treats exact empty-string optional fields and a zero `max_goal_rounds` as strict-schema fillers: they count as omitted, an edit still requires at least one meaningful replacement, and all non-filler values retain the action restrictions.
 
 The prompt tells the model that it may infer goal intent from a direct human request in any wording or language, but should not convert routine single-turn work into a goal. It must read the current goal before updating and copy the exact id and revision. On a restored or forked active-but-disarmed goal, a semantic human request to continue is grounds for `resume`. Completion is reserved for an achieved objective, and difficulty or uncertainty alone is not a blocker; a block report must name the concrete condition.
 
-All three tools use exclusive execution so a model-ordered batch observes prior mutations and their new revisions. Results are compact JSON. ACP presentation is a pure function of arguments and uses generic read or mutation cards; activation is reported only as live observation and is never written into replay state.
+All three tools use exclusive execution so a model-ordered batch observes prior mutations and their new revisions. Results are compact JSON. ACP presentation is a pure function of arguments and uses generic read or mutation cards; mutation cards select meaningful action values before the goal id, so accepted fillers cannot blank their input. Activation is reported only as live observation and is never written into replay state.
 
 An autonomous goal round that successfully reports completion or blocking contributes the existing terminal `agent/turn-stop` decision for that physical turn, preventing an unnecessary follow-up request. Direct-human mutations do not contribute a terminal stop: the assistant can acknowledge the change, and concurrent human steering remains available to ordinary continuation folding.
 
@@ -38,7 +38,7 @@ Complete and blocked accept either direct-human authority or the exact current g
 
 ## Testing
 
-Unit coverage pins registration and disposal, exclusive scheduling, generated prompt policy, generic presentation, direct-human creation in a non-English turn, exact/stale/non-running agent and driver checks, live-child rejection, resumed-fork root authority, steering, mismatched initiators, read/create/edit/pause/resume behavior, conditional blocker explanations, rearming after a session-start edge, authority-before-conditional-argument failures, exact goal-round completion, autonomous-only terminal stopping, the configured blocking threshold, and immediate human blocking. A keyless replay snapshot mounts the goal domain and tools into the real headless one-shot application, drives `create_goal` and `get_goal` through the shipped loop and persistence stack, pins its stream-json transcript, and inspects the externally persisted goal change. The echo-agent fixture is intentionally not used as an application-UX surrogate.
+Unit coverage pins registration and disposal, exclusive scheduling, generated prompt policy, filler-safe generic presentation, direct-human creation in a non-English turn, exact/stale/non-running agent and driver checks, live-child rejection, resumed-fork root authority, steering, mismatched initiators, read/create/partial-edit/pause/resume behavior including strict-schema fillers, conditional blocker explanations, rearming after a session-start edge, authority-before-conditional-argument failures, exact goal-round completion, autonomous-only terminal stopping, the configured blocking threshold, and immediate human blocking. A keyless replay snapshot mounts the goal domain and tools into the real headless one-shot application, drives a strict-filler `update_goal` probe plus `create_goal` and `get_goal` through the shipped loop and persistence stack, pins its stream-json transcript, and inspects the externally persisted goal change. The echo-agent fixture is intentionally not used as an application-UX surrogate.
 
 ## Alternatives considered
 
@@ -48,6 +48,7 @@ Unit coverage pins registration and disposal, exclusive scheduling, generated pr
 - **Authorize from persisted root or fork metadata** — rejected because a fork that becomes an independently resumed top-level session should accept new human authority, while a currently owned child should not.
 - **Let autonomous rounds edit or resume the goal** — rejected because continuation authority is narrower than authority to redefine or restart the human objective.
 - **Treat the blocked threshold as an evaluator** — rejected because event counts cannot prove that an obstacle is semantically unchanged or truly terminal.
+- **Reject every present action-specific field** — rejected because strict-schema providers can serialize zero-value placeholders for every optional field; only meaningful values can express a conflicting action.
 
 ## Consequences
 
@@ -56,6 +57,7 @@ Unit coverage pins registration and disposal, exclusive scheduling, generated pr
 - Human requests can create and rearm goals through ordinary natural language, while restored sessions remain inert until such input arrives.
 - Goal rounds can finish or report a repeated blocker but cannot broaden their own mandate.
 - Deployment policy selects the blocking lower bound; the same resolved value controls enforcement and prompt guidance.
+- Strict-schema provider fillers interoperate without allowing meaningful cross-action updates.
 
 ## Known limitations and deferred work
 
