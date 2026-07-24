@@ -29,6 +29,8 @@
     "@deepseek-ai/dsh-host-runtime": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-paths": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^"
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-tui": "workspace:^",
+    "cordis": "^4.0.0-rc.7"
   }
 }
