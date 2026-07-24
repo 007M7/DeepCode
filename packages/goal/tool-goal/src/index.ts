@@ -134,28 +134,12 @@ function resolveConfig(config: Config): ResolvedConfig {
 
 /** Remove only empty provider fillers from fields unused by the selected action. */
 function normalizeUpdateArgs(args: Record<string, unknown>): Record<string, unknown> {
-  const normalized = { ...args }
+  const action = args['action']
   const empty = (value: unknown): boolean => value === undefined || value === null || value === '' || value === 0
-  const removeEmpty = (key: string): void => {
-    if (empty(normalized[key])) normalized[key] = undefined
-  }
-  switch (normalized['action']) {
-    case 'edit':
-      removeEmpty('blocked_reason')
-      break
-    case 'blocked':
-      removeEmpty('objective')
-      removeEmpty('max_goal_rounds')
-      break
-    case 'pause':
-    case 'resume':
-    case 'complete':
-      removeEmpty('objective')
-      removeEmpty('max_goal_rounds')
-      removeEmpty('blocked_reason')
-      break
-  }
-  return normalized
+  const unused = (key: string): boolean => key === 'blocked_reason'
+    ? action !== 'blocked'
+    : (key === 'objective' || key === 'max_goal_rounds') && action !== 'edit'
+  return Object.fromEntries(Object.entries(args).filter(([key, value]) => !unused(key) || !empty(value)))
 }
 
 /** Build the exact compare-and-set ref from model arguments. */
