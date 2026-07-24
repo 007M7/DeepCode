@@ -23,17 +23,23 @@ async function bench() {
     { name: 'root', children: { 'conversation.composer': { kind: 'chain', scope: 'session' } } } as never,
     () => null,
   )
+  // 'conversation' inject is an ordering edge (the declaring plugin provides
+  // it after declaring the chain); the bench declares the chain itself.
+  ctx.provide('conversation', {})
   return { ctx, slots }
 }
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots'])
+    expect(inject).toEqual(['slots', 'conversation'])
   })
 
   it('fails loud when no live entry has declared the composer slot', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
+    // Satisfy the ordering inject without declaring the chain: apply must
+    // then hit the undeclared-slot throw, not sit waiting on the service.
+    ctx.provide('conversation', {})
     await expect(ctx.plugin({ inject: [...inject], apply }))
       .rejects.toThrow(/slot "conversation.composer" is not declared/)
   })

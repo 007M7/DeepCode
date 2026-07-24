@@ -3,7 +3,9 @@
 // List data never enters zustand; React connects via subscribe/getListSnapshot.
 
 import type { IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connection/client'
-import { transportError } from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
 import { Notifier } from './notifier.ts'
