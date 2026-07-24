@@ -531,16 +531,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read one session\'s complete current model surface from one corpus observation.\n * @param sessionId - live-preferred session id to read.\n * @returns cloned header, current surface, and raw-log capture boundary.\n * @throws when source resolution fails or the session surface is invalid.\n */',
       },
       {
-        signature: 'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
-        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
+        signature: 'async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>',
+        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @param signal - optional cancellation for persistence listing.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
       },
       {
-        signature: 'async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTraceObservation>',
-        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @returns source header, direct links, and the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
+        signature: 'async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>',
+        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns source header, direct links, and the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
       },
       {
-        signature: 'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
-        jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @returns cloned target and neighboring events.\n */',
+        signature: 'async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>',
+        jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns cloned target and neighboring events.\n */',
       },
     ],
   },

@@ -428,7 +428,7 @@ async function executeSessionTrace(
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
   let trace: SessionLineageTrace
   try {
-    trace = await ctx.sessionQuery.traceSession(sessionId)
+    trace = await ctx.sessionQuery.traceSession(sessionId, exec.signal)
   } catch (error: unknown) {
     exec.signal.throwIfAborted()
     if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_INVALID_LINEAGE') {
@@ -471,7 +471,7 @@ async function executeEventTrace(
   const caller = callerOf(exec)
   const sessionId = targetId(args, caller)
   await authorizeTarget(ctx, caller, sessionId, exec.signal)
-  const trace = await ctx.sessionQuery.traceEvent({ sessionId, seq: args.seq })
+  const trace = await ctx.sessionQuery.traceEvent({ sessionId, seq: args.seq }, exec.signal)
   exec.signal.throwIfAborted()
   assertObservedTargetAuthorized(caller, sessionId, trace.session)
   const title = await readTitle(ctx, caller, sessionId, exec.signal)
@@ -494,7 +494,7 @@ async function executeEventRead(
     seq: args.seq,
     ...args.before === undefined ? {} : { before: args.before },
     ...args.after === undefined ? {} : { after: args.after },
-  })
+  }, exec.signal)
   exec.signal.throwIfAborted()
   assertObservedTargetAuthorized(caller, sessionId, window.session)
   const title = await readTitle(ctx, caller, sessionId, exec.signal)

@@ -82,23 +82,37 @@ export class SessionCorpus {
    * A known live target never consults persistence, so an optional backend's
    * failure cannot make current in-memory history unreadable.
    * @param sessionId - session to resolve.
+   * @param signal - optional cancellation for persisted source resolution.
    * @returns detached live-preferred header and events.
    */
-  async load(sessionId: SessionId): Promise<LogicalSession> {
+  async load(sessionId: SessionId, signal?: AbortSignal): Promise<LogicalSession> {
+    signal?.throwIfAborted()
     const live = this._ctx.sessions.get(sessionId)
-    if (live !== undefined) return snapshotLive(live)
+    if (live !== undefined) {
+      const snapshot = snapshotLive(live)
+      signal?.throwIfAborted()
+      return snapshot
+    }
     const persistence = this._persistence
     if (persistence === undefined) throw notFound(sessionId)
-    const listed = (await listPersisted(persistence)).find(header => header.id === sessionId)
+    const listed = (await listPersisted(persistence, signal)).find(header => header.id === sessionId)
+    signal?.throwIfAborted()
     if (listed === undefined) throw notFound(sessionId)
-    const loaded = await inspectPersisted(persistence, sessionId)
+    const loaded = await inspectPersisted(persistence, sessionId, signal)
+    signal?.throwIfAborted()
     const attached = this._ctx.sessions.get(sessionId)
-    if (attached !== undefined) return snapshotLive(attached)
+    if (attached !== undefined) {
+      const snapshot = snapshotLive(attached)
+      signal?.throwIfAborted()
+      return snapshot
+    }
     assertSessionHeadersCompatible(loaded.meta, listed)
-    return {
+    const snapshot = {
       header: structuredClone(loaded.meta),
       events: loaded.events.map(event => structuredClone(event)),
     }
+    signal?.throwIfAborted()
+    return snapshot
   }
 
   /**

@@ -661,6 +661,78 @@ describe('workspace authority and lineage redaction', () => {
     expect(text(result)).toBe(`Error: ${message}`)
   })
 
+  it.each([
+    'session_trace',
+    'session_event_trace',
+    'session_event_read',
+  ] as const)('forwards the exact signal to %s and waits for service cleanup', async (toolName) => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, `cancelled-${toolName}`, '/work')
+    target.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'pending exact read' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    const controller = new AbortController()
+    const cancellation = new SessionQueryError(
+      `${toolName} cancelled`,
+      'SESSION_QUERY_ABORTED',
+    )
+    const started = Promise.withResolvers<undefined>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const cleanup = Promise.withResolvers<undefined>()
+    let observedSignal: AbortSignal | undefined
+    let active = false
+    const holdExactRead = async (signal?: AbortSignal): Promise<never> => {
+      if (signal === undefined) throw new Error('expected exact tool execution signal')
+      observedSignal = signal
+      active = true
+      const aborted = new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+      started.resolve(undefined)
+      await aborted
+      abortObserved.resolve(undefined)
+      await cleanup.promise
+      active = false
+      signal.throwIfAborted()
+      throw new Error('unreachable after exact tool cancellation')
+    }
+    if (toolName === 'session_trace') {
+      vi.spyOn(mounted.ctx.sessionQuery, 'traceSession')
+        .mockImplementation((_sessionId, signal) => holdExactRead(signal))
+    } else if (toolName === 'session_event_trace') {
+      vi.spyOn(mounted.ctx.sessionQuery, 'traceEvent')
+        .mockImplementation((_request, signal) => holdExactRead(signal))
+    } else {
+      vi.spyOn(mounted.ctx.sessionQuery, 'readEvent')
+        .mockImplementation((_request, signal) => holdExactRead(signal))
+    }
+    const args = toolName === 'session_trace'
+      ? { session_id: target.id }
+      : { session_id: target.id, seq: 0 }
+
+    const pending = mounted.call(toolName, args, { signal: controller.signal })
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await started.promise
+    controller.abort(cancellation)
+    await abortObserved.promise
+
+    expect(settled).toBe(false)
+    expect(active).toBe(true)
+    expect(observedSignal).toBe(controller.signal)
+
+    cleanup.resolve(undefined)
+    const result = await pending
+    expect(active).toBe(false)
+    expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
+    expect(text(result)).toBe(`Error: ${toolName} cancelled`)
+  })
+
   it('preserves caller cancellation while a lineage trace is pending', async () => {
     const mounted = await mount()
     const target = createSession(mounted.ctx, 'cancelled-trace-target', '/work')

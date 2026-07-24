@@ -1068,25 +1068,28 @@ async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
 /**
  * Trace known ancestry and descendants from one corpus observation.
  * @param sessionId - logical session id to trace.
+ * @param signal - optional cancellation for persistence listing.
  * @returns a complete lineage or an explicit unresolved parent boundary.
  * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
  */
-async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
+async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>
 
 /**
  * Trace one event's direct positional and provenance relationships.
  * @param request - target session id and event seq.
+ * @param signal - optional cancellation for persisted source resolution.
  * @returns source header, direct links, and the target's positional replacement chain.
  * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
  */
-async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTraceObservation>
+async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>
 
 /**
  * Read one full event plus a bounded raw-log context window.
  * @param request - target session/seq and context sizes.
+ * @param signal - optional cancellation for persisted source resolution.
  * @returns cloned target and neighboring events.
  */
-async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
+async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>
 ```
 
 Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleObservationResult](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)

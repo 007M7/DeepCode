@@ -272,22 +272,26 @@ export abstract class SessionQueryService extends Service {
   /**
    * Trace known ancestry and descendants from one corpus observation.
    * @param sessionId - logical session id to trace.
+   * @param signal - optional cancellation for persistence listing.
    * @returns a complete lineage or an explicit unresolved parent boundary.
    * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
    */
-  async traceSession(sessionId: SessionId): Promise<SessionLineageTrace> {
-    const records = await this._corpus.listSessions()
+  async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace> {
+    const records = await this._corpus.listSessions(signal)
+    signal?.throwIfAborted()
     return tracing.traceSession(records, sessionId)
   }
 
   /**
    * Trace one event's direct positional and provenance relationships.
    * @param request - target session id and event seq.
+   * @param signal - optional cancellation for persisted source resolution.
    * @returns source header, direct links, and the target's positional replacement chain.
    * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
    */
-  async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTraceObservation> {
-    const loaded = await this._corpus.load(request.sessionId)
+  async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation> {
+    const loaded = await this._corpus.load(request.sessionId, signal)
+    signal?.throwIfAborted()
     return {
       session: loaded.header,
       ...tracing.traceEvent(request.sessionId, loaded.events, request.seq),
@@ -297,14 +301,15 @@ export abstract class SessionQueryService extends Service {
   /**
    * Read one full event plus a bounded raw-log context window.
    * @param request - target session/seq and context sizes.
+   * @param signal - optional cancellation for persisted source resolution.
    * @returns cloned target and neighboring events.
    */
-  async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow> {
+  async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow> {
     const before = this._readWindow('before', request.before)
     const after = this._readWindow('after', request.after)
     const sessionId = request.sessionId
     const seq = request.seq
-    return this._readEvent(sessionId, seq, before, after)
+    return this._readEvent(sessionId, seq, before, after, signal)
   }
 
   private async _readEvent(
@@ -312,8 +317,10 @@ export abstract class SessionQueryService extends Service {
     seq: number,
     before: number,
     after: number,
+    signal?: AbortSignal,
   ): Promise<SessionEventWindow> {
-    const loaded = await this._corpus.load(sessionId)
+    const loaded = await this._corpus.load(sessionId, signal)
+    signal?.throwIfAborted()
     const target = loaded.events[seq]
     if (target === undefined || target.seq !== seq) {
       throw new SessionQueryError(

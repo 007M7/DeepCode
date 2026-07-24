@@ -142,6 +142,34 @@ const cancellableSessionListings = [
   },
 ] as const
 
+interface CancellableExactRead {
+  readonly name: 'traceSession' | 'traceEvent' | 'readEvent'
+  readonly inspects: boolean
+  readonly run: (
+    ctx: Context,
+    sessionId: SessionIdType,
+    signal: AbortSignal,
+  ) => Promise<unknown>
+}
+
+const cancellableExactReads: readonly CancellableExactRead[] = [
+  {
+    name: 'traceSession',
+    inspects: false,
+    run: (ctx, sessionId, signal) => ctx.sessionQuery.traceSession(sessionId, signal),
+  },
+  {
+    name: 'traceEvent',
+    inspects: true,
+    run: (ctx, sessionId, signal) => ctx.sessionQuery.traceEvent({ sessionId, seq: 0 }, signal),
+  },
+  {
+    name: 'readEvent',
+    inspects: true,
+    run: (ctx, sessionId, signal) => ctx.sessionQuery.readEvent({ sessionId, seq: 0 }, signal),
+  },
+] as const
+
 describe.each(cancellableSessionListings)('$name cancellation', ({ run }) => {
   it('preserves an exact pre-abort reason without entering persistence', async () => {
     TestPersistence.reset()
@@ -222,6 +250,167 @@ describe.each(cancellableSessionListings)('$name cancellation', ({ run }) => {
     expect(TestPersistence.listSignals).toEqual([controller.signal])
   })
 })
+
+describe.each(cancellableExactReads)('$name cancellation', ({ inspects, run }) => {
+  it('preserves an exact pre-abort reason without entering persistence', async () => {
+    const persisted = header('pre-aborted-exact-read')
+    TestPersistence.reset([{ meta: persisted, events: eventLog() }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const controller = new AbortController()
+    const reason = new Error('exact read cancelled before start')
+    controller.abort(reason)
+
+    await expect(run(ctx, persisted.id, controller.signal)).rejects.toBe(reason)
+    expect(TestPersistence.listCalls).toBe(0)
+    expect(TestPersistence.inspectCalls).toEqual([])
+  })
+
+  it('forwards in-flight list cancellation and waits for cleanup before rejecting', async () => {
+    const persisted = header('cancelled-exact-list')
+    TestPersistence.reset([{ meta: persisted, events: eventLog() }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const controller = new AbortController()
+    const reason = new Error('exact read list cancelled in flight')
+    const started = Promise.withResolvers<undefined>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const cleanup = Promise.withResolvers<undefined>()
+    let active = false
+    TestPersistence.listOverride = async (signal) => {
+      if (signal === undefined) throw new Error('expected exact-read listing signal')
+      active = true
+      const aborted = new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+      started.resolve(undefined)
+      await aborted
+      abortObserved.resolve(undefined)
+      await cleanup.promise
+      active = false
+      signal.throwIfAborted()
+      return []
+    }
+
+    const pending = run(ctx, persisted.id, controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await started.promise
+    controller.abort(reason)
+    await abortObserved.promise
+
+    expect(settled).toBe(false)
+    expect(active).toBe(true)
+    expect(TestPersistence.listSignals).toEqual([controller.signal])
+    expect(TestPersistence.inspectCalls).toEqual([])
+
+    cleanup.resolve(undefined)
+    await expect(pending).rejects.toBe(reason)
+    expect(active).toBe(false)
+  })
+
+  it('waits for an ignoring backend to return before preserving the abort reason', async () => {
+    const persisted = header('ignored-exact-signal')
+    const entry = { meta: persisted, events: eventLog() }
+    TestPersistence.reset([entry])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const controller = new AbortController()
+    const reason = new Error('exact read cancelled while backend ignored signal')
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let active = false
+    if (inspects) {
+      TestPersistence.inspectOverride = async () => {
+        active = true
+        started.resolve(undefined)
+        await release.promise
+        active = false
+        return structuredClone(entry)
+      }
+    } else {
+      TestPersistence.listOverride = async () => {
+        active = true
+        started.resolve(undefined)
+        await release.promise
+        active = false
+        return [structuredClone(persisted)]
+      }
+    }
+
+    const pending = run(ctx, persisted.id, controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await started.promise
+    controller.abort(reason)
+
+    expect(settled).toBe(false)
+    expect(active).toBe(true)
+    expect(TestPersistence.listSignals).toEqual([controller.signal])
+    expect(TestPersistence.inspectSignals).toEqual(inspects ? [controller.signal] : [])
+
+    release.resolve(undefined)
+    await expect(pending).rejects.toBe(reason)
+    expect(active).toBe(false)
+  })
+})
+
+describe.each(cancellableExactReads.filter(read => read.inspects))(
+  '$name persisted inspection cancellation',
+  ({ run }) => {
+    it('forwards cancellation and waits for inspection cleanup before rejecting', async () => {
+      const persisted = header('cancelled-exact-inspect')
+      TestPersistence.reset([{ meta: persisted, events: eventLog() }])
+      const ctx = await liveContext()
+      await ctx.plugin(TestPersistence)
+      const controller = new AbortController()
+      const reason = new Error('exact read inspection cancelled in flight')
+      const started = Promise.withResolvers<undefined>()
+      const abortObserved = Promise.withResolvers<undefined>()
+      const cleanup = Promise.withResolvers<undefined>()
+      let active = false
+      TestPersistence.inspectOverride = async (_sessionId, signal) => {
+        if (signal === undefined) throw new Error('expected exact-read inspection signal')
+        active = true
+        const aborted = new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+        started.resolve(undefined)
+        await aborted
+        abortObserved.resolve(undefined)
+        await cleanup.promise
+        active = false
+        signal.throwIfAborted()
+        throw new Error('unreachable after exact-read cancellation')
+      }
+
+      const pending = run(ctx, persisted.id, controller.signal)
+      let settled = false
+      void pending.then(
+        () => { settled = true },
+        () => { settled = true },
+      )
+      await started.promise
+      controller.abort(reason)
+      await abortObserved.promise
+
+      expect(settled).toBe(false)
+      expect(active).toBe(true)
+      expect(TestPersistence.listSignals).toEqual([controller.signal])
+      expect(TestPersistence.inspectSignals).toEqual([controller.signal])
+
+      cleanup.resolve(undefined)
+      await expect(pending).rejects.toBe(reason)
+      expect(active).toBe(false)
+    })
+  },
+)
 
 describe('session-query exact reads', () => {
   it('returns a detached replay-valid full log and rejects a corrupt persisted seed', async () => {
@@ -862,9 +1051,15 @@ describe('session-query exact reads', () => {
     await ctx.plugin(TestPersistence)
     TestPersistence.listFailure = new Error('list unavailable')
     TestPersistence.inspectFailure = new Error('inspect unavailable')
+    const signal = new AbortController().signal
 
     await expect(ctx.sessionQuery.listEvents(live.id)).resolves.toHaveLength(2)
-    await expect(ctx.sessionQuery.readEvent({ sessionId: live.id, seq: 1 })).resolves.toMatchObject({ target: { seq: 1 } })
+    await expect(ctx.sessionQuery.traceEvent({ sessionId: live.id, seq: 1 }, signal))
+      .resolves.toMatchObject({ session: { id: live.id }, target: { seq: 1 } })
+    await expect(ctx.sessionQuery.readEvent({ sessionId: live.id, seq: 1 }, signal))
+      .resolves.toMatchObject({ target: { seq: 1 } })
+    expect(TestPersistence.listSignals).toEqual([])
+    expect(TestPersistence.inspectSignals).toEqual([])
     await expect(ctx.sessionQuery.listSessions()).rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
     await expect(ctx.sessionQuery.listEvents(SessionId('durable'))).rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
   })
