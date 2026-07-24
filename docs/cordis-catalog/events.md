@@ -32,7 +32,7 @@ Effective broad cancellation was requested, before queued/steering work is clear
 
 Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:355`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -96,7 +96,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:503`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:507`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -121,15 +121,19 @@ Source: [`packages/core/agent/src/types.ts:335`](../../packages/core/agent/src/t
 
 ### `agent/inbox/discard` — emit
 
-`cancel()` (without `keepInbox`) dropped pending inbox items without delivering them. Fires once per effective clearing call with every discarded item, after `agent/cancel-requested` and before the abort.
+Pending inbox items were dropped without delivering them, so every enqueued id receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop` dropping pending steering (in-turn and on the post-turn late-steering drain); and disposal of any still-pending items (before `agent/status('disposed')`). Fires once per drop with every dropped item.
 
 ```ts cordis-catalog
 /**
- * `cancel()` (without `keepInbox`) dropped pending inbox items without
- * delivering them. Fires once per effective clearing call with every
- * discarded item, after `agent/cancel-requested` and before the abort.
- * @param agent - the agent whose inbox was cleared.
- * @param messages - the discarded messages in FIFO order (queued then steering); empty when nothing was pending.
+ * Pending inbox items were dropped without delivering them, so every
+ * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR
+ * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after
+ * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`
+ * dropping pending steering (in-turn and on the post-turn late-steering
+ * drain); and disposal of any still-pending items (before
+ * `agent/status('disposed')`). Fires once per drop with every dropped item.
+ * @param agent - the agent whose inbox items were dropped.
+ * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
@@ -138,7 +142,7 @@ Source: [`packages/core/agent/src/types.ts:335`](../../packages/core/agent/src/t
 
 Types: [Agent](../core-data-structures/core.md) · [AgentMessage](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:349`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/enqueue` — emit
 
@@ -184,7 +188,7 @@ Awaited serial checkpoint after the response, real or synthetic tool results, in
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:453`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:457`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -207,7 +211,7 @@ Awaited serial checkpoint before `step/start`; appends land outside the pending 
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:384`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:388`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -234,7 +238,7 @@ Allow, rewrite, or block one claimed prompt before it becomes a user message. Ca
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:400`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:404`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -259,7 +263,7 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:414`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:418`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -285,7 +289,7 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:468`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:472`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -311,7 +315,7 @@ Compose request-only messages placed before derived history. The frozen result i
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:429`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:433`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -333,7 +337,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:368`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:372`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -376,7 +380,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:441`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:445`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -398,7 +402,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:479`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:483`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -420,7 +424,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationStop](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:490`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:494`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

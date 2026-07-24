@@ -892,8 +892,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/inbox/discard',
     mode: 'emit',
     signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void',
-    jsDoc: '/**\n * `cancel()` (without `keepInbox`) dropped pending inbox items without\n * delivering them. Fires once per effective clearing call with every\n * discarded item, after `agent/cancel-requested` and before the abort.\n * @param agent - the agent whose inbox was cleared.\n * @param messages - the discarded messages in FIFO order (queued then steering); empty when nothing was pending.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: '`cancel()` (without `keepInbox`) dropped pending inbox items without delivering them.',
+    jsDoc: '/**\n * Pending inbox items were dropped without delivering them, so every\n * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR\n * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after\n * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`\n * dropping pending steering (in-turn and on the post-turn late-steering\n * drain); and disposal of any still-pending items (before\n * `agent/status(\'disposed\')`). Fires once per drop with every dropped item.\n * @param agent - the agent whose inbox items were dropped.\n * @param messages - the discarded messages in FIFO order (queued then steering); never empty.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Pending inbox items were dropped without delivering them, so every enqueued id receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`.',
   },
   {
     name: 'agent/inbox/enqueue',

@@ -216,6 +216,38 @@ describe('Agent', () => {
     expect(flushes).toBe(0) // nothing was appended, so no checkpoint
   })
 
+  it('idle inject() re-entered from a session/event listener is rejected pre-commit and opens no turn', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    let flushes = 0
+    ctx.on('session/flush', () => { flushes += 1 })
+    // Injecting from inside a session/event listener re-enters Session.append,
+    // which rejects pre-commit — so turn/start never commits. The finally sees
+    // no open turn (closes nothing) and no recorded turn (no checkpoint), and
+    // the reentrant throw is contained by Session's post-commit dispatch.
+    // Fire on turn/end: at that instant the outer one-shot turn is closed (no
+    // turn open), so the reentrant inject takes the idle one-shot-turn path and
+    // its turn/start append re-enters Session and is rejected pre-commit.
+    let reentered = false
+    ctx.on('session/event', (_s, event) => {
+      if (!reentered && event.type === 'turn/end') {
+        reentered = true
+        agent.inject([{ type: 'text', text: 'reentrant' }], { source: { kind: 'plugin', plugin: 'p' } })
+      }
+    })
+
+    agent.inject([{ type: 'text', text: 'outer' }], { source: { kind: 'plugin', plugin: 'p' } })
+    // The outer injection's own one-shot turn is balanced; the reentrant one
+    // opened no turn (its turn/start was rejected pre-commit).
+    const turnStarts = agent.session.events.filter(e => e.type === 'turn/start')
+    expect(turnStarts).toHaveLength(1)
+    const injected = agent.session.events.filter(e => e.type === 'user/message')
+    expect(injected).toHaveLength(1) // the reentrant user/message never committed
+    await new Promise(r => setTimeout(r, 10))
+    expect(flushes).toBe(1) // only the outer accepted turn checkpointed
+  })
+
   it('idle inject() still checkpoints when a listener throws on the synthetic turn/end', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)

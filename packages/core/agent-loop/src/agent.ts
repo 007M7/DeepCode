@@ -276,34 +276,40 @@ export class ReactLoopAgent extends Agent {
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
     // turn-enclosed (the durability/replay boundary is the turn). The payload is
-    // validated above, so both appends commit together; the finally still owes
-    // a turn/end (the turn-enclosure invariant) even if a post-commit observer
-    // throws after turn/start.
+    // validated above, but `Session.append` can still reject a turn/start
+    // pre-commit (append re-entrancy from a session/event listener, or an
+    // internal-dispatch veto), so the finally owes a turn/end only when
+    // turn/start actually committed.
     const turn = lastTurnNumber(this.session) + 1
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
       this.session.append('user/message', accepted, { surfaceOp: 'append' })
     } finally {
-      // Close the turn if turn/start committed. With the payload validated up
-      // front both appends commit together, so the turn is always open here;
-      // the guard remains the turn-enclosure backstop.
-      /* v8 ignore next -- unopened turn is unreachable after up-front validation; kept as the enclosure backstop. */
+      // Close the turn if turn/start made it into the log. A pre-commit veto
+      // must escape rather than being mistaken for a committed turn/end.
       if (isTurnOpen(this.session)) {
         this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
       }
-      // Flush the one-shot turn through the store (the carrier owner), never a
-      // raw parallel. Keep inject() synchronous: report checkpoint failures live
-      // instead of rejecting the caller, and track the task so disposal drains it.
-      const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
-        const rendered = errorChain(error)
-        const err = error instanceof Error ? error : new Error(rendered)
-        this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
-        agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
-      })
-      this.pendingIdleFlushes.add(flush)
-      // Retire on either settlement path.
-      const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
-      void flush.then(retire, retire)
+      // Checkpoint only an accepted one-shot turn: a turn/start rejected
+      // pre-commit recorded nothing, so it owes no flush (and a spurious flush
+      // would emit a phantom-turn agent/error). The payload is validated up
+      // front, so a committed turn/start is always followed by its user/message.
+      const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
+      // Keep inject() synchronous: report checkpoint failures live instead of
+      // rejecting the caller, and track the task so disposal still drains it.
+      if (turnRecorded) {
+        // Through the store's flush (the carrier owner), never a raw parallel.
+        const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
+          const rendered = errorChain(error)
+          const err = error instanceof Error ? error : new Error(rendered)
+          this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
+          agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
+        })
+        this.pendingIdleFlushes.add(flush)
+        // Retire on either settlement path.
+        const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
+        void flush.then(retire, retire)
+      }
     }
   }
 
@@ -438,20 +444,21 @@ export class ReactLoopAgent extends Agent {
    */
   private [stopDriver](): Promise<void> | void {
     if (this._status !== 'disposed') {
-      // Discard any still-pending inbox items before disposal so every enqueued
-      // id gets a terminal lifecycle event; a disposed agent never dequeues
-      // them. Emitted while still published (before the status flip below), and
-      // only when there is a public lifecycle to observe it.
-      if (this.published) {
-        const discarded = this.#inbox.pending()
-        if (discarded.length > 0) {
-          const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
-          agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
-        }
-      }
+      // Snapshot any still-pending inbox items, then CLEAR and mark disposed
+      // BEFORE emitting the discard — mirroring cancel()'s snapshot→clear→emit
+      // order so a re-entrant send()/cancel() from a discard listener throws
+      // `disposed` (or finds an empty inbox) instead of leaking or double-
+      // discarding an id. `send()` emits enqueue unconditionally, so the discard
+      // is unconditional too (even on an unpublished rollback) to keep every
+      // enqueued id matched.
+      const discarded = this.#inbox.pending()
       this.#inbox.clear()
       this._status = 'disposed'
       this.resolveDisposed()
+      if (discarded.length > 0) {
+        const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
+        agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
+      }
       // Release whenIdle waiters BEFORE the (guarded) event emit — they are
       // internal state that must settle even if a listener throws below. Each
       // waiter chains `done`, so it resolves only once the loop actually exits.
