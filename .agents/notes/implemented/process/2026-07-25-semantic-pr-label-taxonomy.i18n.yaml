@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-25-semantic-pr-label-taxonomy.md: cf25691e55d100cc2cc12246b17f5edbba35feea
-2026-07-25-semantic-pr-label-taxonomy.zh.md: 2978bdc80a660f67f84821e473dc229e13b2bc4d
+2026-07-25-semantic-pr-label-taxonomy.md: 61b7a829b8c44836cf9c6d0d8a7df463df309d89
+2026-07-25-semantic-pr-label-taxonomy.zh.md: cc0c5e7a8953bc97de51f90349a0e2542be5b77e
