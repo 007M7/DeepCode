@@ -19,7 +19,7 @@ Each of the three required Linux jobs resolves its runner pool through the `DSH_
 ### Switch (repo admin, ~1 minute, no merge)
 
 1. Repository **Settings → Secrets and variables → Actions → Variables → New repository variable**: name `DSH_CI_FAILOVER`, value `selfhosted`.
-2. Re-run the failed/queued required jobs (Re-run failed jobs on affected PRs, or let new pushes pick it up).
+2. Retrigger the required jobs so they re-resolve their pool. Jobs already **queued** for the hosted labels do not retarget and cannot be re-run in place, so for the documented indefinite-queue outage, cancel the stuck run and re-run all jobs, or push a new commit; "Re-run failed jobs" only helps once a job has actually failed rather than queued.
 3. That is the entire switch. Under failover the workflow also, automatically: halves `DSH_COVERAGE_MAX_WORKERS` to 12 and `DSH_SNAPSHOT_MAX_CONCURRENCY` to 16 (shared-VM contention bounds), and skips the hosted-path pnpm cache restores (the VM's persistent store serves warm installs).
 
 ### Capacity during failover

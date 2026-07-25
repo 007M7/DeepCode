@@ -19,7 +19,7 @@ Status: implemented
 ### 切换步骤（仓库管理员，约 1 分钟，无需合并）
 
 1. 仓库 **Settings → Secrets and variables → Actions → Variables → New repository variable**：名称 `DSH_CI_FAILOVER`，值 `selfhosted`。
-2. 对受影响 PR 的失败/排队作业点 Re-run failed jobs（或等新推送自然触发）。
+2. 重新触发必需作业，使其重新解析运行器池。已经为托管标签**排队**的作业不会重定向，也无法原地 re-run，因此对于本手册所述的无限排队故障，应取消卡住的运行并 re-run all jobs，或推送一个新提交；“Re-run failed jobs”只有在作业真正失败（而非仍在排队）时才有用。
 3. 切换到此完成。故障切换状态下工作流还会自动：把 `DSH_COVERAGE_MAX_WORKERS` 降为 12、`DSH_SNAPSHOT_MAX_CONCURRENCY` 降为 16（共享虚拟机的争抢上限），并跳过托管路径的 pnpm 缓存恢复（虚拟机的持久 store 直接提供热安装）。
 
 ### 切换期间的容量

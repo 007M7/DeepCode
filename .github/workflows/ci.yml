@@ -55,8 +55,10 @@ jobs:
           persist-credentials: false
 
       # Pull requests consume the default-branch cache but do not put cache
-      # compression and upload on the paid latency-critical path.
+      # compression and upload on the paid latency-critical path. Skipped
+      # under failover — see the coverage lane's identical rationale.
       - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -398,7 +400,8 @@ jobs:
   # Hot-standby drill for the in-house self-hosted pool: every master move
   # re-runs the complete unsharded aggregate on the persistent 64-core VM,
   # continuously proving that environment can take over a required lane if
-  # the hosted pools degrade (the switch is then a one-line runs-on change).
+  # the hosted pools degrade (the switch is then setting the admin-only
+  # DSH_CI_FAILOVER variable — see the failover runbook, no merge required).
   # Push-triggered, so it always executes the base branch's own workflow
   # definition — no PR-editable path selects these runners. Non-blocking for
   # pull requests; no cache steps because the VM's persistent pnpm store and
