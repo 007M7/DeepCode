@@ -6,7 +6,7 @@ English | [中文](2026-07-24-empty-model-response-is-retryable.zh.md)
 
 ## Problem
 
-Providers occasionally return a degenerate completion: a well-formed stream that carries a terminal `stop` finish and zero content blocks — no text, no reasoning, no tool calls. Before this change both adapters mapped it to a successful `{kind: 'stop'}` finish, so the loop logged an empty `assistant/message` and ended the turn as `completed`. Nothing retried, nothing failed loud, and a driver like goal-session counted the silent no-op as a consumed round. A live incident showed an openrouter-served model burning three of six goal rounds on empty completions before the goal blocked on its round limit.
+Providers occasionally return a degenerate completion: a well-formed stream that carries a terminal `stop` finish and zero content blocks — no text, no reasoning, no tool calls. If an adapter maps this shape to a successful `{kind: 'stop'}` finish, the loop logs an empty `assistant/message` and ends the turn as `completed`. Retry never runs, no failure reaches the caller, and a driver such as goal-session consumes a round without progress.
 
 ## Decision
 
@@ -19,7 +19,7 @@ An adapter classifies a completed empty response as a provider-boundary failure,
 
 Detection is scoped to `stop` finishes only. `max-tokens` with empty content keeps its existing meaning (pi-ai already normalizes the zero-output overflow case), `tool-calls` cannot be block-empty in practice, and error/aborted finishes already fail.
 
-The classification rides the existing loop machinery — `finishError` → `agent/request-error` → `dsh-llm-retry` — so no `agent-loop` change was needed, and after the retry budget exhausts, the turn fails loud with `EMPTY_RESPONSE` instead of silently completing empty.
+The classification uses the existing loop machinery — `finishError` → `agent/request-error` → `dsh-llm-retry` — and keeps `agent-loop` provider-neutral. Exhausting the retry budget ends the turn with an explicit `EMPTY_RESPONSE` failure instead of an empty success.
 
 ## Alternatives considered
 
@@ -31,6 +31,6 @@ The classification rides the existing loop machinery — `finishError` → `agen
 
 ## Consequences
 
-- A transiently misbehaving provider now costs a bounded retry instead of a silently wasted turn; a persistently empty model surfaces as a loud `EMPTY_RESPONSE` turn failure users can act on.
-- A model that genuinely intends to say nothing (rare, but possible after a tool result) is now retried and, if consistently empty, fails the turn. This trade was accepted deliberately: an empty assistant message is indistinguishable from the provider defect and has no value to the user.
-- The `empty-response-retry` ACP snapshot (an authored keyless scenario with a deterministic 1 ms zero-jitter retry overlay, `examples/acp-agent/retry.cordis.yml`) pins the product-visible arc: durable `llm/retry` event, the discarded-attempt marker, and a clean completed turn.
+- A transiently misbehaving provider consumes a bounded retry instead of a turn with no output; a persistently empty model surfaces an actionable `EMPTY_RESPONSE` turn failure.
+- A model that genuinely intends to say nothing (rare, but possible after a tool result) is retried and, if consistently empty, fails the turn. This trade was accepted deliberately: an empty assistant message is indistinguishable from the provider defect and has no value to the user.
+- The `empty-response-retry` ACP snapshot (an authored keyless scenario with a deterministic 1 ms zero-jitter retry overlay, `examples/acp-agent/retry.cordis.yml`) pins the product-visible behavior: a durable `llm/retry` event, no ACP output for the discarded attempt, the recovered reply, and a clean completed turn.

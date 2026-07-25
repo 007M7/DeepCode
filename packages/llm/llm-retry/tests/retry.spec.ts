@@ -190,7 +190,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-empty-response'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     const event = await scheduled
     expect(event.data.failure).toEqual({
       message: 'model returned a completed response with no content',
