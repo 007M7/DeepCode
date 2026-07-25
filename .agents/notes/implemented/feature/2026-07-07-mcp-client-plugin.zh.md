@@ -99,7 +99,7 @@ type Config = StdioConfig | StreamableHttpConfig
 1. 连接时：遍历 `client.listTools()` 的分页结果，推导每个工具的 `publicName`，然后通过 `ctx.tools.register()` 将其注册为原始 `ToolDefinition`。MCP 的 JSON Schema 和描述原样透传（不做 `defineTool` DSL 转换）；仅替换模型可见的 `name`。
 2. 监听 `notifications/tools/list_changed` → 重新执行同步（dispose 上一代、注册新一代）。确定性命名意味着未变化的工具在重新同步后保持原名。
 3. 执行器闭包持有 `rawName`；公开名称永远不发送给服务器，也永远不被解析以还原原始名称。
-4. 无 `presentCall`/`presentResult`——ACP 桥接的通用卡片兜底负责渲染。
+4. 无 `presentCall`/`presentResult`——UI 消费方使用提供方无关的通用卡片兜底。
 5. 工具在系统提示词中是透明的——除名称本身外不附加「[via MCP]」标注。
 
 ### 公开名称规范化
@@ -201,7 +201,7 @@ v1 否决。它能防止跨服务器冲突，但无法将 MCP 注册与原生 ha
 
 - **单元测试**（`tests/mcp-client.spec.ts`、`tests/apply.spec.ts`，mock MCP SDK）：`publicToolName` 算法（干净名称、规范化、截断加 hash、确定性、不同标识的分离）、raw 与 public 的协议纪律、跨服务器与原生工具共存、重复 `serverName` 加载失败与预留释放、无效工具列表拒绝、代切换/回滚、重新同步失败时的保留、结果映射、取消、配置 schema 校验。100% 逐文件覆盖率门禁约束该包。
 - **E2E**（`tests/mcp-client.e2e.ts`，无需密钥）：使用真实 MCP 协议对接仓库内的 fixture（测试前置数据）服务器、`@modelcontextprotocol/server-everything` 和 `@modelcontextprotocol/server-filesystem`（stdio 传输），以及进程内 `StreamableHTTPServerTransport` 服务器（Streamable HTTP 传输）——命名空间下的发现、带点号名称的端到端规范化、执行往返、重复 `serverName` 拒绝、dispose。
-- **快照**：刻意不做。MCP 工具不引入新的 transcript（文本记录）呈现面——它们以原始 `ToolDefinition` 注册，通过 ACP 桥接的通用卡片兜底渲染，该兜底已由桥接的单元测试套件固定（`packages/ui/acp/tests/stream-update.spec.ts`）。将 MCP 服务器添加到快照示例的 `cordis.yml` 会改变已固定的 `text-turn` 系统提示词 fixture（迫使每条录制的预期输出都需要带密钥重新录制），且使每次回放依赖于 spawn 外部 MCP 服务器进程——而新增渲染行为为零。如果后续变更为 MCP 工具引入专属渲染意图，该变更届时自行声明快照覆盖。
+- **快照**：刻意不做。MCP 工具不引入新的展示形态——它们以原始 `ToolDefinition` 注册，UI 消费方使用各自展示测试套件已固定的通用卡片兜底。将 MCP 服务器添加到某个可运行的快照组合会改变其已固定的系统提示词 fixture，且使每次回放依赖于 spawn 外部 MCP 服务器进程，而新增行为为零。如果后续变更为 MCP 工具引入专属渲染意图，该变更届时自行声明快照覆盖。
 
 ## 后果
 

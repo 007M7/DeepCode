@@ -27,7 +27,7 @@ ctx.emit('agent/stream-chunk', agent, turn, step, chunk)   // ← the mirror
 
 从 agent 事件分类体系中移除 `agent/stream-chunk`。token 流通过 `session/event` 以 `assistant/chunk` 的形式读取——持久化与回放已经使用的正是同一个序列。`session/event` 是唯一的实时 transcript（文本记录）流（assistant 分片、轮次/步骤边界、工具活动、todo）。
 
-**消费方。** 唯一重要的生产消费方——ACP（Agent Client Protocol）桥接（`dsh-acp`，面向编辑器的真实流式输出接口）——已经从 `session/event` 渲染 `assistant/chunk`，从未使用 `agent/stream-chunk`，因此不受影响。stdio UI（`dsh-ui-stdio`，一个一次性的测试 REPL）是唯一的实时消费方；它在边界迁移时已经有了 `session/event` 监听器，因此其分片渲染被折叠进该监听器作为 `assistant/chunk` 分支。合并为一个监听器还消除了一个潜在隐患：`inReasoning` dim-SGR 标志此前在两个独立监听器（`agent/stream-chunk` 和 `session/event`）之间共享，分片与边界在该标志上竞争时没有确定的顺序；单一监听器按追加顺序处理，使交错变为确定性的。
+**消费方。** 持久化、回放和交互式渲染器直接消费权威的会话流。[仅面向自动化的 ACP（Agent Client Protocol）桥接层](2026-07-23-acp-automation-only-protocol.md)发出已提交的 `assistant/message` 文本而非原始分片，因此两种事件它都不需要。没有生产消费方需要一个 `Agent` 优先的 token 镜像。
 
 ## 范围
 

@@ -11,14 +11,14 @@ A `Requires:` line lists the service keys the plugin `inject`s: its `cordis.yml`
 
 ## `@deepseek-ai/dsh-acp`
 
-Requires: `agents` · `commands` · `sessionPersistence` · `sessionQuery` · `tools` · `userInteraction` · `llm` · `systemPrompt`
+Requires: `agents`
 
 ```ts config-catalog
-/** Plugin config: the agent template ACP sessions are created from. */
+/** Plugin config: the provider/model target used for each ACP-created agent. */
 export interface AcpConfig {
   /** Provider route for created agents. */
   provider?: string
-  /** Model name for created agents (must have a registered adapter). */
+  /** Model name for created agents. */
   model?: string
   /** Runtime-only transport override; production uses stdio. */
   stream?: Stream
@@ -27,15 +27,14 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:285`](../packages/ui/acp/src/index.ts)
+Source: [`packages/acp/acp/src/index.ts:56`](../packages/acp/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
 ```ts config-catalog
 /**
- * App config: the swappable per-deployment values. `provider` and `model` configure the
- * agent template the ACP bridge creates each session's agent from (NOT a
- * pre-created agent — ACP creates agents at `session/new`); `persona` is the
+ * App config: the swappable per-deployment values. `provider` and `model` configure
+ * each agent the ACP bridge creates at `session/new`; `persona` is the
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `tools` is the tool registry's config (its presentation `mode`, forwarded
@@ -58,14 +57,12 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
   packChunks?: boolean
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
-  /** Cross-session reference discovery and snapshot byte budgets. */
-  sessionReferences?: SessionReferenceConfig
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
@@ -74,16 +71,16 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
-  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and tools. */
   goals?: agentCore.GoalConfig | false
   /** Bounded transient model-request retry policy forwarded through agent-core. */
   llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
 ```
 
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`SessionReferenceConfig`](#deepseek-aidsh-session-reference) · [`ToolsConfig`](#deepseek-aidsh-tools)
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:44`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:37`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -670,7 +667,7 @@ export interface ReplayProviderConfig {
   id: string
   /** Selector label; defaults to {@link id}. */
   name?: string
-  /** Advisory models exposed to clients such as ACP editors. */
+  /** Advisory models exposed to replay scenarios that exercise discovery. */
   models?: ReplayModelConfig[]
 }
 
@@ -687,7 +684,7 @@ export interface ReplayModelConfig {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:387`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:392`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 

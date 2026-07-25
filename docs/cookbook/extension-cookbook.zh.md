@@ -58,11 +58,11 @@ export function apply(ctx: Context) {
 }
 ```
 
-## 客户端驱动插件（外部协议桥接）
+## 外部协议驱动
 
-*客户端驱动*是面向协议格式（wire format）对端的 UI 插件。它拥有 stdio，因此必须禁用 stdout 日志；通过工厂创建或恢复 agent（智能体）；将 harness 事件映射为协议消息；将请求映射为 `followup()` 或 `cancel()`。每个请求从持久的 `turn/end` 恰好结算一次（即使渲染失败），并通过 `AgentHandle.dispose()` 拆除 agent，确保 dispose（资源释放）流程完全停稳。
+*协议驱动*将协议对端接入 `ctx.agents`；它可以服务于 UI 或自动化客户端。stdio 驱动拥有 stdout，通过工厂创建或恢复 agent（智能体），将协议请求映射为 `followup()` 或 `cancel()`，并根据持久的 `turn/end` 对每个请求恰好结算一次。通过 `AgentHandle.dispose()` 拆除 agent，以使 dispose（资源释放）达到完全停稳。
 
-`packages/ui/acp` 是完整的工作示例：它将 agent 桥接到 ACP（Agent Client Protocol）（基于 stdio 的 JSON-RPC），使 Zed 及其他 ACP 编辑器能够驱动它。其 README 描述了完整的方法接口以及它在审批 seam 上注册的权限提示应答器。
+[`packages/acp/acp`](../../packages/acp/acp) 是仅面向自动化的完整示例：它通过 ACP（Agent Client Protocol）JSON-RPC stdio 提供全新文本会话，发出已提交的助手文本，并为其拥有的 agent 注册一次性机器权限应答器。其 [README](../../packages/acp/acp/README.md) 拥有精确的方法和生命周期契约。
 
 ```ts
 import type { Context } from 'cordis'
