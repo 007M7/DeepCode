@@ -159,7 +159,7 @@ interface OutOfBandSessionEventMap {}
 interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */
   content: string
-  /** Lifecycle state. `in_progress` marks the single task being worked now. */
+  /** Lifecycle state. `in_progress` marks a task being worked now; parallel work may mark several. */
   status: 'pending' | 'in_progress' | 'completed'
 }
 ```

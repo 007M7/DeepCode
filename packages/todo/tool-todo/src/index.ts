@@ -19,22 +19,24 @@ const DESCRIPTION =
   'Record and update a structured task list for the current work. Send the ENTIRE '
   + 'list every call — it REPLACES the previous list (there are no partial updates, '
   + 'no per-item edits). Use it to plan multi-step work and show progress: add one '
-  + 'todo per concrete step before you start. Keep AT MOST ONE todo `in_progress` '
-  + 'at a time; while work remains, exactly one active task should be '
-  + '`in_progress`. Mark a todo `completed` the moment it is done (do not batch '
-  + 'completions), and allow no `in_progress` item only once all work is complete. '
-  + 'Skip the list for trivial single-step tasks. Statuses: `pending` '
-  + '(not started), `in_progress` (being worked on now), `completed` (finished).'
+  + 'todo per concrete step before you start. Mark every todo being actively worked '
+  + 'on `in_progress` — several at once when work genuinely runs in parallel (e.g. '
+  + 'concurrent subagents or background commands), one for sequential work; while '
+  + 'work remains, at least one task should be `in_progress`. Mark a todo '
+  + '`completed` the moment it is done (do not batch completions), and allow no '
+  + '`in_progress` item only once all work is complete. Skip the list for trivial '
+  + 'single-step tasks. Statuses: `pending` (not started), `in_progress` (being '
+  + 'worked on now), `completed` (finished).'
 
 /**
  * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
- * TodoItem}[]: trimmed non-empty unique content and at most one in-progress item. The registry
- * has already enforced the status enum; the cast below records that guarantee.
+ * TodoItem}[]: trimmed non-empty unique content. Any number of items may be in_progress —
+ * parallel work (subagents, background commands) legitimately runs several tasks at once. The
+ * registry has already enforced the status enum; the cast below records that guarantee.
  */
 function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   const todos: TodoItem[] = []
   const seen = new Set<string>()
-  let inProgress = 0
   for (const item of raw) {
     const content = item.content.trim()
     if (content.length === 0) {
@@ -44,12 +46,7 @@ function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
       throw new Error(`invalid todos: duplicate content ${JSON.stringify(content)}`)
     }
     seen.add(content)
-    const status = item.status as TodoItem['status']
-    if (status === 'in_progress') inProgress++
-    todos.push({ content, status })
-  }
-  if (inProgress > 1) {
-    throw new Error(`invalid todos: at most one task may be in_progress, got ${inProgress}`)
+    todos.push({ content, status: item.status as TodoItem['status'] })
   }
   return todos
 }

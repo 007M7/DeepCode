@@ -14,7 +14,7 @@ The list belongs to the ONE agent session that called the tool. There is no suba
 
 ## Validation
 
-Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content` and more than one `in_progress` task (a coherent plan has at most one task active). Ordering and the discipline of keeping the list current are left to the model via the tool description.
+Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content`. Any number of tasks may be `in_progress` at once — parallel work (concurrent subagents, background commands) legitimately runs several tasks simultaneously. Ordering and the discipline of keeping the list current are left to the model via the tool description.
 
 ## Rendering
 
@@ -44,7 +44,7 @@ Prefix-stable while the definition and visibility are unchanged. Plugin lifecycl
 
 #### What the model sees
 
-Each assistant tool call retains the entire replacement list in its arguments. Success returns exactly `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.` Stable failures are ``Error: invalid todo: `content` must be a non-empty string``, `Error: invalid todos: duplicate content "<content>"`, `Error: invalid todos: at most one task may be in_progress, got <count>`, and `Error: todo_write requires an owning agent session`. The full `todo/write` session event is UI and replay state, not a second model message.
+Each assistant tool call retains the entire replacement list in its arguments. Success returns exactly `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.` Stable failures are ``Error: invalid todo: `content` must be a non-empty string``, `Error: invalid todos: duplicate content "<content>"`, and `Error: todo_write requires an owning agent session`. The full `todo/write` session event is UI and replay state, not a second model message.
 
 #### Token effect
 

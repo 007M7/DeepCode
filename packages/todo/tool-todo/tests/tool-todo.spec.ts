@@ -122,10 +122,27 @@ describe('dsh-tool-todo', () => {
     expect(result.isError).toBe(true)
   })
 
+  it('accepts several in_progress items at once (parallel work)', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession('parallel')
+    const todos: TodoItem[] = [
+      { content: 'run subagent a', status: 'in_progress' },
+      { content: 'run subagent b', status: 'in_progress' },
+      { content: 'merge results', status: 'pending' },
+    ]
+    const result = await callTodo(ctx, { todos }, { agent })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected todo_write success')
+    expect(result.value).toEqual({
+      todos,
+      counts: { pending: 1, inProgress: 2, completed: 0 },
+    })
+    expect(agent.session.events.findLast(e => e.type === 'todo/write')!.data.todos).toEqual(todos)
+  })
+
   it.each([
     { label: 'empty content', todos: [{ content: '   ', status: 'pending' }], fragment: 'non-empty' },
     { label: 'duplicate content', todos: [{ content: 'dup', status: 'pending' }, { content: 'dup', status: 'completed' }], fragment: 'duplicate' },
-    { label: 'two in_progress', todos: [{ content: 'a', status: 'in_progress' }, { content: 'b', status: 'in_progress' }], fragment: 'in_progress' },
   ])('rejects $label as an isError result', async ({ todos, fragment }) => {
     const ctx = await setup()
     const result = await callTodo(ctx, { todos })

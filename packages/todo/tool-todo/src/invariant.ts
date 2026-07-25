@@ -16,7 +16,6 @@ export const inject = ['invariants']
 function validateTodos(value: unknown, fail: InvariantFailure): void {
   if (!Array.isArray(value)) fail('todo/write todos must be an array')
   const seen = new Set<string>()
-  let active = 0
   for (const item of value) {
     if (typeof item !== 'object' || item === null) fail('todo/write entries must be objects')
     const { content, status } = item as Record<string, unknown>
@@ -28,9 +27,7 @@ function validateTodos(value: unknown, fail: InvariantFailure): void {
     if (typeof status !== 'string' || !TODO_STATUSES.has(status)) {
       fail(`todo/write carries unknown status ${JSON.stringify(status)}`)
     }
-    if (status === 'in_progress') active += 1
   }
-  if (active > 1) fail(`todo/write contains ${active} in-progress entries; at most one is allowed`)
 }
 
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */

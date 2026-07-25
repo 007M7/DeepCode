@@ -17,11 +17,12 @@ function event(todos: unknown): SessionEvent {
 }
 
 describe('todo snapshot invariants', () => {
-  it('accepts a unique whole-list snapshot with one active item', async () => {
+  it('accepts a unique whole-list snapshot, including several active items', async () => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, event([
       { content: 'Inspect state', status: 'completed' },
       { content: 'Apply fix', status: 'in_progress' },
+      { content: 'Watch background build', status: 'in_progress' },
       { content: 'Run checks', status: 'pending' },
     ])) }).not.toThrow()
   })
@@ -36,7 +37,6 @@ describe('todo snapshot invariants', () => {
     [[{ content: 'same', status: 'pending' }, { content: 'same', status: 'completed' }], /repeats content/],
     [[{ content: 'task', status: 42 }], /unknown status/],
     [[{ content: 'task', status: 'paused' }], /unknown status/],
-    [[{ content: 'one', status: 'in_progress' }, { content: 'two', status: 'in_progress' }], /at most one/],
   ])('rejects an incoherent durable todo snapshot', async (todos, message) => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, event(todos)) }).toThrow(message)
