@@ -26,13 +26,13 @@ Pipes remain the default test medium. PTY-driven subprocess tests are sanctioned
 
 - `examples/echo-agent/tests/echo.e2e.ts` proves the Loader boot + mock-model tool round-trip through `stream-json` records instead of readline transcript lines.
 - The CI demo-smoke gate (`scripts/run-gates.ts`, AGENTS.md) runs `demo:echo --output-format stream-json -p "echo ci smoke"` and parses the records structurally.
-- The TUI's piped-launch refusal (nonzero exit + pointer at the one-shot CLI) is covered by the `dsh` TTY guard exercised in `examples/tui-agent`'s PTY smoke; the echo-round-trip-under-plain-Node and missing-config fail-loud proofs live in `cli-demo`'s built-bin suite.
+- The TUI's piped-launch refusal (nonzero exit + pointer at the one-shot CLI) is covered by `apps/cli/tests/built-bin.e2e.ts` (the `dsh` TTY guard under plain Node); the echo-round-trip-under-plain-Node and missing-config fail-loud proofs live in `cli-demo`'s built-bin suite.
 - `packages/context/time-context/tests/time-context.e2e.ts` runs one one-shot turn; multi-turn elapsed rendering stays unit-covered in its spec.
 
 ## Accepted losses
 
 - **Piped multi-turn in one process** — the readline channel could script several turns over stdin; the one-shot bin runs one task per process. Multi-turn continuity is covered by `RESUME_SESSION_ID`/resume e2es and the TUI's scripted PTY conversation.
-- **Non-TTY `ask_user_question`** — the readline provider was the only non-TTY terminal implementation of `ctx.userInteraction`. A headless run whose model calls `ask_user_question` now fails that tool call (no provider); the ACP bridge remains the non-terminal provider. A future headless deployment that needs it composes its own provider.
+- **Non-TTY `ask_user_question`** — the readline provider was the only non-TTY terminal implementation of `ctx.userInteraction`. A headless or ACP automation run whose model calls `ask_user_question` fails that tool call unless its composition supplies a provider; Web owns the shipped non-terminal provider.
 
 ## Alternatives considered
 

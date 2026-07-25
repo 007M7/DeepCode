@@ -6,12 +6,12 @@ Status: implemented
 
 ## 问题
 
-快照层（`pnpm run test:snapshot`）会启动真实 `acp-agent` 子进程，通过 [`dsh-llm-replay`](../../../../packages/support/llm-replay) 重放已记录会话，并将规范化 stdout transcript（文本记录）+ 重新持久化的会话日志与已提交预期输出进行 diff。它是唯一端到端覆盖完整面向编辑器 transcript 的测试层。
+快照层（`pnpm run test:snapshot`）会启动真实 `acp-agent` 子进程，通过 [`dsh-llm-replay`](../../../../packages/support/llm-replay) 重放已记录会话，并将规范化后的自动化线协议 + 重新持久化的会话日志与已提交预期输出进行 diff。大多数场景通过这条真实进程边界测试组装后的后端行为。
 
 该层最初为每个进程只有一个会话而构建，这一假设硬编码在两处：
 
 - **`dsh-llm-replay` 没有做任何键控。** 它用一个全局游标，将第 N 次 `llm/stream` 调用对应到单一录制序列的第 N 条。当父 agent（智能体）和一个进程内 subagent 在同一个上下文上同时流式输出时，调用交错，单一游标会把子 agent 的脚本发给父 agent（反之亦然）。
-- **harness 只收集一份日志。** `findSessionLog` 遍历 sessions 根目录，返回找到的第一个 `.jsonl`。subagent 作为第二个 `Session` 运行，在同一个 cwd bucket 下有自己的日志，因此子 agent 的 transcript 被静默丢弃。
+- **harness 只收集一份日志。** `findSessionLog` 遍历 sessions 根目录，返回找到的第一个 `.jsonl`。subagent 作为第二个 `Session` 运行，在同一个 cwd bucket 下有自己的日志，因此子 agent 的 transcript（文本记录）被静默丢弃。
 
 这就是 [subagent seam Agent Note（agent 决策记录）](../feature/2026-06-21-subagent-capability-seam.md)中通过 `TODO(subagent-snapshots)` 推迟的工作：进程内后端（PR2）落地时已有单元 + e2e 覆盖，但在这套基础设施落地前，完整 transcript 快照层无法表达嵌套 agent 形状。本 Agent Note 就是该堆叠式后续工作。
 

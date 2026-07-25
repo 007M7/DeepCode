@@ -12,7 +12,7 @@ Status: implemented
 
 ### `SessionPersistence.has()` 与 `.delete()`
 
-该抽象服务在 create/append 之外声明了更多操作：`load`、`list`、`has`、`delete`。`ctx.sessionPersistence` 的生产消费方只用了两个：agent loop（智能体循环）的恢复路径调用 `load()`（[packages/core/agent-loop/src/index.ts:176](../../../../packages/core/agent-loop/src/index.ts)），ACP（Agent Client Protocol）桥接层为 `session/list` 调用 `list()`（[packages/ui/acp/src/index.ts:494](../../../../packages/ui/acp/src/index.ts)）。在 `packages/*/src` 和 `examples/` 中 grep 所有 `sessionPersistence.*` / `persistence.*` 的使用，找不到对该服务的 `has(` 或 `delete(` 调用。`packages/ui/acp/src/index.ts` 中的 `.has(`/`.delete(` 调用作用于内存中的 `SessionStore` 和一个本地的 loading id `Set`，而非持久化。`has`/`delete` 的唯一调用者是契约测试套件和各后端的 spec。
+该抽象服务在 create/append 之外声明了更多操作：`load`、`list`、`has`、`delete`。生产消费方用 `load()` 和 `list()` 完成恢复与会话发现，而没有任何生产调用方使用持久化的 `has()` 或 `delete()`。协议和 UI 代码中名称相似的内存集合调用与此无关。持久化 `has`/`delete` 的唯一调用者是契约测试套件和各后端的 spec。
 
 `has()` 不仅未被使用：在 `loadStored(id)` 已负责持久化存在性检查的情况下，它仍增加了协调器的已跟踪/未跟踪探测和一个契约分支。`delete()` 则拖入每个后端都必须实现的 `deleteStored` 后端钩子。这属于[删除可变会话 summary](2026-06-19-drop-mutable-session-summary.md) 的同类模式：契约测试覆盖了两者，但已发布代码从不会询问“这个会话是否已持久化？”或删除某个会话。
 
@@ -33,7 +33,7 @@ Status: implemented
 
 ## 验证
 
-`has`/`delete`/`deleteStored` 已从持久化 seam、实现和契约测试套件中移除，没有新增无用导出；剩余操作（`create`/`append`/`load`/`list`）未受影响，ACP `session/list` 和崩溃恢复行为完全一致；seam README 和 `docs/architecture.md` 仅列出存留的方法。
+`has`/`delete`/`deleteStored` 已从持久化 seam、实现和契约测试套件中移除，没有新增无用导出；剩余操作（`create`/`append`/`load`/`list`）未受影响，基于持久化的会话查询和崩溃恢复行为完全一致；seam README 和 `docs/architecture.md` 仅列出存留的方法。
 
 ## 后果
 

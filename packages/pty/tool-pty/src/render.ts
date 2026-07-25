@@ -1,4 +1,4 @@
-/** Model and ACP rendering for persistent terminal tool results. */
+/** Model and UI rendering for persistent terminal tool results. */
 
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
 

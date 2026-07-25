@@ -89,6 +89,7 @@
     "constraints": "tsx scripts/check-workspace-constraints.ts",
     "doc-sync": "tsx scripts/run-gates.ts doc-sync",
     "hygiene": "pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-package-invariants && pnpm run verify-built-package-invariants && pnpm run verify-cordis-config && pnpm run verify-node-next-types && pnpm run verify-runtime-closure",
+    "dsh": "node --import tsx apps/cli/src/bin.ts",
     "demo:headless": "node --import tsx packages/examples/cli-demo/src/bin.ts --config examples/headless-agent/cordis.yml",
     "demo:tui": "node --import tsx apps/cli/src/bin.ts",
     "demo:code-mode": "node scripts/demo-code-mode.mjs",

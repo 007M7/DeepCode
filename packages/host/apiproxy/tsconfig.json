@@ -9,16 +9,31 @@
   ],
   "references": [
     {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../util/brand"
     },
     {
       "path": "../../llm/llm"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
       "path": "../../core/session"
     },
     {
       "path": "../../core/tools"
+    },
+    {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../session-title/session-title"
     },
     {
       "path": "../../ui/user-approval"
