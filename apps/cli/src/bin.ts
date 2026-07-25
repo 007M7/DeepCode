@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 /**
- * dsh — command-line entry. Parses argv once through the Commander adapter and
- * switches on the resolved mode; dynamic imports keep unrelated modes out of
- * each dispatch path. `web` and headless prompts run their own module;
- * everything else opens the TUI. The adapter itself prints and exits for
+ * dsh — command-line entry. Dynamic imports per mode keep unrelated modes out
+ * of each dispatch path; the adapter prints and exits for
  * `--help`/`--version`/a parse error, so only a valid mode reaches the switch.
  * @module @deepseek-ai/dsh/bin
  */
