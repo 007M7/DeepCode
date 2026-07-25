@@ -16,6 +16,8 @@ Updating the note that already owns a decision satisfies the rule; a new note is
 
 A fully superseded implemented note may be consolidated into the current owning note and deleted only after that owner preserves every unique rationale, alternative, consequence, verification contract, and named coverage gap. The same change repairs inbound links and removes any Chinese counterpart, consistency record, and `required` entry in `scripts/translation-pairing.manifest.json`. Partial supersession keeps both notes cross-linked and current; consolidation neither rewrites an old decision into its opposite nor leaves git history as the only copy of rationale.
 
+When a later decision removes an earlier feature completely, the removal note becomes the current owner only after the feature is absent from production code, configuration, schemas, durable or wire formats, migration, and compatibility behavior; no current documentation presents it as available; and no test exercises it as supported behavior. Removal rationale and tests that verify absence may remain. The removal owner preserves the feature's original motivation, why that motivation no longer justified the surface, alternatives to full removal, the capability given up, conditions for reintroduction, and verification of complete absence. Implementation inventories and tests that only described the deleted behavior are obsolete rather than current verification contracts. A removal limited to one transport, default, implementation, or presentation remains partial supersession.
+
 Review enforces the semantic boundary. No automated gate attempts to classify a diff as trivial or non-trivial, so this policy adds no gate stage or runtime.
 
 ## Alternatives considered
@@ -30,6 +32,8 @@ Review enforces the semantic boundary. No automated gate attempts to classify a 
 
 **Rewrite the old note into the replacement decision.** This erases the decision boundary and its rejected alternatives. Consolidation instead preserves those facts in the current owner before deleting the obsolete file.
 
+**Preserve every implementation and test detail from a removed feature.** This recreates the obsolete note inside its replacement. The removal owner keeps the rationale and verification needed to understand or revisit the current absence, while deleted mechanics remain available in git history.
+
 **Add a CI diff-classification gate.** A mechanical check cannot reliably determine whether a semantic change is trivial, while another gate adds runtime and invites false positives or superficial compliance.
 
 ## Consequences
@@ -37,5 +41,6 @@ Review enforces the semantic boundary. No automated gate attempts to classify a 
 - Every substantial change preserves its rationale and rejected alternatives beside the implementation.
 - Contributors maintain an existing owning note instead of creating duplicate records.
 - Fully superseded records can collapse into one current owner without losing their unique rationale or verification contract.
+- Features that were later removed can have one current owner without carrying obsolete implementation and test inventories forward.
 - Partial supersession remains explicit and cross-linked, while deletion requires link, bilingual-pair, and required-manifest cleanup in the same change.
 - Mechanical edits remain lightweight, and the gate topology and runtime remain unchanged.
