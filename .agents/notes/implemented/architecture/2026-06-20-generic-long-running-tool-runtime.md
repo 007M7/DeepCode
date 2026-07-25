@@ -69,7 +69,7 @@ A producer loaded without any control surface would let callers start work they 
 
 ## Model-facing control surface
 
-`dsh-tool-tasks` registers three kind-independent tools with generic ACP cards:
+`dsh-tool-tasks` registers three kind-independent tools with generic UI cards:
 
 - `task_output(task_id, wait?, timeout_ms?)` reads output and always appends `[status: ...]`. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Reads are non-blocking unless `wait: true`, whose timeout is defaulted and capped by plugin config. A wait timeout reports the still-running status and does not stop the task.
 - `task_list()` returns caller-visible tasks as `<id> [<kind>] <status> — <label>`, or `(no background tasks)`.

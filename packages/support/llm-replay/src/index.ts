@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-llm-replay
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
@@ -22,7 +22,11 @@ import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
   | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string }
-  | { kind: 'hang' }
+  | {
+    kind: 'hang'
+    /** Optional marker written after the prefix chunks are consumed and before the stream waits for cancellation. */
+    readyFile?: string
+  }
 
 /** One model exposed by a replay-only provider catalog. */
 export interface ReplayModelConfig {
@@ -42,7 +46,7 @@ export interface ReplayProviderConfig {
   id: string
   /** Selector label; defaults to {@link id}. */
   name?: string
-  /** Advisory models exposed to clients such as ACP editors. */
+  /** Advisory models exposed to replay scenarios that exercise discovery. */
   models?: ReplayModelConfig[]
 }
 
@@ -301,6 +305,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
       // chunk, then wait for abort and surface it as the consumer expects.
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: 'partial' }
+      if (entry.readyFile !== undefined) writeFileSync(entry.readyFile, '')
       await new Promise<void>((_resolve, reject) => {
         if (signal?.aborted) { reject(new Error('aborted')); return }
         signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })

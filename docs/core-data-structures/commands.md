@@ -1,15 +1,15 @@
 # Human Commands
 
-The human-command seam of [`dsh-commands`](../../packages/ui/commands). TUI and ACP adapters use it to discover and directly execute plugin-owned commands for an exact agent without creating a model message. The [command Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns dispatch and lifecycle rationale; the [package README](../../packages/ui/commands/README.md) owns composition and limitations.
+The human-command seam of [`dsh-commands`](../../packages/ui/commands). Interactive adapters use it to discover and directly execute plugin-owned commands for an exact agent without creating a model message. The [command Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns dispatch and lifecycle rationale; the [package README](../../packages/ui/commands/README.md) owns composition and limitations.
 
 Source: [`packages/ui/commands/src/index.ts`](../../packages/ui/commands/src/index.ts)
 
 ## Input metadata
 
-ACP currently exposes one unstructured-input hint. Command availability follows plugin composition: every adapter consuming the registry sees every effective definition.
+The seam exposes one optional unstructured-input hint. Command availability follows plugin composition: every adapter consuming the registry sees every effective definition.
 
 ```ts type-equiv
-/** Immutable command input metadata compatible with ACP unstructured input. */
+/** Immutable metadata for a command's optional unstructured input. */
 interface CommandInputDescriptor {
   /** Placeholder shown before the user supplies free-form input. */
   readonly hint: string
