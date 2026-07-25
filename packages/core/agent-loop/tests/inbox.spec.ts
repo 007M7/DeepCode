@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { Inbox } from '../src/inbox.ts'
+import { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import { Inbox, agentMessage } from '../src/inbox.ts'
 
 function message(text: string) {
-  return { content: [{ type: 'text' as const, text }], source: { kind: 'user' as const }, contexts: [] }
+  return { id: AgentMessageId(text), content: [{ type: 'text' as const, text }], source: { kind: 'user' as const }, contexts: [], wakeup: true }
 }
+
+describe('agentMessage', () => {
+  it('returns a frozen payload so a listener cannot mutate it for later listeners', () => {
+    const payload = agentMessage(message('m'), false)
+    expect(Object.isFrozen(payload)).toBe(true)
+    expect(() => { (payload as { id: string }).id = 'mutated' }).toThrow()
+    expect(payload.id).toBe(AgentMessageId('m'))
+  })
+})
 
 function resolverPair() {
   let r!: () => void
@@ -23,6 +33,32 @@ describe('Inbox', () => {
     expect(inbox.dequeueQueued()?.content[0]).toMatchObject({ text: 'second' })
     expect(inbox.hasQueued).toBe(false)
     expect(inbox.dequeueQueued()).toBeUndefined()
+  })
+
+  it('enqueue(msg, false) queues without waking a parked waiter', async () => {
+    const inbox = new Inbox()
+    let woke = false
+    const waiter = inbox.waitForQueued(new Promise(() => {})).then(() => { woke = true })
+    inbox.enqueue(message('quiet'), false)
+    // The item is queued, but the parked waiter was not resolved by it.
+    expect(inbox.hasQueued).toBe(true)
+    await Promise.resolve()
+    expect(woke).toBe(false)
+    // A later waking enqueue resolves the same waiter.
+    inbox.enqueue(message('loud'))
+    await waiter
+    expect(woke).toBe(true)
+  })
+
+  it('pending() snapshots queued then steering without removing them', () => {
+    const inbox = new Inbox()
+    inbox.enqueue(message('q'))
+    inbox.steer(message('s'))
+    const pending = inbox.pending()
+    expect(pending.map(p => p.steering)).toEqual([false, true])
+    // Snapshot does not drain the FIFOs.
+    expect(inbox.hasQueued).toBe(true)
+    expect(inbox.hasSteering).toBe(true)
   })
 
   it('pushes and drains steering messages separately from queued', () => {

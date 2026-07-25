@@ -8,10 +8,9 @@
 
 import type { Context } from 'cordis'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import { createApiProxy, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { bootHost } from './boot.ts'
 import type { BootHostOptions, HostDefaults } from './boot.ts'
-import { createApiProxy } from './api-proxy.ts'
 
 /** Options for startHost. */
 export interface StartHostOptions {

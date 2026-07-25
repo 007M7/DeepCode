@@ -341,7 +341,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       }
       expect(exit.seq).toBeLessThan(afterExit.seq)
       expect(afterExit.data.header.system).not.toContain('Snapshot plan mode instructions.')
-      expect(events.filter(event => event.type === 'context/message').map(event => event.data.content))
+      expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin').map(event => (event.data as { content: unknown }).content))
         .toContainEqual([{ type: 'text', text: 'The user switched this session back to the default mode.' }])
     }
     expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)

@@ -75,7 +75,7 @@ function appendConversation(session: Session): void {
     { surfaceOp: 'append' },
   )
   session.append(
-    'context/message',
+    'user/message',
     { content: [{ type: 'text', text: 'workspace secret' }], source: { kind: 'plugin', plugin: 'workspace' } },
     { surfaceOp: 'append' },
   )

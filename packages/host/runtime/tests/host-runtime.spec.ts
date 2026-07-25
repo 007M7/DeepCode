@@ -395,7 +395,7 @@ describe('sessions.prompt / cancel', () => {
     const { api, ctx } = running
     const { sessionId } = expectOk(await api.sessions.create(request({})))
     const agent = ctx.agents.get(sessionId) as Agent
-    agent.send([{ type: 'text', text: 'run forever' }])
+    agent.followup([{ type: 'text', text: 'run forever' }])
     expectOk(await api.sessions.cancel(request({ sessionId })))
 
     const missing = await api.sessions.cancel(request({ sessionId: 'session-none' as SessionId }))
@@ -414,7 +414,7 @@ describe('sessions.history', () => {
     const { sessionId } = expectOk(await first.api.sessions.create(request({})))
     const agent = first.ctx.agents.get(sessionId) as Agent
     const idle = waitForIdle(first.ctx, agent)
-    agent.send([{ type: 'text', text: 'save me' }])
+    agent.followup([{ type: 'text', text: 'save me' }])
     await idle
     const titleEvent = await appendTitle(first.ctx, agent, 'Persisted title')
     await first.dispose()
@@ -463,7 +463,7 @@ describe('sessions.history', () => {
     const agent = ctx.agents.get(sessionId) as Agent
     for (const text of ['q1', 'q2', 'q3']) {
       const idle = waitForIdle(ctx, agent)
-      agent.send([{ type: 'text', text }])
+      agent.followup([{ type: 'text', text }])
       await idle
     }
 
@@ -534,7 +534,7 @@ describe('events streams', () => {
 
     const agent = ctx.agents.get(sessionId) as Agent
     const idle = waitForIdle(ctx, agent)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await idle
     const live = await stream.next()
     expect((live.value as RpcRequest<MuxFrame>).payload.type).toBe('session/event')
@@ -597,7 +597,7 @@ describe('events streams', () => {
 
     const agent = ctx.agents.get(sessionId) as Agent
     const idle = waitForIdle(ctx, agent)
-    agent.send([{ type: 'text', text: 'run' }])
+    agent.followup([{ type: 'text', text: 'run' }])
     await idle
     const runningFrame = await stream.next()
     expect((runningFrame.value as RpcRequest<HostFrame>).payload).toMatchObject({ type: 'host/session-status', running: true })

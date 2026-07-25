@@ -30,8 +30,45 @@ function quote(value: string): string {
 }
 
 /**
- * Collect exported interface and type shapes; omit names declared in multiple
- * packages rather than risk serving the wrong package's shape.
+ * Reduce an exported class to its type shape: drop method/constructor bodies
+ * and property initializers so the catalog serves member signatures, not
+ * implementation.
+ */
+function classShape(node: ts.ClassDeclaration): ts.ClassDeclaration {
+  const isNonPublic = (member: ts.ClassElement): boolean =>
+    (ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined)?.some(m =>
+      m.kind === ts.SyntaxKind.PrivateKeyword || m.kind === ts.SyntaxKind.ProtectedKeyword) ?? false
+  const members = node.members.flatMap((member): ts.ClassElement[] => {
+    if (isNonPublic(member) || (ts.isPropertyDeclaration(member) && ts.isPrivateIdentifier(member.name))) return []
+    if (ts.isMethodDeclaration(member)) {
+      return [ts.factory.updateMethodDeclaration(
+        member, member.modifiers, member.asteriskToken, member.name, member.questionToken,
+        member.typeParameters, member.parameters, member.type, undefined)]
+    }
+    if (ts.isConstructorDeclaration(member)) {
+      return [ts.factory.updateConstructorDeclaration(member, member.modifiers, member.parameters, undefined)]
+    }
+    if (ts.isGetAccessorDeclaration(member)) {
+      return [ts.factory.updateGetAccessorDeclaration(
+        member, member.modifiers, member.name, member.parameters, member.type, undefined)]
+    }
+    if (ts.isSetAccessorDeclaration(member)) {
+      return [ts.factory.updateSetAccessorDeclaration(
+        member, member.modifiers, member.name, member.parameters, undefined)]
+    }
+    if (ts.isPropertyDeclaration(member)) {
+      return [ts.factory.updatePropertyDeclaration(
+        member, member.modifiers, member.name, member.questionToken ?? member.exclamationToken, member.type, undefined)]
+    }
+    return [member]
+  })
+  return ts.factory.updateClassDeclaration(
+    node, node.modifiers, node.name, node.typeParameters, node.heritageClauses, members)
+}
+
+/**
+ * Collect exported interface, type-alias, and body-stripped class shapes; omit
+ * names declared in multiple packages rather than serve the wrong shape.
  */
 function collectTypeDecls(scanRoot: string = root): Map<string, string> {
   const printer = ts.createPrinter({ removeComments: true })
@@ -41,14 +78,16 @@ function collectTypeDecls(scanRoot: string = root): Map<string, string> {
     const abs = resolve(scanRoot, rel)
     const sf = ts.createSourceFile(abs, readFileSync(abs, 'utf8'), ts.ScriptTarget.Latest, true)
     for (const stmt of sf.statements) {
-      if (!ts.isInterfaceDeclaration(stmt) && !ts.isTypeAliasDeclaration(stmt)) continue
+      const named = ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt) || ts.isClassDeclaration(stmt)
+      if (!named || stmt.name === undefined) continue
       if (!(stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) ?? false)) continue
       const name = stmt.name.text
       if (decls.has(name)) {
         ambiguous.add(name)
         continue
       }
-      const printed = printer.printNode(ts.EmitHint.Unspecified, stmt, sf).replace(/\r/g, '')
+      const emit = ts.isClassDeclaration(stmt) ? classShape(stmt) : stmt
+      const printed = printer.printNode(ts.EmitHint.Unspecified, emit, sf).replace(/\r/g, '')
       decls.set(name, printed.length > MAX_DECL_CHARS
         ? `${printed.slice(0, MAX_DECL_CHARS)} /* …truncated — full shape in source */`
         : printed)

@@ -148,7 +148,7 @@ describe('bounded transient retry policy', () => {
       })
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     const event = await scheduled
 
     expect(event.data).toEqual({
@@ -230,7 +230,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-partial'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
     await vi.advanceTimersByTimeAsync(500)
@@ -265,7 +265,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-exhausted'), { provider: 'mock', model: 'mock' })
     const first = waitForRetry(context, agent, 1)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     expect((await first).data.delayMs).toBe(450)
 
     const second = waitForRetry(context, agent, 2)
@@ -298,7 +298,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-zero-delay'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     expect((await scheduled).data.delayMs).toBe(0)
 
     const idle = waitForIdle(context, agent)
@@ -316,7 +316,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(accepted, { jitterRatio: 1 }))
     const acceptedAgent = context.agentLoop.create(SessionId('retry-after-accepted'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, acceptedAgent, 1)
-    acceptedAgent.send([{ type: 'text', text: 'go' }])
+    acceptedAgent.followup([{ type: 'text', text: 'go' }])
     expect((await scheduled).data.delayMs).toBe(2_000)
     const acceptedIdle = waitForIdle(context, acceptedAgent)
     await vi.advanceTimersByTimeAsync(2_000)
@@ -330,7 +330,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(rejected))
     const rejectedAgent = context.agentLoop.create(SessionId('retry-after-rejected'), { provider: 'mock', model: 'mock' })
     const rejectedIdle = waitForIdle(context, rejectedAgent)
-    rejectedAgent.send([{ type: 'text', text: 'go' }])
+    rejectedAgent.followup([{ type: 'text', text: 'go' }])
     await rejectedIdle
     expect(rejected.requests).toHaveLength(1)
     expect(rejectedAgent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
@@ -342,7 +342,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(adapter))
     const agent = context.agentLoop.create(SessionId('retry-auth'), { provider: 'mock', model: 'mock' })
     const idle = waitForIdle(context, agent)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await idle
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
@@ -359,7 +359,7 @@ describe('bounded transient retry policy', () => {
     context = mounted.ctx
     const agent = context.agentLoop.create(SessionId('retry-hmr'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
 
@@ -387,7 +387,7 @@ describe('bounded transient retry policy', () => {
       model: 'mock',
     })
     const idle = waitForIdle(context, agent)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await entered.promise
 
     const disposing = mounted.retryFiber.dispose()
@@ -428,7 +428,7 @@ describe('bounded transient retry policy', () => {
       model: 'mock',
     })
     const idle = waitForIdle(context, agent)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await captured.promise
 
     await mounted.retryFiber.dispose()
@@ -449,7 +449,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(adapter))
     const agent = context.agentLoop.create(SessionId('retry-cancel'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
     agent.cancel({ kind: 'user' })
@@ -478,7 +478,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-pre-cancel'), { provider: 'mock', model: 'mock' })
     const idle = waitForIdle(context, agent)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await idle
 
     expect(adapter.requests).toHaveLength(1)
@@ -502,7 +502,7 @@ describe('bounded transient retry policy', () => {
     })
     const idle = waitForIdle(context, agent)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await idle
 
     expect(adapter.requests).toHaveLength(1)

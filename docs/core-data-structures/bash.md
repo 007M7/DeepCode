@@ -1,5 +1,7 @@
 # Bash Executor
 
+English | [中文](bash.zh.md)
+
 The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle.
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)

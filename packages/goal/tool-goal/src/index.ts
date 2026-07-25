@@ -132,6 +132,16 @@ function resolveConfig(config: Config): ResolvedConfig {
   return { blockedAfterConsecutiveRounds: blockedAfter }
 }
 
+/** Whether optional text is meaningful rather than a strict-schema empty filler. */
+function hasText(value: string | undefined): value is string {
+  return value !== undefined && value !== ''
+}
+
+/** Whether an optional round cap is meaningful rather than a strict-schema zero filler. */
+function hasRoundCap(value: number | undefined): value is number {
+  return value !== undefined && value !== 0
+}
+
 /** Build the exact compare-and-set ref from model arguments. */
 function goalRef(goalId: string, revision: number): GoalRef {
   if (goalId.length === 0 || goalId !== goalId.trim()
@@ -271,12 +281,12 @@ export function apply(ctx: Context, config: Config): void {
       const execution = goalToolExecution(ctx, exec)
       const ref = goalRef(args.goal_id, args.revision)
       const replacements = {
-        ...args.objective === undefined ? {} : { objective: args.objective },
-        ...args.max_goal_rounds === undefined ? {} : { maxGoalRounds: args.max_goal_rounds },
+        ...hasText(args.objective) ? { objective: args.objective } : {},
+        ...hasRoundCap(args.max_goal_rounds) ? { maxGoalRounds: args.max_goal_rounds } : {},
       }
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
-        if (args.blocked_reason !== undefined) {
+        if (hasText(args.blocked_reason)) {
           throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
         }
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
@@ -285,7 +295,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'pause' || args.action === 'resume') {
         requireDirectHuman(ctx, execution)
-        if (args.objective !== undefined || args.max_goal_rounds !== undefined || args.blocked_reason !== undefined) {
+        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasText(args.blocked_reason)) {
           throw new HarnessError(
             'objective and max_goal_rounds are valid only with action edit; blocked_reason is valid only with action blocked',
             'GOAL_TOOL_INVALID_UPDATE',
@@ -298,13 +308,13 @@ export function apply(ctx: Context, config: Config): void {
         return Promise.resolve(goalValue(goal))
       }
       const authority = completionAuthority(ctx, execution)
-      if (args.objective !== undefined || args.max_goal_rounds !== undefined) {
+      if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds)) {
         throw new HarnessError(
           'objective and max_goal_rounds are valid only with action edit',
           'GOAL_TOOL_INVALID_UPDATE',
         )
       }
-      if (args.action === 'complete' && args.blocked_reason !== undefined) {
+      if (args.action === 'complete' && hasText(args.blocked_reason)) {
         throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
       }
       if (args.action === 'blocked'
@@ -331,7 +341,11 @@ export function apply(ctx: Context, config: Config): void {
     presentCall: args => present(
       `${args.action === 'blocked' ? 'Mark' : args.action.charAt(0).toUpperCase() + args.action.slice(1)} goal`,
       'other',
-      args.blocked_reason ?? args.objective ?? args.goal_id,
+      hasText(args.blocked_reason)
+        ? args.blocked_reason
+        : hasText(args.objective)
+          ? args.objective
+          : hasRoundCap(args.max_goal_rounds) ? args.max_goal_rounds : args.goal_id,
     ),
   }))
 }
