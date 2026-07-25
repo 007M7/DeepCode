@@ -47,7 +47,12 @@ export function markLlmAdapterFailure(
   const error = value instanceof Error
     ? value as Error & { code?: string }
     : new HarnessError(String(value), 'UNKNOWN', { cause: value })
-  const carried = error instanceof HarnessError ? ownFailureSnapshot(error) : undefined
+  // The own `failure` data property is the serializable boundary contract:
+  // validated field-by-field and cross-checked against the error's own code,
+  // then honored on ANY Error — an instanceof gate here would drop the facts
+  // exactly when class identity is lost (a second copy of this package in
+  // the process, e.g. a source-plane test harness over a lib-plane boot).
+  const carried = ownFailureSnapshot(error)
   const failure = carried !== undefined && carried.code === error.code ? carried : Object.freeze({
     message: errorMessage(error),
     code: harnessErrorCode(error),
