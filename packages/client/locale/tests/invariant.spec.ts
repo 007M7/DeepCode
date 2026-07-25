@@ -1,8 +1,10 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-locale'
 import { apply as clientApply, COMMON_NS, LocaleService, inject } from '@deepseek-ai/dsh-client-locale/client'
 import * as LocaleInvariant from '@deepseek-ai/dsh-client-locale/invariant'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
 describe('invariant companion', () => {
@@ -18,8 +20,10 @@ describe('invariant companion', () => {
   })
 
   it('client apply provides ctx.locale seeded with the zh/en common namespace', async () => {
-    expect(inject).toEqual([])
+    // The feature registers its own Language settings row, hence the slots edge.
+    expect(inject).toEqual(['slots'])
     const ctx = new Context()
+    new SlotsService(ctx)
     await ctx.plugin({ inject, apply: clientApply }).await()
     const locale = ctx.get('locale')
     expect(locale).toBeInstanceOf(LocaleService)

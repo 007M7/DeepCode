@@ -45,10 +45,7 @@
       "path": "../../packages/client/ui-settings"
     },
     {
-      "path": "../../packages/client/ui-settings-general"
-    },
-    {
-      "path": "../../packages/client/ui-settings-models"
+      "path": "../../packages/client/ui-models"
     },
     {
       "path": "../../packages/client/locale"

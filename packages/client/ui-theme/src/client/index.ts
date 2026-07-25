@@ -2,9 +2,24 @@
  * Browser theme registry over the `--dsw-*` token stylesheets. The service
  * owns the theme preference (light/dark/system), resolves `system` through
  * `prefers-color-scheme`, and publishes immutable snapshots; it never touches
- * the DOM — ui-layout's presenter consumes the resolved snapshot.
+ * the DOM — ui-layout's presenter consumes the resolved snapshot. The plugin
+ * also registers the Appearance preference row into the settings General
+ * section — the theme feature owns its own settings surface.
  */
 import type { Context } from 'cordis'
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { AppearanceRowInjected } from './AppearanceRow.tsx'
+import { AppearanceRow } from './AppearanceRow.tsx'
+import { createAppearanceRowStore } from './settings-store.ts'
+
+export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
+export type { AppearanceRowState } from './settings-store.ts'
+
+/** Namespace owning this feature's settings-row copy. */
+export const SETTINGS_NS = 'settings.theme'
 
 /** Theme token dictionary: --dsw-alias-* overrides keyed by variable name. */
 export type ThemeTokens = Record<string, string>
@@ -200,13 +215,75 @@ function persistPreference(preference: ThemePreference): void {
   }
 }
 
-/** Required services (none; the loader passes the export surface as an object plugin). */
-export const inject: string[] = []
+/** Required services: slots + locale (the feature registers its own settings row with localized copy). */
+export const inject = ['slots', 'locale']
 
 /**
- * Client plugin body: provide the theme service.
+ * Client plugin body: provide the theme service and register the
+ * feature-owned Appearance preference row into the General section's item
+ * slot (a feature owns its settings surface).
  * @param ctx - client cordis context.
  */
-export function apply(ctx: Context): void {
-  ctx.provide('theme', new ThemeService(ctx))
+export function apply(ctx: ClientContext): void {
+  const theme = new ThemeService(ctx)
+  ctx.provide('theme', theme)
+
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(SETTINGS_NS, 'zh', {
+        'appearance.title': '外观',
+        'appearance.light': '浅色',
+        'appearance.dark': '深色',
+        'appearance.system': '跟随系统',
+      }),
+      ctx.locale.register(SETTINGS_NS, 'en', {
+        'appearance.title': 'Appearance',
+        'appearance.light': 'Light',
+        'appearance.dark': 'Dark',
+        'appearance.system': 'System',
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-theme: settings row dictionaries')
+
+  const store = createAppearanceRowStore()
+  let bound: BoundActions<typeof store> | undefined
+  const sync = (snapshot: ThemeSnapshot): void => {
+    bound?.sync(snapshot.preference, snapshot.revision)
+  }
+  ctx.on('theme/change', sync)
+  const injected = (actions: BoundActions<typeof store>): AppearanceRowInjected => {
+    bound = actions
+    // Re-sync from the getter so no event is lost between registration and
+    // first render (the store's revision guard drops stale duplicates).
+    sync(theme.getTheme())
+    return {
+      t: ctx.locale.bind(SETTINGS_NS),
+      setTheme: (id) => { theme.setTheme(id) },
+    }
+  }
+  // Declaration-aware registration; the LEDGER is the has-registered judge
+  // (not a local flag): after an HMR collapse re-declares the slot, the
+  // cascade already removed our entry, and a stale disposer must not block
+  // the re-registration.
+  ctx.effect(() => {
+    let dispose: (() => void) | undefined
+    const tryRegister = (): void => {
+      if (ctx.slots.spec('settings.general.item') === undefined) return
+      if (ctx.slots.entries('settings.general.item').some(e => e.component === AppearanceRow)) return
+      dispose = ctx.slots.register({
+        name: 'settings.general.item',
+        id: 'appearance',
+        order: 10,
+        store,
+        inject: injected,
+      }, AppearanceRow)
+    }
+    const unsubscribe = ctx.slots.subscribe('settings.general.item', () => { tryRegister() })
+    tryRegister()
+    return () => {
+      unsubscribe()
+      dispose?.()
+    }
+  }, 'ui-theme: appearance settings row registration')
 }

@@ -1,11 +1,16 @@
-/* General section rows (figma 501:29983 'Options'): four groups, 16px
- * vertical padding each, hairline separator under all but the last. The
- * shell's content column owns the outer horizontal padding. */
+/* General section rows (figma 501:29983 'Options'): stacked groups, 16px
+ * vertical padding each, hairline separator under all but the last child
+ * (feature-contributed rows carry their own row chrome and separators; the
+ * :last-child rule strips the trailing one wherever the column ends). */
 
 .section {
   display: flex;
   flex-direction: column;
   width: 100%;
+}
+
+.section > :last-child {
+  border-bottom: none;
 }
 
 /* Title + trailing control row (figma 'Setting-Cell': gap 8, pad 16/0). */
@@ -24,10 +29,6 @@
   gap: 8px;
   padding: 16px 0;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-
-.last {
-  border-bottom: none;
 }
 
 /* Leading text column (figma 'Frame 2036083120': gap 4, pad-right 48). */
@@ -79,7 +80,7 @@
   flex: none;
 }
 
-/* Cube rows share an 8px gap; cubes stretch to equal height. */
+/* Tool Call mode cubes share an 8px gap. */
 .cubeRow {
   display: flex;
   align-items: stretch;
@@ -100,27 +101,6 @@
   border-radius: 16px;
   background: transparent;
   text-align: left;
-}
-
-/* Appearance cube (figma '.Selector Cube' 276x82 r16, pad 20/32, centered
- * icon-over-label column, gap 4). */
-.themeCube {
-  box-sizing: border-box;
-  width: 276px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 20px 32px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 16px;
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-  line-height: 22px;
-  color: var(--dsw-alias-label-primary);
-  cursor: pointer;
 }
 
 /* Selected cube: #F5F6F7 fill + #ADB2B8 border (static token — the bluish-400

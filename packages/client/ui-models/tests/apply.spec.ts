@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-models/client'
+import { apply, inject } from '@deepseek-ai/dsh-client-ui-models/client'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 
 async function bench() {
@@ -21,7 +21,7 @@ function declare(slots: SlotsService): () => void {
   )
 }
 
-describe('ui-settings-models apply', () => {
+describe('ui-models apply', () => {
   it('declares the services it uses', () => {
     expect(inject).toEqual(['slots', 'locale'])
   })

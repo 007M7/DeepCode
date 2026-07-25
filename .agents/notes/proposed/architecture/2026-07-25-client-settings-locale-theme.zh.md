@@ -10,41 +10,48 @@ Status: proposed
 
 ## Proposal
 
-Sidebar 声明 `sidebar.settings` 单坑位，`ui-settings` 占用它并声明 `settings.section` list 坑位。每个 section 由独立插件贡献；Settings 壳只从 slot ledger 读取 entry metadata 生成导航，通过 `only` 渲染当前 section。
+**协作导向（后续所有模块接入 Settings 的方式）：功能属主自注册。** Settings 壳只提供组合面（一级 section 列表 + General 内的 item 列表），不 import 也不枚举任何功能；一个功能要出现在 Settings 里，由它自己的插件向对应坑位注册——locale 注册 Language 行，ui-theme 注册 Appearance 行，ui-models 注册 Models 一级面板。不为「某功能的设置页」单开 `ui-settings-*` 包：设置面属于功能包本身（做 Theme 功能，Theme 的设置选择就随 ui-theme 一起交付）。壳自带的唯一内容是第一个一级目录 General（骨架行 + item 坑位声明），因为它不属于任何单一功能。
+
+Sidebar 声明 `sidebar.settings` 单坑位，`ui-settings` 占用它并声明 `settings.section` list 坑位。每个 section 由功能插件贡献；Settings 壳只从 slot ledger 读取 entry metadata 生成导航，通过 `only` 渲染当前 section。General 由壳自己注册（order 0）并声明 `settings.general.item` list 坑位，功能插件的偏好行按 order 排入。
 
 Settings 入口是 sidebar Foot 的 Settings 行，点击直接打开 1080×700 居中浮层（黑 24% 遮罩）；close 按钮、点击遮罩、ESC 均关闭。无任何中间菜单形态。
 
 `@deepseek-ai/dsh-client-locale` 提供 `ctx.locale`，`ui-theme` 提供 `ctx.theme`。两个 service 都以 getter 读取、setter 写入并用 typed Cordis change event 发布 immutable snapshot；service 自己持久化偏好（只存 id，坏值回退默认）。
 
-General 的 apply 层订阅 `locale/change` 和 `theme/change`，把 snapshot 投影到该 section 声明的 Zustand store。React 组件只读 `useStore`、写注入的 setter callback，不读取 ctx 或 service。
+功能行的 apply 层各自订阅自家 change event（locale 订 `locale/change`，ui-theme 订 `theme/change`），把 snapshot 投影到该行注册时声明的 slot store。React 组件只读 `useStore`、写注入的 setter callback，不读取 ctx 或 service。
 
 Theme 偏好三态：`light`、`dark`、`system`，默认 `system`（无持久化偏好或坏值时）。system 的解析属主题领域：ThemeService 持有 `prefers-color-scheme` matchMedia 监听（环境感知，非 DOM 呈现），偏好为 system 且系统配色变化时重发 snapshot；snapshot 同时携带 `preference` 与解析后的 `active` 定义。
 
 Theme service 不操作 DOM。`ui-layout` 初始读取 Theme getter，随后订阅 `theme/change`，由 Layout 持有的 presenter 按 `active` 更新 `body[data-ds-dark-theme]` 和主题 token；presenter 不感知 system，只消费已解析结果。
 
-### 首期 section 范围
+### 首期注册面
 
-| section | 插件 | 首期内容 |
+| 注册面 | 属主插件 | 首期内容 |
 |---|---|---|
-| General | `ui-settings-general` | Language（Selector 下拉）与 Appearance（Light/Dark/System 三 cube）真实可切；Permission、Tool Call 仅视觉骨架，无写操作 |
-| Models | `ui-settings-models` | 仅导航项，内容区为空 |
-| Plugin | 不建包 | 首期不做，导航不出现该项（无目标的外链入口不上屏；后续插件注册 section 即自动出现） |
+| General section（order 0）| `ui-settings` 壳自带 | Permission、Tool Call 视觉骨架（无写操作）+ `settings.general.item` 坑位声明 |
+| Language 行（item order 0）| `locale` | Selector 下拉，中文/English 真实可切 |
+| Appearance 行（item order 10）| `ui-theme` | Light/Dark/System 三 cube 真实可切（选中态看 preference） |
+| Models section（order 10）| `ui-models` | 仅导航项，内容区为空；后续模型管理功能落在该包 |
+| Plugin | 无 | 首期不做，导航不出现该项（后续插件功能包注册 section 即自动出现） |
 
-首期只翻译 Settings 浮层内文案（General 各行 + 导航）；其他页面文案不动。
+首期只翻译 Settings 浮层内文案；字典就近——壳文案（chrome + General 骨架）归 `settings` namespace，功能行文案归各功能包（`settings.locale`、`settings.theme`、`settings.models`）。
 
 ### Slot topology
 
 ```text
 root
 └─ sidebar
-   └─ sidebar.settings                 single/root
-      └─ ui-settings
-         └─ settings.section           list/root
-            ├─ general                 ui-settings-general
-            └─ models                  ui-settings-models
+   └─ sidebar.settings                   single/root
+      └─ ui-settings（壳）
+         └─ settings.section             list/root
+            ├─ general (order 0)         ui-settings 壳自带
+            │  └─ settings.general.item  list/root
+            │     ├─ language (0)        locale 注册
+            │     └─ appearance (10)     ui-theme 注册
+            └─ models (order 10)         ui-models 注册
 ```
 
-section contribution 使用 declaration-aware deferral，不依赖 client manifest 的 apply 顺序。
+section/item contribution 均使用 declaration-aware deferral，不依赖 client manifest 的 apply 顺序。`settings.general.item` 的 SlotMap 条目正家在 ui-settings contract；locale/ui-theme 因引用环（壳消费 ctx.locale）以逐字重复合并的方式消费该条目，declaration merging 保证副本一致。
 
 ### Service contracts
 
@@ -95,13 +102,16 @@ Locale 内置中文和 English；`setLocale`/`setTheme` 是唯一写入口，未
 
 **Settings import 并枚举各 section。** 新增页面必须修改壳插件，破坏「每个功能由自己的插件占坑」的组合模型。
 
+**每个 section 单开 `ui-settings-*` 包（首版实现）。** 设置面与功能本体分家：改 Theme 行为要动两个包，包数随设置项线性膨胀，且 settings-general 反向依赖 locale/theme 服务形成纯粹为拆包而生的中间层。收敛为功能属主自注册后，General 归壳（不属任何单一功能），preference 行随功能包交付。
+
 **把 Locale/Theme snapshot 直接注入 React。** inject 结果按 entry identity 缓存，易变值会陈旧；为每个 service 自造 React hook 也绕开 slot store 的统一绑定。
 
 ## Acceptance criteria
 
-- Settings 壳只依赖 slot ledger，不依赖任一 section 实现。
+- Settings 壳只依赖 slot ledger，不依赖任一功能实现；General 的 item 列表同样只依赖 ledger。
+- 新增一个设置项 = 功能包自己注册（section 或 general item），零壳改动。
 - Locale 与 Theme 的写入只走 setter，持续同步只走 change event。
-- General store 初始化走 getter，后续由两个 event 更新并局部重渲染。
+- 功能行 store 初始化走 getter，后续由自家 change event 更新并局部重渲染。
 - Layout 独立应用 Theme snapshot，Theme service 不访问 DOM；presenter 不出现 system 分支。
 - 中文/English 与 Light/Dark/System 能切换并刷新后恢复；偏好为 system 时系统配色变化即时生效。
 - Models 只有导航项与空内容区；Permission、Tool Call 骨架无写操作。
@@ -109,4 +119,4 @@ Locale 内置中文和 English；`setLocale`/`setTheme` 是唯一写入口，未
 
 ## Risks
 
-slot 声明与 contribution 的 apply 顺序不固定，所有新 section 必须保留 declaration-aware registration 和幂等防护。service event 可能早于 section 首次渲染，General store 的 init 与 controller attach 都必须从 getter 对齐当前 snapshot。Layout 卸载时必须清理自己设置的全局属性，ThemeService dispose 时必须移除 matchMedia 监听，避免 HMR 后残留。
+slot 声明与 contribution 的 apply 顺序不固定，所有 section/item 注册方必须保留 declaration-aware registration，并以 ledger（而非本地 disposer）判定在位。service event 可能早于行首次渲染，功能行 store 的 init 与 inject attach 都必须从 getter 对齐当前 snapshot。`settings.general.item` 的重复合并副本（locale、ui-theme）与 ui-settings 正家必须逐字一致，漂移即三处一起改。Layout 卸载时必须清理自己设置的全局属性，ThemeService dispose 时必须移除 matchMedia 监听，避免 HMR 后残留。

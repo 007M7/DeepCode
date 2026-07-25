@@ -1,10 +1,20 @@
 /**
  * Browser-side locale registry. Bound translation functions retain stable
- * identity for injected consumers.
+ * identity for injected consumers. The plugin also registers the Language
+ * preference row into the settings General section — the locale feature owns
+ * its own settings surface.
  */
 import type { Context } from 'cordis'
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { en } from '../locales/en.ts'
 import { zh } from '../locales/zh.ts'
+import type { LanguageRowInjected } from './LanguageRow.tsx'
+import { LanguageRow } from './LanguageRow.tsx'
+import { createLanguageRowStore } from './settings-store.ts'
+
+export type { LanguageRowComponentProps, LanguageRowInjected } from './LanguageRow.tsx'
+export type { LanguageOptionRow, LanguageRowState } from './settings-store.ts'
 
 /** Translate a key with optional params. */
 export type Translate = (key: string, params?: Record<string, unknown>) => string
@@ -52,6 +62,9 @@ export const FALLBACK_LOCALE: LocaleId = 'zh'
 
 /** Shared namespace for shell-level texts. */
 export const COMMON_NS = 'common'
+
+/** Namespace owning this feature's settings-row copy. */
+export const SETTINGS_NS = 'settings.locale'
 
 /** localStorage key holding the persisted locale id. */
 export const STORAGE_KEY = 'dsh.locale'
@@ -183,16 +196,65 @@ function persistPreference(id: LocaleId): void {
   }
 }
 
-/** Required services (none; the loader passes the export surface as an object plugin). */
-export const inject: string[] = []
+/** Required services: the slot registry (the feature registers its own settings row). */
+export const inject = ['slots']
 
 /**
- * Client plugin body: provide the locale service with base dictionaries.
+ * Client plugin body: provide the locale service with base dictionaries and
+ * register the feature-owned Language preference row into the General
+ * section's item slot (a feature owns its settings surface).
  * @param ctx - client cordis context.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: ClientContext): void {
   const locale = new LocaleService(ctx)
   locale.register(COMMON_NS, 'zh', zh)
   locale.register(COMMON_NS, 'en', en)
+  locale.register(SETTINGS_NS, 'zh', { 'language.title': '语言' })
+  locale.register(SETTINGS_NS, 'en', { 'language.title': 'Language' })
   ctx.provide('locale', locale)
+
+  const store = createLanguageRowStore()
+  let bound: BoundActions<typeof store> | undefined
+  const sync = (snapshot: LocaleSnapshot): void => {
+    bound?.sync(
+      snapshot.active,
+      snapshot.locales.map(l => ({ id: l.id, label: l.label })),
+      snapshot.revision,
+    )
+  }
+  ctx.on('locale/change', sync)
+  const injected = (actions: BoundActions<typeof store>): LanguageRowInjected => {
+    bound = actions
+    // Re-sync from the getter so no event is lost between registration and
+    // first render (the store's revision guard drops stale duplicates).
+    sync(locale.getLocale())
+    return {
+      t: locale.bind(SETTINGS_NS),
+      setLocale: (id) => { locale.setLocale(id) },
+    }
+  }
+  // Declaration-aware registration; the LEDGER is the has-registered judge
+  // (not a local flag): after an HMR collapse re-declares the slot, the
+  // cascade already removed our entry, and a stale disposer must not block
+  // the re-registration.
+  ctx.effect(() => {
+    let dispose: (() => void) | undefined
+    const tryRegister = (): void => {
+      if (ctx.slots.spec('settings.general.item') === undefined) return
+      if (ctx.slots.entries('settings.general.item').some(e => e.component === LanguageRow)) return
+      dispose = ctx.slots.register({
+        name: 'settings.general.item',
+        id: 'language',
+        order: 0,
+        store,
+        inject: injected,
+      }, LanguageRow)
+    }
+    const unsubscribe = ctx.slots.subscribe('settings.general.item', () => { tryRegister() })
+    tryRegister()
+    return () => {
+      unsubscribe()
+      dispose?.()
+    }
+  }, 'locale: language settings row registration')
 }

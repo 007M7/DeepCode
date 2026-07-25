@@ -30,7 +30,7 @@ export function apply(ctx: ClientContext): void {
       ctx.locale.register('settings.models', 'en', { nav: 'Models' }),
     ]
     return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-settings-models: nav copy dictionaries')
+  }, 'ui-models: nav copy dictionaries')
   // Declaration-aware registration; the LEDGER is the has-registered judge
   // (not a local flag): after an HMR collapse re-declares the slot, the
   // cascade already removed our entry, and a stale disposer must not block
@@ -63,5 +63,5 @@ export function apply(ctx: ClientContext): void {
       unsubscribe()
       dispose?.()
     }
-  }, 'ui-settings-models: section registration')
+  }, 'ui-models: settings section registration')
 }

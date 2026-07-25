@@ -1,7 +1,11 @@
 /**
- * Settings shell slot contract: the shell occupies the sidebar-owned
- * `sidebar.settings` hole and declares the `settings.section` list slot that
- * section plugins (General, Models, …) contribute pages into.
+ * Settings shell slot contract. The shell occupies the sidebar-owned
+ * `sidebar.settings` hole, declares the `settings.section` list slot that
+ * feature plugins contribute top-level pages into, and ships the first
+ * section itself: General, whose `settings.general.item` list slot receives
+ * preference rows from the features that own them (locale → Language,
+ * ui-theme → Appearance). A feature owns its settings surface — adding a
+ * setting never means editing the shell.
  */
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-sidebar's SlotMap merge (the 'sidebar.settings' entry)
@@ -19,6 +23,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * re-render trigger). Sections render inside the panel content column.
      */
     'settings.section': { kind: 'list'; scope: 'root'; owner: SettingsSectionOwnerProps }
+    /**
+     * One preference row inside the General section, contributed by the
+     * feature plugin that owns the preference (locale → Language, ui-theme →
+     * Appearance). Options: `id` (row key), `order` (row position). Rows
+     * draw their own internals (row layout, separators via CSS); the section
+     * column only stacks them. NOTE: packages/client/locale and ui-theme
+     * repeat this entry verbatim (reference-cycle avoidance) — declaration
+     * merging enforces the copies stay identical; edit all three together.
+     */
+    'settings.general.item': { kind: 'list'; scope: 'root'; owner: { children?: never } }
   }
 }
 
@@ -60,3 +74,21 @@ export type SettingsRootInjected = {
  */
 export type SettingsRootComponentProps =
   PropsRuntime<'sidebar.settings'> & PropsRenderSlots<'settings.section'> & SettingsRootInjected
+
+/**
+ * Injected share of the shell-owned General section: the shell's own
+ * `settings` namespace translate function for the skeleton rows (Permission,
+ * Tool Call). Live preference rows arrive through the item slot with their
+ * own faces.
+ */
+export type GeneralSectionInjected = {
+  /** Translate a `settings` dictionary key to the active-locale text. */
+  t: (key: string) => string
+}
+
+/**
+ * Full component props of the shell-owned General section: the section owner
+ * share, the declared item render share, and the injected face.
+ */
+export type GeneralSectionComponentProps =
+  PropsRuntime<'settings.section'> & PropsRenderSlots<'settings.general.item'> & GeneralSectionInjected

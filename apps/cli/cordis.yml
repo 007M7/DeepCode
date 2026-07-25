@@ -233,11 +233,8 @@
 - id: ui-settings
   name: '@deepseek-ai/dsh-client-ui-settings'
 
-- id: ui-settings-general
-  name: '@deepseek-ai/dsh-client-ui-settings-general'
-
-- id: ui-settings-models
-  name: '@deepseek-ai/dsh-client-ui-settings-models'
+- id: ui-models
+  name: '@deepseek-ai/dsh-client-ui-models'
 
 - id: ui-conversation
   name: '@deepseek-ai/dsh-client-ui-conversation'

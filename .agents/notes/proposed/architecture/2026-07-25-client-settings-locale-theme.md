@@ -10,41 +10,48 @@ The browser client's existing Settings is written directly inside the Sidebar, a
 
 ## Proposal
 
-The Sidebar declares the `sidebar.settings` single slot; `ui-settings` occupies it and declares the `settings.section` list slot. Each section is contributed by an independent plugin; the Settings shell only reads entry metadata from the slot ledger to build the navigation, rendering the current section via `only`.
+**Collaboration doctrine (how every later module joins Settings): feature owners self-register.** The Settings shell provides only the composition surface (the top-level section list plus the item list inside General) and neither imports nor enumerates any feature; for a feature to appear in Settings, its own plugin registers into the corresponding slot — locale registers the Language row, ui-theme registers the Appearance row, ui-models registers the Models top-level panel. No separate `ui-settings-*` package is created for "a feature's settings page": the settings surface belongs to the feature package itself (shipping the Theme feature means Theme's settings choices ship with ui-theme). The only content the shell carries itself is the first top-level directory, General (skeleton rows plus the item slot declaration), because it belongs to no single feature.
+
+The Sidebar declares the `sidebar.settings` single slot; `ui-settings` occupies it and declares the `settings.section` list slot. Each section is contributed by a feature plugin; the Settings shell only reads entry metadata from the slot ledger to build the navigation, rendering the current section via `only`. General is registered by the shell itself (order 0) and declares the `settings.general.item` list slot, into which the feature plugins' preference rows slot by order.
 
 The Settings entry is the Settings row in the sidebar Foot; clicking it directly opens a 1080×700 centered overlay (black 24% mask); the close button, a mask click, and ESC all close it. There is no intermediate menu form of any kind.
 
 `@deepseek-ai/dsh-client-locale` provides `ctx.locale`; `ui-theme` provides `ctx.theme`. Both services read through a getter, write through a setter, and publish immutable snapshots via typed Cordis change events; each service persists its own preference (storing only the id, with bad values falling back to the default).
 
-General's apply layer subscribes to `locale/change` and `theme/change` and projects the snapshots into the Zustand store declared by that section. React components only read `useStore` and write through the injected setter callbacks, never reading ctx or the services.
+Each feature row's apply layer subscribes to its own change event (locale to `locale/change`, ui-theme to `theme/change`) and projects the snapshot into the slot store declared when that row registered. React components only read `useStore` and write through the injected setter callbacks, never reading ctx or the services.
 
 The theme preference has three states — `light`, `dark`, `system` — defaulting to `system` (when no persisted preference exists or the value is bad). Resolving system belongs to the theme domain: ThemeService holds the `prefers-color-scheme` matchMedia listener (environment sensing, not DOM presentation) and re-emits the snapshot when the preference is system and the system color scheme changes; the snapshot carries both `preference` and the resolved `active` definition.
 
 The theme service never touches the DOM. `ui-layout` reads the Theme getter initially and then subscribes to `theme/change`; the presenter owned by Layout updates `body[data-ds-dark-theme]` and the theme tokens according to `active`. The presenter has no notion of system — it consumes only resolved results.
 
-### First-phase section scope
+### First-phase registration surfaces
 
-| section | Plugin | First-phase content |
+| Registration surface | Owning plugin | First-phase content |
 |---|---|---|
-| General | `ui-settings-general` | Language (Selector dropdown) and Appearance (Light/Dark/System three cubes) genuinely switch; Permission and Tool Call are visual skeletons only, with no write operations |
-| Models | `ui-settings-models` | Navigation item only; the content area is empty |
-| Plugin | no package | Not built this phase, and the navigation does not show the item (an external-link entry with no target never renders; once a later plugin registers the section it appears automatically) |
+| General section (order 0) | built into the `ui-settings` shell | Permission and Tool Call visual skeletons (no write operations) plus the `settings.general.item` slot declaration |
+| Language row (item order 0) | `locale` | Selector dropdown; 中文/English genuinely switch |
+| Appearance row (item order 10) | `ui-theme` | Light/Dark/System three cubes genuinely switch (the selected state reflects preference) |
+| Models section (order 10) | `ui-models` | Navigation item only, with an empty content area; later model-management features land in that package |
+| Plugin | none | Not built this phase, and the navigation does not show the item (once a later plugin feature package registers the section it appears automatically) |
 
-The first phase localizes only the copy inside the Settings overlay (the General rows plus the navigation); copy on other pages is untouched.
+The first phase localizes only the copy inside the Settings overlay; dictionaries stay close to their owners — shell copy (the chrome plus the General skeletons) lives in the `settings` namespace, and feature-row copy lives in each feature package (`settings.locale`, `settings.theme`, `settings.models`).
 
 ### Slot topology
 
 ```text
 root
 └─ sidebar
-   └─ sidebar.settings                 single/root
-      └─ ui-settings
-         └─ settings.section           list/root
-            ├─ general                 ui-settings-general
-            └─ models                  ui-settings-models
+   └─ sidebar.settings                   single/root
+      └─ ui-settings（壳）
+         └─ settings.section             list/root
+            ├─ general (order 0)         ui-settings 壳自带
+            │  └─ settings.general.item  list/root
+            │     ├─ language (0)        locale 注册
+            │     └─ appearance (10)     ui-theme 注册
+            └─ models (order 10)         ui-models 注册
 ```
 
-Section contributions use declaration-aware deferral and do not depend on the client manifest's apply order.
+Section and item contributions both use declaration-aware deferral and do not depend on the client manifest's apply order. The `settings.general.item` SlotMap entry's canonical home is the ui-settings contract; locale/ui-theme, because of the reference cycle (the shell consumes ctx.locale), consume that entry as verbatim duplicated merges, with declaration merging guaranteeing the copies agree.
 
 ### Service contracts
 
@@ -95,13 +102,16 @@ Locale ships with 中文 and English built in; `setLocale`/`setTheme` are the on
 
 **Settings importing and enumerating the sections.** Adding a page would require modifying the shell plugin, breaking the composition model where each feature occupies a slot from its own plugin.
 
+**One `ui-settings-*` package per section (the first-cut implementation).** It divorces the settings surface from the feature itself: changing Theme behavior touches two packages, the package count grows linearly with settings items, and settings-general depending back on the locale/theme services forms an intermediate layer that exists purely for the package split. After converging on feature-owner self-registration, General belongs to the shell (it belongs to no single feature) and preference rows ship with their feature packages.
+
 **Injecting the Locale/Theme snapshots into React directly.** Inject results are cached by entry identity, so volatile values go stale; hand-rolling a React hook per service also bypasses the slot store's unified binding.
 
 ## Acceptance criteria
 
-- The Settings shell depends only on the slot ledger, never on any section implementation.
+- The Settings shell depends only on the slot ledger, never on any feature implementation; General's item list likewise depends only on the ledger.
+- Adding a settings item = the feature package registering it itself (a section or a general item), with zero shell changes.
 - Locale and Theme writes go only through the setters; ongoing synchronization goes only through the change events.
-- The General store initializes from the getters and is thereafter updated by the two events with local re-renders.
+- Each feature row's store initializes from the getter and is thereafter updated by its own change event with local re-renders.
 - Layout applies the theme snapshot on its own and the theme service never accesses the DOM; no system branch appears in the presenter.
 - 中文/English and Light/Dark/System switch and are restored after a refresh; with the preference on system, a system color-scheme change takes effect immediately.
 - Models has only a navigation item and an empty content area; the Permission and Tool Call skeletons perform no writes.

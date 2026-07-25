@@ -1,17 +1,24 @@
 /**
  * Settings shell plugin, browser half. Occupies the sidebar-owned
  * `sidebar.settings` hole with the trigger row + modal panel, declares the
- * `settings.section` list slot, and projects that ledger into the panel
- * navigation. Export discipline: packages/client/AGENTS.md.
+ * `settings.section` list slot, projects that ledger into the panel
+ * navigation, and ships the first section itself: General, which declares
+ * the `settings.general.item` slot that feature plugins contribute
+ * preference rows into. Export discipline: packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context/Events merges (ctx.locale,
 // 'locale/change') into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type { SettingsRootInjected } from './contract/slots.ts'
+import type { GeneralSectionInjected, SettingsRootInjected } from './contract/slots.ts'
 import { SettingsRoot } from './SettingsRoot.tsx'
+import { GeneralSection } from './GeneralSection.tsx'
+import { en, zh } from './locales.ts'
 
-export type { SettingsRootComponentProps, SettingsRootInjected, SettingsSectionOwnerProps } from './contract/slots.ts'
+export type {
+  GeneralSectionComponentProps, GeneralSectionInjected,
+  SettingsRootComponentProps, SettingsRootInjected, SettingsSectionOwnerProps,
+} from './contract/slots.ts'
 
 /**
  * Required services (cordis fiber inject). The target slot is declared by
@@ -22,18 +29,20 @@ export type { SettingsRootComponentProps, SettingsRootInjected, SettingsSectionO
 export const inject = ['slots', 'locale']
 
 /**
- * Register the settings shell into `sidebar.settings` once the declaration is
- * on the ledger.
+ * Register the settings shell into `sidebar.settings` and the shell-owned
+ * General section into `settings.section`, each once its declaration is on
+ * the ledger.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     const disposers = [
-      ctx.locale.register('settings', 'zh', { trigger: '设置', title: '设置', close: '关闭' }),
-      ctx.locale.register('settings', 'en', { trigger: 'Settings', title: 'Settings', close: 'Close' }),
+      ctx.locale.register('settings', 'zh', zh),
+      ctx.locale.register('settings', 'en', en),
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-settings: shell copy dictionaries')
+
   const injected = (): SettingsRootInjected => ({
     translate: (ref) => {
       const colon = ref.indexOf(':')
@@ -73,4 +82,38 @@ export function apply(ctx: ClientContext): void {
       dispose?.()
     }
   }, 'ui-settings: shell registration')
+
+  // The shell's own General section: first page, declares the item slot the
+  // feature plugins (locale, ui-theme, …) contribute preference rows into.
+  // Same ledger-judged deferral; label re-registers on locale change.
+  const generalInjected = (): GeneralSectionInjected => ({
+    t: ctx.locale.bind('settings'),
+  })
+  ctx.effect(() => {
+    let dispose: (() => void) | undefined
+    const tryRegister = (): void => {
+      if (ctx.slots.spec('settings.section') === undefined) return
+      if (ctx.slots.entries('settings.section').some(e => e.component === GeneralSection)) return
+      dispose = ctx.slots.register({
+        name: 'settings.section',
+        id: 'general',
+        order: 0,
+        label: ctx.locale.bind('settings')('general.nav'),
+        children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
+        inject: generalInjected,
+      }, GeneralSection)
+    }
+    const offLocale = ctx.on('locale/change', () => {
+      dispose?.()
+      dispose = undefined
+      tryRegister()
+    })
+    const unsubscribe = ctx.slots.subscribe('settings.section', () => { tryRegister() })
+    tryRegister()
+    return () => {
+      offLocale()
+      unsubscribe()
+      dispose?.()
+    }
+  }, 'ui-settings: general section registration')
 }
