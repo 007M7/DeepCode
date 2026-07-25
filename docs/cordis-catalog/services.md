@@ -1421,6 +1421,30 @@ Types: [SaveTextSpill](../core-data-structures/spill.md) · [SpillRef](../core-d
 
 Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
 
+## `ctx.storage` — `Storage`
+
+The storage hub service. Backends register under `backend`; data forms mount under their `StorageForms` key and are reached as `ctx.storage.<form>`.
+
+```ts cordis-catalog
+/**
+ * Mount a data-form facility on the hub. Mounting is an effect: the
+ * returned disposer unmounts the form.
+ * @param form - Form key declared in {@link StorageForms}.
+ * @param facility - The facility instance to expose.
+ * @returns the disposer that unmounts the form.
+ */
+mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void
+
+/**
+ * Resolve a mounted data form.
+ * @param form - Form key declared in {@link StorageForms}.
+ * @returns the mounted facility.
+ */
+form<K extends keyof StorageForms>(form: K): StorageForms[K]
+```
+
+Source: [`packages/storage/storage/src/index.ts:35`](../../packages/storage/storage/src/index.ts)
+
 ## `ctx.subagents` — `SubagentService`
 
 Named provider registry and capability-checked start surface.
@@ -1880,6 +1904,52 @@ abstract start(request: WorkflowStartRequest): WorkflowRun
 Types: [WorkflowRun](../core-data-structures/workflow.md) · [WorkflowStartRequest](../core-data-structures/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/workflow/src/index.ts)
+
+## `ctx.workspace` — `WorkspaceRegistry`
+
+The workspace registry service. Opens the `workspace` domain at startup, rebuilds one entity per stored record, and serves entities from an in-memory cache keyed by id. Session persistence is an OPTIONAL peer (resolved via `ctx.get`, never injected): while it is absent, session attachment rejects (what cannot be validated is not recorded) and `sessionIds` projections serve the account unfiltered.
+
+There is deliberately no delete entry point in this phase: workspace deletion ships as one complete semantic together with the session-cascade primitives (future work in the owning Agent Note).
+
+```ts cordis-catalog
+/**
+ * Create a workspace over an existing directory. The path is canonicalized
+ * through `fs.realpath` first — a nonexistent path rejects with the
+ * original `ENOENT`, a path resolving to anything but a directory rejects,
+ * and a canonical path already owned by another workspace (including a
+ * symlink resolving to it) rejects.
+ * @param path - Directory the workspace points at; canonicalized before storing.
+ * @param title - Display title; defaults to `basename` of the canonical path.
+ * @returns the created workspace after durability.
+ */
+async create(path: string, title?: string): Promise<Workspace>
+
+/**
+ * Look up a workspace by id.
+ * @param id - The workspace id.
+ * @returns the workspace, or `undefined` when unknown.
+ */
+get(id: WorkspaceId): Workspace | undefined
+
+/**
+ * Snapshot of all workspaces, in load-then-creation order.
+ * @returns a fresh array of the cached entities.
+ */
+list(): Workspace[]
+
+/**
+ * Resolve a workspace by directory path, through the same `fs.realpath`
+ * canon as {@link create} (hence async). A path that does not exist rejects
+ * with the original error — a missing directory has no canonical form to
+ * compare (a workspace whose recorded directory vanished is only reachable
+ * by id; see `Workspace.status`).
+ * @param path - Directory path in any spelling (symlinks, `..`, trailing slash).
+ * @returns the owning workspace, or `undefined` when none matches.
+ */
+async resolveByPath(path: string): Promise<Workspace | undefined>
+```
+
+Source: [`packages/workspace/workspace/src/index.ts:60`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

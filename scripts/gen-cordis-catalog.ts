@@ -207,6 +207,11 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/bash/tool-bash/src/index.ts',
   CompactAgentContext: 'compaction service input is owned by packages/compact/compact/src/index.ts',
   CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
+  DomainChanged: 'event-local snapshot is owned by packages/storage/storage-domain/src/events.ts',
+  DomainFacility: 'domain form facility is owned by packages/storage/storage-domain/README.md',
+  DomainSpec: 'domain declaration contract is owned by packages/storage/storage-domain/README.md',
+  StorageBackend: 'backend contract is owned by packages/storage/storage/src/backend.ts',
+  StorageForms: 'merge-extensible form map is owned by packages/storage/storage/src/index.ts',
   InvariantInstaller: 'service-local contribution contract is owned by packages/support/invariants/README.md',
   LocaleDict: 'service-local dictionary shape is owned by packages/client/i18n/src/index.ts',
   WebBootGraph: 'web boot graph wire shape is owned by packages/client/modules/src/client/index.ts',
@@ -226,6 +231,8 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkflowAgentEndInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowAgentInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowResultInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
+  Workspace: 'workspace entity contract is owned by packages/workspace/workspace/README.md',
+  WorkspaceId: 'branded id is owned by packages/workspace/workspace/README.md',
 }
 
 /** Collect named references from parameter, generic-constraint/default, and return types. */

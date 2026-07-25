@@ -77,6 +77,8 @@ const GROUP_ORDER = [
   'session-persistence',
   'session-query',
   'session-title',
+  'storage',
+  'workspace',
   'support',
   'ui',
 ]
@@ -131,6 +133,23 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
     consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'acp', 'session-query', 'session-query-sqlite'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'storage',
+    pkg: 'storage',
+    title: 'Non-session storage hub',
+    mode: 'seam',
+    implementations: ['storage-json', 'storage-sqlite'],
+    consumers: ['storage-domain', 'workspace'],
+    note: 'Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives.',
+  },
+  {
+    key: 'workspace',
+    pkg: 'workspace',
+    title: 'Workspace entity registry',
+    mode: 'core',
+    consumers: [],
+    note: 'Owns WorkspaceId-branded records over the domain form; sessionIds is the single source of ownership truth. RPC and GUI consumers arrive next phase.',
   },
   {
     key: 'sessionQuery',
