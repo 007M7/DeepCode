@@ -278,6 +278,9 @@ importers:
       '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
         version: link:../../packages/context/workspace-context
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
@@ -1746,9 +1749,6 @@ importers:
 
   packages/examples/tui-demo:
     devDependencies:
-      '@cordisjs/plugin-include':
-        specifier: workspace:^
-        version: link:../../../vendor/include
       '@cordisjs/plugin-loader':
         specifier: workspace:^
         version: link:../../../vendor/loader
@@ -1761,9 +1761,6 @@ importers:
       '@deepseek-ai/dsh-agent-spine-demo':
         specifier: workspace:^
         version: link:../agent-spine-demo
-      '@deepseek-ai/dsh-app-boot':
-        specifier: workspace:^
-        version: link:../../ui/app-boot
       '@deepseek-ai/dsh-command-goal':
         specifier: workspace:^
         version: link:../../goal/command-goal
@@ -1814,7 +1811,7 @@ importers:
         version: link:../../context/workspace-context
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
       schemastery:
         specifier: ^3.17.0
         version: 3.18.0

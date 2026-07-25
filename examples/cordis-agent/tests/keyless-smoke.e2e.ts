@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 import { runTuiPtySmoke } from '../../tui-agent/tests/pty-harness.ts'
 
-const binScript = fileURLToPath(new URL('../../../packages/examples/tui-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
