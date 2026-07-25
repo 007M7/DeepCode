@@ -73,12 +73,7 @@ export class ConversationService extends Service {
   async send(text: string, mode: 'queue' | 'steer', images: readonly File[] = []): Promise<void> {
     const session = this.scopedSession('send')
     this.validateImages(images, [])
-    const uploaded = await Promise.all(images.map(async file => ({
-      type: 'image' as const,
-      mediaType: imageMediaType(file.type),
-      data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
-      ...(file.name === '' ? {} : { name: file.name }),
-    })))
+    const uploaded = await this.serializeImages(images)
     const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
     const result = await session.prompt(content, mode)
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
