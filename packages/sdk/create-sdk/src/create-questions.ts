@@ -168,7 +168,7 @@ const PROJECT_QUESTION_STEPS: readonly WizardStep<ProjectAnswerState>[] = [
       id: 'interface',
       message: 'Run interface',
       options: [
-        { value: 'acp', label: 'ACP server' },
+        { value: 'acp', label: 'ACP automation server' },
         { value: 'tui', label: 'Terminal TUI' },
         { value: 'embed', label: 'Embedded context' },
       ],

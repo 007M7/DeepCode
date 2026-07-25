@@ -110,7 +110,7 @@
     { "path": "./packages/timeout/timeout-policy" },
     { "path": "./packages/support/invariants" },
     { "path": "./packages/support/agent-loop-testkit" },
-    { "path": "./packages/ui/acp" },
+    { "path": "./packages/acp/acp" },
     { "path": "./packages/examples/acp-demo" },
     { "path": "./packages/ui/app-boot" },
     { "path": "./packages/ui/jsonrpc" },

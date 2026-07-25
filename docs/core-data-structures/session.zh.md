@@ -143,7 +143,7 @@ interface OutOfBandSessionEventMap {}
 
 ### `TodoItem`：一条待办项
 
-这是 `todo/write` 事件全量列表快照中的单元。它有意保持精简：一行 `content` 加一个三态 `status`（没有 id、优先级或 `activeForm`）；列表在每次写入时整体替换，因此条目无需稳定标识，而这三个状态值恰好对应 ACP 的 `PlanEntryStatus`，所以 UI 桥接层可以将待办列表一一映射为 ACP `plan`（并合成 ACP 额外要求的优先级）。见 [todo_write Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md)。
+这是 `todo/write` 事件全量列表快照中的单元。它有意保持精简：一行 `content` 加一个三态 `status`（没有 id、优先级或 `activeForm`）；列表在每次写入时整体替换，因此条目无需稳定标识。见 [todo_write Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md)。
 
 ```ts type-equiv
 /**
@@ -152,10 +152,9 @@ interface OutOfBandSessionEventMap {}
  *
  * Deliberately minimal: a human-readable `content` line and a three-state
  * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity, and the
- * status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a
- * todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally
- * requires).
+ * on every write (last-write-wins), so entries need no stable identity. The
+ * three statuses describe the complete portable lifecycle needed by model and
+ * UI consumers.
  */
 interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */

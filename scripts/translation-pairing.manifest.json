@@ -134,7 +134,7 @@
     ".agents/notes/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md",
     ".agents/notes/proposed/feature/2026-07-08-interactive-side-sessions.md",
     ".agents/notes/implemented/feature/2026-07-10-sqlite-session-query-provider.md",
-    ".agents/notes/proposed/feature/2026-07-13-stream-workflow-progress-through-tool-calls.md",
+    ".agents/notes/rejected/feature/2026-07-13-stream-workflow-progress-through-tool-calls.md",
     ".agents/notes/proposed/process/2026-06-11-api-extractor-reports.md",
     ".agents/notes/proposed/process/2026-06-11-architectural-conformance.md",
     ".agents/notes/proposed/process/2026-06-11-supply-chain-and-vendor-drift.md",

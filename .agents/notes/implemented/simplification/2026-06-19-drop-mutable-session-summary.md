@@ -12,8 +12,8 @@ The summary was designed for a future session picker (recency ordering via `upda
 
 - `SessionPersistence.update()` has **zero production callers** (every `.update(` hit is `createHash().update()` or a test).
 - `firstPrompt` is **never read** anywhere in production.
-- `title` *is* read in the ACP bridge — but from a tool-call **presenter** (`present.title`), never from stored session metadata.
-- `updatedAt` has **no consumer**: the only production caller of `list()` reads `meta.cwd` (a `SessionHeader` field) to validate a workspace on `session/load`; resume reads `createdAt`/`cwd`/`parentSession` — all header fields.
+- Session titles come from durable `session/title` events, while tool-card titles come from tool presenters; neither reads mutable session metadata.
+- Persistence-list consumers use immutable header identity, creation, lineage, and cwd fields. Recency and previews derive from the log rather than an `updatedAt` summary.
 - Decisively: the live `Session.header` was already typed `SessionHeader`, not `SessionMeta` — the summary never existed on the live session object; it lived only in the persistence layer, written and read by nothing but its own contract test.
 
 ## Decision

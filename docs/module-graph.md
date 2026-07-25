@@ -120,8 +120,10 @@ flowchart TD
     pkg_llm_replay["llm-replay"]
     pkg_loader_smoke["loader-smoke"]
   end
-  subgraph group_ui["packages/ui"]
+  subgraph group_acp["packages/acp"]
     pkg_acp["acp"]
+  end
+  subgraph group_ui["packages/ui"]
     pkg_app_boot["app-boot"]
     pkg_commands["commands"]
     pkg_jsonrpc["jsonrpc"]
@@ -477,6 +479,10 @@ flowchart TD
   pkg_session_title_first_message_llm --> pkg_session
   pkg_session_title_first_message_llm --> pkg_session_title
   pkg_session_title_first_message_llm --> pkg_session_title_llm
+  pkg_acp --> pkg_agent
+  pkg_acp --> pkg_invariants
+  pkg_acp --> pkg_session
+  pkg_acp --> pkg_user_approval
   pkg_permission --> pkg_bash
   pkg_permission --> pkg_invariants
   pkg_permission --> pkg_sandbox
@@ -670,24 +676,6 @@ flowchart TD
   pkg_hooks_claude --> pkg_session_persistence
   pkg_hooks_claude --> pkg_subagent
   pkg_hooks_claude --> pkg_tools
-  pkg_acp --> pkg_agent
-  pkg_acp --> pkg_bash
-  pkg_acp --> pkg_commands
-  pkg_acp --> pkg_invariants
-  pkg_acp --> pkg_llm
-  pkg_acp --> pkg_llm_retry
-  pkg_acp --> pkg_permission
-  pkg_acp --> pkg_plan_mode
-  pkg_acp --> pkg_sandbox
-  pkg_acp --> pkg_session
-  pkg_acp --> pkg_session_persistence
-  pkg_acp --> pkg_session_query
-  pkg_acp --> pkg_session_reference
-  pkg_acp --> pkg_session_title
-  pkg_acp --> pkg_system_prompt
-  pkg_acp --> pkg_tools
-  pkg_acp --> pkg_user_approval
-  pkg_acp --> pkg_user_interaction
   pkg_jsonrpc --> pkg_agent
   pkg_jsonrpc --> pkg_invariants
   pkg_jsonrpc --> pkg_llm
@@ -759,16 +747,10 @@ flowchart TD
   pkg_acp_demo --> pkg_acp
   pkg_acp_demo --> pkg_agent_spine_demo
   pkg_acp_demo --> pkg_app_boot
-  pkg_acp_demo --> pkg_command_goal
-  pkg_acp_demo --> pkg_commands
   pkg_acp_demo --> pkg_invariants
   pkg_acp_demo --> pkg_session_checkpoint_policy
   pkg_acp_demo --> pkg_session_persistence_jsonl
-  pkg_acp_demo --> pkg_session_query
-  pkg_acp_demo --> pkg_session_query_sqlite
-  pkg_acp_demo --> pkg_session_reference
   pkg_acp_demo --> pkg_tools
-  pkg_acp_demo --> pkg_user_interaction
   pkg_acp_demo --> pkg_workspace_context
   pkg_cli_demo --> pkg_agent
   pkg_cli_demo --> pkg_agent_spine_demo
@@ -896,6 +878,7 @@ flowchart TD
 | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | `session-query` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-query`](../packages/session-query/session-query) |
 | [`session-title-all-messages-llm`](../packages/session-title/session-title-all-messages-llm) | `session-title` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`session-title-llm`](../packages/session-title/session-title-llm) |
 | [`session-title-first-message-llm`](../packages/session-title/session-title-first-message-llm) | `session-title` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`session-title-llm`](../packages/session-title/session-title-llm) |
+| [`acp`](../packages/acp/acp) | `acp` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`session-reference`](../packages/context/session-reference) | `context` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`retention`](../packages/util/retention), [`session`](../packages/core/session), [`session-query`](../packages/session-query/session-query) |
 | [`pty-local`](../packages/pty/pty-local) | `pty` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`pty`](../packages/pty/pty), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session) |
@@ -927,7 +910,6 @@ flowchart TD
 | [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
 | [`hooks-claude`](../packages/hooks/hooks-claude) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
-| [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/ui/permission), [`plan-mode`](../packages/plan/plan-mode), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference), [`session-title`](../packages/session-title/session-title), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`user-interaction`](../packages/ui/user-interaction) |
 | [`jsonrpc`](../packages/ui/jsonrpc) | `ui` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`tui`](../packages/ui/tui) | `ui` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`commands`](../packages/ui/commands), [`goal`](../packages/goal/goal), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`llm-retry`](../packages/llm/llm-retry), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference), [`session-title`](../packages/session-title/session-title), [`skill`](../packages/skill/skill), [`system-prompt`](../packages/core/system-prompt), [`token-meter`](../packages/llm/token-meter), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`llm-retry`](../packages/llm/llm-retry), [`paths`](../packages/util/paths), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`skill`](../packages/skill/skill), [`skill-local`](../packages/skill/skill-local), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tool-bash`](../packages/bash/tool-bash), [`tool-goal`](../packages/goal/tool-goal), [`tool-skill`](../packages/skill/tool-skill), [`tool-tasks`](../packages/tasks/tool-tasks), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
@@ -935,6 +917,6 @@ flowchart TD
 | [`workflow-workerthread`](../packages/workflow/workflow-workerthread) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`invariants`](../packages/support/invariants), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
-| [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/ui/acp), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`command-goal`](../packages/goal/command-goal), [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`session-reference`](../packages/context/session-reference), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |
+| [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/acp/acp), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
 | [`cli-demo`](../packages/examples/cli-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
 | [`tui-demo`](../packages/examples/tui-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`command-goal`](../packages/goal/command-goal), [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`session-reference`](../packages/context/session-reference), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`tui`](../packages/ui/tui), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |

@@ -25,8 +25,6 @@ import { setTimeout as delay } from 'node:timers/promises'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
-  type CreateElicitationRequest,
-  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
@@ -44,18 +42,19 @@ const WAIT_POLL_INTERVAL_MS = 10
  * (random) session id into a `{{sessionId}}` variable that later steps
  * reference, since a committed file cannot know the id in advance.
  *
- * `promptAndCancel` starts a prompt without awaiting completion, waits until
- * the client observes the selected update (`agent_message_chunk` by default),
- * then cancels and awaits completion. An optional `waitForFile` first observes
- * a cwd-relative readiness marker, and a named `waitForToolCallUpdate` keeps
- * the step open for a terminal tool update that may follow the prompt response.
+ * `promptAndCancel` starts a prompt without awaiting completion, waits for a
+ * readiness condition, then cancels and awaits completion. `waitForFile`
+ * observes a cwd-relative marker; the default observes the durable turn start.
  * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
  * the prompt, then keeps the application live until that later update arrives.
- * `waitForTurnEnd` holds the subprocess open until the selected session's latest
- * complete raw-JSONL turn boundary is `turn/end`; its timeout defaults to 10s.
+ * `waitForTurnStart` waits for an open durable turn, optionally at or beyond a
+ * specified turn number. `waitForTurnEnd` holds the subprocess open until the
+ * selected session's latest complete raw-JSONL turn boundary is `turn/end`.
+ * A standalone `cancel` may also wait for a cwd-relative readiness marker.
+ * All wait timeouts default to 10s.
  */
 export type InputStep =
-  | { op: 'initialize'; terminalOutput?: boolean }
+  | { op: 'initialize' }
   | { op: 'newSession' }
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
@@ -64,16 +63,11 @@ export type InputStep =
   | {
     op: 'promptAndCancel'
     text: string
-    afterUpdate?: 'agent_message_chunk' | 'tool_call'
     waitForFile?: { path: string; timeoutMs?: number }
-    waitForToolCallUpdate?: string
   }
+  | { op: 'waitForTurnStart'; minimumTurn?: number; timeoutMs?: number }
   | { op: 'waitForTurnEnd'; timeoutMs?: number }
-  | { op: 'cancel' }
-  | { op: 'setMode'; modeId: string }
-  | { op: 'setModeExpectError'; modeId: string }
-  | { op: 'setConfigOption'; configId: string; value: string }
-  | { op: 'setConfigOptionExpectError'; configId: string; value: string }
+  | { op: 'cancel'; waitForFile?: { path: string; timeoutMs?: number } }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
 export interface InputScript {
@@ -86,37 +80,17 @@ export interface InputScript {
    * kind → the offered `optionId` at answer time. A request beyond the queue
    * (or with no queue at all) is answered `cancelled` — the stub behavior a
    * scenario without approvals relies on. A scripted kind the request does
-   * not offer REJECTS the run: the scenario scripted an impossible click,
+   * not offer REJECTS the run: the scenario scripted an impossible selection,
    * and {@link runScenario} throws once the in-flight step settles (the
    * agent itself just sees `cancelled`, so it cannot absorb the bug).
    */
   permissionAnswers?: PermissionAnswer[]
-  /**
-   * Ordered answers for the agent's `elicitation/create` round-trips (the
-   * ask_user_question / plan-review forms), consumed FIFO — the Nth request
-   * gets the Nth answer. Exhaustion (or no queue) answers `cancel`, the same
-   * fail-closed stub an elicitation-free scenario relies on. Unlike permission
-   * kinds, the scripted strings are not validated against the offered form —
-   * a stray `choice` reaches the agent verbatim, which reads it as a custom
-   * (non-consenting) answer, so a scenario bug fails safe in the transcript.
-   */
-  elicitationAnswers?: ElicitationAnswer[]
 }
 
 /** One scripted answer to a permission request: which offered option kind to select. */
 export interface PermissionAnswer {
   /** The `PermissionOption.kind` to select (`allow_once`, `reject_always`, …). */
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
-}
-
-/** One scripted answer to an elicitation form (accept with choice/custom content, or cancel). */
-export interface ElicitationAnswer {
-  /** Accept the form with the content below, or cancel it. */
-  action: 'accept' | 'cancel'
-  /** The selected option label (the form's `choice` field). */
-  choice?: string
-  /** Free-form text (the form's `custom` field). */
-  custom?: string
 }
 
 /** One harvested session log plus the identifying facts off its header line. */
@@ -158,6 +132,8 @@ export interface RunOptions {
   agent: AgentUnderTest
   /** `replay` (default, keyless) or `record` (real API, harvests the log). */
   mode: 'replay' | 'record'
+  /** Scenario-specific deployment environment layered into the subprocess. */
+  env?: NodeJS.ProcessEnv
   /** The recorded session JSONL fixture path (replay reads it; record writes near it). */
   fixtureFile: string
   /** Optional sidecar override path (replay). */
@@ -244,6 +220,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       await cp(opts.workspaceDir, cwd, { recursive: true })
     }
     const env: NodeJS.ProcessEnv = {
+      ...opts.env,
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
@@ -259,13 +236,11 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
     const permissionQueue = [...input.permissionAnswers ?? []]
-    // Elicitation answers mirror the permission queue: FIFO, cancel on exhaustion.
-    const elicitationQueue = [...input.elicitationAnswers ?? []]
     // A scenario bug detected inside a client callback (a scripted permission
     // kind the agent never offered). It cannot fail the run from in there: a
     // callback throw only becomes a JSON-RPC error RESPONSE to the agent, and
     // a tolerant agent treats that as a denial and carries on — the run (or
-    // worse, a record) would absorb the impossible click silently. So the
+    // worse, a record) would absorb the impossible selection silently. So the
     // callback answers `cancelled` (a well-defined path for the agent),
     // captures the error here, and the step loop fails the run on it.
     let scriptError: Error | undefined
@@ -279,7 +254,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         if (answer === undefined) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
         const option = params.options.find(o => o.kind === answer.kind)
         if (option === undefined) {
-          // The scenario scripted a click the agent never offered — a scenario
+          // The scenario scripted a selection the agent never offered — a scenario
           // bug. Captured (last one wins; same bug class either way) and
           // answered `cancelled`; the step loop rejects the run on it.
           scriptError = new Error(
@@ -289,17 +264,6 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
           return Promise.resolve({ outcome: { outcome: 'cancelled' } })
         }
         return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
-      },
-      createElicitation(_params: CreateElicitationRequest): Promise<CreateElicitationResponse> {
-        const answer = elicitationQueue.shift()
-        if (answer === undefined || answer.action !== 'accept') return Promise.resolve({ action: 'cancel' })
-        return Promise.resolve({
-          action: 'accept',
-          content: {
-            ...answer.choice !== undefined ? { choice: answer.choice } : {},
-            ...answer.custom !== undefined ? { custom: answer.custom } : {},
-          },
-        })
       },
     })
     const active = launched
@@ -314,6 +278,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         match => active.waitForUpdate(match),
         () => sessionId,
         (id) => { sessionId = id },
+        (id, timeoutMs, minimumTurn) => waitForPersistedTurnStart(sessionsRoot, id, timeoutMs, minimumTurn),
         (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
       )
       // A permission exchange happens while a step's request is in flight, so
@@ -386,13 +351,14 @@ async function runStep(
   waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<SessionNotification['update']>,
   getSessionId: () => string | undefined,
   setSessionId: (id: string) => void,
+  waitForTurnStart: (sessionId: string, timeoutMs?: number, minimumTurn?: number) => Promise<void>,
   waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
     case 'initialize':
       await client.initialize({
         protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: step.terminalOutput === true ? { _meta: { terminal_output: true } } : {},
+        clientCapabilities: {},
       })
       return
     case 'newSession': {
@@ -435,7 +401,7 @@ async function runStep(
       if (sessionId === undefined) throw new Error('snapshot-harness: promptExpectError before newSession')
       // The model fails this turn (a recorded provider error), so the bridge
       // answers the prompt with a JSON-RPC error and the SDK rejects. That
-      // rejection IS the expected editor experience — swallow it so the run
+      // rejection IS the expected protocol result — swallow it so the run
       // completes and the stdout transcript (the error frame) is captured.
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
         .then(() => { throw new Error('snapshot-harness: expected the prompt to fail but it succeeded') },
@@ -446,21 +412,16 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptAndCancel before newSession')
       // Dispatch without awaiting because the fixture does not settle on its
-      // own. Waiting for the selected update pins it before cancellation and
-      // the cancelled prompt response in the transcript.
+      // own. Wait for an external readiness marker or the durable turn start
+      // before sending cancellation.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
-      const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
-      await waitForUpdate(u => u.sessionUpdate === afterUpdate)
       if (step.waitForFile !== undefined) {
         await waitForWorkspaceFile(cwd, step.waitForFile.path, step.waitForFile.timeoutMs)
+      } else {
+        await waitForTurnStart(sessionId)
       }
-      // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
-      const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
-        ? undefined
-        : waitForUpdate(u => u.sessionUpdate === 'tool_call_update' && u.toolCallId === step.waitForToolCallUpdate)
       await client.cancel({ sessionId })
       await promptDone
-      if (toolCallUpdateDone !== undefined) await toolCallUpdateDone
       return
     }
     case 'waitForTurnEnd': {
@@ -469,50 +430,43 @@ async function runStep(
       await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
+    case 'waitForTurnStart': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnStart before newSession')
+      await waitForTurnStart(sessionId, step.timeoutMs, step.minimumTurn)
+      return
+    }
     case 'cancel': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: cancel before newSession')
+      if (step.waitForFile !== undefined) {
+        await waitForWorkspaceFile(cwd, step.waitForFile.path, step.waitForFile.timeoutMs)
+      }
       await client.cancel({ sessionId })
-      return
-    }
-    case 'setMode': {
-      const sessionId = getSessionId()
-      if (sessionId === undefined) throw new Error('snapshot-harness: setMode before newSession')
-      await client.setSessionMode({ sessionId, modeId: step.modeId })
-      return
-    }
-    case 'setModeExpectError': {
-      const sessionId = getSessionId()
-      if (sessionId === undefined) throw new Error('snapshot-harness: setModeExpectError before newSession')
-      // The bridge rejects an unknown/uncomposed mode id with invalidParams;
-      // that rejection IS the expected wire behavior — swallow it so the run
-      // completes and the error frame is captured in the transcript.
-      await client.setSessionMode({ sessionId, modeId: step.modeId }).then(
-        () => { throw new Error('snapshot-harness: expected session/set_mode to be rejected but it succeeded') },
-        () => { /* expected: the bridge rejected the mode id */ },
-      )
-      return
-    }
-    case 'setConfigOption': {
-      const sessionId = getSessionId()
-      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOption before newSession')
-      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value })
-      return
-    }
-    case 'setConfigOptionExpectError': {
-      const sessionId = getSessionId()
-      if (sessionId === undefined) throw new Error('snapshot-harness: setConfigOptionExpectError before newSession')
-      // The bridge rejects an unknown id / out-of-vocabulary value; the SDK
-      // surfaces that as a rejected RPC — swallow it so the run completes and
-      // the error frame is captured in the transcript.
-      await client.setSessionConfigOption({ sessionId, configId: step.configId, value: step.value }).then(
-        () => { throw new Error('snapshot-harness: expected set_config_option to be rejected but it succeeded') },
-        () => { /* expected: the bridge rejected the id or value */ },
-      )
       return
     }
     default:
       throw new Error(`snapshot-harness: unknown input op ${JSON.stringify(step)}`)
+  }
+}
+
+/** Wait until persistence exposes an open turn for the selected session. */
+async function waitForPersistedTurnStart(
+  root: string,
+  sessionId: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+  minimumTurn?: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    const openTurn = log === undefined ? undefined : latestOpenTurn(log.content)
+    if (openTurn !== undefined && (minimumTurn === undefined || openTurn >= minimumTurn)) return
+    if (Date.now() >= deadline) {
+      const detail = minimumTurn === undefined ? 'turn/start' : `turn/start at or beyond turn ${minimumTurn}`
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist ${detail} within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
   }
 }
 
@@ -559,6 +513,20 @@ function latestTurnIsClosed(content: string): boolean {
   const complete = content.slice(0, content.lastIndexOf('\n') + 1)
   return complete.lastIndexOf('\n{"type":"turn/end",')
     > complete.lastIndexOf('\n{"type":"turn/start",')
+}
+
+/** Return the latest open turn number, validating the persisted boundary record. */
+function latestOpenTurn(content: string): number | undefined {
+  const complete = content.slice(0, content.lastIndexOf('\n') + 1)
+  const start = complete.lastIndexOf('\n{"type":"turn/start",')
+  if (start <= complete.lastIndexOf('\n{"type":"turn/end",')) return undefined
+  const end = complete.indexOf('\n', start + 1)
+  const record = JSON.parse(complete.slice(start + 1, end)) as { data?: { turn?: unknown } | null }
+  const turn = record.data?.turn
+  if (!Number.isSafeInteger(turn) || (turn as number) < 1) {
+    throw new Error('snapshot-harness: invalid persisted turn/start record')
+  }
+  return turn as number
 }
 
 /**

@@ -123,24 +123,6 @@ Additional instructions from: nested\AGENTS.md`,
     expect(out).not.toContain('"id"')
   })
 
-  it('stabilizes the timestamp carried by session title updates', () => {
-    const raw = JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'session/update',
-      params: {
-        sessionId: ctx.sessionIds[0],
-        update: {
-          sessionUpdate: 'session_info_update',
-          title: 'Stable title',
-          updatedAt: '2026-07-20T17:03:13.689Z',
-        },
-      },
-    })
-    const out = normalizeStdout(raw, ctx)
-    expect(out).toContain('"updatedAt":"{{updatedAt}}"')
-    expect(out).not.toContain('2026-07-20T17:03:13.689Z')
-  })
-
   it('throws on a non-JSON stdout line (the purity check)', () => {
     const raw = `${JSON.stringify({ jsonrpc: '2.0', id: 1 })}\noops a log leaked\n`
     expect(() => normalizeStdout(raw, ctx)).toThrow()

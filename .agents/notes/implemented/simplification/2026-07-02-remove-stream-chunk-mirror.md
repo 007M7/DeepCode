@@ -27,7 +27,7 @@ The premise the deferral hinged on is settled: chunk persistence is authoritativ
 
 Remove `agent/stream-chunk` from the agent event taxonomy. The token stream is read off `session/event` as `assistant/chunk`, the same feed persistence and replay already use — `session/event` is the single live transcript stream (assistant chunks, turn/step boundaries, tool activity, todos).
 
-**Consumers.** The only production consumer that mattered — the ACP bridge (`dsh-acp`), the real editor-facing streaming surface — already renders `assistant/chunk` off `session/event`, never `agent/stream-chunk`, so it is unaffected. The stdio UI (`dsh-ui-stdio`, a disposable test REPL) was the sole live consumer; it already had a `session/event` listener (from the boundary migration), so its chunk rendering folded into that listener as an `assistant/chunk` case. Consolidating to one listener also removed a latent hazard: the `inReasoning` dim-SGR flag was previously shared across two separate listeners (`agent/stream-chunk` and `session/event`), so a chunk and a boundary racing on it had no defined order; a single listener over the append order makes the interleaving deterministic.
+**Consumers.** Persistence, replay, and interactive renderers consume the authoritative session stream directly. The [automation-only ACP bridge](2026-07-23-acp-automation-only-protocol.md) emits committed `assistant/message` text rather than raw chunks, so it needs neither event. No production consumer requires an `Agent`-first token mirror.
 
 ## Scope
 

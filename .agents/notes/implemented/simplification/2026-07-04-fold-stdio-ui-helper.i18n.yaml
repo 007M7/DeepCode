@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-04-fold-stdio-ui-helper.md: 01165df19942e8e0adf84ede3a371f53ad12e464
-2026-07-04-fold-stdio-ui-helper.zh.md: 37b316283e96d7640e1e7af5fdbb05ab487aa6fa
+2026-07-04-fold-stdio-ui-helper.md: b9c4c6cfb7643890a7cf4dcdeb9014d7c7158818
+2026-07-04-fold-stdio-ui-helper.zh.md: d71fc878c603757f7da20aab3e7e219e368e7745

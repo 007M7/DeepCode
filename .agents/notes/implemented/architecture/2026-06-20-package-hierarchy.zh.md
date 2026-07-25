@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-20-package-hierarchy.md) | 中文
 
-后续的[折叠 stdio helper](../simplification/2026-07-04-fold-stdio-ui-helper.md)决策取代了最初的 `support/ui-stdio` 放置方式，[冗余 agent 移除](../simplification/2026-07-20-remove-stdio-and-echo-agents.md)随后又彻底移除了该接口。这里拥有的决策仍是统一的二层目录深度。
+后续的[折叠 stdio helper](../simplification/2026-07-04-fold-stdio-ui-helper.md)决策取代了最初的 `support/ui-stdio` 放置方式，[冗余 agent 移除](../simplification/2026-07-20-remove-stdio-and-echo-agents.md)随后又彻底移除了该接口。[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md)把 ACP 放在 `packages/acp/acp` 下，而不是面向人类的 UI 组。这里拥有的决策仍是统一的二层目录深度。
 
 ## 问题
 
@@ -36,8 +36,9 @@ packages/
     session-persistence/
     session-persistence-jsonl/
     session-persistence-sqlite/
-  ui/                    (product integration)
+  acp/                   (product automation integration)
     acp/
+  ui/                    (human interaction and presentation)
   support/               (dev/test/example infrastructure)
     invariants/
     ui-stdio/
@@ -49,7 +50,7 @@ packages/
 - **能力族使用同名嵌套。** 一个族的接口包位于 `packages/<group>/<group>/`（`llm/llm`、`bash/bash`、`session-persistence/session-persistence`），实现和消费方作为扁平兄弟并列。不设额外的 `adapters/`/`impls/` 子层——每个包恰好在深度 2，这使 workspace glob 保持简洁的 `packages/*/*`，并让一条 `@deepseek-ai/dsh-*` tsconfig 通配符即可解析所有包（唯一的目录名使 first-on-disk-wins 无歧义）。
 - **`session` 留在 `core/`；持久化独立成族。** 会话日志是核心产品 API。其存储后端构成一个平行的能力族（`session-persistence/`），与 `llm/` 和 `bash/` 对称，而非嵌套在 `core/session/` 下。
 - **`agent-loop` 在 `core/` 中。** 它是 `agent` seam 唯一的具体实现，但作为 harness 的默认产品循环交付，因此与核心主干同处。插件仍然依赖 `agent` 的词汇，从不依赖 `agent-loop`，所以循环仍可替换。
-- **`invariants` 和 `ui-stdio` 属于 `support/`，不是产品。** `invariants` 是开发模式的契约检查。`ui-stdio` 从示例中提取出来以便复用和满足覆盖率门禁——它与示例耦合，因此与 `llm-replay`（快照测试的回放适配器）一起放在 `support/` 中。`acp` 是 `ui/` 的唯一成员，因为它是真正的产品接口（编辑器驱动的 ACP 桥接），与 readline 演示辅助工具在结构上截然不同。
+- **产品自动化与面向人类的 UI 是两个独立分组。** `acp` 是位于 `acp/` 下的产品传输层，而命令、审批、交互和展示适配器位于 `ui/` 下。仅开发用的 invariants 与回放基础设施仍留在 `support/` 中。
 
 ### 去重包列表
 
@@ -70,7 +71,7 @@ packages/
 
 - **第三层（每个族下设 `adapters/`/`impls/`）**：否决。统一深度 2 使 workspace glob 保持简洁的 `packages/*/*`，并让一条 `@deepseek-ai/dsh-*` tsconfig 通配符即可解析所有包。
 - **将持久化嵌套在 `core/session/` 下**：否决。存储后端构成一个平行的能力族，与 `llm/` 和 `bash/` 对称，而会话日志本身属于核心产品 API。
-- **`ui-stdio` 放在 `ui/` 下**：否决。它是与示例耦合的开发支撑，不是产品接口；`acp` 是 `ui/` 的唯一成员，因为编辑器实际驱动它。
+- **`ui-stdio` 放在 `ui/` 下**：否决。它曾是与示例耦合的开发支撑，不是产品接口。
 
 ## 后果
 

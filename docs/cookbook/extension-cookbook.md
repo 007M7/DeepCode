@@ -58,11 +58,11 @@ export function apply(ctx: Context) {
 }
 ```
 
-## A client-driver plugin (external protocol bridge)
+## An external protocol driver
 
-A *client driver* is a UI plugin for a wire-protocol peer. It owns stdio, so stdout logging must be disabled, creates or resumes agents through the factory, maps harness events to protocol messages, and maps requests to `followup()` or `cancel()`. Settle each request exactly once from durable `turn/end`, even if rendering fails, and tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
+A *protocol driver* adapts a wire peer to `ctx.agents`; it may serve a UI or an automation client. A stdio driver owns stdout, creates or resumes agents through the factory, maps the protocol's requests to `followup()` or `cancel()`, and settles each request exactly once from durable `turn/end`. Tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
 
-`packages/ui/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the permission-prompt answerer it registers on the approval seam.
+[`packages/acp/acp`](../../packages/acp/acp) is the automation-only worked example: it exposes fresh text sessions over Agent Client Protocol JSON-RPC stdio, emits committed assistant text, and registers a one-shot machine permission answerer for agents it owns. Its [README](../../packages/acp/acp/README.md) owns the exact method and lifecycle contract.
 
 ```ts
 import type { Context } from 'cordis'
