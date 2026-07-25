@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -150,6 +150,88 @@ describe('request stability across the loop', () => {
     const resumedHeaders = resumedHandle.agent.session.events.filter(event => event.type === 'request/header')
     expect(resumedHeaders.at(-1)?.data.header.config.reasoningEffort).toBe(ReasoningEffortId('max'))
     expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
+  })
+
+  it('keeps reasoning resolution, request logging, and dispatch on one adapter registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: 'stable base' })
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    const started = Promise.withResolvers<undefined>()
+    const reasoning = Promise.withResolvers<LlmModelReasoningInfo>()
+    const first = new class extends MockAdapter {
+      override resolveModelReasoning(
+        _provider: string,
+        _model: string,
+        _signal?: AbortSignal,
+      ): typeof reasoning.promise {
+        started.resolve(undefined)
+        return reasoning.promise
+      }
+    }([textResponse('first')])
+    const second = new MockAdapter([textResponse('second')], {
+      efforts: [{ id: ReasoningEffortId('max'), name: 'Max' }],
+      defaultEffort: ReasoningEffortId('max'),
+    })
+    const disposeFirst = ctx.llm.registerAdapter(['mock'], first)
+    const agent = ctx.agentLoop.create(SessionId('effort-hmr'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'go')
+    await started.promise
+    disposeFirst()
+    ctx.llm.registerAdapter(['mock'], second)
+    reasoning.resolve({
+      efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
+      defaultEffort: ReasoningEffortId('high'),
+    })
+    await waitForIdle(ctx, agent)
+
+    expect(first.requests.map(request => request.reasoningEffort)).toEqual([
+      ReasoningEffortId('high'),
+    ])
+    expect(second.requests).toHaveLength(0)
+    const headers = agent.session.events.filter(event => event.type === 'request/header')
+    expect(headers.at(-1)?.data.header.config.reasoningEffort).toBe(ReasoningEffortId('high'))
+  })
+
+  it('aborts a blocked reasoning lookup before quiescent disposal completes', async () => {
+    const started = Promise.withResolvers<AbortSignal>()
+    const adapter = new class extends MockAdapter {
+      override resolveModelReasoning(
+        _provider: string,
+        _model: string,
+        signal?: AbortSignal,
+      ): Promise<never> {
+        if (signal === undefined) return Promise.reject(new Error('missing reasoning signal'))
+        started.resolve(signal)
+        return new Promise((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(signal.reason instanceof Error ? signal.reason : new Error('reasoning aborted'))
+            return
+          }
+          signal.addEventListener('abort', () => {
+            reject(signal.reason instanceof Error ? signal.reason : new Error('reasoning aborted'))
+          }, { once: true })
+        })
+      }
+    }([])
+    const ctx = await harness(adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('reasoning-dispose'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+
+    send(handle.agent, 'go')
+    const signal = await started.promise
+    await handle.dispose()
+
+    expect(signal.aborted).toBe(true)
+    expect(handle.agent.status).toBe('disposed')
+    expect(adapter.requests).toHaveLength(0)
+    expect(handle.agent.session.events.some(event => event.type === 'request/header')).toBe(false)
   })
 
   it.each(['plain error', 'LLM error'] as const)(

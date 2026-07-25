@@ -112,7 +112,7 @@ async function* exampleChunks(): AsyncIterable<StreamChunk> {
 
 `stream()` 接收仓库导出的 `GenerateOptions`。它包含模型名、由适配器持有的推理强度 ID、对话历史、系统提示词、tool schema、生成参数、停止序列和中止信号；完整字段以 `@deepseek-ai/dsh-llm` 导出的 TypeScript 类型为准。适配器必须将支持的字段映射到具体 API；无法支持的字段应抛出带稳定 code 的 `LlmError`，不能静默丢弃。
 
-当某个具体模型提供可选推理强度时，请覆写 `resolveModelReasoning(provider, model)`。返回有序的不透明 ID、展示名称，以及可选的配置默认值；不要将提供方使用的等级名称提升为核心枚举。服务会校验元数据，并在调用 `stream()` 前拒绝显式指定但不受支持的值。返回 `undefined` 表示该模型没有可选的推理强度能力。
+当某个具体模型提供可选推理强度时，请覆写 `resolveModelReasoning(provider, model, signal?)`。返回有序的不透明 ID、展示名称，以及可选的配置默认值；不要将提供方使用的等级名称提升为核心枚举。异步查询必须响应这个可选信号，让取消和资源释放都能达到完全停稳。服务会校验元数据，并在调用 `stream()` 前拒绝显式指定但不受支持的值。返回 `undefined` 表示该模型没有可选的推理强度能力。
 
 ## 注册适配器
 

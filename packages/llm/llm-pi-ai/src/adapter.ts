@@ -142,6 +142,7 @@ export class PiAiAdapter extends LlmAdapter {
   override resolveModelReasoning(
     provider: string,
     model: string,
+    _signal?: AbortSignal,
   ): Promise<LlmModelReasoningInfo | undefined> {
     const profile = this.profiles.get(provider)
     if (profile === undefined) {

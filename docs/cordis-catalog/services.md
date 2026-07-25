@@ -745,37 +745,52 @@ async resolveModelContext( provider: string, model: string, ): Promise<LlmModelC
  * effort selector is unsupported for that model.
  * @param provider - registered provider route to inspect.
  * @param model - exact model id passed to the adapter.
+ * @param signal - optional cancellation for adapter-owned asynchronous lookup.
  * @returns detached reasoning metadata, or `undefined` when unsupported.
  */
-async resolveModelReasoning( provider: string, model: string, ): Promise<LlmModelReasoningInfo | undefined>
+async resolveModelReasoning( provider: string, model: string, signal?: AbortSignal, ): Promise<LlmModelReasoningInfo | undefined>
 
 /**
  * Validate a conversation call config against its exact model capability and
  * materialize an adapter-configured default. Unsupported explicit efforts
- * reject before provider I/O; no clamping or aliasing is performed.
+ * reject before provider I/O; no clamping or aliasing is performed. This
+ * standalone query does not bind a later dispatch; use {@link prepareCall}
+ * when logging and streaming must share one adapter registration.
  * @param config - provider/model route and optional request controls.
+ * @param signal - optional cancellation for adapter-owned capability lookup.
  * @returns a detached config only when a default must be materialized.
  */
-async resolveCallConfig(config: LlmCallConfig): Promise<LlmCallConfig>
+async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>
+
+/**
+ * Resolve one call under its current adapter registration. The returned
+ * one-shot handle keeps that registration across header logging and dispatch,
+ * so HMR cannot combine one adapter's capability result with another adapter.
+ * @param config - provider/model route and optional request controls.
+ * @param signal - optional cancellation for adapter-owned capability lookup.
+ * @returns a prepared config and its registration-bound stream entry point.
+ */
+async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
  * instance owns its historical provider and the target provider. Final
- * adapter selection, dispatch, and iteration failures retain their original
- * Error identity and are tagged in a call-local scope for narrow agent-loop
- * request recovery; middleware and nested-call failures remain untagged for
- * the outer call.
+ * adapter selection remains fixed through asynchronous reasoning resolution
+ * and dispatch. Selection, dispatch, and iteration failures retain their
+ * original Error identity and are tagged in a call-local scope for narrow
+ * agent-loop request recovery; middleware and nested-call failures remain
+ * untagged for the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmModelReasoningInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmModelReasoningInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:175`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:192`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

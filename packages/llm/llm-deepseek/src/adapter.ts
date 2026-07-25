@@ -147,6 +147,7 @@ export class DeepSeekAdapter extends LlmAdapter {
   override resolveModelReasoning(
     _provider: string,
     _model: string,
+    _signal?: AbortSignal,
   ): Promise<LlmModelReasoningInfo | undefined> {
     if (this.options.defaults?.thinking === 'disabled') return Promise.resolve(undefined)
     return Promise.resolve({

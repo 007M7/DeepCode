@@ -309,6 +309,11 @@
     },
     {
       "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "PreparedLlmCall",
+      "source": "packages/llm/llm/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
       "symbol": "LlmAdapter",
       "source": "packages/llm/llm/src/index.ts",
       "projection": "public-api"
@@ -1464,6 +1469,11 @@
       "symbol": "BlockAssembler",
       "source": "packages/llm/llm/src/assembler.ts",
       "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.zh.md",
+      "symbol": "PreparedLlmCall",
+      "source": "packages/llm/llm/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/llm-streaming.zh.md",

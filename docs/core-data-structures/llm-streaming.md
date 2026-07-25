@@ -157,7 +157,23 @@ declare class BlockAssembler {
 
 ## The seam
 
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerInfo()` and asynchronous `listModels()` methods feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. The separate `resolveModelContext()` query exposes correctness-sensitive capacity, while `resolveModelReasoning()` exposes ordered model-owned effort ids and an optional deployment default; absence from either query means unavailable metadata or capability, not invalid catalog membership. The service validates and materializes reasoning through `resolveCallConfig()` at the final adapter boundary, so direct calls cannot bypass unsupported-effort rejection. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
+`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerInfo()` and asynchronous `listModels()` methods feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. The separate `resolveModelContext()` query exposes correctness-sensitive capacity, while `resolveModelReasoning()` exposes ordered model-owned effort ids and an optional deployment default; absence from either query means unavailable metadata or capability, not invalid catalog membership. A reasoning resolver receives optional cancellation and must settle promptly after abort. The service validates and materializes reasoning through `resolveCallConfig()` at the final adapter boundary, so direct calls cannot bypass unsupported-effort rejection; direct dispatch captures one registration before awaiting that resolution. The agent loop instead uses `prepareCall()` to keep the same registration across capability resolution, durable header logging, and dispatch. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
+
+```ts type-equiv
+/** One model call whose config and adapter registration were resolved together. */
+interface PreparedLlmCall {
+  /** Detached, deep-frozen config with any adapter-owned default materialized. */
+  readonly config: LlmCallConfig
+  /**
+   * Dispatch this call once through the registration captured during
+   * preparation. The request's call-config fields must match {@link config};
+   * reuse or mismatch fails with `INVALID_PREPARED_CALL`.
+   * @param options - fully assembled request carrying the prepared config.
+   * @returns the chunk stream, including the `llm/stream` waterfall.
+   */
+  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+}
+```
 
 ```ts public-api
 /**
@@ -197,11 +213,14 @@ declare abstract class LlmAdapter {
    * the model has no selectable reasoning-effort capability.
    * @param _provider - one provider route owned by this adapter.
    * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @param _signal - cancellation for this exact-model lookup; implementations
+   *   must settle promptly after it aborts.
    * @returns adapter-owned effort metadata, or `undefined` when unsupported.
    */
   resolveModelReasoning(
     _provider: string,
     _model: string,
+    _signal?: AbortSignal,
   ): Promise<LlmModelReasoningInfo | undefined>;
   /**
    * Stream one model call as raw chunks. The only required method.

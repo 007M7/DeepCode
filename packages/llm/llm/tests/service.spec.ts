@@ -799,6 +799,115 @@ describe('LlmService', () => {
     expect(Object.isFrozen(adapter.lastOptions)).toBe(true)
   })
 
+  it('pins one adapter registration across asynchronous reasoning resolution and dispatch', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const started = Promise.withResolvers<undefined>()
+    const reasoning = Promise.withResolvers<LlmModelReasoningInfo>()
+    const first = new class extends RecordingAdapter {
+      override resolveModelReasoning(
+        _provider: string,
+        _model: string,
+        _signal?: AbortSignal,
+      ): Promise<LlmModelReasoningInfo> {
+        started.resolve(undefined)
+        return reasoning.promise
+      }
+    }(SCRIPT)
+    const disposeFirst = ctx.llm.registerAdapter(['route'], first)
+    const draining = (async () => {
+      for await (const _chunk of ctx.llm.stream({
+        provider: 'route',
+        model: 'model',
+        messages: [],
+      })) { /* drain */ }
+    })()
+
+    await started.promise
+    disposeFirst()
+    const second = new RecordingAdapter(SCRIPT)
+    ctx.llm.registerAdapter(['route'], second)
+    reasoning.resolve({
+      efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
+      defaultEffort: ReasoningEffortId('high'),
+    })
+    await draining
+
+    expect(first.lastOptions?.reasoningEffort).toBe(ReasoningEffortId('high'))
+    expect(second.lastOptions).toBeUndefined()
+  })
+
+  it('prepares a one-shot registration-bound call and rejects config drift', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const adapter = new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      {
+        model: {
+          efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
+          defaultEffort: ReasoningEffortId('high'),
+        },
+      },
+    )
+    ctx.llm.registerAdapter(['route'], adapter)
+    const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    expect(Object.isFrozen(prepared.config)).toBe(true)
+    const stream = prepared.stream({
+      ...prepared.config,
+      model: 'other',
+      messages: [],
+    })
+
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toMatchObject({ code: 'INVALID_PREPARED_CALL' })
+    expect(() => prepared.stream({
+      ...prepared.config,
+      messages: [],
+    })).toThrow(expect.objectContaining({ code: 'INVALID_PREPARED_CALL' }))
+  })
+
+  it('passes cancellation through reasoning capability resolution', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const started = Promise.withResolvers<undefined>()
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModelReasoning(
+        _provider: string,
+        _model: string,
+        signal?: AbortSignal,
+      ): Promise<LlmModelReasoningInfo | undefined> {
+        started.resolve(undefined)
+        return new Promise((_resolve, reject) => {
+          if (signal === undefined) {
+            reject(new Error('missing reasoning signal'))
+            return
+          }
+          if (signal.aborted) {
+            reject(signal.reason instanceof Error ? signal.reason : new Error('reasoning aborted'))
+            return
+          }
+          signal.addEventListener('abort', () => {
+            reject(signal.reason instanceof Error ? signal.reason : new Error('reasoning aborted'))
+          }, { once: true })
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+    const controller = new AbortController()
+    const resolving = ctx.llm.resolveCallConfig(
+      { provider: 'route', model: 'model' },
+      controller.signal,
+    )
+
+    await started.promise
+    const reason = new Error('cancel reasoning')
+    controller.abort(reason)
+    await expect(resolving).rejects.toBe(reason)
+  })
+
   it.each([0, -1, 1.5, Number.NaN])(
     'rejects invalid adapter model context %s',
     async (contextWindow) => {

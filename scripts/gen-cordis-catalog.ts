@@ -93,6 +93,7 @@ export const LINK_MAP: Record<string, string> = {
   CommandResult: 'commands.md',
   CommandSurface: 'commands.md',
   LlmAdapter: 'llm-streaming.md',
+  PreparedLlmCall: 'llm-streaming.md',
   LlmService: 'llm-streaming.md',
   StreamChunk: 'llm-streaming.md',
   CreateSessionOptions: 'persistence.md',

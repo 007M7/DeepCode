@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { agentEvents, agentInterruptReasonOf, assembleContextFor, AgentMessageId } from '@deepseek-ai/dsh-agent'
@@ -689,8 +689,10 @@ async function runStep(
     throw new Error(`agent "${agent.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
   }
   let config: LlmCallConfig
+  let preparedCall: PreparedLlmCall | undefined
   try {
-    config = await ctx.llm.resolveCallConfig(proposedConfig)
+    preparedCall = await ctx.llm.prepareCall(proposedConfig, signal)
+    config = preparedCall.config
   } catch (error: unknown) {
     // A waterfall listener may own and short-circuit a route with no adapter.
     // Terminal dispatch still raises NO_ADAPTER when no listener handles it.
@@ -731,7 +733,7 @@ async function runStep(
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
   const chunkSeqs: number[] = []
-  const stream = ctx.llm.stream(request)
+  const stream = preparedCall?.stream(request) ?? ctx.llm.stream(request)
   try {
     for await (const chunk of stream) {
       interruptionCheckpoint(signal)

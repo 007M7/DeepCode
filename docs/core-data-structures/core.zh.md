@@ -331,7 +331,7 @@ interface ToolSchema {
 
 循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的提示词、权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）以及会话前缀。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。循环在 waterfall 之后解析确切模型的能力，拒绝显式指定但不受支持的推理强度 ID（不自动调整），填入适配器配置的默认值，并记录最终生效值。`agent/session-prefix` 为每个循环实例组合一次仅用于请求的 prefix 消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
+`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall 结束后，循环会在轮次信号控制下完成确切模型的能力准备，拒绝显式指定但不受支持的推理强度 ID（不自动调整），填入适配器配置的默认值，并记录最终生效值。准备完成的调用直至分派完成始终持有同一项适配器注册。`agent/session-prefix` 为每个循环实例组合一次仅用于请求的 prefix 消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
 在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的提示词组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
 

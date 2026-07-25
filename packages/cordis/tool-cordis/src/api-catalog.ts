@@ -385,16 +385,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve context capacity from the adapter that owns one exact route.\n * This query is independent of the advisory model catalog: an unlisted model\n * may return metadata, while `undefined` never rejects later routing.\n * @param provider - registered provider route to inspect.\n * @param model - exact model id passed to the adapter.\n * @returns detached context metadata, or `undefined` when the adapter has none.\n */',
       },
       {
-        signature: 'async resolveModelReasoning( provider: string, model: string, ): Promise<LlmModelReasoningInfo | undefined>',
-        jsDoc: '/**\n * Resolve selectable reasoning efforts from the adapter that owns one exact\n * route. Metadata is validated and detached; an absent result means an\n * effort selector is unsupported for that model.\n * @param provider - registered provider route to inspect.\n * @param model - exact model id passed to the adapter.\n * @returns detached reasoning metadata, or `undefined` when unsupported.\n */',
+        signature: 'async resolveModelReasoning( provider: string, model: string, signal?: AbortSignal, ): Promise<LlmModelReasoningInfo | undefined>',
+        jsDoc: '/**\n * Resolve selectable reasoning efforts from the adapter that owns one exact\n * route. Metadata is validated and detached; an absent result means an\n * effort selector is unsupported for that model.\n * @param provider - registered provider route to inspect.\n * @param model - exact model id passed to the adapter.\n * @param signal - optional cancellation for adapter-owned asynchronous lookup.\n * @returns detached reasoning metadata, or `undefined` when unsupported.\n */',
       },
       {
-        signature: 'async resolveCallConfig(config: LlmCallConfig): Promise<LlmCallConfig>',
-        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize an adapter-configured default. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed.\n * @param config - provider/model route and optional request controls.\n * @returns a detached config only when a default must be materialized.\n */',
+        signature: 'async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>',
+        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize an adapter-configured default. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed. This\n * standalone query does not bind a later dispatch; use {@link prepareCall}\n * when logging and streaming must share one adapter registration.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a detached config only when a default must be materialized.\n */',
+      },
+      {
+        signature: 'async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>',
+        jsDoc: '/**\n * Resolve one call under its current adapter registration. The returned\n * one-shot handle keeps that registration across header logging and dispatch,\n * so HMR cannot combine one adapter\'s capability result with another adapter.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a prepared config and its registration-bound stream entry point.\n */',
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
-        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection, dispatch, and iteration failures retain their original\n * Error identity and are tagged in a call-local scope for narrow agent-loop\n * request recovery; middleware and nested-call failures remain untagged for\n * the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
+        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection remains fixed through asynchronous reasoning resolution\n * and dispatch. Selection, dispatch, and iteration failures retain their\n * original Error identity and are tagged in a call-local scope for narrow\n * agent-loop request recovery; middleware and nested-call failures remain\n * untagged for the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
       },
     ],
   },
@@ -1702,7 +1706,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmAdapter',
-    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext | undefined>;\n    resolveModelReasoning(_provider: string, _model: string): Promise<LlmModelReasoningInfo | undefined>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext | undefined>;\n    resolveModelReasoning(_provider: string, _model: string, _signal?: AbortSignal): Promise<LlmModelReasoningInfo | undefined>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmCallConfig',
@@ -1755,6 +1759,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OutOfBandSessionEventType',
     declaration: 'export type OutOfBandSessionEventType = Exclude<Extract<SessionEventType, keyof OutOfBandSessionEventMap>, SurfaceEventType>;',
+  },
+  {
+    name: 'PreparedLlmCall',
+    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'PreparedReferencedMessage',
