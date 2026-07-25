@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { CallId, ReasoningEffortId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type JsonValue, type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -45,6 +45,7 @@ const CHECKPOINTS = [
   'surface-after-compaction-narrow',
   'surface-after-compaction-wide',
   'model-selector',
+  'model-effort-switching',
   'model-switching',
   'errors-and-help',
   'disposed-terminal',
@@ -632,7 +633,22 @@ describe('TUI terminal-state snapshots', () => {
   })
 
   it('pins the model selector and selection notice', async () => {
-    const harness = await setupSnapshot({}, { columns: 92, rows: 32 })
+    const harness = await setupSnapshot({
+      catalog: {
+        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        models: [
+          { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+          { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+        ],
+        resolveModelReasoning: () => Promise.resolve({
+          efforts: [
+            { id: ReasoningEffortId('high'), name: 'High' },
+            { id: ReasoningEffortId('max'), name: 'Max' },
+          ],
+          defaultEffort: ReasoningEffortId('high'),
+        }),
+      },
+    }, { columns: 92, rows: 32 })
     await renderAfter(harness, () => {
       harness.terminal.send('/model')
       harness.terminal.send('\r')
@@ -640,6 +656,10 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('model-selector', harness.terminal, { includeScrollback: true })
     await renderAfter(harness, () => {
       harness.terminal.send('\x1b[B')
+      harness.terminal.send('\x1b[Z')
+    })
+    await checkpoint('model-effort-switching', harness.terminal, { includeScrollback: true })
+    await renderAfter(harness, () => {
       harness.terminal.send('\r')
     })
     await checkpoint('model-switching', harness.terminal, { includeScrollback: true })
