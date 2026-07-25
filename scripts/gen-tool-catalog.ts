@@ -331,7 +331,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSessionQuery)
     },
     note:
-      'The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. Default ACP, TUI, and Web compositions enforce the declared search timeout and apply the generic tool-result spill policy.',
+      'The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent',

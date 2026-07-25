@@ -51,9 +51,6 @@
       "path": "../../session-query/session-query-sqlite"
     },
     {
-      "path": "../../session-query/tool-session-query"
-    },
-    {
       "path": "../../bash/bash-local"
     },
     {

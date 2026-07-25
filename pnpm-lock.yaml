@@ -2346,9 +2346,6 @@ importers:
       '@deepseek-ai/dsh-tool-fs-search':
         specifier: workspace:^
         version: link:../../fs/tool-fs-search
-      '@deepseek-ai/dsh-tool-session-query':
-        specifier: workspace:^
-        version: link:../../session-query/tool-session-query
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../skill/tool-skill

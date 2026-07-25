@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-host-runtime
 
-Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence, a derived SQLite FTS session-query index, immediate fallback titles, optional first-message model summaries, system prompt, tool and agent registries, agent loop, five workspace-authorized model-facing session-query tools, workspace instructions, local bash, the generic tool-timeout and 50,000-byte spill policies, and the provider-neutral user-interaction service), and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }` (its `api` comes from [`dsh-host-apiproxy`](../apiproxy/README.md)'s `createApiProxy` over that composition).
+Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence, a derived SQLite FTS session-query index, immediate fallback titles, optional first-message model summaries, system prompt, tool and agent registries, agent loop, workspace instructions, local bash, the generic tool-timeout and 50,000-byte spill policies, and the provider-neutral user-interaction service), and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }` (its `api` comes from [`dsh-host-apiproxy`](../apiproxy/README.md)'s `createApiProxy` over that composition).
 
 Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly two sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`) and headless session-event subscription; consuming clients must not bypass `api` through it.
 
@@ -22,53 +22,19 @@ Unary methods take the narrow `RpcRequest<P>` and echo `request.rpcId`; a prompt
 
 ## Model Experience
 
-### Prior-history system prompt
+### Optional session-query consumer
 
 #### What the model sees
 
-Every main host agent receives the fixed prior-history guidance below because `bootHost` always mounts the session-query tool plugin.
-
-##### Prior-history guidance
-
-```markdown
-Use session_search to find relevant work from prior sessions, or session_event_search to search earlier events in one session. Search results are cursor-free and workspace-scoped. Follow a useful hit with session_trace, session_event_trace, or session_event_read when you need lineage, relationships, or exact data.
-```
+The derived `ctx.sessionQuery` index is not model-facing. `bootHost` intentionally leaves the optional [`dsh-tool-session-query`](../../session-query/tool-session-query/README.md) consumer unmounted, so main host agents receive neither its prior-history prompt section nor its five schemas by default.
 
 #### Token effect
 
-One fixed concise section is present on every request; `workspaceContext: false` does not remove it.
+The index adds no prompt or schema tokens. A custom composition that mounts the consumer owns its added prompt, schemas, calls, and results.
 
 #### KV Cache effect
 
-The repeated prefix is stable while the fixed host assembly and guidance text are unchanged. Provider cache availability and eviction remain outside the host contract.
-
-### Session-query tool schemas
-
-#### What the model sees
-
-The fixed assembly mounts the generated [`session_search`, `session_event_search`, `session_trace`, `session_event_trace`, and `session_event_read` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query). The schemas expose no workspace path, provider cursor, output page, model-controlled result limit, or timeout argument.
-
-#### Token effect
-
-Five fixed read-only schemas are present on every main-agent request; their cost changes only if the host assembly or an agent-scoped visibility policy changes.
-
-#### KV Cache effect
-
-The schema prefix is stable while visibility, definitions, and order are unchanged. The host makes no claim that a provider will cache or retain that prefix.
-
-### Session-query execution and results
-
-#### What the model sees
-
-Cross-session results require exact equality with the calling session's workspace, while a caller without a workspace can target only itself. `session_search` excludes the calling session, and `session_event_search` on the current session excludes the step performing the call. Both searches are cursor-free, collect at most 100 authorized results, and carry a cooperative 30-second deadline; the three trace/read tools carry caller cancellation but declare no host deadline. Results are plain text. When a final result exceeds 50,000 UTF-8 bytes, the generic spill policy attempts to retain the complete formatted text in a private session-scoped file and replace it with a bounded preview, locator, and retrieval hint; a spill failure leaves the original result visible.
-
-#### Token effect
-
-Call arguments and data-dependent results remain in history until compaction. Search result count is bounded; after a successful spill, only the bounded preview and retrieval notice are resent, while the complete text remains outside model context.
-
-#### KV Cache effect
-
-Calls and results append after the reusable request prefix. Compaction may replace earlier history; timeout or spill outcomes change only the appended result text.
+The index alone does not change the reusable model-request prefix; mounting the optional consumer would add its stable prompt and schema prefix.
 
 ### Workspace instructions
 

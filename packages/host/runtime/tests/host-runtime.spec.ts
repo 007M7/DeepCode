@@ -141,21 +141,20 @@ describe('bootHost / startHost', () => {
     await handle.dispose()
   })
 
-  it('assembles workspace-authorized session query tools over the derived SQLite index', async () => {
+  it('assembles the derived SQLite query index without model-facing query tools', async () => {
     const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-boot-session-query-'))
     const handle = await bootHost({
       persistenceRoot,
       workspaceContext: false,
     })
     expect(handle.ctx.get('sessionQuery')).toBeDefined()
-    expect(handle.ctx.tools.schemas().map(schema => schema.name)).toEqual(expect.arrayContaining([
+    expect(handle.ctx.tools.schemas().map(schema => schema.name)).toEqual(expect.not.arrayContaining([
       'session_search',
       'session_event_search',
       'session_trace',
       'session_event_trace',
       'session_event_read',
     ]))
-    expect(handle.ctx.tools.get('session_search')?.timeoutMs).toBe(30_000)
     await handle.dispose()
   })
 

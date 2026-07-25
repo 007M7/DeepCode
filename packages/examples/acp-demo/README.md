@@ -36,7 +36,7 @@ The app does not install commands, user interaction, session navigation, configu
 | `goals` | owner defaults | Persisted same-session goal domain and model tools, or `false`. |
 | `llmRetry` | owner defaults | Bounded transient model-request retry policy. |
 
-The shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) adds the DeepSeek adapter, sandboxed bash and filesystem providers, one-shot approval policy, compaction, subagents, workflows, hooks, a derived session-query index, generic timeout and spill policies, and model-facing tools. Snapshot overlays replace only nondeterministic providers or policy values.
+The shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) adds the DeepSeek adapter, sandboxed bash and filesystem providers, one-shot approval policy, compaction, subagents, workflows, hooks, and model-facing tools. The app supplies the derived session-query index, while the model-facing query consumer remains an explicit leaf opt-in. Snapshot overlays replace only nondeterministic providers or policy values.
 
 ## Bin
 

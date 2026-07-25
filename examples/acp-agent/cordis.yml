@@ -63,26 +63,6 @@
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
-# The automation app opens ctx.sessionQuery before its ACP transport; this leaf
-# owns the workspace-authorized model-facing consumer.
-- id: tool-session-query
-  name: '@deepseek-ai/dsh-tool-session-query'
-
-# Enforce declared search deadlines and spill oversized plain-text tool output
-# without introducing a session-query-specific truncation path.
-- id: timeout-policy
-  name: '@deepseek-ai/dsh-timeout-policy'
-
-- id: spill-local
-  name: '@deepseek-ai/dsh-spill-local'
-  config:
-    root: !!js process.env.DSH_SNAPSHOT_SPILL_ROOT
-
-- id: spill-policy
-  name: '@deepseek-ai/dsh-spill-policy'
-  config:
-    maxInlineBytes: 50000
-
 # Replay-aware request pressure; the routed adapter supplies model capacity.
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'

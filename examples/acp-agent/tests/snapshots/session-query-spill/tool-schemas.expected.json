@@ -160,19 +160,207 @@
       }
     },
     {
-      "name": "run_code",
-      "description": "Execute a TypeScript program against the available tools. Write the BODY of an async function (erasable syntax only; top-level `await` and `return` work) and call tools as `await tools.name(args)` per the declarations in the system prompt. Only what you print or return comes back — curate it.",
+      "name": "session_event_read",
+      "description": "Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.",
       "parameters": {
         "type": "object",
         "properties": {
-          "code": {
+          "session_id": {
             "type": "string",
-            "description": "The program: the body of an async TypeScript function."
+            "description": "Target session id. Omit for the current session."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Target event sequence number."
+          },
+          "before": {
+            "type": "integer",
+            "description": "Number of preceding raw events to summarize. Omit for none."
+          },
+          "after": {
+            "type": "integer",
+            "description": "Number of following raw events to summarize. Omit for none."
           }
         },
         "required": [
-          "code"
+          "seq"
         ]
+      }
+    },
+    {
+      "name": "session_event_search",
+      "description": "Search prior events in one authorized session; the current session excludes the step performing this call.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target session id. Omit for the current session."
+          },
+          "query": {
+            "type": "string",
+            "description": "Literal full-text query over the target session."
+          },
+          "seq_from": {
+            "type": "integer",
+            "description": "Inclusive event sequence lower bound."
+          },
+          "seq_to": {
+            "type": "integer",
+            "description": "Inclusive event sequence upper bound."
+          },
+          "time_from": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+          },
+          "time_to": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+          },
+          "event_types": {
+            "type": "array",
+            "description": "Event types to include.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "surfaces": {
+            "type": "array",
+            "description": "Event surfaces to include.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "current",
+                "shadowed",
+                "log-only"
+              ]
+            }
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "session_event_trace",
+      "description": "Read every direct replacement and provenance relationship for one event in an authorized session.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target session id. Omit for the current session."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Target event sequence number."
+          }
+        },
+        "required": [
+          "seq"
+        ]
+      }
+    },
+    {
+      "name": "session_search",
+      "description": "Search prior sessions in the caller workspace and return the strongest matching event from each session.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Literal full-text query over prior session history."
+          },
+          "session_ids": {
+            "type": "array",
+            "description": "Optional session ids to include.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at_from": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 creation-time lower bound."
+          },
+          "created_at_to": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 creation-time upper bound."
+          },
+          "parent_session_ids": {
+            "type": "array",
+            "description": "Optional direct parent session ids.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_root_sessions": {
+            "type": "boolean",
+            "description": "Include sessions with no parent in the parent filter."
+          },
+          "availability": {
+            "type": "array",
+            "description": "Require at least one selected source availability.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "live",
+                "persisted"
+              ]
+            }
+          },
+          "event_seq_from": {
+            "type": "integer",
+            "description": "Inclusive event sequence lower bound."
+          },
+          "event_seq_to": {
+            "type": "integer",
+            "description": "Inclusive event sequence upper bound."
+          },
+          "event_time_from": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+          },
+          "event_time_to": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+          },
+          "event_types": {
+            "type": "array",
+            "description": "Event types to include.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "event_surfaces": {
+            "type": "array",
+            "description": "Event surfaces to include.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "current",
+                "shadowed",
+                "log-only"
+              ]
+            }
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "session_trace",
+      "description": "Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target session id. Omit for the current session."
+          }
+        }
       }
     },
     {

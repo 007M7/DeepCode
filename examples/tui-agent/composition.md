@@ -23,8 +23,6 @@ flowchart LR
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
-  plugin_tui_tool_session_query["tool-session-query<br/>@deepseek-ai/dsh-tool-session-query"]
-  cfg --> plugin_tui_tool_session_query
   plugin_tui_session_title_llm["session-title-llm<br/>@deepseek-ai/dsh-session-title-first-message-llm"]
   cfg --> plugin_tui_session_title_llm
   plugin_tui_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
@@ -73,7 +71,6 @@ flowchart LR
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `tui-agent` | `@deepseek-ai/dsh-tui-demo` |
-| `tool-session-query` | `@deepseek-ai/dsh-tool-session-query` |
 | `session-title-llm` | `@deepseek-ai/dsh-session-title-first-message-llm` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `tool-result-prune` | `@deepseek-ai/dsh-compact-tool-result-prune` |

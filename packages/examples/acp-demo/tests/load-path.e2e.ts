@@ -28,9 +28,8 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // Repo root is four levels up from packages/examples/acp-demo/tests.
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
-// A minimal leaf that loads this app + the two backends and the shipped
-// session-query consumer/policies — the same shape as examples/acp-agent/cordis.yml,
-// inlined so the package test owns its fixture.
+// A minimal opt-in leaf that loads this app + the two backends and the optional
+// session-query consumer/policies, inlined so the package test owns its fixture.
 const CORDIS_YML = `
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'

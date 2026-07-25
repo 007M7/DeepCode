@@ -20,7 +20,6 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
-import * as toolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as toolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -135,7 +134,6 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(LlmDeepSeek, {})
   await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
   await ctx.plugin(SessionQuerySqlite, { path: join(options.persistenceRoot, 'session-query.db') })
-  await ctx.plugin(toolSessionQuery, {})
   await ctx.plugin(LocalBashExecutor, {})
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +
   // the agent-spine bundle) so web sessions get the same coding-agent tool
