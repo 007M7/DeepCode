@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -b && tsdown",
     "build:web": "pnpm --filter @deepseek-ai/dsh-frontend run build",
-    "clean:build": "rm -rf .typecheck packages/*/*/lib vendor/*/lib *.tsbuildinfo",
+    "clean": "tsx scripts/clean.ts",
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
