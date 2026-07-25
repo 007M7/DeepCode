@@ -15,28 +15,30 @@ export const name = 'host-webserver-invariant'
 export const inject = ['invariants']
 
 /**
- * Owned relation: the web plugin registry's boot entry graph must stay
- * self-consistent — every row must resolve a clientPath under the same id
- * (the /plugins/<id>/client.js URL it advertises would otherwise 404 on a
- * browser that just received the graph). Checked synchronously on every
- * rescan trigger (cordis 'internal/plugin'): graph() and clientPath() read
- * the same table object, so the relation is self-consistent at any instant —
- * no need to wait out the registry's own debounced rescan. The registry
- * arrives through the context key the assembly publishes it under.
+ * Owned relation: route registrations and their disposers must stay
+ * symmetric — after the owning fiber of a registered route unloads, the
+ * route table must no longer answer for its path (a stale route would keep
+ * serving a disposed plugin's handler). Checked on every fiber teardown
+ * (cordis 'internal/plugin'): the service's own registry state is compared
+ * against the set of live fibers' registrations indirectly, by probing that
+ * dispose really removed the entry — the register() disposer contract.
  */
 const install: InvariantInstaller = (ctx, fail) => {
   ctx.on('internal/plugin', () => {
-    const registry = ctx.get('webPlugins') as
-      | {
-        graph(): { entries: { id: string; url: string }[] }
-        clientPath(id: string): string | undefined
-      }
+    const server = ctx.get('httpServer') as
+      | { register(route: { kind: 'exact'; path: string; handler: () => void }): () => void }
       | undefined
-    if (registry === undefined) return // carrier-only deployments never publish the registry
-    for (const row of registry.graph().entries) {
-      if (registry.clientPath(row.id) === undefined) {
-        fail(`web plugin graph row "${row.id}" advertises ${row.url} but resolves no client bundle path — the served __DSH_BOOT__ would 404 on fetch`)
-      }
+    if (server === undefined) return // no webserver row in this composition
+    // Register/dispose probe on a reserved path: if dispose leaves the route
+    // behind, a second register throws the duplicate error — the asymmetry.
+    // Each register(probe)() is one register+dispose cycle, so the probe never
+    // leaves residue; a leftover from the first cycle makes the second throw.
+    const probe = { kind: 'exact' as const, path: '/__dsh_invariant_probe__', handler: () => {} }
+    try {
+      server.register(probe)()
+      server.register(probe)()
+    } catch {
+      fail('httpServer.register() disposer left the route registered — route table and fiber lifecycles diverged')
     }
   }, { global: true })
 }

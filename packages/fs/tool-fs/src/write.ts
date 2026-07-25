@@ -125,9 +125,8 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
         after: outcome.after,
       }
     },
-    // Pure display: a diff card (an editor renders write as a new-file / full- replace diff).
-    // `oldText: null` — a call-time presenter has no access to the file's prior content, so
-    // even an overwrite renders new-file style, matching claude-agent-acp.
+    // Pure display: a diff card. A call-time presenter has no access to prior
+    // file content, so `oldText: null` also represents an overwrite here.
     presentCall(args): DiffCallView {
       return {
         card: 'diff',
@@ -136,10 +135,9 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
         locations: [{ path: args.file_path }],
       }
     },
-    // Result-time display: a `diff` card so the completed `tool_call_update` re-installs the
-    // diff rather than the model-facing result text (an ACP `tool_call_update.content` REPLACES
-    // the call's content, so a text result would clobber the pending diff card). Overwrites use
-    // applied metadata; creates and identical overwrites use the replay-safe args fallback.
+    // Result-time display repeats the diff because completed views replace the
+    // pending view. Overwrites use applied metadata; creates and identical
+    // overwrites use the replay-safe args fallback.
     presentResult(args, result: ToolResult): DiffResultView | undefined {
       if (result.isError) return undefined
       const diffs = diffsFromMeta(result.meta)

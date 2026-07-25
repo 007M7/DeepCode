@@ -161,11 +161,7 @@ function deepFreeze(value: unknown): void {
   }
 }
 
-// ---- defineStore shell (slot terminal design §4) ----
-// The type authority is ui-slots' store family (create(scopeKey?) and
-// clearPersisted() included); this module houses only the engine-backed
-// implementation. The one engine-side widening left: instances expose the
-// raw engine store for framework/test surfaces.
+// ui-slots owns the contract; this module supplies the engine implementation.
 
 /** A live engine instance: the contract instance plus the raw engine store. */
 export interface EngineStoreInstance<T, A extends ActionsDecl<T>> extends StoreInstance<T, A> {

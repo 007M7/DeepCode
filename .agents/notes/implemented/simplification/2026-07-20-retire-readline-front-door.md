@@ -32,7 +32,7 @@ Pipes remain the default test medium. PTY-driven subprocess tests are sanctioned
 ## Accepted losses
 
 - **Piped multi-turn in one process** — the readline channel could script several turns over stdin; the one-shot bin runs one task per process. Multi-turn continuity is covered by `RESUME_SESSION_ID`/resume e2es and the TUI's scripted PTY conversation.
-- **Non-TTY `ask_user_question`** — the readline provider was the only non-TTY terminal implementation of `ctx.userInteraction`. A headless run whose model calls `ask_user_question` now fails that tool call (no provider); the ACP bridge remains the non-terminal provider. A future headless deployment that needs it composes its own provider.
+- **Non-TTY `ask_user_question`** — the readline provider was the only non-TTY terminal implementation of `ctx.userInteraction`. A headless or ACP automation run whose model calls `ask_user_question` fails that tool call unless its composition supplies a provider; Web owns the shipped non-terminal provider.
 
 ## Alternatives considered
 

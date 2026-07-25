@@ -27,6 +27,17 @@ export const CONTEXT_WINDOW_EXCEEDED_CODE = 'CONTEXT_WINDOW_EXCEEDED'
 /** Canonical provider-neutral code for an exhausted account quota or balance. */
 export const QUOTA_EXCEEDED_CODE = 'QUOTA'
 
+/**
+ * Canonical provider-neutral code for a response that completed normally but
+ * carried no content blocks at all. Providers occasionally emit a degenerate
+ * completion (a terminal stop with zero output); adapters classify it as this
+ * failure instead of yielding an empty assistant message, because an empty
+ * message silently ends the turn with nothing for the user or the loop to act
+ * on. The attempt produced nothing durable, so retry policy treats it as safe
+ * to repeat.
+ */
+export const EMPTY_RESPONSE_CODE = 'EMPTY_RESPONSE'
+
 /** Structured codes and plain phrases that explicitly name a context bound being exceeded. */
 const STRUCTURED_CONTEXT_OVERFLOW = new RegExp(
   String.raw`(?:^|[^a-z0-9])context[\s_-](?:length|window)[\s_-]`

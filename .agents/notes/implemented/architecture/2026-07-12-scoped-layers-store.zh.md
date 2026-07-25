@@ -123,4 +123,4 @@ export class AnonymousEntries<V> {
 - `dsh-scope` 单元测试覆盖全局构造、专属层延迟构造、非创建式读取、命名合并顺序与遮蔽、聚合回收、工厂与 action 失败清理、通知顺序与回滚、`notify: false`、effect 标签、原始 disposer 身份、幂等拆除、调用方提供的重名错误、相同匿名值的独立登记、活迭代器，以及表清空后的 generation 脱离。
 - 工具、系统提示词和命令专项测试套件覆盖 restriction、保留传输处理、已知名称与可限制名称的一致性、guard 重入与自我替换、校验顺序、精确诊断、section 先遮蔽再求值、提供方快照成员关系、variable 重入与自我替换、隔离失败的命令观察者、冻结且有序的视图、直接执行和生命周期销毁。
 - 作用域核心数据的类型等价性检查将 `ScopeLayer` 文档与其源声明绑定。仓库级的文档、模块图、构建、hygiene、覆盖率与构建产物门禁会覆盖包根导出与包边界。
-- 现有 ACP（Agent Client Protocol）、headless 和 TUI 无密钥快照继续作为工具 schema、提示词组装和人类命令的回归边界。实现不会更新任何预期 transcript（文本记录）。
+- 现有 ACP（Agent Client Protocol）、headless 和 TUI 无密钥快照继续作为工具 schema 与提示词组装的回归边界；人类命令由 TUI 覆盖。实现不会更新任何预期 transcript（文本记录）。

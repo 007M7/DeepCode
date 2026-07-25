@@ -2,7 +2,7 @@
 
 [English](user-interaction.md) | 中文
 
-[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`：`dsh-tui` 使用键盘驱动的 overlay，`dsh-acp` 则把问题映射为 ACP（Agent Client Protocol）表单 elicitation。
+[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；`dsh-tui` 使用键盘驱动的 overlay，host 运行时把请求转发给它连接的客户端。
 
 源码：[`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -95,7 +95,7 @@ interface UserInteractionProvider {
 
 ## 错误
 
-`UserInteractionError` 继承 `HarnessError`，因此 `ctx.tools.execute()` 会保留 `{ name, code }`，用于面向模型的工具失败，如 `EMPTY_QUESTIONS`、`NO_PROVIDER`、`ASK_ABORTED` 或 ACP 侧取消。
+`UserInteractionError` 继承 `HarnessError`，因此 `ctx.tools.execute()` 会保留 `{ name, code }`，用于面向模型的工具失败，如 `EMPTY_QUESTIONS`、`NO_PROVIDER`、`ASK_ABORTED` 或 UI 侧取消。
 
 ```ts type-equiv
 /** Stable error taxonomy for user-interaction failures. */

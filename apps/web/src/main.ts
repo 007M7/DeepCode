@@ -3,8 +3,8 @@
  * loader holding, module-table seeding, AppRoot gate, plugin assembly — lives
  * in @deepseek-ai/dsh-client-web; this file only finds the mount point.
  */
-import { bootWebShell } from '@deepseek-ai/dsh-client-web'
+import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
 
 const el = document.getElementById('root')
 if (el === null) throw new Error('web app: missing #root')
-bootWebShell(el)
+void new AppWebEntry(el).run()

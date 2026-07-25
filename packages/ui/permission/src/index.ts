@@ -51,7 +51,7 @@ export interface PresetSpec {
 
 /** The select-option shape a presentation layer advertises for one preset (or for the derived `custom` state). */
 export interface PresetOption {
-  /** The machine value (`session/set_config_option` vocabulary): the table key, or `custom`. */
+  /** Stable option value: the table key, or `custom`. */
   value: string
   /** The display label. */
   name: string
