@@ -96,6 +96,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
+    expect((await c.sessions.attachment({ sessionId: 's' as never, attachmentId: 'a' as never })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)
   })

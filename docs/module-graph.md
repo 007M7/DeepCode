@@ -133,6 +133,10 @@ flowchart TD
     pkg_user_approval["user-approval"]
     pkg_user_interaction["user-interaction"]
   end
+  subgraph group_attachment["packages/attachment"]
+    pkg_attachment["attachment"]
+    pkg_attachment_local["attachment-local"]
+  end
   subgraph group_client["packages/client"]
     pkg_client_connection["client-connection"]
     pkg_client_hmr["client-hmr"]
@@ -240,17 +244,13 @@ flowchart TD
   pkg_host_apiproxy --> pkg_invariants
   pkg_host_webserver --> pkg_invariants
   pkg_storage --> pkg_invariants
-  pkg_llm --> pkg_brand
-  pkg_llm --> pkg_invariants
+  pkg_attachment --> pkg_brand
+  pkg_attachment --> pkg_invariants
   pkg_client_connection --> pkg_host_webserver
   pkg_client_connection --> pkg_invariants
   pkg_client_hmr --> pkg_client_modules
   pkg_client_hmr --> pkg_host_webserver
   pkg_client_hmr --> pkg_invariants
-  pkg_client_ui_conversation --> pkg_client_runtime
-  pkg_client_ui_conversation --> pkg_client_ui_primitives
-  pkg_client_ui_conversation --> pkg_client_ui_slots
-  pkg_client_ui_conversation --> pkg_invariants
   pkg_client_ui_layout --> pkg_client_runtime
   pkg_client_ui_layout --> pkg_client_ui_slots
   pkg_client_ui_layout --> pkg_invariants
@@ -273,9 +273,21 @@ flowchart TD
   pkg_storage_json --> pkg_storage
   pkg_storage_sqlite --> pkg_invariants
   pkg_storage_sqlite --> pkg_storage
+  pkg_llm --> pkg_attachment
+  pkg_llm --> pkg_brand
+  pkg_llm --> pkg_invariants
+  pkg_attachment_local --> pkg_attachment
+  pkg_attachment_local --> pkg_invariants
+  pkg_attachment_local --> pkg_paths
+  pkg_client_ui_conversation --> pkg_attachment
+  pkg_client_ui_conversation --> pkg_client_runtime
+  pkg_client_ui_conversation --> pkg_client_ui_primitives
+  pkg_client_ui_conversation --> pkg_client_ui_slots
+  pkg_client_ui_conversation --> pkg_invariants
   pkg_llm_deepseek --> pkg_invariants
   pkg_llm_deepseek --> pkg_llm
   pkg_llm_deepseek --> pkg_timeout
+  pkg_llm_pi_ai --> pkg_attachment
   pkg_llm_pi_ai --> pkg_invariants
   pkg_llm_pi_ai --> pkg_llm
   pkg_llm_pi_ai --> pkg_timeout
@@ -813,10 +825,9 @@ flowchart TD
 | [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`invariants`](../packages/support/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/support/invariants) |
 | [`storage`](../packages/storage/storage) | `storage` | [`invariants`](../packages/support/invariants) |
-| [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
+| [`attachment`](../packages/attachment/attachment) | `attachment` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`client-connection`](../packages/client/connection) | `client` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`client-hmr`](../packages/client/hmr) | `client` | [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
-| [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
@@ -825,8 +836,11 @@ flowchart TD
 | [`storage-domain`](../packages/storage/storage-domain) | `storage` | [`invariants`](../packages/support/invariants), [`storage`](../packages/storage/storage) |
 | [`storage-json`](../packages/storage/storage-json) | `storage` | [`invariants`](../packages/support/invariants), [`storage`](../packages/storage/storage) |
 | [`storage-sqlite`](../packages/storage/storage-sqlite) | `storage` | [`invariants`](../packages/support/invariants), [`storage`](../packages/storage/storage) |
+| [`llm`](../packages/llm/llm) | `llm` | [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
+| [`attachment-local`](../packages/attachment/attachment-local) | `attachment` | [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |
+| [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`attachment`](../packages/attachment/attachment), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
-| [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
+| [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`web`](../packages/web/web) | `web` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
