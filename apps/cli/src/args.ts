@@ -14,7 +14,6 @@ import { Command, CommanderError } from 'commander'
 export const LOOPBACK_HOST = '127.0.0.1'
 /** The all-interfaces host `dsh web` accepts to expose the UI on the LAN. */
 export const ALL_INTERFACES_HOST = '0.0.0.0'
-const DEFAULT_WEB_PORT = 3080
 
 /** Interactive TUI: the default mode. Optional positional config and `--resume <id>`. */
 interface TuiInvocation {
@@ -29,11 +28,16 @@ interface HeadlessInvocation {
   prompt: string
 }
 
-/** Browser UI: `dsh web`. Host is loopback/all-interfaces, port a 0–65535 integer, `dev` mounts the HMR driver. */
+/**
+ * Browser UI: `dsh web`. `host`/`port` are present only when the flag was
+ * passed (validated: host is loopback/all-interfaces, port a 0–65535 integer);
+ * absent means the shipped `cordis.yml` default stands, so the yml is the sole
+ * source of the default. `dev` mounts the client HMR driver.
+ */
 interface WebInvocation {
   mode: 'web'
-  host: string
-  port: number
+  host?: string
+  port?: number
   dev: boolean
 }
 
@@ -47,21 +51,31 @@ function program(name: string, version: string): Command {
 
 /** Parse `dsh web` arguments (everything after the `web` token). */
 function parseWeb(argv: readonly string[], version: string): WebInvocation {
+  // No Commander `default`: an absent flag leaves the option undefined so the
+  // shipped cordis.yml value stands (the single source of the host/port default).
   const web = program('dsh web', version)
-    .description('serve the browser UI')
-    .option('--host <host>', `bind host (${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST})`, LOOPBACK_HOST)
-    .option('--port <port>', 'listen port', String(DEFAULT_WEB_PORT))
+    .description('serve the browser UI (host/port default to the shipped config)')
+    .option('--host <host>', `bind host (${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST})`)
+    .option('--port <port>', 'listen port (0 requests an OS-assigned port)')
     .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
   web.parse(argv, { from: 'user' })
-  const { host, port, dev } = web.opts<{ host: string; port: string; dev?: boolean }>()
-  if (host !== LOOPBACK_HOST && host !== ALL_INTERFACES_HOST) {
+  const { host, port, dev } = web.opts<{ host?: string; port?: string; dev?: boolean }>()
+  if (host !== undefined && host !== LOOPBACK_HOST && host !== ALL_INTERFACES_HOST) {
     web.error(`error: --host must be ${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST}`)
   }
-  const portNumber = Number(port)
-  if (!/^\d+$/.test(port) || !Number.isInteger(portNumber) || portNumber > 65535) {
-    web.error('error: --port must be an integer in 0-65535')
+  let portNumber: number | undefined
+  if (port !== undefined) {
+    portNumber = Number(port)
+    if (!/^\d+$/.test(port) || !Number.isInteger(portNumber) || portNumber > 65535) {
+      web.error('error: --port must be an integer in 0-65535')
+    }
   }
-  return { mode: 'web', host, port: portNumber, dev: dev === true }
+  return {
+    mode: 'web',
+    ...host !== undefined && { host },
+    ...portNumber !== undefined && { port: portNumber },
+    dev: dev === true,
+  }
 }
 
 /** Parse the default (TUI / headless) arguments: `[config]`, `-p/--prompt`, `--resume`. */

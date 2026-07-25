@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ALL_INTERFACES_HOST, LOOPBACK_HOST, parseDshArgs } from '../src/args.ts'
+import { ALL_INTERFACES_HOST, parseDshArgs } from '../src/args.ts'
 
 const parse = (argv: string[]) => parseDshArgs(argv, '1.2.3')
 
@@ -29,7 +29,8 @@ describe('parseDshArgs', () => {
     expect(parse(['custom.yml'])).toEqual({ mode: 'tui', config: 'custom.yml' })
     expect(parse(['--resume', 'sess', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
-    expect(parse(['web'])).toEqual({ mode: 'web', host: LOOPBACK_HOST, port: 3080, dev: false })
+    // Bare `web` carries no host/port: the shipped cordis.yml owns the default.
+    expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
     expect(parse(['web', '--host', ALL_INTERFACES_HOST, '--port', '8080', '--dev']))
       .toEqual({ mode: 'web', host: ALL_INTERFACES_HOST, port: 8080, dev: true })
   })

@@ -13,13 +13,19 @@ import { ALL_INTERFACES_HOST, LOOPBACK_HOST } from './args.ts'
 const CONFIG_PATH = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 
 /**
- * Serve the browser UI from the shipped config tree.
- * @param hostAddress - the bind host: {@link LOOPBACK_HOST} or {@link ALL_INTERFACES_HOST}.
- * @param port - the listen port; `0` lets the OS choose a free port.
+ * Serve the browser UI from the shipped config tree. `host`/`port` are passed
+ * through only when the flag was given; absent, the `cordis.yml` value stands.
+ * @param host - the bind host ({@link LOOPBACK_HOST}/{@link ALL_INTERFACES_HOST}), or `undefined` to keep the config default.
+ * @param port - the listen port (`0` requests an OS-assigned port), or `undefined` to keep the config default.
  * @param dev - mount the client HMR driver and watch plugin bundles for rebuilds.
  */
-export async function runWeb(hostAddress: string, port: number, dev: boolean): Promise<void> {
-  const entry = new AppCLIEntry({ configPath: CONFIG_PATH, dev, host: hostAddress, port })
+export async function runWeb(host: string | undefined, port: number | undefined, dev: boolean): Promise<void> {
+  const entry = new AppCLIEntry({
+    configPath: CONFIG_PATH,
+    dev,
+    ...host !== undefined && { host },
+    ...port !== undefined && { port },
+  })
   const { ctx, port: boundPort } = await entry.run()
 
   let exiting = false
@@ -29,7 +35,7 @@ export async function runWeb(hostAddress: string, port: number, dev: boolean): P
     void Promise.resolve(ctx.fiber.dispose()).finally(() => { process.exit(code) })
   }
 
-  const lanCandidate = hostAddress === ALL_INTERFACES_HOST
+  const lanCandidate = host === ALL_INTERFACES_HOST
     ? Object.values(networkInterfaces()).flat()
       .find(iface => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
     : undefined
