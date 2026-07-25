@@ -79,10 +79,21 @@ describe('WorkspacePicker', () => {
     const createWorkspace = vi.fn(async () => created)
     const b = mount([], createWorkspace)
     chooseCreateItem('Use an existing folder')
-    fireEvent.change(screen.getByLabelText('Existing folder path'), { target: { value: ' /tmp/project ' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Use folder' }))
+    const input = screen.getByLabelText('Existing folder path')
+    fireEvent.keyDown(input, { key: 'ArrowRight' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(createWorkspace).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: ' /tmp/project ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
     expect(createWorkspace).toHaveBeenCalledWith({ path: '/tmp/project' })
     await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
+  })
+
+  it('closes a creation modal when the user cancels', () => {
+    mount([])
+    chooseCreateItem('Create a new workspace')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('blocks a create-new name already present in the Workspace list', () => {
@@ -98,14 +109,41 @@ describe('WorkspacePicker', () => {
   it('exposes creation phase and error text while retaining the modal for retry', async () => {
     let reject!: (reason: unknown) => void
     const pending = new Promise<WorkspaceView>((_resolve, rejectPromise) => { reject = rejectPromise })
-    const b = mount([], vi.fn(() => pending))
+    const createWorkspace = vi.fn(() => pending)
+    const b = mount([], createWorkspace)
     chooseCreateItem('Create a new workspace')
-    fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: 'broken' } })
+    const input = screen.getByLabelText('New workspace name')
+    fireEvent.keyDown(input, { key: 'ArrowRight' })
+    fireEvent.change(input, { target: { value: 'broken' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
     expect(screen.getByRole('status').textContent).toBe('Creating workspace…')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(createWorkspace).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog')).toBeTruthy()
     await act(async () => { reject(new Error('disk unavailable')); await pending.catch(() => {}) })
     expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: disk unavailable')
     expect(b.view.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('reports non-Error creation failures', async () => {
+    const b = mount([], vi.fn(async () => { throw 'permission denied' }))
+    chooseCreateItem('Create a new workspace')
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: permission denied')
+    })
+    expect(b.onPick).not.toHaveBeenCalled()
+  })
+
+  it('waits to show its menu until an optional anchor is available', () => {
+    render(
+      <WorkspacePicker
+        open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('shows list loading through a stable status surface', () => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { z } from 'zod'
 import Storage, { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
-import { DomainFacility, defineDomain, domainTable } from '../src/index.ts'
+import { apply, DomainFacility, defineDomain, domainTable } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import type { DomainChanged } from '../src/events.ts'
 import { MemoryMediaPool, MemoryStorageBackend } from './helpers/memory-backend.ts'
@@ -151,6 +151,25 @@ describe('DomainFacility.open', () => {
 })
 
 describe('plugin apply', () => {
+  it('uses only the default backend when routes are omitted', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    const backend = new MemoryStorageBackend()
+    ctx.storage.backend.register('memory', backend)
+    const disposeBackend = ctx.provide(storageBackendServiceKey('memory'), backend)
+
+    const fiber = await ctx.plugin({
+      name: 'storage-domain-routeless-test',
+      inject: ['storage'],
+      apply: (domainCtx: Context) => apply(domainCtx, { backend: 'memory' }),
+    })
+    await vi.waitFor(() => { expect(ctx.storageDomain).toBeInstanceOf(DomainFacility) })
+
+    disposeBackend()
+    await vi.waitFor(() => { expect(ctx.get('storageDomain')).toBeUndefined() })
+    await fiber.dispose()
+  })
+
   it('waits for routed backends, then mounts one lifecycle-bound service and form', async () => {
     const ctx = new Context()
     await ctx.plugin(Storage)

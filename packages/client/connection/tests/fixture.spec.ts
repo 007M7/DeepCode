@@ -377,6 +377,42 @@ describe('createFixtureApi', () => {
     })
   })
 
+  it('attaches an existing ungrouped Session to a matching Workspace', async () => {
+    const api = createFixtureApi()
+    const sessionId = sid('fx-existing-ungrouped')
+    await expect(api.sessions.create(req({ sessionId, cwd: '/tmp/fixture' }))).resolves.toMatchObject({
+      result: { ok: true, value: { sessionId } },
+    })
+
+    await expect(api.sessions.create(req({
+      sessionId,
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+    }))).resolves.toMatchObject({ result: { ok: true, value: { sessionId } } })
+
+    const workspaces = await api.workspace.list(req({}))
+    if (!workspaces.result.ok) throw new Error('workspace list failed')
+    expect(workspaces.result.value.items[0]?.sessionIds).toContain(sessionId)
+  })
+
+  it('reports a conflict without an existing cwd detail for an unrecorded cwd', async () => {
+    const api = createFixtureApi()
+    const listed = await api.sessions.list(req({}))
+    if (!listed.result.ok) throw new Error('session list failed')
+    const existing = listed.result.value.items.find(item => item.sessionId === sid('fx-alpha'))
+    if (existing === undefined) throw new Error('fixture Session missing')
+    delete existing.cwd
+
+    const conflict = await api.sessions.create(req({ sessionId: existing.sessionId }))
+    expect(conflict.result).toEqual({
+      ok: false,
+      error: {
+        code: 'session-conflict',
+        message: `session ${existing.sessionId} already uses no cwd`,
+        details: { sessionId: existing.sessionId, requestedCwd: '/tmp/fixture' },
+      },
+    })
+  })
+
   it('publishes an ungrouped Session when Workspace attachment fails', async () => {
     const api = createFixtureApi({ failWorkspaceAttach: true })
     const sessionId = sid('fx-partial')
