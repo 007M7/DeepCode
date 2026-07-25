@@ -152,6 +152,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-trajectory':
         specifier: workspace:^
         version: link:../../packages/client/ui-trajectory
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-workspace
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:^
         version: link:../../packages/compact/compact-basic
@@ -203,6 +206,15 @@ importers:
       '@deepseek-ai/dsh-spill-policy':
         specifier: workspace:^
         version: link:../../packages/spill/spill-policy
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../packages/storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../packages/storage/storage-domain
+      '@deepseek-ai/dsh-storage-json':
+        specifier: workspace:^
+        version: link:../../packages/storage/storage-json
       '@deepseek-ai/dsh-subagent':
         specifier: workspace:^
         version: link:../../packages/subagent/subagent
@@ -260,6 +272,9 @@ importers:
       '@deepseek-ai/dsh-workflow-workerthread':
         specifier: workspace:^
         version: link:../../packages/workflow/workflow-workerthread
+      '@deepseek-ai/dsh-workspace':
+        specifier: workspace:^
+        version: link:../../packages/workspace/workspace
       '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
         version: link:../../packages/context/workspace-context
@@ -850,6 +865,9 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@18.3.31)(react@18.3.1)
@@ -863,6 +881,9 @@ importers:
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
+      '@types/react-dom':
+        specifier: ~18.3.0
+        version: 18.3.7(@types/react@18.3.31)
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
@@ -976,6 +997,36 @@ importers:
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../ui-conversation
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+
+  packages/client/ui-workspace:
+    devDependencies:
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: workspace:^
+        version: link:../ui-conversation
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../ui-primitives
+      '@deepseek-ai/dsh-client-ui-sidebar':
+        specifier: workspace:^
+        version: link:../ui-sidebar
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -2228,6 +2279,9 @@ importers:
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
         version: link:../../ui/user-interaction
+      '@deepseek-ai/dsh-workspace':
+        specifier: workspace:^
+        version: link:../../workspace/workspace
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
@@ -2238,6 +2292,12 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)

@@ -12,6 +12,10 @@ import {
   sessionPromptValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
+import {
+  workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema, workspaceListRequestSchema,
+  workspaceListValueSchema, workspaceViewSchema,
+} from '../src/api/workspace.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
@@ -31,6 +35,11 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
     expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
+    expect(rpcErrorSchema.parse({ code: 'session-conflict', message: 'm', details: { sessionId: 's', requestedCwd: '/a', existingCwd: '/b' } }).code).toBe('session-conflict')
+    expect(rpcErrorSchema.parse({ code: 'workspace-attach-failed', message: 'm', details: { sessionId: 's', workspaceId: 'w' } }).code).toBe('workspace-attach-failed')
+    expect(rpcErrorSchema.parse({ code: 'workspace-not-found', message: 'm', details: { workspaceId: 'w' } }).code).toBe('workspace-not-found')
+    expect(rpcErrorSchema.parse({ code: 'workspace-invalid-path', message: 'm', details: { path: '/x' } }).code).toBe('workspace-invalid-path')
+    expect(rpcErrorSchema.parse({ code: 'workspace-name-conflict', message: 'm', details: { name: 'x' } }).code).toBe('workspace-name-conflict')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
@@ -96,6 +105,9 @@ describe('sessions domain schemas', () => {
     expect(sessionListRequestSchema.parse({ cursor: 'c' }).cursor).toBe('c')
     expect(sessionListValueSchema.parse({ items: [] }).items).toEqual([])
     expect(sessionCreateRequestSchema.parse({ cwd: '/w' }).cwd).toBe('/w')
+    // The refine's both-sides branch: workspaceId alone passes, workspaceId+cwd rejects.
+    expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).sessionId).toBe('s1')
+    expect(() => sessionCreateRequestSchema.parse({ workspaceId: 'w1', cwd: '/w' })).toThrow(/not both/)
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
@@ -117,6 +129,31 @@ describe('host domain schemas', () => {
     expect(value.attachedSessions).toBe(2)
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
   })
+})
+
+describe('workspace domain schemas', () => {
+  const view = {
+    workspaceId: 'w1', path: '/p', title: 'p', sessionIds: ['s1'],
+    createdAt: '2026-07-25T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
+  }
+
+  it('validates ids, the view row, and list request/value', () => {
+    expect(workspaceIdSchema.parse('w1')).toBe('w1')
+    expect(() => workspaceIdSchema.parse('')).toThrow()
+    expect(workspaceViewSchema.parse(view).sessionIds).toEqual(['s1'])
+    expect(() => workspaceViewSchema.parse({ ...view, sessionIds: 's1' })).toThrow()
+    expect(workspaceListRequestSchema.parse({})).toEqual({})
+    expect(workspaceListValueSchema.parse({ items: [view] }).items).toHaveLength(1)
+  })
+
+  it('create requires exactly one of path/name (both refine arms)', () => {
+    expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
+    expect(workspaceCreateRequestSchema.parse({ name: 'n' }).name).toBe('n')
+    expect(() => workspaceCreateRequestSchema.parse({})).toThrow(/exactly one/)
+    expect(() => workspaceCreateRequestSchema.parse({ path: '/p', name: 'n' })).toThrow(/exactly one/)
+    expect(workspaceCreateValueSchema.parse({ workspace: view, created: false }).created).toBe(false)
+  })
+
 })
 
 describe('events frame schemas', () => {

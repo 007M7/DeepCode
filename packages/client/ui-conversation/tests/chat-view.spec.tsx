@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode,
+  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
@@ -29,8 +29,8 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
+    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
   }
 }
 
@@ -72,7 +72,15 @@ const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
 /** Empty sessions-list hook for the global standard-kit seat. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined } as SessionListState)
+    { ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready' })
+  return bindSnapshotSelector(store)
+}
+
+function emptyWorkspaces() {
+  const store = createSnapshotStore<WorkspaceListState>({
+    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+    baselinesReady: true, recentWorkspaceId: undefined,
+  })
   return bindSnapshotSelector(store)
 }
 
@@ -95,6 +103,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     sessionId: SID,
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
+    useWorkspaces: emptyWorkspaces(),
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
     renderSlot,

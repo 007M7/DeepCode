@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  ConversationSnapshot, SessionId, SessionListState, WorkspaceListState,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RpcReceipt } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -22,6 +24,7 @@ const kit = {
   sessionId: SID,
   useSession: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<ConversationSnapshot>,
   useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
+  useWorkspaces: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<WorkspaceListState>,
 }
 
 const QUESTIONS = [

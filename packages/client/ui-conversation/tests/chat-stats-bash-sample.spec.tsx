@@ -27,8 +27,8 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
+    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
   }
 }
 
@@ -127,6 +127,8 @@ describe('bash sample row', () => {
         [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, updatedAt: 0 },
       },
       current: undefined,
+      intent: undefined,
+      phase: 'ready',
     } as SessionListState)
   }
 

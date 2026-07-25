@@ -147,6 +147,7 @@ flowchart TD
     pkg_client_ui_slots["client-ui-slots"]
     pkg_client_ui_theme["client-ui-theme"]
     pkg_client_ui_trajectory["client-ui-trajectory"]
+    pkg_client_ui_workspace["client-ui-workspace"]
     pkg_client_web["client-web"]
     pkg_client_web_react["client-web-react"]
   end
@@ -257,6 +258,10 @@ flowchart TD
   pkg_client_ui_sidebar --> pkg_client_ui_primitives
   pkg_client_ui_sidebar --> pkg_client_ui_slots
   pkg_client_ui_sidebar --> pkg_invariants
+  pkg_client_ui_workspace --> pkg_client_runtime
+  pkg_client_ui_workspace --> pkg_client_ui_primitives
+  pkg_client_ui_workspace --> pkg_client_ui_slots
+  pkg_client_ui_workspace --> pkg_invariants
   pkg_helper --> pkg_brand
   pkg_helper --> pkg_invariants
   pkg_telemetry --> pkg_brand
@@ -814,6 +819,7 @@ flowchart TD
 | [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`helper`](../packages/sdk/helper) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`telemetry`](../packages/sdk/telemetry) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |
 | [`storage-domain`](../packages/storage/storage-domain) | `storage` | [`invariants`](../packages/support/invariants), [`storage`](../packages/storage/storage) |

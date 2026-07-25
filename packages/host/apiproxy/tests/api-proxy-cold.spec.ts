@@ -55,7 +55,7 @@ describe('sessions.list cold merge', () => {
         return undefined
       },
     })
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const response = await api.sessions.list(request({}))
     expect(response.result.ok).toBe(true)
@@ -79,7 +79,7 @@ describe('degenerate composition (no persistence, no factory)', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const listed = await api.sessions.list(request({}))
     expect(listed.result.ok).toBe(true)

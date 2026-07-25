@@ -21,6 +21,7 @@ export async function runWeb(argv: string[]): Promise<void> {
       host: { type: 'string' },
       port: { type: 'string' },
       dev: { type: 'boolean', default: false },
+      'workspace-root': { type: 'string' },
     },
     allowPositionals: false,
   })
@@ -44,6 +45,7 @@ export async function runWeb(argv: string[]): Promise<void> {
     dev: values.dev,
     ...values.host !== undefined ? { host: values.host } : {},
     ...port !== undefined ? { port } : {},
+    ...values['workspace-root'] !== undefined ? { workspaceRoot: values['workspace-root'] } : {},
   })
   const { ctx, port: boundPort } = await entry.run()
 

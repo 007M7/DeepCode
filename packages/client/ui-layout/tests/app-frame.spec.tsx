@@ -17,9 +17,13 @@ import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
+import type {
+  SessionId, SessionListState, WorkspaceId, WorkspaceListState,
+} from '@deepseek-ai/dsh-client-runtime/client'
 
 // Session-mode switch for the SessionProvider stub prop.
 const sessionMode = { current: true }
+const baselinesReady = { current: true }
 
 // Render-prop contract stub fed through the standard seat prop (the renderer
 // injects the real one in production): session mode runs children(id), empty
@@ -59,13 +63,31 @@ function mountFrame() {
     if (key === 'details') return <div data-testid="details-content" />
     return <div data-testid="empty-content" />
   }) as AppFrameProps['renderSlot']
-  const useSessions = ((sel: (s: unknown) => unknown) => sel({ ids: [], byId: {} })) as never
+  const sessionId = 's-test' as SessionId
+  const workspaceId = 'w-test' as WorkspaceId
+  const sessionState = {
+    ids: sessionMode.current ? [sessionId] : [],
+    byId: sessionMode.current
+      ? { [sessionId]: { id: sessionId, displayTitle: 'Test', running: false, updatedAt: 1 } }
+      : {},
+    current: sessionMode.current ? sessionId : undefined,
+    phase: 'ready',
+    intent: sessionMode.current
+      ? undefined
+      : { sessionId: 'intent' as SessionId, target: { kind: 'workspace', workspaceId }, prompt: '', phase: 'connecting' },
+  } as SessionListState
+  const useSessions = ((sel: (s: SessionListState) => unknown) => sel(sessionState)) as never
+  const workspaceState: WorkspaceListState = {
+    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+    baselinesReady: baselinesReady.current, recentWorkspaceId: undefined,
+  }
   const utils = render(
     <AppFrame
       useStore={hookOf(instance) as never}
       actions={instance.actions}
       renderSlot={renderSlot}
       useSessions={useSessions}
+      useWorkspaces={((sel: (s: WorkspaceListState) => unknown) => sel(workspaceState)) as never}
       SessionProvider={SessionProviderStub}
     />,
   )
@@ -91,6 +113,7 @@ function drag(handle: Element, fromX: number, toX: number): void {
 beforeEach(() => {
   frameWidth = 1920
   sessionMode.current = true
+  baselinesReady.current = true
   localStorage.clear() // the layout store persists; instances must not bleed across tests
   vi.useFakeTimers()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
@@ -131,13 +154,22 @@ describe('AppFrame', () => {
     expect(slotCalls.find((c) => c.key === 'details')!.props).toEqual({})
   })
 
-  it('renders the empty branch through conversation.empty when no session is current', () => {
+  it('keeps a connecting page-local Session intent in conversation.empty', () => {
     sessionMode.current = false
     const { slotCalls, getByTestId, queryByTestId } = mountFrame()
     expect(getByTestId('empty-content')).toBeTruthy()
     expect(queryByTestId('center-content')).toBeNull()
     expect(slotCalls.map((c) => c.key)).toContain('conversation.empty')
     expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
+    expect(slotCalls.find((c) => c.key === 'conversation.empty')!.props).toEqual({})
+  })
+
+  it('keeps the loading branch until both object-layer baselines are ready', () => {
+    baselinesReady.current = false
+    const { slotCalls, getByRole } = mountFrame()
+    expect(getByRole('status').textContent).toContain('Loading workspaces and sessions')
+    expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
+    expect(slotCalls.map((c) => c.key)).not.toContain('conversation.empty')
   })
 
   it('sidebar slot receives live concession output as owner props', () => {
