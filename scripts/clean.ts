@@ -1,8 +1,20 @@
 import { lstat, readdir, rm } from 'node:fs/promises'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 const knownOrphanEntries = new Set(['node_modules', 'lib', '.typecheck'])
+
+const configHost: ts.ParseConfigFileHost = {
+  useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+  readDirectory: (...args) => ts.sys.readDirectory(...args),
+  fileExists: fileName => ts.sys.fileExists(fileName),
+  readFile: fileName => ts.sys.readFile(fileName),
+  getCurrentDirectory: () => ts.sys.getCurrentDirectory(),
+  onUnRecoverableConfigFileDiagnostic(diagnostic) {
+    throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
+  },
+}
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -32,7 +44,17 @@ function repositoryPath(root: string, path: string): string {
   return relative(root, path).split(sep).join('/')
 }
 
-class RepositoryCleaner {
+function parseConfig(configPath: string): ts.ParsedCommandLine {
+  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, configHost)
+  if (!parsed) throw new Error(`clean: cannot parse TypeScript config ${configPath}`)
+  if (parsed.errors.length > 0) {
+    throw new Error(parsed.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, '\n')).join('\n'))
+  }
+  return parsed
+}
+
+/** Plans and removes repository-owned build output without crossing the repository boundary. */
+export class RepositoryCleaner {
   constructor(private readonly root: string) {}
 
   /**
@@ -41,6 +63,7 @@ class RepositoryCleaner {
    */
   async clean(): Promise<string[]> {
     const targets = await this.plan()
+    // Planning validates every target first, so an unsafe orphan prevents all deletion.
     for (const target of targets) await rm(target, { recursive: true, force: true })
     return targets.map(target => repositoryPath(this.root, target))
   }
@@ -49,23 +72,29 @@ class RepositoryCleaner {
     const targets = new Set<string>()
     const unsafeOrphans: string[] = []
 
+    // These checks cover legacy root-level incremental state emitted by older configs.
     await this.addIfPresent(targets, join(this.root, '.typecheck'))
     for (const entry of await readdir(this.root, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.tsbuildinfo')) targets.add(join(this.root, entry.name))
     }
 
-    for (const vendorDirectory of await childDirectories(join(this.root, 'vendor'))) {
-      await this.addIfPresent(targets, join(vendorDirectory, 'lib'))
+    // The root project-reference graph is the source of truth for live build targets.
+    // Each emitting project declares lib/types as outDir; its parent lib also owns
+    // the sibling runtime bundles, so the complete build output root is removed.
+    for (const outputDirectory of this.buildOutputDirectories()) {
+      await this.addIfPresent(targets, outputDirectory)
     }
-    await this.addIfPresent(targets, join(this.root, 'apps', 'cli', 'lib'))
 
     for (const groupDirectory of await childDirectories(join(this.root, 'packages'))) {
       for (const packageDirectory of await childDirectories(groupDirectory)) {
+        // A package.json marks a live package; its output was discovered from the
+        // project graph above, and its package-local node_modules must be preserved.
         if (await exists(join(packageDirectory, 'package.json'))) {
-          await this.addIfPresent(targets, join(packageDirectory, 'lib'))
           continue
         }
 
+        // A manifest-less package directory is stale only when every remaining
+        // entry is known generated residue; unknown files make the whole clean fail.
         const entries = await readdir(packageDirectory)
         const unknown = entries.filter(entry => !knownOrphanEntries.has(entry) && !entry.endsWith('.tsbuildinfo'))
         if (unknown.length > 0) {
@@ -86,7 +115,46 @@ class RepositoryCleaner {
     return [...targets].sort()
   }
 
+  private buildOutputDirectories(): string[] {
+    const outputs = new Set<string>()
+    const pending = [join(this.root, 'tsconfig.json')]
+    const visited = new Set<string>()
+
+    while (pending.length > 0) {
+      const nextConfigPath = pending.pop()
+      if (nextConfigPath === undefined) break
+      const configPath = resolve(nextConfigPath)
+      if (visited.has(configPath)) continue
+      visited.add(configPath)
+
+      const parsed = parseConfig(configPath)
+      if (parsed.options.outDir !== undefined) {
+        const typesDirectory = resolve(parsed.options.outDir)
+        if (basename(typesDirectory) !== 'types') {
+          throw new Error(`clean: expected TypeScript outDir to end in /types: ${repositoryPath(this.root, typesDirectory)}`)
+        }
+        const outputDirectory = dirname(typesDirectory)
+        this.assertRepositoryTarget(outputDirectory)
+        outputs.add(outputDirectory)
+      }
+
+      for (const reference of parsed.projectReferences ?? []) {
+        pending.push(ts.resolveProjectReferencePath(reference))
+      }
+    }
+
+    return [...outputs]
+  }
+
+  private assertRepositoryTarget(path: string): void {
+    const repositoryRelative = relative(this.root, path)
+    if (repositoryRelative === '' || repositoryRelative === '..' || repositoryRelative.startsWith(`..${sep}`) || isAbsolute(repositoryRelative)) {
+      throw new Error(`clean: refusing build output outside repository: ${path}`)
+    }
+  }
+
   private async addIfPresent(targets: Set<string>, path: string): Promise<void> {
+    // Missing outputs are normal on a clean checkout; only existing paths become deletion targets.
     if (await exists(path)) targets.add(path)
   }
 }
