@@ -291,8 +291,7 @@ export class SessionsService {
       fiber,
       ctx,
       binding: { sessionId: id, session, ctx },
-      // Bare source form (store migration): the Session object IS the
-      // observable; the React side binds the useSession hook per cell.
+      // Session is the observable; React binds a selector hook at its own seam.
       cell: { sessionId: id, session },
     }
     this.scopes.set(id, record)

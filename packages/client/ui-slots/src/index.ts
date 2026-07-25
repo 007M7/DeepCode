@@ -142,13 +142,9 @@ export interface SessionAreaProps {
 }
 
 /**
- * The framework-wired session area component (slot terminal design §7):
- * subscribes to the current-session selection internally (design fiat ① —
- * selection authority lives with runtime sessions) and switches between the
- * session body and the empty branch. Delivered as a standard seat to every
- * entry whose children declaration contains a session-scope slot (the
- * derivation rides {@link PropsRenderSlots}); the value is injected by the
- * installed renderer — business code never imports it.
+ * Framework-wired session area component. It subscribes to runtime-owned
+ * session selection and is injected into entries that declare session-scoped
+ * children; business code does not import it directly.
  */
 export type SessionProviderComponent = (props: SessionAreaProps) => ReactNode
 
@@ -352,8 +348,7 @@ export class SlotCore {
 
   /**
    * Contribute a component to a declared slot and (optionally) declare child
-   * slots, a store seat, and the registrant's business face — the single
-   * composition API (the separate define API is retired).
+   * slots, a store seat, and the registrant's business face.
    *
    * Load-time validation (misconfiguration fails loud; the render hot path
    * re-checks nothing): registering into an undeclared slot throws; declaring

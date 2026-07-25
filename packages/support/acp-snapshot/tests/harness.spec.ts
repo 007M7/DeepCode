@@ -380,7 +380,7 @@ describe('runScenario', () => {
     const { fixtureFile } = await scenario({
       permissionProbe: true,
       logs: [{
-        file: 'bucket/main.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', id: '{{SID}}', createdAt: 42, cwd: '{{CWD}}' },
           { type: 'turn/start', seq: 1, time: 9, data: { turn: 1 } },
@@ -546,7 +546,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
@@ -565,7 +565,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 3 } },
@@ -596,7 +596,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
@@ -618,7 +618,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
@@ -642,7 +642,7 @@ describe('runScenario', () => {
         prompt: 'hang-until-cancel',
         persistLogsOnCancel: true,
         logs: [{
-          file: 'bucket/session.jsonl',
+          file: 'project/main/session.jsonl',
           lines: [
             { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
             { type: 'turn/start', seq: 0, time: 1, data: turn === undefined ? {} : { turn } },
@@ -673,7 +673,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
@@ -823,11 +823,11 @@ describe('runScenario', () => {
         // File names chosen so readdir feeds the sort children-first AND
         // parent-in-the-middle: the comparator then sees a parent on both
         // sides of a pair, plus the same-createdAt (localeCompare) tiebreak.
-        { file: 'b1/aa-child-c.jsonl', lines: [{ type: 'session', id: 'cccccccc-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
-        { file: 'b1/bb-parent.jsonl', lines: [{ type: 'session', id: '{{SID}}', createdAt: 900 }] },
-        { file: 'b1/cc-child-a.jsonl', lines: [{ type: 'session', id: 'aaaaaaaa-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
+        { file: 'b1/aa-child-c/session.jsonl', lines: [{ type: 'session', id: 'cccccccc-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
+        { file: 'b1/bb-parent/session.jsonl', lines: [{ type: 'session', id: '{{SID}}', createdAt: 900 }] },
+        { file: 'b1/cc-child-a/session.jsonl', lines: [{ type: 'session', id: 'aaaaaaaa-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
         // Missing id/createdAt fall back to ''/0; earliest child by createdAt.
-        { file: 'b2/orphan-fields.jsonl', lines: [{ type: 'session', parentSession: '{{SID}}' }] },
+        { file: 'b2/orphan/session.jsonl', lines: [{ type: 'session', parentSession: '{{SID}}' }] },
       ],
     })
     const result = await runScenario(
@@ -844,7 +844,7 @@ describe('runScenario', () => {
   })
 
   it('treats an empty log file as a header-less primary with default fields', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({ logs: [{ file: 'b/empty.jsonl', lines: [] }] })
+    const { fixtureFile } = await scenario({ logs: [{ file: 'b/empty/session.jsonl', lines: [] }] })
     const result = await runScenario(
       { steps: boot },
       { agent: AGENT, mode: 'replay', fixtureFile },

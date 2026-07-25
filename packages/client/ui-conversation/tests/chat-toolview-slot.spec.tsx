@@ -146,8 +146,6 @@ describe('keyed toolview hole through the real machinery', () => {
 
   it('a duplicate key registration fails loud at load', async () => {
     const b = await bench([])
-    // The bash sample already holds the 'bash' key (later-wins retired with
-    // the ring — the keyed ledger throws instead).
     expect(() => b.slots.register(
       { name: 'conversation.chat.toolview', key: 'bash' },
       () => null,

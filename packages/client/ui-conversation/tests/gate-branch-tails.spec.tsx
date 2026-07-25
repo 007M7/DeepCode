@@ -1,9 +1,4 @@
 // @vitest-environment jsdom
-// Final branch tails for the coverage gate, terminal slot form:
-// AssistantMarkdown non-final reasoning, StatsLine usage-less node,
-// DetailsPanel titleless selection. (The old cwd WeakMap-cache account
-// retired with the mechanism — derivation lives in EmptyState now, covered
-// by the skeleton specs.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
