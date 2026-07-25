@@ -34,7 +34,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
 }
 
 function send(agent: Agent, text = 'go'): Promise<void> {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
   return agent.whenIdle()
 }
 
@@ -116,7 +116,7 @@ describe('agent/turn-stop', () => {
     ctx.on('session/flush', (session) => {
       if (session !== agent.session || queued) return
       queued = true
-      agent.send([{ type: 'text', text: 'ordinary queued follow-up' }])
+      agent.followup([{ type: 'text', text: 'ordinary queued follow-up' }])
     })
 
     await send(agent)

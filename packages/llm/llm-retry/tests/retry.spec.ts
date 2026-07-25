@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Fiber } from 'cordis'
-import LlmService, { CallId, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, EMPTY_RESPONSE_CODE, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -48,6 +48,25 @@ function textResponse(text: string): StreamChunk[] {
     { type: 'text-delta', index: 0, text },
     { type: 'block-end', index: 0, block: { type: 'text', text } },
     { type: 'finish', reason: { kind: 'stop' } },
+  ]
+}
+
+/**
+ * A degenerate empty provider completion as an error finish chunk. Both
+ * adapters emit this shape and the EMPTY_RESPONSE code (the field the policy
+ * routes on); the message text here is the deepseek adapter's phrasing (pi-ai
+ * qualifies it with the model name).
+ */
+function emptyCompletion(): StreamChunk[] {
+  return [
+    { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
+    {
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { message: 'model returned a completed response with no content', code: EMPTY_RESPONSE_CODE },
+      },
+    },
   ]
 }
 
@@ -129,7 +148,7 @@ describe('bounded transient retry policy', () => {
       })
     })
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     const event = await scheduled
 
     expect(event.data).toEqual({
@@ -158,6 +177,39 @@ describe('bounded transient retry policy', () => {
     })
   })
 
+  it('retries an EMPTY_RESPONSE error finish under the default retryable codes', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      emptyCompletion(),
+      textResponse('recovered'),
+    ])
+    // No retryableCodes override: this proves the default policy covers the
+    // adapters' empty-completion classification end to end (finish-chunk error
+    // delivery, not a thrown stream error).
+    ;({ ctx: context } = await harness(adapter))
+    const agent = context.agentLoop.create(SessionId('retry-empty-response'), { provider: 'mock', model: 'mock' })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.followup([{ type: 'text', text: 'go' }])
+    const event = await scheduled
+    expect(event.data.failure).toEqual({
+      message: 'model returned a completed response with no content',
+      code: EMPTY_RESPONSE_CODE,
+    })
+
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(500)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => event.data.step))
+      .toEqual([2])
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'recovered' }],
+    })
+  })
+
   it('leaves partial failed chunks on their step without committing a message or tool side effect', async () => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([
@@ -178,7 +230,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-partial'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
     await vi.advanceTimersByTimeAsync(500)
@@ -213,7 +265,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-exhausted'), { provider: 'mock', model: 'mock' })
     const first = waitForRetry(context, agent, 1)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     expect((await first).data.delayMs).toBe(450)
 
     const second = waitForRetry(context, agent, 2)
@@ -246,7 +298,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-zero-delay'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     expect((await scheduled).data.delayMs).toBe(0)
 
     const idle = waitForIdle(context, agent)
@@ -264,7 +316,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(accepted, { jitterRatio: 1 }))
     const acceptedAgent = context.agentLoop.create(SessionId('retry-after-accepted'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, acceptedAgent, 1)
-    acceptedAgent.send([{ type: 'text', text: 'go' }])
+    acceptedAgent.followup([{ type: 'text', text: 'go' }])
     expect((await scheduled).data.delayMs).toBe(2_000)
     const acceptedIdle = waitForIdle(context, acceptedAgent)
     await vi.advanceTimersByTimeAsync(2_000)
@@ -278,7 +330,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(rejected))
     const rejectedAgent = context.agentLoop.create(SessionId('retry-after-rejected'), { provider: 'mock', model: 'mock' })
     const rejectedIdle = waitForIdle(context, rejectedAgent)
-    rejectedAgent.send([{ type: 'text', text: 'go' }])
+    rejectedAgent.followup([{ type: 'text', text: 'go' }])
     await rejectedIdle
     expect(rejected.requests).toHaveLength(1)
     expect(rejectedAgent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
@@ -290,7 +342,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(adapter))
     const agent = context.agentLoop.create(SessionId('retry-auth'), { provider: 'mock', model: 'mock' })
     const idle = waitForIdle(context, agent)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await idle
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
@@ -307,7 +359,7 @@ describe('bounded transient retry policy', () => {
     context = mounted.ctx
     const agent = context.agentLoop.create(SessionId('retry-hmr'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
 
@@ -335,7 +387,7 @@ describe('bounded transient retry policy', () => {
       model: 'mock',
     })
     const idle = waitForIdle(context, agent)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await entered.promise
 
     const disposing = mounted.retryFiber.dispose()
@@ -376,7 +428,7 @@ describe('bounded transient retry policy', () => {
       model: 'mock',
     })
     const idle = waitForIdle(context, agent)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await captured.promise
 
     await mounted.retryFiber.dispose()
@@ -397,7 +449,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(adapter))
     const agent = context.agentLoop.create(SessionId('retry-cancel'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, agent, 1)
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
     agent.cancel({ kind: 'user' })
@@ -426,7 +478,7 @@ describe('bounded transient retry policy', () => {
     const agent = context.agentLoop.create(SessionId('retry-pre-cancel'), { provider: 'mock', model: 'mock' })
     const idle = waitForIdle(context, agent)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await idle
 
     expect(adapter.requests).toHaveLength(1)
@@ -450,7 +502,7 @@ describe('bounded transient retry policy', () => {
     })
     const idle = waitForIdle(context, agent)
 
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await idle
 
     expect(adapter.requests).toHaveLength(1)

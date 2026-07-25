@@ -1,6 +1,7 @@
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
+  AgentMessageId,
   type Agent,
   type AgentCancelCause,
   type AgentOptions,
@@ -171,15 +172,23 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     steered,
     steeredOptions,
     cancelled,
-    send(content, options) {
+    followup(content, options) {
       sent.push(content)
       sentOptions.push(options)
+      return AgentMessageId('stub')
+    },
+    queue(content, options) {
+      sent.push(content)
+      sentOptions.push(options)
+      return AgentMessageId('stub')
     },
     steer(content, options) {
       steered.push(content)
       steeredOptions.push(options)
+      return AgentMessageId('stub')
     },
-    inject() {},
+    inject: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel(cause = { kind: 'user' }) {
       cancelled.push(cause)
     },

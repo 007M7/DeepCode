@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -379,7 +379,8 @@ describe('installLlmReplay (through the real LlmService)', () => {
   it('rejects a hang entry when the signal fires DURING the wait (abort listener path)', async () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
-    writeFileSync(overrideFile, JSON.stringify([{ kind: 'hang' }]), 'utf8')
+    const readyFile = join(dir, 'stream-ready')
+    writeFileSync(overrideFile, JSON.stringify([{ kind: 'hang', readyFile }]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
     installLlmReplay(ctx, { file, overrideFile })
@@ -392,6 +393,7 @@ describe('installLlmReplay (through the real LlmService)', () => {
     expect((await iterator.next()).value).toMatchObject({ type: 'text-delta' })
     const pending = iterator.next()
     await new Promise(r => setImmediate(r))
+    expect(existsSync(readyFile)).toBe(true)
     controller.abort()
     await expect(pending).rejects.toThrow('aborted')
   })

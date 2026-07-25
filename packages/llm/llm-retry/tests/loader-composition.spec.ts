@@ -114,7 +114,7 @@ describe('real Loader composition', () => {
     loaded.llm.registerAdapter(['mock'], adapter)
     const agent = loaded.agentLoop.create(SessionId('loader-retry'), { provider: 'mock', model: 'mock' })
     const idle = waitForIdle(loaded, agent)
-    agent.send([{ type: 'text', text: 'recover' }])
+    agent.followup([{ type: 'text', text: 'recover' }])
     await idle
 
     expect(adapter.requests).toBe(2)

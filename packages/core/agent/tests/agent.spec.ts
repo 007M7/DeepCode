@@ -3,13 +3,24 @@ import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
+  AgentMessageId,
   agentEvents,
   agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
 
-import type { Agent, AgentCancelCause, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type {
+  Agent,
+  AgentCancelCause,
+  AgentFactory,
+  ContinuationStop,
+  CreateAgentOptions,
+  InjectOptions,
+  ResolvedAgentInput,
+  ResumeAgentOptions,
+  SendOptions,
+} from '@deepseek-ai/dsh-agent'
 
-function stubAgent(rawId: string): Agent {
+function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
   return {
     id,
@@ -17,15 +28,34 @@ function stubAgent(rawId: string): Agent {
     session: new Session(id),
     status: 'idle',
     ctx: new Context(),
-    send() {},
-    steer() {},
-    inject() {},
+    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
+    ...overrides,
   }
 }
 
 describe('AgentRegistry', () => {
+  it('keeps helper options semantic and makes advanced input fully specified', () => {
+    type OptionalInputKey = {
+      [Key in keyof ResolvedAgentInput]-?: Record<never, never> extends Pick<ResolvedAgentInput, Key>
+        ? Key
+        : never
+    }[keyof ResolvedAgentInput]
+
+    expectTypeOf<'target' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'wakeup' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'contexts' extends keyof InjectOptions ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<Parameters<Agent['send']>[0]>().toEqualTypeOf<ResolvedAgentInput>()
+    expectTypeOf<OptionalInputKey>().toEqualTypeOf<never>()
+    expectTypeOf<Extract<ResolvedAgentInput, { target: 'next-step'; wakeup: false }>['contexts']>()
+      .toEqualTypeOf<[]>()
+  })
+
   it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {
     type TurnStopListener = Events['agent/turn-stop']
     type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>
@@ -56,7 +86,7 @@ describe('AgentRegistry', () => {
   it('rejects an agent whose registry and session identities differ', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const agent = { ...stubAgent('agent-id'), session: new Session(SessionId('session-id')) }
+    const agent = stubAgent('agent-id', { session: new Session(SessionId('session-id')) })
 
     expect(() => ctx.agents.enter(agent, undefined))
       .toThrow('agent id "agent-id" does not match session id "session-id"')

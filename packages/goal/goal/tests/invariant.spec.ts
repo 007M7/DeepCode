@@ -45,7 +45,7 @@ describe('goal stream invariants', () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('goal-invariant-valid'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
-    session.append('context/message', {
+    session.append('user/message', {
       content: renderGoalChange(change),
       source: changeSource,
       meta: change as never,
@@ -71,7 +71,7 @@ describe('goal stream invariants', () => {
     const session = ctx.sessions.create(SessionId('goal-invariant-invalid'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
     expect(() => {
-      session.append('context/message', {
+      session.append('user/message', {
         content: [{ type: 'text', text: 'counterfeit' }],
         source: changeSource,
         meta: change as never,
@@ -82,7 +82,7 @@ describe('goal stream invariants', () => {
     }))
     expect(session.seq).toBe(1)
     expect(() => {
-      session.append('context/message', {
+      session.append('user/message', {
         content: renderGoalChange(change),
         source: changeSource,
         meta: change as never,
@@ -95,7 +95,7 @@ describe('goal stream invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('goal-invariant-late-load'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
-    session.append('context/message', {
+    session.append('user/message', {
       content: renderGoalChange(change),
       source: changeSource,
       meta: change as never,

@@ -128,7 +128,7 @@ describe('TUI session-reference snapshot', () => {
       type: 'text',
       text: '\n\n## My request:\n',
     })
-    expect(target.session.events.some(event => event.type === 'context/message')).toBe(false)
+    expect(target.session.events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
 
     const snapshot = await terminal.snapshot({ includeScrollback: true })
     if (REFRESHING) {

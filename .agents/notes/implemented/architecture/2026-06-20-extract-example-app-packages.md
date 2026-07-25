@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-20-extract-example-app-packages.zh.md)
+
 ## Problem
 
 An example folder is supposed to be *thin* — the variable wiring of a demo, not the demo's machinery. Before this change it was thick. Each example carried a hand-rolled `start.ts` boot bootstrap, an infra preamble (`timer`, and — for the stdio demos — `logger` + `hmr`), nested includes of three shared YAML fragments (`base.yml` / `base-core.yml` / `acp-agent/acp-tail.yml`), and per-example `agent-loop`/persistence/system-prompt config. The actual app — the spine of services every agent needs — was spread across the leaf and those includes.
@@ -40,7 +42,7 @@ The old `base*.yml`/`acp-tail.yml` includes already deduped the *config*, but a 
 - Example directories contain only their config, README, and tests: `start.ts`, the infrastructure preamble, and the shared YAML includes are gone.
 - `demo:tui`, `demo:headless`, and `demo:acp` invoke the app-package bins.
 - Each new package has a README and per-file 100% coverage; each app package also has a keyless real-Loader-path bin smoke that catches export-shape failures described in [postmortem 0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
-- The ACP replay transcript remains unchanged because the plugin set and load order did not change.
+- The ACP replay suite boots through the app-package bin, so protocol wiring and assembled backend behavior cross the real Loader boundary.
 
 ## Consequences
 

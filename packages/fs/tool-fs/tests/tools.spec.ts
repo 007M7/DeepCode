@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -425,8 +425,8 @@ describe('edit tool', () => {
 })
 
 describe('tool-owned presentation (pure presentCall)', () => {
-  // presentCall is a pure display function of args (no I/O); it drives the ACP
-  // card's title/kind and the `locations` an editor follows along to.
+  // presentCall is a pure display function of args (no I/O); it drives the
+  // card's title/kind and the `locations` a UI follows along to.
   const presentCall = async (name: string, args: unknown) => {
     const { ctx } = await setup()
     return ctx.tools.get(name)?.presentCall?.(args)
@@ -478,7 +478,7 @@ describe('tool-owned presentation (pure presentCall)', () => {
 
 describe('result-time contextual diff (meta + presentResult)', () => {
   // An edit records the applied contextual hunk on `tool/result` meta, and the tool's
-  // presentResult narrows it back into a `diff` result card the bridge renders.
+  // presentResult narrows it back into a replayable `diff` result card.
   const withContext = 'a\nb\nc\nOLD\nd\ne\nf\n'
 
   it('edit: execute attaches the applied hunk as meta { diffs }', async () => {
@@ -519,9 +519,8 @@ describe('result-time contextual diff (meta + presentResult)', () => {
   })
 
   it('write CREATE: an empty applied-diff projection still falls back to the whole-file diff card', async () => {
-    // A create has no prior content, yet the completed card must be a `diff` — an
-    // ACP tool_call_update.content REPLACES the call's content, so a non-diff result would
-    // clobber the pending new-file diff.
+    // A create has no prior content, yet the completed replacement view must
+    // remain a diff instead of clobbering the pending new-file diff with text.
     const { ctx } = await setup()
     const session = { header: {} }
     const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })
@@ -729,13 +728,13 @@ describe('sandbox escalation surface (write/edit)', () => {
   it('a plain write stamps the default mode with the calling session root', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
-    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: '/session-project' }])
+    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a standing session override folds onto the stamp', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
-    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: '/session-project' }])
+    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
@@ -768,7 +767,7 @@ describe('sandbox escalation surface (write/edit)', () => {
       agent: escalationAgent() as never,
       signal: new AbortController().signal,
     })
-    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: '/session-project' }])
+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a rejected escalation fails closed with its own text and never mutates', async () => {

@@ -24,7 +24,7 @@ harness 可以运行前台与后台命令、编辑文件和委派工作，但无
 |---|---|---|
 | `dsh-pty` | `PtyService`、branded `PtySessionId`、后端注册表、按 owner 隔离的会话契约和结果类型 | `ctx.pty` |
 | `dsh-pty-local` | 基于 [`node-pty`](https://github.com/microsoft/node-pty) 的本地后端、平台进程检查、有界终端缓冲、沙箱解析和进程树监管 | 在 `ctx.pty` 上注册后端 |
-| `dsh-tool-pty` | 6 个面向模型的工具、后台发送的 task 运行时集成、使用指引和 ACP render intent | 注册到 `ctx.tools` |
+| `dsh-tool-pty` | 6 个面向模型的工具、后台发送的 task 运行时集成、使用指引和 UI 渲染意图 | 注册到 `ctx.tools` |
 
 idle 检测属于后端行为，不是第二条公共 seam。远程或容器后端可能拥有完全不同于本地 `/proc` 检查的权威就绪信号；因此每个 `PtyBackend` 都返回统一的发送结果，同时在内部拥有自己的检测机制。
 
@@ -58,7 +58,7 @@ agent scope dispose 时先关闭注册，再等待全部所属 PTY 静默退出�
 | `terminal_close` | 关闭一个会话并等待进程树静默退出 | `{ killed }` |
 | `terminal_list` | 列出调用方的活会话 | 按 owner 隔离的会话摘要 |
 
-ACP 渲染契约精确且不携带位置信息。`terminal_send` 只为前台发送使用 terminal 调用卡片和结果卡片；后台形式使用通用 `execute` 卡片。`terminal_open`、`terminal_read`、`terminal_signal`、`terminal_close` 和 `terminal_list` 分别使用通用 `execute`、`read`、`execute`、`delete` 和 `read` 卡片。所有 PTY 工具都不发出 `locations`。
+UI 渲染契约精确且不携带位置信息。`terminal_send` 只为前台发送使用 terminal 调用卡片和结果卡片；后台形式使用通用 `execute` 卡片。`terminal_open`、`terminal_read`、`terminal_signal`、`terminal_close` 和 `terminal_list` 分别使用通用 `execute`、`read`、`execute`、`delete` 和 `read` 卡片。所有 PTY 工具都不发出 `locations`。
 
 `terminal_send({ sessionId, text, submit?, run_in_background? })` 将 `text` 视为 UTF-8 字节，并由工具实现在解析阶段把 `submit` 默认成 `true`。`submit` 为 true 时先写入文本，再写入平台 Enter 序列；为 false 时只写文本，使控制字符和 REPL 片段无需隐藏的内容启发式即可发送。`enableRunInBackground` 默认为 true；设为 false 时，schema 中会移除 `run_in_background`，调用方即使强行把这个未声明参数传入执行流程，也会被拒绝。
 
@@ -122,7 +122,7 @@ plugins:
       maxResultBytes: 262144
 ```
 
-包提供简洁的工具指引，说明持久状态、owner 隔离、不确定的 idle 结果、清理，以及无需交互时优先使用现有一次性工具。已发布的基础示例不挂载 PTY：PTY 仅通过专用组合 opt-in，ACP 与 headless 快照 overlay 覆盖该组合。`dsh-tool-pty` 实例一旦启用，6 个工具和 `run_in_background` 就会默认启用；部署可通过配置仅禁用后台参数。
+包提供简洁的工具指引，说明持久状态、owner 隔离、不确定的 idle 结果、清理，以及无需交互时优先使用现有一次性工具。已发布的基础示例不挂载 PTY：PTY 仅通过专用组合 opt-in，ACP（Agent Client Protocol）与 headless 快照 overlay 覆盖该组合。`dsh-tool-pty` 实例一旦启用，6 个工具和 `run_in_background` 就会默认启用；部署可通过配置仅禁用后台参数。
 
 ### 推迟的工作
 
@@ -155,7 +155,7 @@ plugins:
 - 每文件覆盖率固定 owner 隔离、并发预留、未发布 spawn 的取消与等待式 teardown、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
 - Linux 进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、僵尸进程静止性、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
 - 真实 `node-pty` 测试在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 下的前台 `SIGINT`、忽略 `SIGTERM` 的子进程，以及 dispose 返回后立即静默。
-- Loader 驱动的 `cordis.yml` 测试挂载真实三包组合；ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果、错误渲染和 terminal/generic card。
+- Loader 驱动的 `cordis.yml` 测试挂载真实三包组合。ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果和错误；TUI 快照固定 terminal 与 generic 卡片展示。
 - 包契约、架构图、核心数据结构、生成目录和 website API 描述同一个已发布接口。
 - 仓库 CI 等价序列负责类型、lint、覆盖率、快照、文档、构建、hygiene、demo 和 built-entry 验证。
 
