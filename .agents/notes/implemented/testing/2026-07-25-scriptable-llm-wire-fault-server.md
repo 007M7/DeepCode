@@ -18,11 +18,11 @@ Request behaviors cover socket reset, post-header disconnect, partial disconnect
 
 The `random` script entry performs a new weighted selection for every request. The server exposes and logs its unsigned 32-bit seed, accepts caller-supplied relative weights, and ships a success-heavy stress profile that mixes transport, protocol, provider, timeout, and semantic-empty outcomes. The profile is configurable test pressure rather than an estimate of production incident frequency; `connection_refused` remains outside the request-level pool.
 
-The server reports wire facts only and does not classify retryability. Real-composition tests route it through `dsh-llm-deepseek`, `dsh-agent-loop`, and `dsh-llm-retry`: connection refusal, hard disconnect, partial reset, and idle timeout recover under the existing default policy; a valid content-less completion succeeds without retry; clean partial EOF remains `STREAM_CLOSED` and is not retried by default. The package does not change those policies.
+The server reports wire facts only and does not classify retryability. Real-composition tests route it through `dsh-llm-deepseek`, `dsh-agent-loop`, and `dsh-llm-retry`: connection refusal, hard disconnect, partial reset, idle timeout, and a valid content-less completion recover under the existing default policy; clean partial EOF remains `STREAM_CLOSED` and is not retried by default. The package does not change those policies.
 
 ## Verification
 
-Package tests exercise every request behavior, HTTP validation without script consumption, script exhaustion/repetition, stalled-connection teardown, CLI parsing, random seed reproducibility, weight validation, telemetry, lifecycle cleanup, and the invariant companion under the per-file coverage gate. The retry integration suite proves exact request counts, numbered retry steps, request-body identity, failed partial-chunk isolation, empty-success semantics, clean-EOF classification, timeout recovery, true refused-connection recovery after delayed listener startup, and bounded exhaustion through the real HTTP/SSE adapter.
+Package tests exercise every request behavior, split UTF-8 request decoding, HTTP validation without script consumption, script exhaustion/repetition, stalled-connection teardown, CLI parsing and delay bounds, IPv6 base URLs, random seed reproducibility, weight validation, single-result telemetry, lifecycle cleanup, and the invariant companion under the per-file coverage gate. The retry integration suite proves exact request counts, numbered retry steps, request-body identity, failed partial-chunk isolation, semantic-empty recovery, clean-EOF classification, timeout recovery, true refused-connection recovery after delayed listener startup, and bounded exhaustion through the real HTTP/SSE adapter.
 
 ## Alternatives considered
 
@@ -32,10 +32,10 @@ Package tests exercise every request behavior, HTTP validation without script co
 
 **Use only an in-process `LlmAdapter` mock** — rejected because it bypasses fetch, HTTP status/header parsing, SSE framing, socket termination, and the adapter idle watchdog: the exact boundaries this test infrastructure exists to exercise.
 
-**Change retry defaults with the server** — rejected because the server reveals existing semantics rather than deciding policy. Adding `STREAM_CLOSED` or semantic-empty recovery requires a separate decision with its own cost, latency, and duplicate-generation trade-offs.
+**Change retry defaults with the server** — rejected because the server reveals existing semantics rather than deciding policy. Extending recovery to `STREAM_CLOSED` requires a separate decision with its own cost, latency, and duplicate-generation trade-offs.
 
 ## Consequences
 
-Developers can reproduce fault sequences by changing only provider URL/key configuration, and automated tests can keep socket-level failures deterministic through explicit scripts and seeds. The same wire fixture now exposes gaps between hard resets, clean truncation, and successful empty completions without splicing attempts or modifying model history.
+Developers can reproduce fault sequences by changing only provider URL/key configuration, and automated tests can keep socket-level failures deterministic through explicit scripts and seeds. The same wire fixture now exposes gaps between hard resets, clean truncation, and recovered empty completions without splicing attempts or modifying model history.
 
 The server adds a support package, executable build entry, and behavior vocabulary that must remain compatible with both direct tests and CLI examples. Arrival-ordered scripts are intentionally shared across clients, random defaults are stress weights rather than operational truth, and exact connection refusal requires coordinating the client attempt with the pre-listen interval.

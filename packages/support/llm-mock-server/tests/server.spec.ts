@@ -1,3 +1,4 @@
+import { request } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MockLlmBehavior, MockLlmServer, MockLlmServerEvent } from '../src/index.ts'
 import { startMockLlmServer } from '../src/index.ts'
@@ -29,6 +30,22 @@ function chat(
     },
     body: options.body ?? JSON.stringify({ model: 'mock', messages: [], stream: true }),
     ...options.signal === undefined ? {} : { signal: options.signal },
+  })
+}
+
+function rawChat(server: MockLlmServer, chunks: readonly Buffer[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const outgoing = request(`${server.baseURL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    }, (response) => {
+      response.once('error', reject)
+      response.once('end', resolve)
+      response.resume()
+    })
+    outgoing.once('error', reject)
+    for (const chunk of chunks) outgoing.write(chunk)
+    outgoing.end()
   })
 }
 
@@ -151,10 +168,12 @@ describe('mock LLM server wire behaviors', () => {
     ['stream_disconnect', 100] as const,
     ['partial_disconnect', 100] as const,
   ])('records a client that closes during %s', async (behavior, delayMs) => {
+    const events: MockLlmServerEvent[] = []
     const server = await start([behavior], {
       chunkDelayMs: delayMs,
       disconnectDelayMs: delayMs,
       chunkSize: 1,
+      onEvent: (event) => { events.push(event) },
     })
     const controller = new AbortController()
     const response = await chat(server, { signal: controller.signal })
@@ -163,6 +182,30 @@ describe('mock LLM server wire behaviors', () => {
     await new Promise((resolve) => { setTimeout(resolve, 5) })
 
     expect(server.requests[0]).toMatchObject({ behavior, outcome: 'client_closed' })
+    expect(events.filter(event => event.type === 'result')).toEqual([
+      expect.objectContaining({ behavior, outcome: 'client_closed' }),
+    ])
+  })
+
+  it('preserves UTF-8 code points split across request chunks', async () => {
+    const server = await start(['success'])
+    const encoded = Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: '你好' }] }))
+    const characterOffset = encoded.indexOf(Buffer.from('你'))
+    expect(characterOffset).toBeGreaterThanOrEqual(0)
+
+    await rawChat(server, [
+      encoded.subarray(0, characterOffset + 1),
+      encoded.subarray(characterOffset + 1),
+    ])
+
+    expect(server.requests[0]?.body).toEqual({ messages: [{ role: 'user', content: '你好' }] })
+  })
+
+  it('formats an IPv6 listener as a valid base URL', async () => {
+    const server = await start(['success'], { host: '::1' })
+
+    expect(server.baseURL).toMatch(/^http:\/\/\[::1\]:\d+$/)
+    expect((await chat(server)).status).toBe(200)
   })
 
   it('emits reasoning, tool calls, max-token finishes, slow chunks, and a wrong content type', async () => {

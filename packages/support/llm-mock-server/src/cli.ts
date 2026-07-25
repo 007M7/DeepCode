@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-llm-mock-server/cli
  */
 
-import { MOCK_LLM_BEHAVIORS } from './index.ts'
+import { MAX_MOCK_LLM_TIMER_DELAY_MS, MOCK_LLM_BEHAVIORS } from './index.ts'
 import type {
   ConcreteMockLlmBehavior,
   MockLlmBehavior,
@@ -18,7 +18,7 @@ export const CONNECTION_REFUSED_BEHAVIOR = 'connection_refused'
 export interface MockLlmCliConfig {
   /** Server options after removing the lifecycle-only `connection_refused` entry. */
   readonly server: MockLlmServerOptions
-  /** Delay before binding the model port; zero starts immediately. */
+  /** Delay before binding the model port; an integer from zero through the Node timer maximum. */
   readonly listenDelayMs: number
   /** Whether the original sequence requested a true pre-listen refusal phase. */
   readonly startsUnavailable: boolean
@@ -74,6 +74,14 @@ function optionValue(argv: readonly string[], index: number, option: string): st
 function numberValue(option: string, value: string): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) throw new Error(`dsh-llm-mock-server: ${option} must be a finite number`)
+  return parsed
+}
+
+function boundedIntegerValue(option: string, value: string, min: number, max: number): number {
+  const parsed = numberValue(option, value)
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`dsh-llm-mock-server: ${option} must be an integer between ${min} and ${max}`)
+  }
   return parsed
 }
 
@@ -154,7 +162,9 @@ export function parseMockLlmCliArgs(argv: readonly string[]): MockLlmCliParseRes
       case '--host': host = value; break
       case '--port': port = numberValue(option, value); break
       case '--api-key': apiKey = value; break
-      case '--listen-delay-ms': listenDelayMs = numberValue(option, value); break
+      case '--listen-delay-ms':
+        listenDelayMs = boundedIntegerValue(option, value, 0, MAX_MOCK_LLM_TIMER_DELAY_MS)
+        break
       case '--seed': randomSeed = numberValue(option, value); break
       case '--random-weights': randomWeights = parseRandomWeights(value); break
       case '--success-text': successText = value; break

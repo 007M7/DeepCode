@@ -9,7 +9,7 @@
 import { createServer } from 'node:http'
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import type { AddressInfo } from 'node:net'
+import { isIP, type AddressInfo } from 'node:net'
 import { setTimeout as delay } from 'node:timers/promises'
 
 /** Request-scoped behaviors accepted by {@link startMockLlmServer}. */
@@ -68,6 +68,9 @@ export const DEFAULT_MOCK_LLM_RANDOM_WEIGHTS: Readonly<MockLlmRandomWeights> = O
   partial_eof: 1,
   malformed_json: 1,
 })
+
+/** Largest millisecond delay accepted by Node timers without truncation. */
+export const MAX_MOCK_LLM_TIMER_DELAY_MS = 2_147_483_647
 
 /** How one accepted request ended at the mock boundary. */
 export type MockLlmRequestOutcome = 'completed' | 'reset' | 'stalled' | 'client_closed' | 'server_error'
@@ -186,7 +189,6 @@ interface ResolvedOptions {
   readonly onEvent?: (event: MockLlmServerEvent) => void
 }
 
-const MAX_TIMER_DELAY_MS = 2_147_483_647
 const DEFAULT_SUCCESS_TEXT = 'mock response recovered'
 const DEFAULT_PARTIAL_TEXT = 'discarded partial response'
 const DEFAULT_REASONING_TEXT = 'mock reasoning'
@@ -203,14 +205,24 @@ function resolveOptions(options: MockLlmServerOptions): ResolvedOptions {
   const host = options.host ?? '127.0.0.1'
   const port = boundedInteger('port', options.port ?? 0, 0, 65_535)
   const chunkSize = boundedInteger('chunkSize', options.chunkSize ?? 8, 1, Number.MAX_SAFE_INTEGER)
-  const chunkDelayMs = boundedInteger('chunkDelayMs', options.chunkDelayMs ?? 25, 0, MAX_TIMER_DELAY_MS)
+  const chunkDelayMs = boundedInteger(
+    'chunkDelayMs',
+    options.chunkDelayMs ?? 25,
+    0,
+    MAX_MOCK_LLM_TIMER_DELAY_MS,
+  )
   const disconnectDelayMs = boundedInteger(
     'disconnectDelayMs',
     options.disconnectDelayMs ?? 10,
     0,
-    MAX_TIMER_DELAY_MS,
+    MAX_MOCK_LLM_TIMER_DELAY_MS,
   )
-  const retryAfterMs = boundedInteger('retryAfterMs', options.retryAfterMs ?? 1_000, 1, MAX_TIMER_DELAY_MS)
+  const retryAfterMs = boundedInteger(
+    'retryAfterMs',
+    options.retryAfterMs ?? 1_000,
+    1,
+    MAX_MOCK_LLM_TIMER_DELAY_MS,
+  )
   const randomSeed = boundedInteger(
     'randomSeed',
     options.randomSeed ?? randomBytes(4).readUInt32LE(0),
@@ -285,8 +297,9 @@ function emit(options: ResolvedOptions, event: MockLlmServerEvent): void {
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  let body = ''
-  for await (const chunk of request) body += Buffer.from(chunk).toString('utf8')
+  const chunks: Buffer[] = []
+  for await (const chunk of request) chunks.push(Buffer.from(chunk as Uint8Array))
+  const body = Buffer.concat(chunks).toString('utf8')
   return body.length === 0 ? undefined : JSON.parse(body)
 }
 
@@ -320,6 +333,7 @@ function finishRecord(
   record: MockLlmRequestRecord,
   outcome: MockLlmRequestOutcome,
 ): void {
+  if (record.outcome !== undefined) return
   record.outcome = outcome
   emit(options, {
     type: 'result',
@@ -713,8 +727,9 @@ export async function startMockLlmServer(options: MockLlmServerOptions): Promise
   })
 
   const address = server.address() as AddressInfo
+  const advertisedHost = isIP(resolved.host) === 6 ? `[${resolved.host}]` : resolved.host
   return {
-    baseURL: `http://${resolved.host}:${address.port}`,
+    baseURL: `http://${advertisedHost}:${address.port}`,
     port: address.port,
     randomSeed: resolved.randomSeed,
     requests,
