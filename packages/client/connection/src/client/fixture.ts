@@ -641,6 +641,59 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         emitHost({ type: 'host/workspace-changed', workspace: { ...created } })
         return ok(request, { workspace: { ...created }, created: true })
       },
+      rename: (request) => {
+        const { workspaceId, title } = request.payload
+        const workspace = workspaces.find(w => w.workspaceId === workspaceId)
+        if (workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        const trimmed = title.trim()
+        if (trimmed !== workspace.title) {
+          if (workspaces.some(w => w.workspaceId !== workspaceId && w.title === trimmed)) {
+            return err(request, {
+              code: 'workspace-name-conflict',
+              message: `workspace name '${trimmed}' is already in use`,
+              details: { name: trimmed },
+            })
+          }
+          workspace.title = trimmed
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { workspace: { ...workspace } })
+      },
+      insertSessionBefore: (request) => {
+        const { workspaceId, sessionId, beforeSessionId } = request.payload
+        const workspace = workspaces.find(w => w.workspaceId === workspaceId)
+        if (workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        if (!workspace.sessionIds.includes(sessionId)
+          || (beforeSessionId !== undefined && !workspace.sessionIds.includes(beforeSessionId))) {
+          return err(request, {
+            code: 'workspace-move-invalid',
+            message: `session or anchor is not accounted by workspace ${workspaceId}`,
+            details: { workspaceId, sessionId, ...beforeSessionId === undefined ? {} : { beforeSessionId } },
+          })
+        }
+        const without = workspace.sessionIds.filter(id => id !== sessionId)
+        const at = beforeSessionId === undefined ? without.length : without.indexOf(beforeSessionId)
+        const sessionIds = [...without.slice(0, at), sessionId, ...without.slice(at)]
+        if (!sessionIds.every((id, index) => id === workspace.sessionIds[index])) {
+          workspace.sessionIds = sessionIds
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { workspace: { ...workspace } })
+      },
     },
     events: {
       async *mux(_request, signal) {
@@ -757,6 +810,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'host.describe': return this.api.host.describe(request)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
+      case 'workspace.rename': return this.api.workspace.rename(request)
+      case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
     }
   }
 

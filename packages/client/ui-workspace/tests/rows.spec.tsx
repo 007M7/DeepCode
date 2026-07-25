@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
-import { IntentRowItem, ProjectRowItem, SessionNodeItem } from '../src/client/Rows.tsx'
+import { IntentRowItem, ProjectRowItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
 import type { GroupNode, SessionNode } from '../src/client/tree.ts'
 
 afterEach(cleanup)
@@ -10,7 +10,7 @@ afterEach(cleanup)
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 
-describe('sidebar rows', () => {
+describe('workspace browser rows', () => {
   it('renders an active Workspace and keeps its create action separate from toggling', () => {
     const onToggle = vi.fn()
     const onCreate = vi.fn()

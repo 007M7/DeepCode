@@ -1982,15 +1982,6 @@ get(id: WorkspaceId): Workspace | undefined
 list(): Workspace[]
 
 /**
- * Move one accounted, cwd-validated session to the front of its workspace.
- * Ungrouped sessions and candidates filtered by the header check are
- * no-ops. The owning workspace's relative position never changes.
- * @param sessionId - Session whose activity was observed.
- * @returns resolution after the possible record write.
- */
-async touchSession(sessionId: SessionId): Promise<void>
-
-/**
  * Resolve by canonical directory path without creating or mutating a
  * workspace. A missing path rejects during `realpath`; an existing unowned
  * directory returns `undefined`.
@@ -1999,8 +1990,6 @@ async touchSession(sessionId: SessionId): Promise<void>
  */
 async resolveByPath(path: string): Promise<Workspace | undefined>
 ```
-
-Types: [SessionId](../core-data-structures/core.md)
 
 Source: [`packages/workspace/workspace/src/index.ts:75`](../../packages/workspace/workspace/src/index.ts)
 

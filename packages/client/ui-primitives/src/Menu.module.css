@@ -109,6 +109,27 @@
   background: transparent;
 }
 
+/* Destructive row: error text/icon, danger hover fill. */
+.danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.danger .itemIcon {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* Heading row: non-interactive small grey text, padding aligned with items. */
+.label {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* Separator cell (figma 122:9481): py 4 / px 2 around the hairline. */
 .separator {
   height: 1px;
