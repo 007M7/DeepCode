@@ -32,12 +32,14 @@
   config:
     provider: deepseek
     model: deepseek-v4-pro
-    # Set RESUME_SESSION_ID to continue a prior persisted session (the ids live
-    # under ./.sessions); unset starts a fresh session each run.
-    resumeSessionId: !!js process.env.RESUME_SESSION_ID
+    # `dsh --resume <id>` provides the session id on the boot context (the ids
+    # live under ./.sessions); with no flag the identifier is undefined and a
+    # fresh session starts each run. The typeof guard tolerates a launcher that
+    # never provides the slot, reading undefined rather than throwing.
+    resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
     persistenceRoot: './.sessions'
     # Printed on exit and listed by `/resume`; `{session}` fills the live id.
-    # `dsh --resume <id>` sets RESUME_SESSION_ID above, so run it from this cwd.
+    # `dsh --resume <id>` resumes that session, so run it from this cwd.
     resumeCommand: 'dsh --resume {session}'
     workspaceContext:
       maxBytes: 65536

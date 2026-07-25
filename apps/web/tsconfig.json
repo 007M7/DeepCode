@@ -17,6 +17,15 @@
     "src",
     "tests"
   ],
+  // The web e2e lane (scaffold + replay specs) boots the host spine and reads
+  // its Context merges — host-plane programs, checked in tsconfig.host.json;
+  // this client-registered project must not also hold them (one program
+  // cannot see both sides of the cordis Context merges).
+  "exclude": [
+    "tests/scaffold.ts",
+    "tests/replay-round-trip.e2e.ts",
+    "tests/seeded-history.e2e.ts"
+  ],
   "references": [
     {
       "path": "../../packages/client/web"

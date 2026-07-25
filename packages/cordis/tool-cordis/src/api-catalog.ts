@@ -509,16 +509,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
       },
       {
-        signature: 'abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
       },
       {
-        signature: 'abstract list(): Promise<SessionHeader[]>',
-        jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @returns one header per materialized session.\n */',
+        signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
+        jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @param signal - optional cancellation for backend listing work.\n * @returns one header per materialized session.\n */',
       },
       {
-        signature: 'abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>',
-        jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
+        signature: 'abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>',
+        jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @param signal - optional cancellation for backend snapshot-listing work.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
       },
     ],
   },
@@ -531,24 +531,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Search the live-preferred logical corpus and group by session.\n * @param request - query text, metadata filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns session hits ranked by their strongest matching event.\n */',
       },
       {
-        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
-        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits in deterministic relevance order.\n */',
+        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionEventSearchPage>',
+        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits and their target header from one indexed generation.\n */',
       },
       {
-        signature: 'listSessions(): Promise<SessionRecord[]>',
-        jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
+        signature: 'listSessions(signal?: AbortSignal): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @param signal - optional cancellation for persistence listing.\n * @returns deterministic newest-first cloned session records.\n */',
       },
       {
         signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
         jsDoc: '/**\n * Read and replay-validate one complete logical session log without making it live.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned header and complete raw event log from one observation.\n * @throws when persistence, header compatibility, or replay validation fails.\n */',
       },
       {
-        signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
-        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
+        signature: 'async filterSessions( filters: readonly SessionResultFilter[], signal?: AbortSignal, ): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @param signal - optional cancellation for persistence listing.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
       {
-        signature: 'async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>',
-        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
+        signature: 'async readTitle( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleSnapshot | undefined>',
+        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @param signal - optional cancellation for source resolution and title folding.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
+      },
+      {
+        signature: 'async readTitleSnapshot( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleObservation>',
+        jsDoc: '/**\n * Fold the latest title and return its source header from one corpus observation.\n * @param sessionId - live or persisted session id to read.\n * @param signal - optional cancellation for source resolution and title folding.\n * @returns cloned source header and optional latest title snapshot.\n */',
+      },
+      {
+        signature: 'async readTitleSnapshots( sessionIds: readonly SessionId[], signal?: AbortSignal, ): Promise<SessionTitleObservationResult[]>',
+        jsDoc: '/**\n * Fold titles for unique sessions from one cancellable corpus observation.\n *\n * Results preserve first-occurrence input order. Operational failures stay\n * isolated per session, while cancellation rejects the complete operation.\n * @param sessionIds - live or persisted session ids to observe.\n * @param signal - optional cancellation shared by all source reads.\n * @returns one fulfilled or rejected result per unique requested id.\n */',
       },
       {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
@@ -563,16 +571,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read one session\'s complete current model surface from one corpus observation.\n * @param sessionId - live-preferred session id to read.\n * @returns cloned header, current surface, and raw-log capture boundary.\n * @throws when source resolution fails or the session surface is invalid.\n */',
       },
       {
-        signature: 'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
-        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
+        signature: 'async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>',
+        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @param signal - optional cancellation for persistence listing.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
       },
       {
-        signature: 'async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>',
-        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @returns direct links plus the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
+        signature: 'async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>',
+        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns source header, direct links, and the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
       },
       {
-        signature: 'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
-        jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @returns cloned target and neighboring events.\n */',
+        signature: 'async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>',
+        jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns cloned target and neighboring events.\n */',
       },
     ],
   },
@@ -1945,6 +1953,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventSearchHit extends SessionEventRecord {\n    snippet: string;\n}',
   },
   {
+    name: 'SessionEventSearchPage',
+    declaration: 'export interface SessionEventSearchPage extends SessionSearchPage<SessionEventSearchHit> {\n    session: SessionHeader;\n}',
+  },
+  {
     name: 'SessionEventSearchRequest',
     declaration: 'export interface SessionEventSearchRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
   },
@@ -1955,6 +1967,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionEventTrace',
     declaration: 'export interface SessionEventTrace {\n    target: SessionEventRecord;\n    replacedBy?: number;\n    replacementChain: number[];\n    replacedEventSeqs: number[];\n    sourceEventSeqs: number[];\n    derivedEventSeqs: number[];\n}',
+  },
+  {
+    name: 'SessionEventTraceObservation',
+    declaration: 'export interface SessionEventTraceObservation extends SessionEventTrace {\n    session: SessionHeader;\n}',
   },
   {
     name: 'SessionEventTraceRequest',
@@ -2063,6 +2079,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionTitleModelProvenance',
     declaration: 'export interface SessionTitleModelProvenance {\n    readonly provider: string;\n    readonly model: string;\n}',
+  },
+  {
+    name: 'SessionTitleObservation',
+    declaration: 'export interface SessionTitleObservation {\n    session: SessionHeader;\n    title?: SessionTitleSnapshot;\n}',
+  },
+  {
+    name: 'SessionTitleObservationResult',
+    declaration: 'export type SessionTitleObservationResult = {\n    sessionId: SessionId;\n    status: \'fulfilled\';\n    value: SessionTitleObservation;\n} | {\n    sessionId: SessionId;\n    status: \'rejected\';\n    reason: unknown;\n};',
   },
   {
     name: 'SessionTitleProvider',

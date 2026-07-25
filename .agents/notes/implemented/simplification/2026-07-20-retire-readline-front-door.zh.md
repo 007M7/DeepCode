@@ -26,7 +26,7 @@ Status: implemented
 
 - `examples/echo-agent/tests/echo.e2e.ts` 通过 `stream-json` 记录证明 Loader 启动 + mock 模型的工具往返，而不是匹配 readline 文本记录行。
 - CI 演示冒烟门禁（`scripts/run-gates.ts`、AGENTS.md）运行 `demo:echo --output-format stream-json -p "echo ci smoke"` 并结构化解析记录。
-- `packages/examples/tui-demo/tests/built-bin.e2e.ts` 证明构建产物 bin 对管道启动的拒绝（非零退出 + 指向 `dsh-cli-demo` 的提示）；纯 Node 下的 echo 往返证明与缺失配置的快速失败证明位于 `cli-demo` 的 built-bin 套件。
+- TUI 对管道启动的拒绝（非零退出 + 指向单次任务 CLI 的提示）由 `apps/cli/tests/built-bin.e2e.ts`（纯 Node 下的 `dsh` TTY 守卫）覆盖；纯 Node 下的 echo 往返证明与缺失配置的快速失败证明位于 `cli-demo` 的 built-bin 套件。
 - `packages/context/time-context/tests/time-context.e2e.ts` 运行一个单次任务轮次；多轮 elapsed 渲染仍由其单元测试覆盖。
 
 ## 接受的损失
