@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-10-parallel-tool-call-execution.zh.md)
+
 ## Problem
 
 An assistant message may contain several sibling `tool-call` blocks. Running them serially adds the latency of independent reads and web requests even though the model has already requested them together.
