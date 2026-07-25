@@ -38,7 +38,7 @@ export default defineConfig({
   plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] })],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
-    include: ['packages/*/*/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
+    include: ['packages/*/*/tests/**/*.e2e.ts', 'apps/*/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
     // Real model calls: generous timeouts, and retries for transient flakes
     // (the shared internal key hits concurrency quotas). No coverage — the
     // unit suites own the coverage gate.

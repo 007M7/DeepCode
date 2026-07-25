@@ -22,7 +22,7 @@ argv 只在 `apps/cli/src/args.ts` 中解析一次，通过一个 Commander 适�
 
 ## 唯一的终端入口：`dsh`
 
-`dsh-tui-demo` 包（package）原本包含一个插件（即 `dsh` 配置挂载的 TUI 应用组合）和一个冗余的 `bin`；后者启动一份叶子配置 `cordis.yml`，所做的工作与 `dsh [config]` 相同。该 bin 已移除：`demo:cordis`、`demo:code-mode` 以及 tui-agent 和 cordis-agent 的两个无密钥 PTY 冒烟测试现在都通过 `apps/cli/src/bin.ts` 启动，并将配置作为位置参数；该包只保留插件入口和不变式入口。与该 bin 一同移除的还有对 `dsh-app-boot` 的对等依赖（peer dependency）和开发依赖、`bin` 和 `./bin` 导出、`built-bin.e2e.ts`（其中拒绝通过管道启动 TUI 的行为已由 tui-agent PTY 冒烟测试中 `dsh` 自身的 TTY 守卫覆盖），以及 tsdown 的 `bin` 入口。`cli-demo`、`acp-demo` 和 `jsonrpc-demo` 保留各自的 bin，因为它们分别提供 `dsh` 所没有的独立接口（headless、ACP（Agent Client Protocol）、JSON-RPC）。
+`dsh-tui-demo` 包（package）原本包含一个插件（即 `dsh` 配置挂载的 TUI 应用组合）和一个冗余的 `bin`；后者启动一份叶子配置 `cordis.yml`，所做的工作与 `dsh [config]` 相同。该 bin 已移除：`demo:cordis`、`demo:code-mode` 以及 tui-agent 和 cordis-agent 的两个无密钥 PTY 冒烟测试现在都通过 `apps/cli/src/bin.ts` 启动，并将配置作为位置参数；该包只保留插件入口和不变式入口。与该 bin 一同移除的还有对 `dsh-app-boot` 的对等依赖（peer dependency）和开发依赖、`bin` 和 `./bin` 导出、演示包的 `built-bin.e2e.ts`，以及 tsdown 的 `bin` 入口。`dsh` 自身的 TTY 守卫会在标准输入输出接入管道时，于启动应用前拒绝运行，并提示自动化场景改用 `dsh -p`；为此新增的 `apps/cli/tests/built-bin.e2e.ts` 将标准输入输出接入管道，直接使用 Node 运行构建后的 `lib/bin.js`（`apps/*/tests` 已加入 e2e Vitest 的测试文件匹配范围）。`cli-demo`、`acp-demo` 和 `jsonrpc-demo` 保留各自的 bin，因为它们分别提供 `dsh` 所没有的独立接口（headless、ACP（Agent Client Protocol）、JSON-RPC）。
 
 ## 包拓扑
 

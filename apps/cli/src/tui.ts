@@ -53,7 +53,9 @@ export async function runTui(config: string | undefined, resumeSessionId: string
   // is logged per-entry rather than rethrown, so a piped launch would
   // otherwise settle into an idle UI-less process instead of exiting nonzero.
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    process.stderr.write(`${NAME}: the TUI requires stdin and stdout to be interactive TTYs\n`)
+    process.stderr.write(
+      `${NAME}: the TUI requires stdin and stdout to be interactive TTYs; use \`${NAME} -p "task"\` for pipes and automation\n`,
+    )
     process.exit(1)
   }
   installFailLoud(NAME)
