@@ -132,10 +132,12 @@ describe('thrown-value propagation', () => {
     const ends = agent.session.events.filter(event => event.type === 'turn/end')
     const messages = agent.session.events.filter(event => event.type === 'user/message')
     expect(starts).toHaveLength(1)
-    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(2)
+    // The rejected turn/start committed nothing, so the survivor reuses turn 1
+    // and the rejected prompt does not leak into it.
+    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(1)
     expect(ends).toHaveLength(1)
-    expect(messages).toHaveLength(2)
-    expect(messages[1]?.type === 'user/message' && messages[1].data.content).toEqual([
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.type === 'user/message' && messages[0].data.content).toEqual([
       { type: 'text', text: 'survives as the next item' },
     ])
   })

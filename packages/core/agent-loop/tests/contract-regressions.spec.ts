@@ -736,6 +736,46 @@ describe('turn and step boundary recovery', () => {
     expect(stepEndIdx).toBeLessThan(turnEndIdx)
   })
 
+  it('a pre-commit turn/start rejection leaves no turn state for the next prompt', async () => {
+    const adapter = new MockAdapter([textResponse('after recovery')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-turnstart-veto'), { provider: 'mock', model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'turn/start' && !rejected) {
+        rejected = true
+        throw new Error('reject turn-start before commit')
+      }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+      if (error instanceof Error) errors.push(error)
+    })
+
+    send(agent, 'rejected')
+    await waitForIdle(ctx, agent)
+
+    // The rejected turn left nothing behind: no events, no admitted prompt.
+    expect(agent.session.events).toEqual([])
+    expect(errors.map(error => error.message)).toEqual(['reject turn-start before commit'])
+
+    // The next prompt reuses the never-committed turn number and carries only
+    // its own admitted content — invariants (mounted) accept the log.
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(boundaryCounts(agent)).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1 })
+    const turnStart = agent.session.events.find(event => event.type === 'turn/start')
+    expect(turnStart?.type === 'turn/start' && turnStart.data.turn).toBe(1)
+    const prompts = agent.session.events.filter(event => event.type === 'user/message')
+    expect(prompts.map(event => event.type === 'user/message' && event.data.content)).toEqual([
+      [{ type: 'text', text: 'go' }],
+    ])
+    expect(adapter.requests).toHaveLength(1)
+  })
+
   it('a pre-commit step/start validation failure does not invent a step boundary', async () => {
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)

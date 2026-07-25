@@ -1,7 +1,8 @@
 /**
  * Concrete Agent loop over two pending-input lists: queued prompts each open a
- * turn, while admitted input, steering, and injected context enter through the
- * outbox at step boundaries. Every request is derived from the session log.
+ * turn that logs its admitted input after `turn/start` commits, while steering
+ * and injected context enter through the outbox at step boundaries. Every
+ * request is derived from the session log.
  *
  * @module dsh-agent-loop/agent
  */
@@ -205,7 +206,9 @@ export class ReactLoopAgent implements Agent {
     this.done = this.loopCtx.agents.withInitiator(this, async () => {
       const signal = admission.signal
       const trigger: TurnTrigger = { kind: 'message', source: message.source }
-      let admitted = false
+      // Admitted input stays on the stack until its turn/start commits: the
+      // turn owns it only once the turn exists in the log.
+      let admitted: UserMessageData[] | undefined
       try {
         signal.throwIfAborted()
         const decision = await this.loopCtx.waterfall(
@@ -215,11 +218,10 @@ export class ReactLoopAgent implements Agent {
         signal.throwIfAborted()
 
         if (decision.kind === 'allow') {
-          this.outbox.push({ content: decision.content ?? message.content, source: message.source })
+          admitted = [{ content: decision.content ?? message.content, source: message.source }]
           for (const context of decision.additionalContexts ?? []) {
-            this.outbox.push({ content: context.content, source: context.source })
+            admitted.push({ content: context.content, source: context.source })
           }
-          admitted = true
         }
       } catch (error: unknown) {
         if (agentInterruptReasonOf(signal) === undefined) {
@@ -228,16 +230,19 @@ export class ReactLoopAgent implements Agent {
       }
 
       if (this.abort === admission) this.abort = undefined
-      if (!admitted) {
+      if (admitted === undefined) {
         this.continueOrIdle()
         return
       }
-      await this.run(trigger)
+      await this.run(trigger, admitted)
     })
   }
 
-  /** Run one turn and any request-error retry over input already admitted by {@link kick}. */
-  private async run(trigger: TurnTrigger): Promise<void> {
+  /**
+   * Run one turn and any request-error retry. `admitted` input enters the log
+   * only after `turn/start` commits; until then it has no owner state to unwind.
+   */
+  private async run(trigger: TurnTrigger, admitted: UserMessageData[] = []): Promise<void> {
     if (this.abort !== undefined) throw new Error(`agent "${this.id}" is already running`)
     const controller = new AbortController()
     this.abort = controller
@@ -246,7 +251,7 @@ export class ReactLoopAgent implements Agent {
       emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
     }
     const signal = controller.signal
-    const turn = ++this.lastTurn
+    const turn = this.lastTurn + 1
     let step = 0
     let reason: TurnEndReason = { kind: 'completed' }
     let idle: IdleReason = { kind: 'completed' }
@@ -257,7 +262,13 @@ export class ReactLoopAgent implements Agent {
     try {
       signal.throwIfAborted()
       this.session.append('turn/start', { turn, trigger })
+      // Committed: publish the turn to the machine's own bookkeeping and let
+      // the admitted input enter the log it now belongs to.
       this.turnOpen = true
+      this.lastTurn = turn
+      for (const input of admitted) {
+        this.session.append('user/message', input, { surfaceOp: 'append' })
+      }
       signal.throwIfAborted()
 
       this.drainOutbox(turn)
