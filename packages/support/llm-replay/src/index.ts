@@ -200,26 +200,63 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
 }
 
 /**
- * Build the replay script for the PRIMARY session: the sidecar override if
- * present, otherwise the script derived from the recorded session JSONL.
- * Fail-loud if the JSONL fixture is missing (the scenario was never recorded) —
- * never silently returns an empty script, so a coverage hole can't masquerade
- * as a passing replay.
+ * One positional patch in an augmentation sidecar: replaces the derived
+ * entry at call index `at` (0-based) with `entry`, or appends when `at`
+ * equals the derived length (an extra recorded-after-the-fact call, e.g. the
+ * retry attempt following an injected transient throw).
+ */
+export interface ReplayOverridePatch {
+  /** 0-based call index into the derived script; == length appends. */
+  at: number
+  /** The replacement (or appended) entry at that call position. */
+  entry: ReplayEntry
+}
+
+/**
+ * Override sidecar document: either the legacy whole-script replacement (a
+ * bare `ReplayEntry[]`) or the augmentation form `{ patches }`, which keeps
+ * the JSONL-derived script and swaps only the named call indexes — the shape
+ * for "turn N errors, everything else replays as recorded".
+ */
+export type ReplayOverrideDoc = ReplayEntry[] | { patches: ReplayOverridePatch[] }
+
+/**
+ * Load the PRIMARY session's replay script: the sidecar override when present
+ * (whole-script replacement or `{ patches }` augmentation over the derived
+ * script), else the script derived from the session JSONL (fail-loud when the
+ * fixture is missing).
  * @param config - the fixture paths; only `file` and `overrideFile` are consulted.
- * @returns the primary session's replay entries.
+ * @returns the resolved primary-session script.
  */
 export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
   if (config.overrideFile !== undefined && existsSync(config.overrideFile)) {
     const parsed: unknown = JSON.parse(readFileSync(config.overrideFile, 'utf8'))
-    if (!Array.isArray(parsed)) {
-      throw new Error(`llm-replay: override is not a JSON array: ${config.overrideFile}`)
+    if (Array.isArray(parsed)) return parsed as ReplayEntry[]
+    const doc = parsed as { patches?: unknown }
+    if (typeof parsed !== 'object' || parsed === null || !Array.isArray(doc.patches)) {
+      throw new Error(`llm-replay: override must be a ReplayEntry[] or { patches: [...] }: ${config.overrideFile}`)
     }
-    return parsed as ReplayEntry[]
+    const script = deriveScriptFromFile(config.file)
+    for (const patch of doc.patches as ReplayOverridePatch[]) {
+      if (!Number.isInteger(patch.at) || patch.at < 0 || patch.at > script.length) {
+        throw new Error(
+          `llm-replay: override patch index ${String(patch.at)} out of range `
+          + `(derived script has ${script.length} call(s); == length appends): ${config.overrideFile}`,
+        )
+      }
+      script[patch.at] = patch.entry
+    }
+    return script
   }
-  if (!existsSync(config.file)) {
-    throw new Error(`llm-replay: fixture not found: ${config.file} — run \`pnpm run test:snapshot:record\` first`)
+  return deriveScriptFromFile(config.file)
+}
+
+/** Derive the primary script from the session JSONL, failing loud on a missing fixture. */
+function deriveScriptFromFile(file: string): ReplayEntry[] {
+  if (!existsSync(file)) {
+    throw new Error(`llm-replay: fixture not found: ${file} — run \`pnpm run test:snapshot:record\` first`)
   }
-  return deriveReplayScript(parseSessionLog(readFileSync(config.file, 'utf8')))
+  return deriveReplayScript(parseSessionLog(readFileSync(file, 'utf8')))
 }
 
 /**

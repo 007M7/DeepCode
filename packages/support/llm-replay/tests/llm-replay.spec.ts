@@ -207,7 +207,52 @@ describe('loadReplayScript', () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
     writeFileSync(overrideFile, '{"not":"array"}', 'utf8')
-    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/not a JSON array/)
+    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/ReplayEntry\[\] or \{ patches/)
+  })
+
+  it('patches form: swaps the named call index and keeps derived siblings', () => {
+    const callB: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'two' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    let seq = 1
+    writeFileSync(file, sessionJsonl([
+      ...TEXT_CHUNKS.map(c => chunkEvent(seq++, 1, 1, c)),
+      ...callB.map(c => chunkEvent(seq++, 1, 2, c)),
+    ]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'transient', code: 'SERVER' } }],
+    }), 'utf8')
+    expect(loadReplayScript({ file, overrideFile })).toEqual([
+      { kind: 'throw', chunks: [], message: 'transient', code: 'SERVER' },
+      { kind: 'chunks', chunks: callB },
+    ])
+  })
+
+  it('patches form: at == derived length appends (the retry-attempt slot)', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [
+        { at: 0, entry: { kind: 'throw', chunks: [], message: '429', code: 'RATE_LIMIT' } },
+        { at: 1, entry: { kind: 'chunks', chunks: TEXT_CHUNKS } },
+      ],
+    }), 'utf8')
+    expect(loadReplayScript({ file, overrideFile })).toEqual([
+      { kind: 'throw', chunks: [], message: '429', code: 'RATE_LIMIT' },
+      { kind: 'chunks', chunks: TEXT_CHUNKS },
+    ])
+  })
+
+  it('patches form: an out-of-range index fails loud with the derived length', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    for (const at of [2, -1, 1.5]) {
+      writeFileSync(overrideFile, JSON.stringify({ patches: [{ at, entry: { kind: 'hang' } }] }), 'utf8')
+      expect(() => loadReplayScript({ file, overrideFile })).toThrow(/patch index .* out of range/)
+    }
   })
 })
 
