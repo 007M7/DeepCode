@@ -45,7 +45,7 @@ Core dispatch and the tool body sit inside normalization boundaries, so tool, li
 
 ### Pre-tool input rewrite is a separate consistency decision
 
-`PreToolDecision` cannot rewrite arguments. History and the audit call are logged before execution, and ACP presentation reads the same input, so the registry seals arguments before policy. A valid rewrite must update history, audit, presentation, and execution before identity is created; that contract belongs to the [input-rewrite proposal](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
+`PreToolDecision` cannot rewrite arguments. History and the audit call are logged before execution, and UI presentation reads the same input, so the registry seals arguments before policy. A valid rewrite must update history, audit, presentation, and execution before identity is created; that contract belongs to the [input-rewrite proposal](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
 
 ### Boundaries
 

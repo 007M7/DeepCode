@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-06-14-acp-agent-client-protocol.md) | 中文
 
+> 已被 [ACP 作为仅面向自动化的协议](../simplification/2026-07-23-acp-automation-only-protocol.md)取代。本 Agent Note 记录已退役的面向编辑器的桥接层设计。
+
 ## 问题
 
 harness 最初仅通过 readline 循环暴露 agent。该接口能传输文本，但编辑器无法以结构化方式创建或恢复会话、关联提示词完成、流式输出推理（reasoning）与工具活动、渲染工具专属 UI、请求权限，或在不干扰其他对话的前提下取消某个对话。ACP（Agent Client Protocol）将这些交互定义为基于 stdio 的 JSON-RPC，Zed 是用于做出具体兼容性决策的目标客户端。
@@ -12,7 +14,7 @@ harness 最初仅通过 readline 循环暴露 agent。该接口能传输文本�
 
 ## 决策
 
-`@deepseek-ai/dsh-acp` 是位于 `packages/ui/acp` 的 UI/客户端驱动插件。它使用 `@agentclientprotocol/sdk` 的 `AgentSideConnection`（基于 stdin/stdout），仅编排接口服务：agent 创建/恢复工厂、会话持久化、工具注册表、用户交互，以及可选的审批/bash 能力。它不修改 agent loop，也不是能力 seam 的实现。
+`@deepseek-ai/dsh-acp` 曾是 `ui` 包组中的 UI/客户端驱动插件（现位于 `acp`）。它使用 `@agentclientprotocol/sdk` 的 `AgentSideConnection`（基于 stdin/stdout），仅编排接口服务：agent 创建/恢复工厂、会话持久化、工具注册表、用户交互，以及可选的审批/bash 能力。它不修改 agent loop，也不是能力 seam 的实现。
 
 桥接层实现以下稳定的会话路径：
 
@@ -32,7 +34,7 @@ harness 最初仅通过 readline 循环暴露 agent。该接口能传输文本�
 
 生命周期所有权是显式的。桥接层为每个活跃会话持有一个 `AgentHandle`。断连和 Cordis dispose（资源释放）会取消待处理的提示词，并行 dispose 所有 handle，等待循环完全停稳与持久化刷写，然后移除记录。流通知失败被隔离，因此消失的客户端不会破坏 agent 轮次。ACP 应用组合不加载 stdout logger；一个测试守卫 stdout 仅包含帧化的 JSON-RPC。
 
-精确的已支持与已推迟的协议行列表见 [`packages/ui/acp/acp-feature-support.md`](../../../../packages/ui/acp/acp-feature-support.md)；包 README 是操作契约。
+当前的协议契约见 [`dsh-acp` 包 README](../../../../packages/acp/acp/README.md)。
 
 ## 曾考虑的替代方案
 

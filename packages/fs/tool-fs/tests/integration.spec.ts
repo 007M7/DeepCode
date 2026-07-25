@@ -284,8 +284,8 @@ describe('bare provider (no dsh-fs-policy)', () => {
 })
 
 // Per-session cwd: a relative file_path resolves against the calling session's workspace
-// (`exec.agent.session.header.cwd`), not the backend's config.cwd — so an ACP editor's
-// per-session dir wins, matching dsh-tool-bash.
+// (`exec.agent.session.header.cwd`), not the backend's config.cwd, so the
+// caller-selected session workspace wins, matching dsh-tool-bash.
 describe('per-session cwd', () => {
   let sessionDir: string
   beforeEach(async () => {

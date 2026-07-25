@@ -99,7 +99,7 @@ This server-qualified shape is the de-facto standard among multi-server agent cl
 1. On connect: drain `client.listTools()` pagination, derive every tool's `publicName`, then register each as a raw `ToolDefinition` via `ctx.tools.register()`. The MCP JSON Schema and description pass through unchanged (no `defineTool` DSL conversion); only the model-facing `name` is replaced.
 2. Listen for `notifications/tools/list_changed` → re-run the same sync (dispose previous generation, register new). Deterministic names mean unchanged tools keep their names across re-syncs.
 3. The executor closes over `rawName`; the public name is never sent to the server and never parsed to recover the raw name.
-4. No `presentCall`/`presentResult` — the ACP bridge's generic-card fallback handles rendering.
+4. No `presentCall`/`presentResult` — UI consumers use the provider-neutral generic-card fallback.
 5. Tools are transparent in the system prompt — no "[via MCP]" annotation beyond the name itself.
 
 ### Public name normalization
@@ -201,7 +201,7 @@ Coverage is named per tier; each behavior lives at the cheapest tier that can ex
 
 - **Unit** (`tests/mcp-client.spec.ts`, `tests/apply.spec.ts`, mocked MCP SDK): the `publicToolName` algorithm (clean, normalize, truncate-and-hash, determinism, distinct-identity separation), raw-vs-public wire discipline, cross-server and native-tool coexistence, duplicate-`serverName` load failure and reservation release, invalid-tool-list rejection, generation swap/rollback, failed-re-sync retention, result mapping, cancellation, config schema validation. 100% per-file coverage gates the package.
 - **E2E** (`tests/mcp-client.e2e.ts`, keyless): the real MCP protocol against the in-repo fixture server, `@modelcontextprotocol/server-everything`, and `@modelcontextprotocol/server-filesystem` over stdio, and against an in-process `StreamableHTTPServerTransport` server over Streamable HTTP — discovery under the namespace, dotted-name normalization end to end, execution round-trips, duplicate-`serverName` rejection, disposal.
-- **Snapshot**: deliberately none. MCP tools introduce no new transcript surface — they register as raw `ToolDefinition`s and render through the ACP bridge's generic-card fallback, which the bridge's unit suite already pins (`packages/ui/acp/tests/stream-update.spec.ts`). Adding an MCP server to the snapshot example's `cordis.yml` would mutate the pinned `text-turn` system-prompt fixture (forcing a with-key re-record of every recorded expected output) and make every replay depend on spawning an external MCP server process — for zero new rendering behavior. If a later change gives MCP tools their own render intent, that change names its snapshot coverage then.
+- **Snapshot**: deliberately none. MCP tools introduce no new presentation shape — they register as raw `ToolDefinition`s and UI consumers use the generic-card fallback already pinned by their presentation suites. Adding an MCP server to a runnable snapshot composition would mutate its pinned system-prompt fixture and make every replay depend on spawning an external MCP server process for no new behavior. If a later change gives MCP tools their own render intent, that change names its snapshot coverage then.
 
 ## Consequences
 
