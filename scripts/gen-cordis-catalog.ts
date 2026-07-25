@@ -209,6 +209,8 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
   InvariantInstaller: 'service-local contribution contract is owned by packages/support/invariants/README.md',
   LocaleDict: 'service-local dictionary shape is owned by packages/client/i18n/src/index.ts',
+  WebBootGraph: 'web boot graph wire shape is owned by packages/client/modules/src/client/index.ts',
+  WebRoute: 'route registration contract is owned by packages/host/webserver/src/index.ts',
   ThemeTokens: 'service-local token dictionary is owned by packages/client/ui-theme/src/index.ts',
   Translate: 'service-local bound translator is owned by packages/client/i18n/src/index.ts',
   TuiOverlayRequest: 'service-local extension contract is owned by packages/ui/tui/README.md',

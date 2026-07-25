@@ -56,12 +56,8 @@
       ]
     },
     "packages/host/webserver": {
-      "entry": [
-        "tests/**/*.spec.ts"
-      ],
       "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
+        "src/**/*.ts"
       ]
     },
     "packages/host/runtime": {
@@ -579,7 +575,8 @@
         "src/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-.+"
+        "@deepseek-ai/.+",
+        "@cordisjs/.+"
       ]
     },
     "packages/client/modules": {

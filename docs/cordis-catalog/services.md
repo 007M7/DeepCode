@@ -319,6 +319,50 @@ Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../c
 
 Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
+## `ctx.clientModuleHost` — `ClientModuleHostService`
+
+The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot sweep reports it).
+
+```ts cordis-catalog
+/**
+ * Current composed entry graph (stable object between changes).
+ * @returns the graph served as `window.__DSH_BOOT__`.
+ */
+graph(): WebBootGraph
+
+/**
+ * Absolute path of an entry's client bundle.
+ * @param id - entry id (package name).
+ * @returns the path, or undefined for an unknown id.
+ */
+clientPath(id: string): string | undefined
+
+/**
+ * Re-hash one bundle (the HMR watch's registration hook — the only entry
+ * point through which bundle content changes reach the graph).
+ * @param id - entry id (package name).
+ * @returns the new rev, or undefined for an unknown id.
+ */
+rebuilt(id: string): string | undefined
+
+/**
+ * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.
+ * @param listener - receives the entry id and its new bundle rev.
+ * @returns the unsubscriber.
+ */
+onRebuilt(listener: (id: string, rev: string) => void): () => void
+
+/**
+ * Fires after any flush that recomposed the graph (row added/removed, or a
+ * rebuilt rev change). Pull model: listeners re-read {@link graph}.
+ * @param listener - notified with no payload.
+ * @returns the unsubscriber.
+ */
+onGraphChanged(listener: () => void): () => void
+```
+
+Source: [`packages/client/modules/src/index.ts:143`](../../packages/client/modules/src/index.ts)
+
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
 Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings, materialize each declared namespace rejection class, treat programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
@@ -613,6 +657,30 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
 Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+
+## `ctx.httpServer` — `HttpServerService`
+
+The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the static dist fallback answers anything not yet claimed during the boot window). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
+
+```ts cordis-catalog
+/**
+ * Register a named route. Duplicate (kind, path) throws — route patterns are
+ * a composition-level contract, so a collision is a misconfiguration.
+ * @param route - kind, path, and the owning handler.
+ * @returns the disposer removing the route.
+ */
+register(route: WebRoute): () => void
+
+/**
+ * Register an index.html transform, applied to every index response in
+ * registration order.
+ * @param transform - pure html-to-html function.
+ * @returns the disposer removing the transform.
+ */
+tapIndex(transform: (html: string) => string): () => void
+```
+
+Source: [`packages/host/webserver/src/index.ts:55`](../../packages/host/webserver/src/index.ts)
 
 ## `ctx.invariants` — `InvariantService`
 

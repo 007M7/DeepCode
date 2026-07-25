@@ -362,6 +362,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
   },
   {
+    key: 'httpServer',
+    pkg: 'webserver',
+    title: 'HTTP route registration',
+    mode: 'core',
+    consumers: ['connection', 'modules', 'hmr'],
+    note: 'Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes.',
+  },
+  {
+    key: 'clientModuleHost',
+    pkg: 'modules',
+    title: 'Client plugin graph host',
+    mode: 'core',
+    consumers: ['hmr'],
+    note: 'Composes the __DSH_BOOT__ entry graph from an incremental dshClient scan, serves plugin bundles, and notifies rebuilt/graph-changed subscribers.',
+  },
+  {
     key: 'workflows',
     pkg: 'workflow',
     title: 'Workflow script engine',
