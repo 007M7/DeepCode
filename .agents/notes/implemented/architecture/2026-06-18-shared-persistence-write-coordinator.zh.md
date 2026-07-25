@@ -23,7 +23,7 @@ Status: implemented
 五个必需成员加一个可选的生命周期钩子，构成协调器与存储之间唯一的边界：
 
 - `name`——后端标签，用于 dispose 失败时的 `AggregateError`。
-- `loadStored(id)`——按 id 跨所有存储范围读取一个已存储前缀（JSONL 的所有 cwd bucket；SQLite 的 id 全局唯一）。恢复/加载、不修改状态的检查、存活会话接管与创建碰撞探测共用此查找。协调器会断言返回的 id，并在修复或发布状态之前拒绝已存储记录与存活会话的 cwd 不匹配。
+- `loadStored(id)`——按 id 跨所有存储范围读取一个已存储前缀（JSONL 的所有项目目录；SQLite 的 id 全局唯一）。恢复/加载、不修改状态的检查、存活会话接管与创建碰撞探测共用此查找。协调器会断言返回的 id，并在修复或发布状态之前拒绝已存储记录与存活会话的 cwd 不匹配。
 - `appendBatch(meta, events, isMaterialized)`——持久追加一个连续批次，在尚未物化时原子地惰性物化会话（物化写入与首批事件必须一起提交——崩溃不得留下一个已物化但为空的会话；这就是为什么没有单独的 `materialize` 钩子）。
 - `commitRepair(meta, tornMarker, closers)`——使崩溃修复持久化：截断损坏的尾部（当且仅当 `tornMarker !== undefined`）并追加 `closers`。**不要求原子性**——JSONL 合理地分两步 fsync（先截断再追加），SQLite 在一个事务中完成 DELETE+INSERT。用于 `load`（截断 + 合成 closers）和 live-adoption（仅截断，`closers = []`）。
 - `list()`——列出所有已存储的元数据。
