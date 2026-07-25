@@ -59,10 +59,11 @@ export interface ReplayConfig {
    */
   file: string
   /**
-   * Optional `ReplayEntry[]` sidecar that REPLACES the derived script for the
-   * PRIMARY session. Used by the two single-session scenarios not expressible as
-   * `assistant/chunk` (pure throw-before-chunk, cancel/hang). Absent for normal
-   * and nested scenarios.
+   * Optional sidecar for the PRIMARY session: a bare `ReplayEntry[]` REPLACES
+   * the derived script; `{ patches }` keeps it and swaps the named call
+   * indexes ({@link ReplayOverrideDoc}). Used by single-session scenarios not
+   * expressible as `assistant/chunk` (throw-before-chunk, cancel/hang,
+   * injected transient failures). Absent for normal and nested scenarios.
    */
   overrideFile?: string
   /**
