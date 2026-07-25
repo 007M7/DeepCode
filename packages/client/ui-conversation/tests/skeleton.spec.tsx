@@ -72,6 +72,8 @@ describe('EmptyState', () => {
       prompt: 'draft', phase: 'ready',
     })
     expect(b.view.getByRole('button', { name: 'Choose workspace' }).textContent).toContain('workspace')
+    fireEvent.click(b.view.getByRole('button', { name: 'Add attachment' }))
+    expect((b.pickerOwner() as { open: boolean }).open).toBe(false)
     fireEvent.change(b.view.getByPlaceholderText('Describe what you want to build'), { target: { value: 'build it' } })
     expect(b.updateSessionPrompt).toHaveBeenCalledWith('build it')
     fireEvent.click(b.view.getByRole('button', { name: 'Send message' }))

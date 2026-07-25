@@ -72,7 +72,6 @@ export function EmptyState({
       error={error}
       onDraftChange={updateSessionPrompt}
       onSend={() => { sendSession() }}
-      onAdd={() => { setPickerOpen(true) }}
     />
   )
 }

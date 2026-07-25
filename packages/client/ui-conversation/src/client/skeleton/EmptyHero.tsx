@@ -73,7 +73,6 @@ export interface EmptyHeroProps {
   status?: string
   onDraftChange: (text: string) => void
   onSend: (mode: 'queue' | 'steer') => void
-  onAdd?: () => void
   /** Overlay content after the stack (EmptyState's modals). */
   children?: ReactNode
 }
@@ -92,7 +91,6 @@ export function EmptyHero({
   status,
   onDraftChange,
   onSend,
-  onAdd,
   children,
 }: EmptyHeroProps) {
   // Stable filter id so multiple hero mounts do not collide in the DOM.
@@ -140,8 +138,6 @@ export function EmptyHero({
             placeholder={placeholder ?? 'Describe what you want to build'}
             onDraftChange={onDraftChange}
             onSend={onSend}
-            {...(onAdd === undefined ? {} : { onAdd })}
-            addLabel="Create workspace"
             /* v8 ignore next -- structural noop: hero never passes running=true, so stop is unreachable. */
             onStop={() => {}}
           />
