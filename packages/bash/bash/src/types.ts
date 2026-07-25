@@ -153,8 +153,9 @@ export interface BashProcessRead {
 
 /**
  * A background process handle returned by {@link BashExecutor.start}. It is the
- * only access path; buffered output remains readable after exit. Executor
- * disposal kills running processes and awaits {@link done}.
+ * only access path; buffered output remains readable after exit. Composition
+ * teardown (the process manager's disposal) kills running processes and
+ * awaits {@link done}; an executor-only reload leaves them running.
  */
 export interface BashProcess {
   /** Process lifecycle state (settled exactly once). */

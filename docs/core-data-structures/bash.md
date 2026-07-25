@@ -170,8 +170,9 @@ One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (o
 ```ts type-equiv
 /**
  * A background process handle returned by {@link BashExecutor.start}. It is the
- * only access path; buffered output remains readable after exit. Executor
- * disposal kills running processes and awaits {@link done}.
+ * only access path; buffered output remains readable after exit. Composition
+ * teardown (the process manager's disposal) kills running processes and
+ * awaits {@link done}; an executor-only reload leaves them running.
  */
 interface BashProcess {
   /** Process lifecycle state (settled exactly once). */
@@ -216,4 +217,4 @@ interface BashProcessRead {
 
 ## The service
 
-`BashExecutor` owns `resolve`, foreground `run`, background-process `start`, and the `sandboxMode` capability fact. `dsh-bash-local` owns process groups, timeout/abort handling, bounded collectors, spill files, credential scrubbing, and disposal quiescence. `dsh-tool-bash` owns model-facing rendering and adapts background handles into the [generic task runtime](tasks.md).
+`BashExecutor` owns `resolve`, foreground `run`, background-process `start`, and the `sandboxMode` capability fact. `dsh-bash-local` owns command defaulting, timeout/abort classification, the terminal environment, and the background read merge; process groups, bounded collectors, spill files, credential scrubbing, and disposal quiescence are the [process manager](process.md)'s. `dsh-tool-bash` owns model-facing rendering and adapts background handles into the [generic task runtime](tasks.md).

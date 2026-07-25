@@ -11,6 +11,7 @@ const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
       'packages/bash/*',
       'packages/hooks/*',
+      'packages/process/*',
       'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
       'packages/sdk/create-sdk',

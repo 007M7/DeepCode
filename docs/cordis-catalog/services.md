@@ -257,7 +257,7 @@ Implementations must honor these semantics:
 - run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
 - start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
 - BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
-- Disposal kills all running background processes and awaits their exit.
+- A still-running background process is stopped and awaited when its owning composition tears down. With the process-manager seam that boundary is `ctx.processes` disposal, so a background process survives an executor-only reload.
 
 ```ts cordis-catalog
 /**
@@ -286,7 +286,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:48`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:51`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 

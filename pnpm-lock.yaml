@@ -1658,6 +1658,9 @@ importers:
       '@deepseek-ai/dsh-paths':
         specifier: workspace:^
         version: link:../../util/paths
+      '@deepseek-ai/dsh-process-local':
+        specifier: workspace:^
+        version: link:../../process/process-local
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:^
         version: link:../../sandbox/sandbox-local

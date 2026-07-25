@@ -170,8 +170,9 @@ interface BashSandboxInfo {
 ```ts type-equiv
 /**
  * A background process handle returned by {@link BashExecutor.start}. It is the
- * only access path; buffered output remains readable after exit. Executor
- * disposal kills running processes and awaits {@link done}.
+ * only access path; buffered output remains readable after exit. Composition
+ * teardown (the process manager's disposal) kills running processes and
+ * awaits {@link done}; an executor-only reload leaves them running.
  */
 interface BashProcess {
   /** Process lifecycle state (settled exactly once). */
@@ -216,4 +217,4 @@ interface BashProcessRead {
 
 ## 服务
 
-`BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有进程组、超时/中止处理、有界收集器、spill 文件、凭据清除以及 dispose（资源释放）后完全停稳。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。
+`BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有命令默认值补全、超时/中止分类、终端环境以及后台读取合并；进程组、有界收集器、spill 文件、凭据清除与 dispose（资源释放）后完全停稳归[进程管理器](process.md)所有。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。
