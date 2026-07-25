@@ -1,0 +1,49 @@
+# Agent Note: CI 故障切换手册 — 托管池 → 自有池
+
+Status: implemented
+
+[English](2026-07-26-ci-failover-runbook.md) | 中文
+
+## 问题
+
+[CI](../../../../.github/workflows/ci.yml) 中三个必需的 Linux 作业（`node 24 / static`、`node 24 / coverage`、`node 24 / snapshots and artifacts`）运行在托管的企业级 32 核池上。当这些托管池发生故障——作业无限排队、企业标签消失或 GitHub 侧容量故障——所有开启的拉取请求都无法合并，而"合并一个修复"这一常规恢复手段本身正被那些无法运行的必需检查死锁。因此故障需要一个仓库管理员无需合并任何代码即可触发的开关。
+
+## 决策
+
+三个必需的 Linux 作业各自通过仓库变量 `DSH_CI_FAILOVER` 解析运行器池。变量不存在（正常）时它们运行在托管企业池上；由仓库管理员设为 `selfhosted` 时，三者全部切换到公司自有的自托管 `vm-backup` 池，coverage 与 snapshot 的并发降到共享虚拟机上限，并跳过托管路径的 pnpm 缓存恢复。这个开关是仅限管理员的仓库状态而非一次合并，因此在所有检查都是红色时仍然有效。自有池的就绪状态由 `serial / linux (self-hosted standby)` 通道持续验证——每次 master 推送都在其上运行完整的未分片聚合流程。
+
+### 自有池是什么
+
+`vm-backup`：一台 64 核虚拟机，4 个常驻 systemd 管理的运行器实例，另有 4 个已注册备用位。切换前先看 `serial / linux (self-hosted standby)` 最近一次运行：绿色 = 这套环境昨天刚被全量验证过。
+
+### 切换步骤（仓库管理员，约 1 分钟，无需合并）
+
+1. 仓库 **Settings → Secrets and variables → Actions → Variables → New repository variable**：名称 `DSH_CI_FAILOVER`，值 `selfhosted`。
+2. 对受影响 PR 的失败/排队作业点 Re-run failed jobs（或等新推送自然触发）。
+3. 切换到此完成。故障切换状态下工作流还会自动：把 `DSH_COVERAGE_MAX_WORKERS` 降为 12、`DSH_SNAPSHOT_MAX_CONCURRENCY` 降为 16（共享虚拟机的争抢上限），并跳过托管路径的 pnpm 缓存恢复（虚拟机的持久 store 直接提供热安装）。
+
+### 切换期间的容量
+
+4 个常驻实例可承接正常 PR 流量。若出现排队，在虚拟机上把 4 个已注册的备用位拉起（无需 token——它们已注册）：
+
+```bash
+for i in 7 8 9 10; do cd /data_local/actions-runner-$i && sudo ./svc.sh install ubuntu && sudo ./svc.sh start; done
+```
+
+### 切回
+
+删除 `DSH_CI_FAILOVER` 变量（或改为 `selfhosted` 以外的任何值），新的运行即解析回托管企业池。若启动过备用实例，将其停止。
+
+### 信任边界
+
+该变量是仅限仓库管理员的状态：拉取请求既不能设置它，也不能让不同的值生效，且表达式存在于基线分支的工作流定义中。因此这条故障切换路径没有增加任何可由 PR 编辑的自托管池访问途径。运行器侧的强制约束——通过组织级 runner group 把这批运行器限定到 master 引用的工作流——另行跟踪，与本机制互补。
+
+## 曾考虑的替代方案
+
+**通过合并一次工作流改动来切换池。** 否决，因为触发切换的故障状态恰恰是任何 PR 都无法合并的状态：必需检查正是失败的那些。仓库变量是管理员控制的状态，重跑即生效，无需合并。
+
+**让自托管池长期处于必需路径中。** 否决，因为这是拿托管池的可用性去换自有虚拟机的可用性，只是搬移了单点故障而非增加回退。该变量让托管池保持主路径，自托管池作为一个经过验证、一步即可启用的热备。
+
+## 后果
+
+从托管池故障中恢复只需一个管理员变量加一次重跑，关键路径上没有合并。代价是要维护第二套运行器拓扑：热备通道在每次 master 推送时都运行它，使故障切换目标永不失效；而 `ci.yml` 中的并发与缓存恢复分支带有一条 `selfhosted` 支路，必须与托管支路保持同步。

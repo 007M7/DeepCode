@@ -37,7 +37,7 @@ jobs:
   # 'selfhosted' (repo Settings → Actions → Variables; admin-only, not
   # PR-editable, no merge required) retargets all three onto the in-house
   # vm-backup pool and re-running the failed jobs is the entire switch —
-  # see .agents/notes/implemented/process/ci-failover-runbook.md. The
+  # see .agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md. The
   # in-house pool's readiness is re-proven on every master push by the
   # serial-linux-selfhosted standby lane below.
   node-24:
