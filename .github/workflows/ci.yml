@@ -27,10 +27,8 @@ env:
 
 jobs:
 
-  # Three independent Linux jobs isolate coverage, static analysis, and the
-  # build-backed consumer tail: static and consumers on hosted enterprise
-  # 32-core pools; coverage on the in-house self-hosted pool for trusted PRs
-  # (hosted for forks/Dependabot). The static job publishes its exact build so
+  # Three enterprise jobs isolate coverage, static analysis, and the
+  # build-backed consumer tail. The static job publishes its exact build so
   # consumers do not repeat the longest part of their critical path.
   node-24:
     if: github.event_name == 'pull_request'
@@ -79,46 +77,17 @@ jobs:
 
   node-24-coverage:
     if: github.event_name == 'pull_request'
-    # Trusted same-repo PRs run on the in-house pool (self-hosted, 64-core;
-    # 4 always-on systemd-managed instances plus 4 registered spares) instead
-    # of the metered enterprise pool. Untrusted PRs — forks and Dependabot
-    # (same-repo but dependency-supplied code; same author test as e2e.yml) —
-    # stay on the hosted enterprise pool so no untrusted code reaches the
-    # persistent self-hosted VM. Selecting the pool via runs-on keeps this a
-    # single job, so the all-checks-passed aggregate never sees a skip.
-    runs-on: >-
-      ${{ (github.event.pull_request.head.repo.full_name != github.repository
-           || github.event.pull_request.user.login == 'dependabot[bot]')
-          && 'dsh-enterprise-ubuntu-24-04-32core-test'
-          || fromJSON('["self-hosted", "linux", "x64", "vm-backup"]') }}
+    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
     name: node 24 / coverage
     env:
-      # Worker bound is per-leg: the hosted 32-core runner is exclusive to
-      # one job, but the self-hosted pool shares one 64-core VM across four
-      # runner instances, so concurrent PRs would otherwise stack up to
-      # 4×24 = 96 workers and re-trigger the aggregate-contention failures
-      # documented for the timing-sensitive process suites. 12 per job caps
-      # the shared host at 48 workers even fully loaded.
-      DSH_COVERAGE_MAX_WORKERS: >-
-        ${{ (github.event.pull_request.head.repo.full_name != github.repository
-             || github.event.pull_request.user.login == 'dependabot[bot]')
-            && '24' || '12' }}
+      DSH_COVERAGE_MAX_WORKERS: '24'
       DSH_GATE_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      # Restore the pnpm-store cache only on the hosted (untrusted-PR) leg,
-      # where the VM is ephemeral and the same-region download is fast. On
-      # the self-hosted leg pnpm's persistent store lives outside
-      # /home/runner, so this restore would spend ~52 s pulling ~180 MB into
-      # a path pnpm never reads (measured; install then took 2.8 s straight
-      # from the persistent store). Condition mirrors the runs-on selector.
       - uses: actions/cache/restore@v4
-        if: >-
-          github.event.pull_request.head.repo.full_name != github.repository
-          || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -379,6 +348,45 @@ jobs:
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare bubblewrap (unrestrict userns)
+        run: bash scripts/prepare-ci-bubblewrap.sh
+
+      - name: Run complete unsharded primary Node CI serially
+        env:
+          DSH_COVERAGE_MAX_WORKERS: '1'
+          DSH_E2E_MAX_WORKERS: '1'
+          DSH_ESLINT_CACHE: '1'
+          DSH_GATE_CONCURRENCY: '1'
+          DSH_PUBLINT_CONCURRENCY: '1'
+          DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
+        run: pnpm run check:ci
+
+  # Hot-standby drill for the in-house self-hosted pool: every master move
+  # re-runs the complete unsharded aggregate on the persistent 64-core VM,
+  # continuously proving that environment can take over a required lane if
+  # the hosted pools degrade (the switch is then a one-line runs-on change).
+  # Push-triggered, so it always executes the base branch's own workflow
+  # definition — no PR-editable path selects these runners. Non-blocking for
+  # pull requests; no cache steps because the VM's persistent pnpm store and
+  # tool caches make them redundant (and saving here would poison the hosted
+  # cache namespace with self-hosted paths).
+  serial-linux-selfhosted:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    name: serial / linux (self-hosted standby)
+    runs-on: [self-hosted, linux, x64, vm-backup]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile

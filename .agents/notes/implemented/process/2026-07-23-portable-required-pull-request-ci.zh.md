@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-[CI](../../../../.github/workflows/ci.yml) 在仅限本仓库使用的企业级 32 核运行器池上运行必需的主 Node 24 作业和 Windows 作业；唯一例外是完整覆盖率——可信的同仓库拉取请求在公司自有的自托管 64 核池上运行（fork 与 Dependabot 仍用托管 32 核池）。标准 `ubuntu-latest` 作业保留 Node 22.19、Node 26 和 Python SDK 兼容性，`master` 则运行完整的 Linux、macOS 和 Windows 串行参考流程。这些标准托管作业让可移植执行边界保持可观测，而不必在每个拉取请求中重复主清单。
+[CI](../../../../.github/workflows/ci.yml) 在仅限本仓库使用的企业级 32 核运行器池上运行必需的主 Node 24 作业和 Windows 作业。标准 `ubuntu-latest` 作业保留 Node 22.19、Node 26 和 Python SDK 兼容性，`master` 则运行完整的 Linux、macOS 和 Windows 串行参考流程。这些标准托管作业让可移植执行边界保持可观测，而不必在每个拉取请求中重复主清单。
 
 两项 Linux 主作业、Node 兼容性、Python SDK 和 `windows node 24 / complete` 继续作为 `all checks passed` 的依赖项；分支保护继续要求 `e2e` 和 `all checks passed`。企业级运行器标签无法分配运行器时没有自动后备机制：标准作业会继续报告各自的契约，但无法产出缺失的必需结果。
 
