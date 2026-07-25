@@ -4,10 +4,18 @@ import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
-import { openDatabase, rowToEvent, scanRows, type EventRow } from '../src/schema.ts'
+import {
+  openDatabase,
+  rowToEvent,
+  rowToMeta,
+  scanRows,
+  SESSION_PERSISTENCE_SQLITE_APPLICATION_ID,
+  type EventRow,
+} from '../src/schema.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -147,6 +155,22 @@ describe('scanRows', () => {
     const { preserved, tornFrom } = scanRows(withCorruptTail)
     expect(preserved).toEqual(oneTurnLog())
     expect(tornFrom).toBe(6)
+  })
+})
+
+describe('rowToMeta', () => {
+  it('rejects fractional stored creation metadata', () => {
+    expect(() => rowToMeta({
+      id: 'fractional',
+      version: 0,
+      created_at: 1.5,
+      cwd: null,
+      parent_session: null,
+      seed_length: null,
+      incarnation: 'fractional',
+      revision: 1,
+      delegation_depth: null,
+    })).toThrow('stored session createdAt must be a non-negative safe integer')
   })
 })
 
@@ -304,6 +328,121 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(() => openDatabase(olderPath, 'wal')).toThrow(/incompatible with this build/)
   })
 
+  it('rejects a table-backed unversioned database before stamping or changing journal mode', async () => {
+    const path = await freshDbPath()
+    const legacy = new DatabaseSync(path)
+    legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY)')
+    legacy.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/unversioned schema or application identity/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    expect(unchanged.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'sessions'",
+    ).get()).toEqual({ name: 'sessions' })
+    unchanged.close()
+  })
+
+  it('counts a sqliteX table as user-owned instead of mistaking it for SQLite metadata', async () => {
+    const path = await freshDbPath()
+    const unrelated = new DatabaseSync(path)
+    unrelated.exec('CREATE TABLE sqliteX (value TEXT)')
+    unrelated.exec("INSERT INTO sqliteX VALUES ('safe')")
+    unrelated.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/unversioned schema or application identity/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('SELECT value FROM sqliteX').get()).toEqual({ value: 'safe' })
+    expect(unchanged.prepare('PRAGMA application_id').get()).toEqual({ application_id: 0 })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchanged.close()
+  })
+
+  it('rejects view-only and foreign-application unversioned databases without mutation', async () => {
+    const viewPath = await freshDbPath()
+    const viewOnly = new DatabaseSync(viewPath)
+    viewOnly.exec('CREATE VIEW foreign_view AS SELECT 1 AS value')
+    viewOnly.close()
+
+    expect(() => openDatabase(viewPath, 'wal')).toThrow(/unversioned schema or application identity/)
+    const unchangedView = new DatabaseSync(viewPath)
+    expect(unchangedView.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    expect(unchangedView.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'foreign_view'",
+    ).get()).toEqual({ type: 'view' })
+    unchangedView.close()
+
+    const applicationPath = await freshDbPath()
+    const foreignApplication = new DatabaseSync(applicationPath)
+    foreignApplication.exec('PRAGMA application_id = 12345')
+    foreignApplication.close()
+
+    expect(() => openDatabase(applicationPath, 'wal')).toThrow(/unversioned schema or application identity/)
+    const unchangedApplication = new DatabaseSync(applicationPath)
+    expect(unchangedApplication.prepare('PRAGMA application_id').get()).toEqual({ application_id: 12345 })
+    expect(unchangedApplication.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchangedApplication.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchangedApplication.close()
+  })
+
+  it('rejects a current-version database with a foreign application identity', async () => {
+    const path = await freshDbPath()
+    const foreign = new DatabaseSync(path)
+    foreign.exec('PRAGMA application_id = 12345')
+    foreign.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    foreign.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/has application id 12345/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('PRAGMA application_id').get()).toEqual({ application_id: 12345 })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchanged.close()
+  })
+
+  it('rolls back schema objects and identity stamps when initialization fails', async () => {
+    const path = await freshDbPath()
+    const conflicting = new DatabaseSync(path)
+    conflicting.exec(`PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`)
+    conflicting.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    conflicting.exec("CREATE VIEW persistence_state AS SELECT 1 AS singleton, 'foreign' AS store_id")
+    conflicting.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow()
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'persistence_state'",
+    ).get()).toEqual({ type: 'view' })
+    expect(unchanged.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'sessions'",
+    ).get()).toBeUndefined()
+    expect(unchanged.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'events'",
+    ).get()).toBeUndefined()
+    expect(unchanged.prepare('PRAGMA application_id').get())
+      .toEqual({ application_id: SESSION_PERSISTENCE_SQLITE_APPLICATION_ID })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchanged.close()
+  })
+
+  it('stamps the persistence application identity with the schema version', async () => {
+    const path = await freshDbPath()
+    openDatabase(path, 'wal').close()
+
+    const db = new DatabaseSync(path)
+    expect(db.prepare('PRAGMA application_id').get())
+      .toEqual({ application_id: SESSION_PERSISTENCE_SQLITE_APPLICATION_ID })
+    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
+    db.close()
+  })
+
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
     // Version 3 identified two incompatible sibling layouts, so it is always rejected.
     const path = await freshDbPath()
@@ -442,7 +581,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(8)
+    expect(SCHEMA_VERSION).toBe(10)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

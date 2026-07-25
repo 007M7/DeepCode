@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ClientModuleLoaderImpl behavior: lazy CJS arrival (bundle execution only
+ * ClientModuleSystem behavior: lazy CJS arrival (bundle execution only
  * registers the factory), materialization on first import/require with
  * memoization and recursive self-sequencing, the resolution branch order,
  * shared in-flight arrival, invalidate-refetch (HMR), style claiming, the
@@ -9,9 +9,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ClientModuleLoaderImpl, createClientModuleLoader,
-  type ClientModuleLoader, type ClientPluginHandoff, type DshWindow, type WebBootEntry,
-} from '../src/index.ts'
+  ClientModuleSystem,
+  type BootModuleRow, type ClientModuleLoader, type ClientPluginHandoff, type DshWindow,
+} from '../src/client/index.ts'
 
 const win = globalThis as DshWindow
 
@@ -24,7 +24,7 @@ afterEach(() => {
   for (const el of document.querySelectorAll('style, script')) el.remove()
 })
 
-const row = (id: string): WebBootEntry => ({ id, url: `/plugins/${id}/client.js?rev=0` })
+const row = (id: string): BootModuleRow => ({ id, url: `/plugins/${id}/client.js?rev=0`, rev: '0' })
 
 interface Bench {
   loader: ClientModuleLoader
@@ -38,14 +38,14 @@ interface Bench {
  * through the window sink (`null` scripts a bundle that never calls load).
  */
 function bench(
-  entries: WebBootEntry[],
+  entries: BootModuleRow[],
   bundles: Record<string, Factory | null> = {},
   opts: { seed?: Record<string, unknown>; gated?: string[] } = {},
 ): Bench {
   const fetched: string[] = []
   const gates = new Map<string, () => void>()
-  const loader = createClientModuleLoader({
-    graph: { rev: 'test', entries },
+  const loader = new ClientModuleSystem({
+    modules: entries,
     staticModules: opts.seed ?? {},
     fetchBundle: (url) => {
       fetched.push(url)
@@ -175,7 +175,7 @@ describe('require resolution', () => {
 describe('static registry', () => {
   it('serves shell-own modules to import and require without any fetch', async () => {
     const shell = { marker: 'app-shell' }
-    const b = bench([row('a'), { id: 'app-shell' }], {
+    const b = bench([row('a')], {
       a: req => ({ dep: req('app-shell') }),
     })
     b.loader.registerStatic('app-shell', shell)
@@ -216,18 +216,13 @@ describe('failure modes', () => {
     await expect(b.loader.prefetch('nope')).rejects.toThrow('prefetch("nope") — not a graph entry')
   })
 
-  it('a graph row with no url and no static registration is loud', async () => {
-    const b = bench([{ id: 'ghost' }])
-    await expect(b.loader.import('ghost', '', {})).rejects.toThrow('no bundle url and no static registration')
-  })
-
   it('a duplicate graph entry is loud at construction', () => {
     expect(() => bench([row('a'), row('a')])).toThrow('duplicate graph entry "a"')
   })
 
   it('double boot is loud', () => {
     bench([])
-    expect(() => new ClientModuleLoaderImpl({ graph: { rev: 't', entries: [] }, staticModules: {} }))
+    expect(() => new ClientModuleSystem({ modules: [], staticModules: {} }))
       .toThrow('already installed (double boot?)')
   })
 })
@@ -289,7 +284,7 @@ describe('default transport seams', () => {
     const code = 'window.__ModuleLoader__ = document.__realmBridge;\n'
       + 'window.__ModuleLoader__.load({ id: "dee", factory: function () { return { marker: "via-script" } } })'
     vi.stubGlobal('fetch', async () => ({ ok: true, text: async () => code }))
-    const loader = createClientModuleLoader({ graph: { rev: 't', entries: [row('dee')] }, staticModules: {} })
+    const loader: ClientModuleLoader = new ClientModuleSystem({ modules: [row('dee')], staticModules: {} })
     ;(document as unknown as Record<string, unknown>).__realmBridge = win.__ModuleLoader__
     const surface = await loader.import('dee', '', {})
     expect((surface as { marker: string }).marker).toBe('via-script')
@@ -300,7 +295,7 @@ describe('default transport seams', () => {
 
   it('a non-ok bundle response is loud with the status', async () => {
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 404 }))
-    const loader = createClientModuleLoader({ graph: { rev: 't', entries: [row('dee')] }, staticModules: {} })
+    const loader = new ClientModuleSystem({ modules: [row('dee')], staticModules: {} })
     await expect(loader.prefetch('dee')).rejects.toThrow('answered 404')
   })
 })

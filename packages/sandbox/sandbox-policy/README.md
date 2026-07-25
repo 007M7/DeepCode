@@ -23,7 +23,7 @@ The optional `./invariant` companion rejects a forged durable `sandbox/mode` eve
 
 ## The per-session store
 
-A runtime switch (an ACP `session/set_config_option`, a test scenario) is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event.
+A runtime switch is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event.
 
 ## Model Experience
 

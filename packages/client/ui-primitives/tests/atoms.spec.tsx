@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Button, ConnectionBanner, Input, Menu, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, ConnectionBanner, Input, Menu, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
 
@@ -20,6 +20,11 @@ describe('Button', () => {
     render(<Button disabled onClick={onClick}>No</Button>)
     fireEvent.click(screen.getByRole('button'))
     expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('outline variant renders a bordered cancel-style button', () => {
+    render(<Button variant="outline">Cancel</Button>)
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDefined()
   })
 })
 
@@ -91,11 +96,12 @@ describe('Menu', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  it('selected item shows the trailing check; align=end and className apply', () => {
+  it('selected item shows the trailing check; align=end, side=top, and className apply', () => {
     const { container } = render(
       <Menu
         open
         align="end"
+        side="top"
         className="x"
         anchor={<span>trigger</span>}
         items={items}
@@ -104,11 +110,88 @@ describe('Menu', () => {
         onClose={() => {}}
       />)
     expect((container.firstElementChild as HTMLElement).classList.contains('x')).toBe(true)
+    const menu = screen.getByRole('menu')
+    expect(menu.className).toMatch(/sideTop|alignEnd/)
     const selected = screen.getByRole('menuitem', { name: 'Alpha' })
     expect(selected.querySelector('svg')).not.toBeNull()
     const other = screen.getByRole('menuitem', { name: 'Beta' })
     expect(other.querySelector('svg')).toBeNull()
     fireEvent.keyDown(document, { key: 'a' })
+  })
+
+  it('renders a leading icon and a separator between groups', () => {
+    render(
+      <Menu
+        open
+        anchor={<span>trigger</span>}
+        items={[
+          { id: 'a', label: 'Alpha', icon: <svg data-testid="ic" /> },
+          { type: 'separator', id: 's1' },
+          { id: 'c', label: 'Create' },
+        ]}
+        onSelect={() => {}}
+        onClose={() => {}}
+      />)
+    expect(screen.getByTestId('ic')).toBeDefined()
+    expect(screen.getByRole('separator')).toBeDefined()
+  })
+
+  it('opens a submenu on hover and selects a nested item', () => {
+    const onSelect = vi.fn()
+    render(
+      <Menu
+        open
+        anchor={<span>trigger</span>}
+        items={[
+          { id: 'plain', label: 'Plain' },
+          {
+            id: 'new',
+            label: 'New Workspace',
+            submenu: [
+              { id: 'ok', label: 'Create ok', icon: <svg data-testid="sub-ic" /> },
+            ],
+          },
+        ]}
+        onSelect={onSelect}
+        onClose={() => {}}
+      />)
+    const plain = screen.getByRole('menuitem', { name: 'Plain' })
+    fireEvent.mouseEnter(plain.parentElement as HTMLElement)
+    fireEvent.focus(plain)
+    const parent = screen.getByRole('menuitem', { name: 'New Workspace' })
+    const wrap = parent.parentElement as HTMLElement
+    fireEvent.click(parent)
+    expect(onSelect).not.toHaveBeenCalled()
+    fireEvent.focus(parent)
+    fireEvent.mouseEnter(wrap)
+    expect(screen.getByTestId('sub-ic')).toBeDefined()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create ok' }))
+    expect(onSelect).toHaveBeenCalledWith('ok')
+    fireEvent.mouseLeave(wrap)
+    expect(screen.queryByRole('menuitem', { name: 'Create ok' })).toBeNull()
+  })
+})
+
+describe('Modal', () => {
+  it('is absent while closed; Escape and mask click call onClose', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(
+      <Modal open={false} onClose={onClose} title="Create new workspace">body</Modal>)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    rerender(
+      <Modal open onClose={onClose} title="Create new workspace" description="Name it." footer={<button type="button">Create</button>}>
+        <input aria-label="name" />
+      </Modal>)
+    expect(screen.getByRole('dialog', { name: 'Create new workspace' })).toBeDefined()
+    expect(screen.getByText('Name it.')).toBeDefined()
+    fireEvent.keyDown(document, { key: 'a' })
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    // Mask is the presentation sibling behind the dialog.
+    const mask = document.querySelector('[aria-hidden="true"]') as HTMLElement
+    fireEvent.click(mask)
+    expect(onClose).toHaveBeenCalledTimes(2)
   })
 })
 

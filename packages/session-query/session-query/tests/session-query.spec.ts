@@ -105,6 +105,25 @@ function rejectUnknown<T>(reason: unknown): Promise<T> {
 }
 
 describe('session-query exact reads', () => {
+  it('returns a detached replay-valid full log and rejects a corrupt persisted seed', async () => {
+    const valid = header('valid-log', 2)
+    const corrupt = header('corrupt-log', 1)
+    const validEvents = eventLog('valid')
+    const corruptEvents = [{ ...eventLog('bad')[0]!, seq: 1 }]
+    TestPersistence.reset([
+      { meta: valid, events: validEvents },
+      { meta: corrupt, events: corruptEvents },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+
+    const snapshot = await ctx.sessionQuery.readSession(valid.id)
+    expect(snapshot).toEqual({ session: valid, events: validEvents })
+    Object.assign(snapshot.events[0]!, { time: 999 })
+    expect(TestPersistence.entries.get(valid.id)?.events[0]?.time).toBe(10)
+    await expect(ctx.sessionQuery.readSession(corrupt.id)).rejects.toThrow('seed event at index 0 has seq 1')
+  })
+
   it('prefers a live owner that attaches while its persisted prefix is inspected', async () => {
     const shared = header('attach-during-inspect', 2)
     TestPersistence.reset([{ meta: shared, events: eventLog('persisted') }])

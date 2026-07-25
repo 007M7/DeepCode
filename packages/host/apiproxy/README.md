@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-host-apiproxy
 
-The ApiProxy front layer every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser) and the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side). Host assembly lives in `dsh-host-runtime`.
+The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves. The core spine composition lives in `dsh-host-runtime`.
 
 ## Contract layer (`/api`)
 
@@ -24,6 +24,6 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **`respond` routing is shipped, but pending-interaction state is host-side work** — the wire shape (POST `/api/respond`, `RpcReceipt`) is final; the pending table that makes late/duplicate answers meaningful lives in `dsh-host-runtime` and is still a stub there.
+- **`respond` routing is shipped, but pending-interaction state is host-side work** — the wire shape (POST `/api/respond`, `RpcReceipt`) is final; the pending table that makes late/duplicate answers meaningful lives in `src/api-proxy.ts` and is still minimal (questions only, no approvals).
 - **Reserved seams stay out of `RpcMethodMap`** — `session.fork`, `prompt.mode: 'inject'`, `task.list`, `host.listModels`, and a describe `hostInstanceId` are documented reservations; an unknown method fails loud at envelope parse rather than getting a not-implemented code.
 - **No protocol version field** — client and host ship together; `host.describe` gains a version negotiation field only when an independently released client exists.

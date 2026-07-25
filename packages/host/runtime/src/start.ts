@@ -2,16 +2,14 @@
  * One-step host startup seam: boot core → assemble ApiProxy → assemble the
  * fetch handler. The returned RunningHost is shell-agnostic — node:http
  * (dsh web), in-process injection (dsh -p, tests), an IPC bridge (future
- * Electron sidecar), and front-door plugin mounting (future dsh acp) all
- * consume the same shape.
+ * Electron sidecar), and automation transports all consume the same shape.
  */
 
 import type { Context } from 'cordis'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import { createApiProxy, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { bootHost } from './boot.ts'
 import type { BootHostOptions, HostDefaults } from './boot.ts'
-import { createApiProxy } from './api-proxy.ts'
 
 /** Options for startHost. */
 export interface StartHostOptions {
@@ -33,8 +31,7 @@ export interface RunningHost {
   defaults: HostDefaults
   /**
    * Root context — a formal seam, not an escape hatch: (1) the mount point for
-   * protocol front-door plugins (`dsh acp` = startHost() → ctx.plugin(uiAcp, config));
-   * (2) headless session-event subscription. Discipline: consuming clients must
+   * automation transports; (2) headless session-event subscription. Discipline: consuming clients must
    * not bypass `api` through ctx; shells must not ctx.plugin to alter the
    * assembly (mounting a front door is the shell's own shape, not an assembly change).
    */

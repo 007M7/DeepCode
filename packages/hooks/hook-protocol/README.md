@@ -27,7 +27,7 @@ Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claud
 
 Declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT a `SurfaceEventType`, no `surfaceOp`): `hook/invoked` (a hook command ran) and `hook/result` (its outcome, paired by `handlerId`, with `appendHookResult` owning the decision rule). Payloads and per-event JSDoc are in the generated [persistence log event catalog](../../../docs/persistence-catalog.md); `stderrSummary` is truncated to the record's `stderrSummaryMaxChars` (the bridge's config, reference default `DEFAULT_STDERR_SUMMARY_MAX_CHARS` = 500; omitted when empty).
 
-Like every event they must sit inside an open turn. The mid-turn points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn by construction; `SessionStart` gets no `hook/*` record (its injected `context/message` is the durable evidence) — see the hooks Agent Note.
+Like every event they must sit inside an open turn. The mid-turn points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn by construction; `SessionStart` gets no `hook/*` record (its injected `user/message` is the durable evidence) — see the hooks Agent Note.
 
 ## Model Experience
 

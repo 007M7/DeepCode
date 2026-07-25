@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-host-apiproxy",
-  "description": "ApiProxy front layer: the TS contract (api/) and the fetch carrier pair (fetch/); host assembly lives in dsh-host-runtime",
+  "description": "API gateway: the ApiProxy contract (api/), the fetch carrier pair (fetch/), and the host-side gateway plugin providing ctx.apiProxy",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -40,12 +40,16 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
+    "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
+    "schemastery": "^3.18.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

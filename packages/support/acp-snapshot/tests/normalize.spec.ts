@@ -44,6 +44,24 @@ describe('normalizeStdout', () => {
     expect(out).not.toContain(ctx.sessionIds[0] as string)
   })
 
+  it('scrubs every filesystem spelling of the cwd longest-first', () => {
+    const longCwd = String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp-snapshot`
+    const aliasedCtx: NormalizeContext = {
+      sessionIds: [],
+      cwd: String.raw`C:\Users\RUNNER~1\AppData\Local\Temp\acp-snapshot`,
+      cwdAliases: [
+        longCwd,
+        String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp`,
+      ],
+    }
+    const raw = JSON.stringify({
+      cwd: longCwd,
+      path: `${longCwd}\\nested\\proof.txt`,
+    })
+    const frame = JSON.parse(normalizeStdout(raw, aliasedCtx)) as { cwd: string; path: string }
+    expect(frame).toEqual({ cwd: '{{cwd}}', path: '{{cwd}}/nested/proof.txt' })
+  })
+
   it('canonicalizes only cwd-rooted path separators', () => {
     const windowsCtx: NormalizeContext = {
       sessionIds: [],
@@ -103,24 +121,6 @@ Additional instructions from: nested\AGENTS.md`,
     const raw = JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {} })
     const out = normalizeStdout(raw, ctx)
     expect(out).not.toContain('"id"')
-  })
-
-  it('stabilizes the timestamp carried by session title updates', () => {
-    const raw = JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'session/update',
-      params: {
-        sessionId: ctx.sessionIds[0],
-        update: {
-          sessionUpdate: 'session_info_update',
-          title: 'Stable title',
-          updatedAt: '2026-07-20T17:03:13.689Z',
-        },
-      },
-    })
-    const out = normalizeStdout(raw, ctx)
-    expect(out).toContain('"updatedAt":"{{updatedAt}}"')
-    expect(out).not.toContain('2026-07-20T17:03:13.689Z')
   })
 
   it('throws on a non-JSON stdout line (the purity check)', () => {

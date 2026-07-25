@@ -189,6 +189,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'clientModuleHost',
+    summary: 'The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap.',
+    methods: [
+      {
+        signature: 'graph(): WebBootGraph',
+        jsDoc: '/**\n * Current composed entry graph (stable object between changes).\n * @returns the graph served as `window.__DSH_BOOT__`.\n */',
+      },
+      {
+        signature: 'clientPath(id: string): string | undefined',
+        jsDoc: '/**\n * Absolute path of an entry\'s client bundle.\n * @param id - entry id (package name).\n * @returns the path, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'rebuilt(id: string): string | undefined',
+        jsDoc: '/**\n * Re-hash one bundle (the HMR watch\'s registration hook — the only entry\n * point through which bundle content changes reach the graph).\n * @param id - entry id (package name).\n * @returns the new rev, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'onRebuilt(listener: (id: string, rev: string) => void): () => void',
+        jsDoc: '/**\n * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.\n * @param listener - receives the entry id and its new bundle rev.\n * @returns the unsubscriber.\n */',
+      },
+      {
+        signature: 'onGraphChanged(listener: () => void): () => void',
+        jsDoc: '/**\n * Fires after any flush that recomposed the graph (row added/removed, or a\n * rebuilt rev change). Pull model: listeners re-read {@link graph}.\n * @param listener - notified with no payload.\n * @returns the unsubscriber.\n */',
+      },
+    ],
+  },
+  {
     key: 'codeRuntime',
     summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
@@ -311,6 +337,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
         jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
+      },
+    ],
+  },
+  {
+    key: 'httpServer',
+    summary: 'The web-shape HTTP carrier service.',
+    methods: [
+      {
+        signature: 'register(route: WebRoute): () => void',
+        jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
+      },
+      {
+        signature: 'tapIndex(transform: (html: string) => string): () => void',
+        jsDoc: '/**\n * Register an index.html transform, applied to every index response in\n * registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
       },
     ],
   },
@@ -499,6 +539,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
       },
       {
+        signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
+        jsDoc: '/**\n * Read and replay-validate one complete logical session log without making it live.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned header and complete raw event log from one observation.\n * @throws when persistence, header compatibility, or replay validation fails.\n */',
+      },
+      {
         signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
         jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
@@ -635,6 +679,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
         jsDoc: '/**\n * Persist `input.content` to a session-scoped spill artifact.\n * @param input - the owner, provenance, suggested name, and full text to save.\n * @returns the saved artifact\'s {@link SpillRef}; rejects on a storage failure.\n */',
+      },
+    ],
+  },
+  {
+    key: 'storage',
+    summary: 'The storage hub service.',
+    methods: [
+      {
+        signature: 'mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void',
+        jsDoc: '/**\n * Mount a data-form facility on the hub. Mounting is an effect: the\n * returned disposer unmounts the form.\n * @param form - Form key declared in {@link StorageForms}.\n * @param facility - The facility instance to expose.\n * @returns the disposer that unmounts the form.\n */',
+      },
+      {
+        signature: 'form<K extends keyof StorageForms>(form: K): StorageForms[K]',
+        jsDoc: '/**\n * Resolve a mounted data form.\n * @param form - Form key declared in {@link StorageForms}.\n * @returns the mounted facility.\n */',
       },
     ],
   },
@@ -842,6 +900,28 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
     ],
   },
+  {
+    key: 'workspace',
+    summary: 'The workspace registry service.',
+    methods: [
+      {
+        signature: 'async create(path: string, title?: string): Promise<Workspace>',
+        jsDoc: '/**\n * Create a workspace over an existing directory. The path is canonicalized\n * through `fs.realpath` first — a nonexistent path rejects with the\n * original `ENOENT`, a path resolving to anything but a directory rejects,\n * and a canonical path already owned by another workspace (including a\n * symlink resolving to it) rejects.\n * @param path - Directory the workspace points at; canonicalized before storing.\n * @param title - Display title; defaults to `basename` of the canonical path.\n * @returns the created workspace after durability.\n */',
+      },
+      {
+        signature: 'get(id: WorkspaceId): Workspace | undefined',
+        jsDoc: '/**\n * Look up a workspace by id.\n * @param id - The workspace id.\n * @returns the workspace, or `undefined` when unknown.\n */',
+      },
+      {
+        signature: 'list(): Workspace[]',
+        jsDoc: '/**\n * Snapshot of all workspaces, in load-then-creation order.\n * @returns a fresh array of the cached entities.\n */',
+      },
+      {
+        signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
+        jsDoc: '/**\n * Resolve a workspace by directory path, through the same `fs.realpath`\n * canon as {@link create} (hence async). A path that does not exist rejects\n * with the original error — a missing directory has no canonical form to\n * compare (a workspace whose recorded directory vanished is only reachable\n * by id; see `Workspace.status`).\n * @param path - Directory path in any spelling (symlinks, `..`, trailing slash).\n * @returns the owning workspace, or `undefined` when none matches.\n */',
+      },
+    ],
+  },
 ]
 
 /** Every harness event, sorted by name. */
@@ -882,6 +962,27 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
+    name: 'agent/inbox/dequeue',
+    mode: 'emit',
+    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
+  },
+  {
+    name: 'agent/inbox/discard',
+    mode: 'emit',
+    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void',
+    jsDoc: '/**\n * Pending inbox items were dropped without delivering them, so every\n * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR\n * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after\n * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`\n * dropping pending steering (in-turn and on the post-turn late-steering\n * drain); and disposal of any still-pending items (before\n * `agent/status(\'disposed\')`). Fires once per drop with every dropped item.\n * @param agent - the agent whose inbox items were dropped.\n * @param messages - the discarded messages in FIFO order (queued then steering); never empty.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Pending inbox items were dropped without delivering them, so every enqueued id receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`.',
+  },
+  {
+    name: 'agent/inbox/enqueue',
+    mode: 'emit',
+    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `message` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection through\n * `agent.inject()` or equivalent `send()` routing bypasses the FIFOs\n * and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'A detached, frozen item entered the agent\'s inbox (queued or steering FIFO).',
+  },
+  {
     name: 'agent/post-step',
     mode: 'serial',
     signature: '\'agent/post-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
@@ -901,13 +1002,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
     jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default. A listener wrapping a\n * downstream `allow` must preserve its `content` and `additionalContexts`\n * unless it intentionally replaces them. The signal controls only this turn;\n * listeners may cooperate with it but must not retain it to control another\n * turn. Steering messages do not dispatch this event; they join an open turn\n * at a steering checkpoint.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message.',
-  },
-  {
-    name: 'agent/queued',
-    mode: 'emit',
-    signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; contexts: HookContext[]; steering: boolean }): void',
-    jsDoc: '/**\n * Detached, frozen content entered the agent\'s inbox. Source defaults have\n * already been applied, so these are the exact values retained for the log.\n * @param agent - the agent whose inbox received the message.\n * @param content - the accepted content blocks retained by the inbox.\n * @param info - the accepted source, contexts, and whether it entered as steering.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Detached, frozen content entered the agent\'s inbox.',
   },
   {
     name: 'agent/request',
@@ -941,7 +1035,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
-    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does\n * not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). A waking\n * delivery does not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`, or → `disposed`).',
   },
   {
@@ -978,6 +1072,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'commands/change\'(): void',
     jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'A command was registered or unregistered.',
+  },
+  {
+    name: 'domain/changed',
+    mode: 'emit',
+    signature: '\'domain/changed\'(change: DomainChanged): void',
+    jsDoc: '/**\n * A domain record or the global singleton changed, emitted once per write\n * strictly after the backend acknowledged durability. Events of one\n * domain arrive in its write-chain order.\n * @param change - domain, table (`\'\'` for global), key (`\'\'` for global),\n * operation discriminant, and on `put` the new snapshot.\n * @mode emit\n */',
+    summary: 'A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability.',
   },
   {
     name: 'fs/edit-intent',
@@ -1167,7 +1268,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(cause?: AgentCancelCause): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    followup(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    queue(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId;\n    send(input: ResolvedAgentInput): AgentMessageId;\n    cancel(cause?: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -1180,6 +1281,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentHandle',
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'AgentMessageId',
+    declaration: 'export type AgentMessageId = Branded<\'AgentMessageId\'>;',
   },
   {
     name: 'AgentOptions',
@@ -1280,6 +1385,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CallId',
     declaration: 'export type CallId = Branded<\'CallId\'>;',
+  },
+  {
+    name: 'CancelOptions',
+    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -1499,7 +1608,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InjectOptions',
-    declaration: 'export interface InjectOptions extends Omit<SendOptions, \'contexts\'> {\n    meta?: JsonValue;\n}',
+    declaration: 'export interface InjectOptions {\n    source?: MessageSource;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'InvariantFailure',
@@ -1524,6 +1633,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'LlmAdapter',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext | undefined>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmCallConfig',
@@ -1587,7 +1700,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptMessageData',
-    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n}',
+    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'PromptMessageEnvelope',
@@ -1690,6 +1803,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
   {
+    name: 'RequestHeaderReason',
+    declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
+  },
+  {
+    name: 'ResolvedAgentInput',
+    declaration: 'export type ResolvedAgentInput = {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta: JsonValue | undefined;\n} & ({\n    target: \'next-turn\';\n    wakeup: boolean;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: true;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: false;\n    contexts: [\n    ];\n});',
+  },
+  {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
@@ -1723,7 +1844,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SendOptions',
-    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n}',
+    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'Session',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -1735,7 +1860,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: R /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -1810,6 +1935,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionLocation {\n    readonly kind: string;\n    readonly path: string;\n}',
   },
   {
+    name: 'SessionLogSnapshot',
+    declaration: 'export interface SessionLogSnapshot {\n    session: SessionHeader;\n    events: SessionEvent[];\n}',
+  },
+  {
     name: 'SessionPersistenceRevision',
     declaration: 'export type SessionPersistenceRevision = Branded<\'SessionPersistenceRevision\'>;',
   },
@@ -1856,6 +1985,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSearchRequest',
     declaration: 'export interface SessionSearchRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
+  },
+  {
+    name: 'SessionSurface',
+    declaration: 'export interface SessionSurface {\n    readonly nodes: readonly number[];\n    readonly replaceGeneration: number;\n}',
   },
   {
     name: 'SessionSurfaceSnapshot',
@@ -1950,6 +2083,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
+    name: 'StorageForms',
+    declaration: 'export interface StorageForms {\n}',
+  },
+  {
     name: 'StreamChunk',
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
@@ -1987,7 +2124,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurfaceEventType',
-    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'context/message\' | \'steering/message\';',
+    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'steering/message\';',
+  },
+  {
+    name: 'SurfaceIntent',
+    declaration: 'export interface SurfaceIntent {\n    surfaceOp: SurfaceOp;\n    sourceEventSeqs?: number[];\n}',
   },
   {
     name: 'SurfaceOp',
@@ -2238,6 +2379,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'WebRoute',
+    declaration: 'export interface WebRoute {\n    kind: WebRouteKind;\n    path: string;\n    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;\n}',
+  },
+  {
+    name: 'WebRouteKind',
+    declaration: 'export type WebRouteKind = \'exact\' | \'prefix\';',
+  },
+  {
     name: 'WebSearchProvider',
     declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
@@ -2280,6 +2429,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'Workspace',
+    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
   },
 ]
 

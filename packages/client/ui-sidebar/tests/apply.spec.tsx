@@ -26,7 +26,12 @@ async function bench() {
     byId: { [sid('a')]: { id: sid('a'), title: 'alpha', displayTitle: 'alpha', cwd: '/proj', running: false, updatedAt: 1 } },
     current: undefined,
   })
-  const sessions = { list, create: vi.fn(async () => sid('minted')), open: vi.fn() }
+  const sessions = {
+    list,
+    create: vi.fn(async () => sid('minted')),
+    open: vi.fn(),
+    clear: vi.fn(),
+  }
   const layout = { toggleSidebar: vi.fn() }
   ctx.provide('sessions', sessions)
   ctx.provide('layout', layout)
@@ -91,14 +96,15 @@ describe('apply', () => {
     expect(sessions.open).toHaveBeenCalledWith('a')
 
     injected.onCreate()
-    expect(sessions.create).toHaveBeenCalledWith({})
+    expect(sessions.clear).toHaveBeenCalledOnce()
+    expect(sessions.create).not.toHaveBeenCalled()
+
+    injected.onCreate('/proj')
+    expect(sessions.create).toHaveBeenCalledWith({ cwd: '/proj' })
     // create-then-open lands after the create promise resolves.
     await Promise.resolve()
     await Promise.resolve()
     expect(sessions.open).toHaveBeenCalledWith('minted')
-
-    injected.onCreate('/proj')
-    expect(sessions.create).toHaveBeenCalledWith({ cwd: '/proj' })
   })
 
   it('teardown unregisters the slot entry', async () => {

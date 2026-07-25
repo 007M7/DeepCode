@@ -31,8 +31,9 @@ beforeEach(() => {
 })
 
 const toolResult = (seq: number, callId: string, name: string, args = '{"command":"make build","description":"Build"}'): ToolResultNode => ({
-  kind: 'tool-result', seq, callId,
+  kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: args },
+  callTime: seq * 1_000 - 500,
   content: [], isError: false, callView: null, resultView: null,
 })
 
