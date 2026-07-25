@@ -13,7 +13,7 @@ Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and
 | `@deepseek-ai/dsh-command-goal` | Direct `/goal` status and mutation over the spine's persisted-goal stack |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | Durable session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-session-checkpoint-policy` | Semantic durability barriers before model requests and top-level tool effects, plus completed-step checkpoints |
-| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | Combined exact/FTS session queries and bounded `@session` snapshots consumed by the TUI |
+| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | Combined exact/FTS session queries and bounded `@session` snapshots consumed by the TUI; model-facing query tools remain a leaf opt-in |
 | `@deepseek-ai/dsh-user-interaction` | Provider-neutral human question service |
 | `@deepseek-ai/dsh-tui` | Full-screen transcript, editor, tool cards, plan, and question overlays |
 | `@deepseek-ai/dsh-tool-ask-user` | Model-facing `ask_user_question` tool |
