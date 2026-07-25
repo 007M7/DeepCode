@@ -15,7 +15,6 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "@cordisjs/plugin-include": "workspace:*",
-    "@cordisjs/plugin-logger-console": "workspace:*",
     "@cordisjs/plugin-loader": "workspace:*",
     "@cordisjs/plugin-timer": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:^",

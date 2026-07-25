@@ -104,9 +104,6 @@ importers:
       '@cordisjs/plugin-loader':
         specifier: workspace:*
         version: link:../../vendor/loader
-      '@cordisjs/plugin-logger-console':
-        specifier: workspace:*
-        version: link:../../vendor/logger-console
       '@cordisjs/plugin-timer':
         specifier: workspace:*
         version: link:../../vendor/timer
