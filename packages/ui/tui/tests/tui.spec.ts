@@ -1290,6 +1290,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('llm/retry', {
       turn: 1,
       step: 1,
+      provider: 'mock',
+      mode: 'normal',
       retry: 1,
       maxRetries: 2,
       delayMs: 500,
@@ -1322,6 +1324,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('llm/retry', {
       turn: 1,
       step: 1,
+      provider: 'mock',
+      mode: 'normal',
       retry: 1,
       maxRetries: 2,
       delayMs: 500,
@@ -1330,6 +1334,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('llm/retry', {
       turn: 1,
       step: 2,
+      provider: 'mock',
+      mode: 'normal',
       retry: 2,
       maxRetries: 2,
       delayMs: 1_000,

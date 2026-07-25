@@ -66,6 +66,10 @@ Every adapter MUST obey these, and every consumer may rely on them:
 
 This contract is pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (hand-rolled fetch/SSE) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter exercises the finish-chunk error path, while transport-boundary tests prove each idle watchdog stops its actual request.
 
+## `ResolvedRetryPolicy`
+
+Provider configuration resolves before route registration into an immutable discriminated union. Normal mode carries `mode: 'normal'`, finite `maxRetries`, `retryableCodes`, and required `initialDelayMs`, `maxDelayMs`, and `jitterRatio`; always mode carries `mode: 'always'` and the same required backoff fields without a finite maximum. `LlmService.providerRetryPolicy(provider)` returns the captured value and supplies normal defaults when the adapter omits one. The [generated config catalog](../config-catalog.md) owns the optional input shapes.
+
 ## `AppIdentity` — app attribution
 
 The static public application identity every adapter sends to providers ([`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)). `attributionHeaders(identity?)` maps it to the standard `User-Agent` header only; OpenRouter-specific app attribution headers are intentionally not supported by this contract. The default `APP_IDENTITY` sources its version from the package manifest; every field is a public product fact - no secrets, paths, session ids, or per-user identifiers, and nothing per-request may influence the values. Rationale: [Mandatory `User-Agent` attribution](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
@@ -154,7 +158,7 @@ declare class BlockAssembler {
 
 ## The seam
 
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerInfo()` and asynchronous `listModels()` methods feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. The separate `resolveModelContext()` query exposes correctness-sensitive capacity for an exact route without making catalog membership authoritative; absence means unknown metadata, not invalid routing. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
+`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerRetryPolicy()` is captured per route with normal defaults, while `providerInfo()` and asynchronous `listModels()` feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. The separate `resolveModelContext()` query exposes correctness-sensitive capacity for an exact route without making catalog membership authoritative; absence means unknown metadata, not invalid routing. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
 
 ```ts public-api
 /**
@@ -170,6 +174,12 @@ declare abstract class LlmAdapter {
    * @returns detached display metadata whose id must equal `provider`.
    */
   providerInfo(provider: string): LlmProviderInfo;
+  /**
+   * Return the provider-owned retry policy captured with this route.
+   * @param _provider - a route passed to `registerAdapter()` for this instance.
+   * @returns a resolved policy, or `undefined` to use the normal defaults.
+   */
+  providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;
   /**
    * List models this adapter can currently advertise for one owned provider.
    * The result is advisory: an adapter may accept unlisted model ids, and

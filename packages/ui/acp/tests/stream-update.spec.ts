@@ -103,6 +103,8 @@ describe('streamSessionEventUpdate', () => {
     expect(updatesFor(evt('llm/retry', {
       turn: 1,
       step: 1,
+      provider: 'mock',
+      mode: 'normal',
       retry: 1,
       maxRetries: 2,
       delayMs: 500,
@@ -112,6 +114,21 @@ describe('streamSessionEventUpdate', () => {
       content: {
         type: 'text',
         text: '\n\n[Previous model attempt discarded; retrying 1/2 in 500ms: backend busy]\n\n',
+      },
+    }])
+    expect(updatesFor(evt('llm/retry', {
+      turn: 1,
+      step: 2,
+      provider: 'mock',
+      mode: 'always',
+      retry: 7,
+      delayMs: 1_000,
+      failure: { message: 'still unavailable', code: 'AUTH' },
+    }))).toEqual([{
+      sessionUpdate: 'agent_message_chunk',
+      content: {
+        type: 'text',
+        text: '\n\n[Previous model attempt discarded; retrying 7/∞ in 1000ms: still unavailable]\n\n',
       },
     }])
     expect(updatesFor(evt('turn/end', {

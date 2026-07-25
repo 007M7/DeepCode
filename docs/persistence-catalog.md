@@ -299,12 +299,22 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 #### `llm/retry` — log-only
 
 ```ts persistence-catalog
-/** Durable, non-surface record of one transient retry scheduled after a closed failed step. */
+/** Durable, non-surface record of one provider-routed retry scheduled after a closed failed step. */
 'llm/retry': {
   turn: number
   step: number
+  provider: string
+  mode: 'normal'
   retry: number
   maxRetries: number
+  delayMs: number
+  failure: LlmFailure
+} | {
+  turn: number
+  step: number
+  provider: string
+  mode: 'always'
+  retry: number
   delayMs: number
   failure: LlmFailure
 }

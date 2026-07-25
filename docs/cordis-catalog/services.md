@@ -654,6 +654,13 @@ registerAdapter(providers: string[], adapter: LlmAdapter): () => void
 listProviders(): LlmProviderInfo[]
 
 /**
+ * Resolve the retry policy captured when one provider route was registered.
+ * @param provider - registered provider route to inspect.
+ * @returns the provider-owned policy, with normal defaults already resolved.
+ */
+providerRetryPolicy(provider: string): ResolvedRetryPolicy
+
+/**
  * Discover models advertised by one registered provider. Catalog membership
  * is advisory and never changes routing or request validation.
  * @param provider - registered provider route to inspect.
@@ -686,9 +693,9 @@ async resolveModelContext( provider: string, model: string, ): Promise<LlmModelC
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:171`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

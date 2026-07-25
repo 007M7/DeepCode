@@ -119,7 +119,7 @@ forever:
 
 工具执行阶段的上下文，包括异步 `inject()` 和工具执行后的 `additionalContexts`，会在结果产生后稳定。steering（中途引导）会在 `agent/post-step` 前排空；该事件会观察持久输出、结果、上下文和 steering。余留内容进入队列。终止型 `agent/turn-stop` 在关闭和刷写期间始终具有最终决定权；后续 steering 会被丢弃，排队提示词仍予保留。
 
-裁剪先于摘要；溢出重试必须取得持久进展。有界的瞬态重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
+裁剪先于摘要；溢出重试必须取得持久进展。适配器会注册嵌套的 `retryPolicy`；normal 限制瞬态错误重试次数，always 则持续重试，直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
 
 ### 失败边界
 

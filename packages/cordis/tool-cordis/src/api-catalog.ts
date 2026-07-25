@@ -337,6 +337,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
       },
       {
+        signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
+        jsDoc: '/**\n * Resolve the retry policy captured when one provider route was registered.\n * @param provider - registered provider route to inspect.\n * @returns the provider-owned policy, with normal defaults already resolved.\n */',
+      },
+      {
         signature: 'async listModels(provider: string): Promise<LlmModelInfo[]>',
         jsDoc: '/**\n * Discover models advertised by one registered provider. Catalog membership\n * is advisory and never changes routing or request validation.\n * @param provider - registered provider route to inspect.\n * @returns detached model metadata in adapter-preferred order.\n */',
       },
@@ -1692,6 +1696,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReasoningBlock',
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
+  },
+  {
+    name: 'ResolvedAlwaysRetryPolicy',
+    declaration: 'export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'always\';\n}',
+  },
+  {
+    name: 'ResolvedNormalRetryPolicy',
+    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n}',
+  },
+  {
+    name: 'ResolvedRetryBackoff',
+    declaration: 'export interface ResolvedRetryBackoff {\n    readonly initialDelayMs: number;\n    readonly maxDelayMs: number;\n    readonly jitterRatio: number;\n}',
+  },
+  {
+    name: 'ResolvedRetryPolicy',
+    declaration: 'export type ResolvedRetryPolicy = ResolvedNormalRetryPolicy | ResolvedAlwaysRetryPolicy;',
   },
   {
     name: 'ResumeAgentOptions',

@@ -1366,8 +1366,9 @@ export function streamSessionEventUpdate(
       return
     }
     case 'llm/retry': {
+      const retryLimit = event.data.mode === 'always' ? '∞' : String(event.data.maxRetries)
       const text = '\n\n[Previous model attempt discarded; retrying '
-        + `${event.data.retry}/${event.data.maxRetries} in ${event.data.delayMs}ms: `
+        + `${event.data.retry}/${retryLimit} in ${event.data.delayMs}ms: `
         + `${event.data.failure.message}]\n\n`
       notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
       return

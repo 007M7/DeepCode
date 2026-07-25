@@ -17,6 +17,13 @@ Configure credentials and deployment-specific transport settings per provider. O
         apiKey: !!js process.env.OPENAI_API_KEY
         baseURL: https://proxy.example.com:8443
         reasoning: high
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          backoff:
+            initialDelayMs: 500
+            maxDelayMs: 10000
+            jitterRatio: 0.1
       - provider: anthropic
         apiKey: !!js process.env.ANTHROPIC_API_KEY
         streamIdleTimeoutMs: 300000
@@ -30,7 +37,7 @@ Each provider name must exist in pi-ai's installed catalog and may appear only o
 
 The adapter exposes each configured provider's installed pi-ai models through `ctx.llm.listModels(provider)`. This is provider-neutral selector metadata derived from `getModels(provider)`; request-time resolution still performs the authoritative catalog lookup, so discovery does not create a second model registry. `ctx.llm.resolveModelContext(provider, model)` performs the same exact descriptor lookup and returns its context window, keeping capacity metadata on the route-owning adapter rather than a consuming plugin.
 
-Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, and `streamIdleTimeoutMs`. The stream-idle interval is a positive finite Node timer delay, defaults to five minutes, and covers only an outstanding provider read, not consumer think time. Harness app attribution wins a conflicting configured header name.
+Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, `streamIdleTimeoutMs`, and `retryPolicy`. Each profile's optional retry policy is captured with that provider route; omission uses bounded normal defaults. The stream-idle interval is a positive finite Node timer delay, defaults to five minutes, and covers only an outstanding provider read, not consumer think time. Harness app attribution wins a conflicting configured header name.
 
 The adapter forces pi-ai's SDK `maxRetries` to zero so one `stream()` call makes one provider request. The removed profile fields `maxRetries` and `maxRetryDelayMs` fail load instead of silently multiplying or hiding the separately composed agent-level retry budget. Idle expiry aborts the SDK's stable request signal and surfaces `TIMEOUT`; an earlier caller abort remains `ABORTED`.
 

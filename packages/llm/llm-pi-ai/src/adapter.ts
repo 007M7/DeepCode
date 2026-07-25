@@ -13,7 +13,7 @@ import type {
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
 import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelContext, LlmModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { resolveProfiles } from './config.ts'
 import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
@@ -30,7 +30,10 @@ export interface PiAiAdapterOptions {
  * Resolve a catalog model dynamically and apply only the configured endpoint
  * override, preserving the catalog's API/capability/compatibility metadata.
  */
-function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api> {
+function resolveModel(
+  profile: Omit<PiAiProviderProfile, 'retryPolicy'>,
+  modelId: string,
+): Model<Api> {
   const model = getBuiltinModels(profile.provider as BuiltinProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
   if (model === undefined) {
     throw new LlmError(`pi-ai provider "${profile.provider}" has no catalog model "${modelId}"`, 'UNKNOWN_MODEL')
@@ -39,7 +42,7 @@ function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api>
 }
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
-function profileOptions(profile: PiAiProviderProfile): SimpleStreamOptions {
+function profileOptions(profile: Omit<PiAiProviderProfile, 'retryPolicy'>): SimpleStreamOptions {
   return {
     ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
     ...profile.reasoning === undefined ? {} : { reasoning: profile.reasoning },
@@ -73,6 +76,10 @@ export class PiAiAdapter extends LlmAdapter {
   constructor(options: PiAiAdapterOptions) {
     super()
     this.profiles = new Map(resolveProfiles(options.profiles).map(profile => [profile.provider, profile]))
+  }
+
+  override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
+    return this.profiles.get(provider)?.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {

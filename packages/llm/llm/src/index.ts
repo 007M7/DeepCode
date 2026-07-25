@@ -16,6 +16,8 @@ import type {
   Message,
   StreamChunk,
 } from './types.ts'
+import { resolveRetryPolicy } from './retry-policy.ts'
+import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { deepFreeze } from './call-config.ts'
 import { HarnessError } from './error.ts'
@@ -27,6 +29,7 @@ export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
+export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
@@ -120,6 +123,15 @@ export abstract class LlmAdapter {
   }
 
   /**
+   * Return the provider-owned retry policy captured with this route.
+   * @param _provider - a route passed to `registerAdapter()` for this instance.
+   * @returns a resolved policy, or `undefined` to use the normal defaults.
+   */
+  providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined {
+    return undefined
+  }
+
+  /**
    * List models this adapter can currently advertise for one owned provider.
    * The result is advisory: an adapter may accept unlisted model ids, and
    * consumers must not turn absence into request rejection.
@@ -157,7 +169,11 @@ export abstract class LlmAdapter {
  * surface, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
-  private adapters = new Map<string, { adapter: LlmAdapter; provider: LlmProviderInfo }>()
+  private adapters = new Map<string, {
+    adapter: LlmAdapter
+    provider: LlmProviderInfo
+    retryPolicy: ResolvedRetryPolicy
+  }>()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -175,7 +191,11 @@ export class LlmService extends Service {
     const dispose = this.ctx.effect(function* (this: LlmService) {
       if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
       const unique = new Set<string>()
-      const registrations: { adapter: LlmAdapter; provider: LlmProviderInfo }[] = []
+      const registrations: {
+        adapter: LlmAdapter
+        provider: LlmProviderInfo
+        retryPolicy: ResolvedRetryPolicy
+      }[] = []
       for (const provider of providers) {
         if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
         if (unique.has(provider) || this.adapters.has(provider)) {
@@ -186,7 +206,13 @@ export class LlmService extends Service {
           throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
         }
         unique.add(provider)
-        registrations.push({ adapter, provider: { id: info.id, name: info.name } })
+        const retryPolicy = adapter.providerRetryPolicy(provider)
+          ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
+        registrations.push({
+          adapter,
+          provider: { id: info.id, name: info.name },
+          retryPolicy,
+        })
       }
       for (const registration of registrations) this.adapters.set(registration.provider.id, registration)
       yield () => {
@@ -204,6 +230,15 @@ export class LlmService extends Service {
    */
   listProviders(): LlmProviderInfo[] {
     return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
+  }
+
+  /**
+   * Resolve the retry policy captured when one provider route was registered.
+   * @param provider - registered provider route to inspect.
+   * @returns the provider-owned policy, with normal defaults already resolved.
+   */
+  providerRetryPolicy(provider: string): ResolvedRetryPolicy {
+    return this.registration(provider).retryPolicy
   }
 
   /**
@@ -262,7 +297,11 @@ export class LlmService extends Service {
     return { contextWindow: context.contextWindow }
   }
 
-  private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {
+  private registration(provider: string): {
+    adapter: LlmAdapter
+    provider: LlmProviderInfo
+    retryPolicy: ResolvedRetryPolicy
+  } {
     const registration = this.adapters.get(provider)
     if (!registration) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
     return registration

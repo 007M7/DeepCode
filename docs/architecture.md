@@ -119,7 +119,7 @@ Each step assembles ordered prompt sections, tool schemas, and variables; unknow
 
 Tool-time context—including async `inject()` and post-tool `additionalContexts`—settles after results. Steering drains before `agent/post-step`, which sees durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` remains authoritative through close/flush; later steering is discarded while queued prompts remain.
 
-Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
+Pruning precedes summaries; overflow retries require durable progress. Adapters register nested `retryPolicy`; normal bounds transient failures, while always retries until success or cancellation ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)).
 
 ### Failure Boundaries
 

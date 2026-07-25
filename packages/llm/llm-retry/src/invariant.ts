@@ -4,6 +4,7 @@ import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { providerForClosedStep } from './history.ts'
 import type {} from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-llm-retry'
@@ -19,34 +20,46 @@ function validateRetry(
   event: SessionEvent<'llm/retry'>,
   fail: InvariantFailure,
 ): void {
-  const { turn, step, retry, maxRetries, delayMs } = event.data
+  const { turn, step, provider, mode, retry, delayMs } = event.data
   if (!Number.isSafeInteger(retry) || retry < 1) {
     fail('llm/retry retry must be a positive safe integer')
   }
-  if (!Number.isSafeInteger(maxRetries) || maxRetries < 1 || retry > maxRetries) {
-    fail(`llm/retry retry ${retry} must not exceed a positive safe maxRetries ${maxRetries}`)
+  if (typeof provider !== 'string' || provider.length === 0) {
+    fail('llm/retry provider must be non-empty string')
   }
-  if (!(delayMs >= 0 && delayMs <= MAX_TIMER_DELAY_MS)) {
-    fail(`llm/retry delayMs must be within 0..${MAX_TIMER_DELAY_MS}`)
-  }
-
-  const currentTurnEvents: SessionEvent[] = []
-  let openTurn: number | undefined
-  for (const prior of history.slice().reverse()) {
-    if (prior.type === 'turn/end') fail('llm/retry must be appended inside an open turn')
-    if (prior.type === 'turn/start') {
-      openTurn = prior.data.turn
+  switch (mode) {
+    case 'normal': {
+      const { maxRetries } = event.data
+      if (!Number.isSafeInteger(maxRetries) || maxRetries < 1 || retry > maxRetries) {
+        fail(`llm/retry retry ${retry} must not exceed a positive safe maxRetries ${maxRetries}`)
+      }
       break
     }
-    currentTurnEvents.push(prior)
+    case 'always':
+      if ('maxRetries' in event.data) fail('llm/retry always mode must omit maxRetries')
+      break
+    default:
+      fail(`llm/retry mode must be normal or always, got ${String(mode)}`)
   }
-  if (openTurn === undefined) fail('llm/retry must be appended inside an open turn')
+  if (typeof delayMs !== 'number' || !Number.isFinite(delayMs)
+    || delayMs < 0 || delayMs > MAX_TIMER_DELAY_MS) {
+    fail(`llm/retry delayMs must be a finite number within 0..${MAX_TIMER_DELAY_MS}`)
+  }
+
+  const turnStartIndex = history.findLastIndex(prior =>
+    prior.type === 'turn/start' || prior.type === 'turn/end')
+  const turnBoundary = history[turnStartIndex]
+  if (turnBoundary?.type !== 'turn/start') {
+    fail('llm/retry must be appended inside an open turn')
+  }
+  const openTurn = turnBoundary.data.turn
   if (turn !== openTurn) {
     fail(`llm/retry names turn ${turn}, but the open turn is ${openTurn}`)
   }
 
+  const currentTurnEvents = history.slice(turnStartIndex + 1)
   let closedStep: number | undefined
-  for (const prior of currentTurnEvents) {
+  for (const prior of currentTurnEvents.slice().reverse()) {
     if (prior.type === 'step/start') {
       fail(`llm/retry must follow step/end, but step ${prior.data.step} is still open`)
     }
@@ -58,15 +71,26 @@ function validateRetry(
   if (closedStep === undefined || step !== closedStep) {
     fail(`llm/retry names step ${step}, but the latest closed step is ${String(closedStep)}`)
   }
+  const routedProvider = providerForClosedStep(history, turn, step)
+  if (routedProvider !== provider) {
+    fail(`llm/retry provider ${provider} does not match the failed request provider ${String(routedProvider)}`)
+  }
 
   const priorRetries = currentTurnEvents
     .filter((prior): prior is SessionEvent<'llm/retry'> => prior.type === 'llm/retry')
   if (priorRetries.some(prior => prior.data.step === step)) {
     fail(`llm/retry duplicates the retry record for turn ${turn}/step ${step}`)
   }
-  const priorRetry = priorRetries[0]
-  if (priorRetry !== undefined && retry <= priorRetry.data.retry) {
-    fail(`llm/retry retry ${retry} must increase after retry ${priorRetry.data.retry}`)
+  const lastSuccessIndex = currentTurnEvents.findLastIndex(prior => prior.type === 'assistant/message')
+  const priorPolicyRetry = currentTurnEvents.findLast((prior, index): prior is SessionEvent<'llm/retry'> => (
+    index > lastSuccessIndex
+    && prior.type === 'llm/retry'
+    && prior.data.provider === provider
+    && prior.data.mode === mode
+  ))
+  const expectedRetry = (priorPolicyRetry?.data.retry ?? 0) + 1
+  if (retry !== expectedRetry) {
+    fail(`llm/retry retry ${retry} must equal provider policy retry ${expectedRetry}`)
   }
 }
 

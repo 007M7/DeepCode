@@ -11,6 +11,7 @@ import LlmService, {
   LlmError,
   llmFailureOf,
   ProviderRequestId,
+  resolveRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
@@ -157,6 +158,27 @@ describe('LlmService', () => {
     const chunks: StreamChunk[] = []
     for await (const chunk of ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })) chunks.push(chunk)
     expect(chunks).toEqual(SCRIPT)
+  })
+
+  it('captures provider-owned retry policy at registration and defaults omission', async () => {
+    const configured = resolveRetryPolicy({ mode: 'always' }, 'test retryPolicy')
+    const adapter = new class extends ScriptedAdapter {
+      override providerRetryPolicy(provider: string) {
+        return provider === 'configured' ? configured : undefined
+      }
+    }(SCRIPT)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['configured', 'defaulted'], adapter)
+
+    expect(ctx.llm.providerRetryPolicy('configured')).toBe(configured)
+    expect(ctx.llm.providerRetryPolicy('defaulted')).toMatchObject({
+      mode: 'normal',
+      maxRetries: 2,
+    })
+    expect(() => ctx.llm.providerRetryPolicy('missing')).toThrow(
+      expect.objectContaining({ code: 'NO_ADAPTER' }),
+    )
   })
 
   it('throws NO_ADAPTER for unregistered providers', async () => {

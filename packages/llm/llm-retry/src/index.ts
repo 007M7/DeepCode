@@ -1,5 +1,5 @@
 /**
- * Bounded transient model-request retry policy on the agent loop's closed-step
+ * Provider-routed model-request retry policy on the agent loop's closed-step
  * recovery seam. Each scheduled retry is durable before its cancellable wait.
  *
  * @module @deepseek-ai/dsh-llm-retry
@@ -8,18 +8,28 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
-import type { LlmFailure } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-session'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { providerForClosedStep } from './history.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
-    /** Durable, non-surface record of one transient retry scheduled after a closed failed step. */
+    /** Durable, non-surface record of one provider-routed retry scheduled after a closed failed step. */
     'llm/retry': {
       turn: number
       step: number
+      provider: string
+      mode: 'normal'
       retry: number
       maxRetries: number
+      delayMs: number
+      failure: LlmFailure
+    } | {
+      turn: number
+      step: number
+      provider: string
+      mode: 'always'
+      retry: number
       delayMs: number
       failure: LlmFailure
     }
@@ -27,84 +37,21 @@ declare module '@deepseek-ai/dsh-session' {
 }
 
 export const name = 'llm-retry'
-export const inject = ['agents']
+export const inject = ['agents', 'llm']
 
-const DEFAULT_MAX_TRANSIENT_RETRIES = 2
-const DEFAULT_INITIAL_DELAY_MS = 500
-const DEFAULT_MAX_DELAY_MS = 10_000
-const DEFAULT_JITTER_RATIO = 0.1
-const DEFAULT_RETRYABLE_CODES = Object.freeze(['RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'])
-
-/** Deployment-owned limits and classification for transient request recovery. */
-export interface Config {
-  /** Maximum transient retries after the first request (default 2). */
-  maxTransientRetries?: number
-  /** Initial local exponential-backoff delay in milliseconds (default 500). */
-  initialDelayMs?: number
-  /** Maximum accepted or locally scheduled delay in milliseconds (default 10000). */
-  maxDelayMs?: number
-  /** Symmetric random multiplier range around one (default 0.1). */
-  jitterRatio?: number
-  /** Stable failure codes eligible for this policy. */
-  retryableCodes?: string[]
-}
+/** This policy executor has no config; providers own `retryPolicy`. */
+export type Config = Readonly<Record<never, never>>
 
 /** Runtime schema for {@link Config}. */
-export const Config: z<Config> = z.object({
-  maxTransientRetries: z.number().step(1).min(0).default(DEFAULT_MAX_TRANSIENT_RETRIES),
-  initialDelayMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_INITIAL_DELAY_MS),
-  maxDelayMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_MAX_DELAY_MS),
-  jitterRatio: z.number().min(0).max(1).default(DEFAULT_JITTER_RATIO),
-  retryableCodes: z.array(z.string()).default([...DEFAULT_RETRYABLE_CODES]),
-})
+export const Config: z<Config> = z.object({})
 
-interface ResolvedConfig {
-  readonly maxTransientRetries: number
-  readonly initialDelayMs: number
-  readonly maxDelayMs: number
-  readonly jitterRatio: number
-  readonly retryableCodes: ReadonlySet<string>
-}
-
-function resolveConfig(config: Config): ResolvedConfig {
-  const maxTransientRetries = config.maxTransientRetries ?? DEFAULT_MAX_TRANSIENT_RETRIES
-  const initialDelayMs = config.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS
-  const maxDelayMs = config.maxDelayMs ?? DEFAULT_MAX_DELAY_MS
-  const jitterRatio = config.jitterRatio ?? DEFAULT_JITTER_RATIO
-  const codes = config.retryableCodes ?? [...DEFAULT_RETRYABLE_CODES]
-
-  if (!Number.isInteger(maxTransientRetries) || maxTransientRetries < 0) {
-    throw new Error('llm-retry: maxTransientRetries must be a non-negative integer')
+function validateConfig(config: Config): void {
+  const [key] = Object.keys(config)
+  if (key === undefined) return
+  if (key === 'retryPolicy') {
+    throw new Error('llm-retry: retryPolicy belongs under each provider configuration')
   }
-  if (!Number.isFinite(initialDelayMs) || initialDelayMs <= 0 || initialDelayMs > MAX_TIMER_DELAY_MS) {
-    throw new Error(`llm-retry: initialDelayMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
-  }
-  if (!Number.isFinite(maxDelayMs) || maxDelayMs <= 0 || maxDelayMs > MAX_TIMER_DELAY_MS) {
-    throw new Error(`llm-retry: maxDelayMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
-  }
-  if (initialDelayMs > maxDelayMs) {
-    throw new Error('llm-retry: initialDelayMs must be less than or equal to maxDelayMs')
-  }
-  if (!Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1) {
-    throw new Error('llm-retry: jitterRatio must be between 0 and 1')
-  }
-  if (codes.length === 0) {
-    throw new Error('llm-retry: retryableCodes must not be empty')
-  }
-  if (codes.some(code => code.length === 0)) {
-    throw new Error('llm-retry: retryableCodes must contain only non-empty strings')
-  }
-  if (new Set(codes).size !== codes.length) {
-    throw new Error('llm-retry: retryableCodes must not contain duplicates')
-  }
-
-  return Object.freeze({
-    maxTransientRetries,
-    initialDelayMs,
-    maxDelayMs,
-    jitterRatio,
-    retryableCodes: new Set(codes),
-  })
+  throw new Error(`llm-retry: unknown key "${key}"`)
 }
 
 /** Non-serializable seams used to make timing policy deterministic in tests. */
@@ -113,7 +60,38 @@ export interface RetryInternals {
   random?: () => number
 }
 
-function localDelay(config: ResolvedConfig, retry: number, random: () => number): number {
+type DownstreamOutcome =
+  | { readonly type: 'decision'; readonly decision: RequestErrorDecision }
+  | { readonly type: 'error'; readonly error: unknown }
+  | { readonly type: 'aborted' }
+
+function downstreamUntilAbort(
+  next: () => Promise<RequestErrorDecision>,
+  signal: AbortSignal,
+): Promise<DownstreamOutcome> {
+  if (signal.aborted) return Promise.resolve({ type: 'aborted' })
+  return new Promise((resolve) => {
+    const finish = (outcome: DownstreamOutcome): void => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(outcome)
+    }
+    const onAbort = (): void => { finish({ type: 'aborted' }) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    let downstream: Promise<RequestErrorDecision>
+    try {
+      downstream = next()
+    } catch (error: unknown) {
+      finish({ type: 'error', error })
+      return
+    }
+    void downstream.then(
+      (decision) => { finish({ type: 'decision', decision }) },
+      (error: unknown) => { finish({ type: 'error', error }) },
+    )
+  })
+}
+
+function localDelay(config: ResolvedRetryPolicy, retry: number, random: () => number): number {
   const exponent = Math.min(retry - 1, 1024)
   const exponential = Math.min(config.initialDelayMs * 2 ** exponent, config.maxDelayMs)
   const jitter = 1 - config.jitterRatio + 2 * config.jitterRatio * random()
@@ -136,13 +114,13 @@ function cancellableDelay(delayMs: number, signal: AbortSignal): Promise<boolean
 }
 
 /**
- * Install bounded transient request recovery.
+ * Install provider-routed normal or unbounded request recovery.
  * @param ctx - plugin context that owns the listener and active waits.
- * @param config - retry budget, delay bounds, jitter, and eligible codes.
+ * @param config - empty executor config; provider registrations own policy.
  * @param internals - non-serializable deterministic seams for tests.
  */
 export function apply(ctx: Context, config: Config = {}, internals: RetryInternals = {}): void {
-  const resolved = resolveConfig(config)
+  validateConfig(config)
   const random = internals.random ?? Math.random
   const lifetime = new AbortController()
   const active = new Set<Promise<RequestErrorDecision>>()
@@ -152,25 +130,40 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     turn: number,
     step: number,
     failure: LlmFailure,
+    provider: string,
+    policy: ResolvedRetryPolicy,
     retry: number,
     delayMs: number,
     signal: AbortSignal,
   ): Promise<RequestErrorDecision> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
     if (fusedSignal.aborted) return { action: 'fail' }
-    agent.session.append('llm/retry', {
-      turn,
-      step,
-      retry,
-      maxRetries: resolved.maxTransientRetries,
-      delayMs,
-      failure,
-    })
+    const eventData = policy.mode === 'normal'
+      ? {
+        turn,
+        step,
+        provider,
+        mode: policy.mode,
+        retry,
+        maxRetries: policy.maxRetries,
+        delayMs,
+        failure,
+      }
+      : {
+        turn,
+        step,
+        provider,
+        mode: policy.mode,
+        retry,
+        delayMs,
+        failure,
+      }
+    agent.session.append('llm/retry', eventData)
     if (!await cancellableDelay(delayMs, fusedSignal)) return { action: 'fail' }
     return { action: 'retry' }
   }
 
-  const disposeListener = ctx.on('agent/request-error', (
+  const disposeListener = ctx.on('agent/request-error', async (
     agent: Agent,
     turn: number,
     step: number,
@@ -184,22 +177,61 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     // removed. Lifetime cancellation must prevent that stale callback from
     // entering a downstream policy after disposal.
     if (lifetime.signal.aborted) return Promise.resolve<RequestErrorDecision>({ action: 'fail' })
-    if (!resolved.retryableCodes.has(failure.code)) return next()
-    const priorTransientFailures = priorFailures.filter(item => resolved.retryableCodes.has(item.code)).length
-    if (priorTransientFailures >= resolved.maxTransientRetries) return next()
+    // Bind policy to the header in force when this step closed. Downstream
+    // recovery may append later state before an always fallback runs.
+    const provider = providerForClosedStep(agent.session.events, turn, step)
+    /* v8 ignore next 3 -- agent-loop closes only steps whose request header was recorded */
+    if (provider === undefined) {
+      throw new Error(`llm-retry: no request provider for closed turn ${turn}/step ${step}`)
+    }
+    const policy = ctx.llm.providerRetryPolicy(provider)
 
-    const retry = priorTransientFailures + 1
+    if (policy.mode === 'always') {
+      const downstream = await downstreamUntilAbort(
+        next,
+        AbortSignal.any([signal, lifetime.signal]),
+      )
+      if (downstream.type === 'aborted') return { action: 'fail' }
+      if (downstream.type === 'error') {
+        ctx.logger.warn(
+          `llm-retry: provider "${provider}" always policy ignored a downstream recovery failure: %o`,
+          downstream.error,
+        )
+      }
+      if (downstream.type === 'decision' && downstream.decision.action === 'retry') {
+        return downstream.decision
+      }
+    } else if (!policy.retryableCodes.includes(failure.code)) {
+      return next()
+    }
+
+    const firstPriorStep = step - priorFailures.length
+    const priorPolicyRetry = agent.session.events.findLast((event): event is SessionEvent<'llm/retry'> =>
+      event.type === 'llm/retry'
+      && event.data.turn === turn
+      && event.data.step >= firstPriorStep
+      && event.data.step < step
+      && event.data.provider === provider
+      && event.data.mode === policy.mode,
+    )
+    const previousRetry = priorPolicyRetry?.data.retry ?? 0
+    if (policy.mode === 'normal' && previousRetry >= policy.maxRetries) return next()
+    const retry = previousRetry + 1
     let delayMs: number
     if (failure.providerRetryAfterMs !== undefined
       && Number.isFinite(failure.providerRetryAfterMs)
       && failure.providerRetryAfterMs > 0) {
-      if (failure.providerRetryAfterMs > resolved.maxDelayMs) return next()
-      delayMs = failure.providerRetryAfterMs
+      if (failure.providerRetryAfterMs > policy.maxDelayMs) {
+        if (policy.mode === 'normal') return next()
+        delayMs = localDelay(policy, retry, random)
+      } else {
+        delayMs = failure.providerRetryAfterMs
+      }
     } else {
-      delayMs = localDelay(resolved, retry, random)
+      delayMs = localDelay(policy, retry, random)
     }
 
-    const tracked = backoff(agent, turn, step, failure, retry, delayMs, signal)
+    const tracked = backoff(agent, turn, step, failure, provider, policy, retry, delayMs, signal)
       .finally(() => active.delete(tracked))
     active.add(tracked)
     return tracked

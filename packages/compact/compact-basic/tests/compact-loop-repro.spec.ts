@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -68,6 +68,11 @@ class StepwiseToolAdapter extends LlmAdapter {
 class OverflowRecoveryAdapter extends LlmAdapter {
   readonly conversationRequests: GenerateOptions[] = []
   readonly summaryRequests: GenerateOptions[] = []
+  private readonly retryPolicy = resolveRetryPolicy({
+    mode: 'normal',
+    maxRetries: 1,
+    backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+  }, 'compaction test provider retryPolicy')
 
   constructor(
     private readonly delivery: 'thrown' | 'in-band',
@@ -78,6 +83,10 @@ class OverflowRecoveryAdapter extends LlmAdapter {
 
   override resolveModelContext(): Promise<{ contextWindow: number }> {
     return Promise.resolve({ contextWindow: 128 })
+  }
+
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return this.retryPolicy
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -340,12 +349,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
     const adapter = new OverflowRecoveryAdapter('thrown', true)
     await mountAgentLoopTestDependencies(ctx)
     await mountInvariants(ctx)
-    await ctx.plugin(LlmRetry, {
-      maxTransientRetries: 1,
-      initialDelayMs: 1,
-      maxDelayMs: 1,
-      jitterRatio: 0,
-    })
+    await ctx.plugin(LlmRetry)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(TokenMeterService)
     ctx.llm.registerAdapter(['mock'], adapter)

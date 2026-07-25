@@ -17,6 +17,12 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
     thinking: enabled        # optional; provider default is enabled
     reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
     streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
+    retryPolicy:             # optional; omission uses bounded normal defaults
+      mode: always           # normal | always
+      backoff:
+        initialDelayMs: 500
+        maxDelayMs: 10000
+        jitterRatio: 0.1
     defaultContextWindow: 256000 # optional positive-integer fallback for models without an exact value
     models:                  # optional; defaults to V4 Flash and V4 Pro
       - id: deepseek-v4-flash
@@ -26,7 +32,7 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
         contextWindow: 64000
 ```
 
-The plugin registers the single provider route `deepseek`. A request selects it with `provider: deepseek`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash` and `deepseek-v4-pro`, each with a 128,000-token context window; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek')` for clients such as ACP editors, but remain advisory: unlisted model ids still pass through unchanged. An omitted entry name defaults to its id.
+The plugin registers the single provider route `deepseek` together with its resolved `retryPolicy`. A request selects it with `provider: deepseek`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash` and `deepseek-v4-pro`, each with a 128,000-token context window; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek')` for clients such as ACP editors, but remain advisory: unlisted model ids still pass through unchanged. An omitted entry name defaults to its id.
 
 `contextWindow` is optional per configured model and is not exposed through the advisory catalog. `ctx.llm.resolveModelContext('deepseek', model)` returns an exact model value first, then `defaultContextWindow` for an entry without capacity or an unlisted pass-through id. When neither value exists it returns `undefined` without invalidating routing. Pressure-sensitive plugins therefore get deployment-owned capacity without treating the model selector as authoritative. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
 
@@ -34,7 +40,7 @@ The plugin registers the single provider route `deepseek`. A request selects it 
 
 `thinking`/`reasoningEffort` are adapter-level request defaults serialized as the official top-level `thinking: {type}` / `reasoning_effort` wire fields. They live in adapter config (not `GenerateOptions`) to keep the core vocabulary provider-neutral. A request with `GenerateOptions.purpose: 'session-title'` forces thinking disabled and omits `reasoning_effort`, reserving its bounded output for visible title text without changing conversation or compaction defaults.
 
-`streamIdleTimeoutMs` bounds each outstanding provider read, including the initial `fetch`, without counting time the consumer spends between chunks. One stable abort signal reaches the request and body reader for the whole call; expiry stops the transport and throws `LlmError('TIMEOUT')`, while an earlier caller abort throws `LlmError('ABORTED')`. The adapter makes exactly one provider request per `stream()` call; agent-level retry is a separate plugin policy.
+`streamIdleTimeoutMs` bounds each outstanding provider read, including the initial `fetch`, without counting time the consumer spends between chunks. One stable abort signal reaches the request and body reader for the whole call; expiry stops the transport and throws `LlmError('TIMEOUT')`, while an earlier caller abort throws `LlmError('ABORTED')`. The adapter makes exactly one provider request per `stream()` call; it registers the configured policy as provider metadata, and `dsh-llm-retry` separately executes it at durable agent-step boundaries.
 
 ## App attribution
 

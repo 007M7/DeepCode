@@ -3,7 +3,15 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId, LlmAdapter, type GenerateOptions, type StreamChunk, type TokenUsage } from '@deepseek-ai/dsh-llm'
+import {
+  CallId,
+  LlmAdapter,
+  resolveRetryPolicy,
+  type GenerateOptions,
+  type ResolvedRetryPolicy,
+  type StreamChunk,
+  type TokenUsage,
+} from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as cliDemo from '../src/index.ts'
@@ -20,9 +28,17 @@ type ScriptEntry = readonly StreamChunk[] | 'hang'
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   private cursor = 0
+  private readonly retryPolicy = resolveRetryPolicy({
+    mode: 'normal',
+    backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+  }, 'cli test provider retryPolicy')
 
   constructor(private readonly script: readonly ScriptEntry[]) {
     super()
+  }
+
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return this.retryPolicy
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -107,7 +123,6 @@ async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
     persistenceRoot: root,
     skills: { local: { dshHome: join(skillHome, '.dsh'), agentsHome: join(skillHome, '.agents') } },
     workspaceContext: false,
-    llmRetry: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
   })
   await new Promise(resolve => setTimeout(resolve, 80))
   ctx.llm.registerAdapter(['mock'], new ScriptedAdapter(script))
