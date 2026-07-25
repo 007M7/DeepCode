@@ -118,6 +118,7 @@ flowchart TD
     pkg_acp_snapshot["acp-snapshot"]
     pkg_agent_loop_testkit["agent-loop-testkit"]
     pkg_invariants["invariants"]
+    pkg_llm_mock_server["llm-mock-server"]
     pkg_llm_replay["llm-replay"]
     pkg_loader_smoke["loader-smoke"]
   end
@@ -225,6 +226,7 @@ flowchart TD
   pkg_skill --> pkg_invariants
   pkg_subagent_subprocess --> pkg_invariants
   pkg_acp_snapshot --> pkg_invariants
+  pkg_llm_mock_server --> pkg_invariants
   pkg_loader_smoke --> pkg_invariants
   pkg_client_i18n --> pkg_invariants
   pkg_client_modules --> pkg_invariants
@@ -806,6 +808,7 @@ flowchart TD
 | [`skill`](../packages/skill/skill) | `skill` | [`invariants`](../packages/support/invariants) |
 | [`subagent-subprocess`](../packages/subagent/subagent-subprocess) | `subagent` | [`invariants`](../packages/support/invariants) |
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | [`invariants`](../packages/support/invariants) |
+| [`llm-mock-server`](../packages/support/llm-mock-server) | `support` | [`invariants`](../packages/support/invariants) |
 | [`loader-smoke`](../packages/support/loader-smoke) | `support` | [`invariants`](../packages/support/invariants) |
 | [`client-i18n`](../packages/client/i18n) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-modules`](../packages/client/modules) | `client` | [`invariants`](../packages/support/invariants) |
