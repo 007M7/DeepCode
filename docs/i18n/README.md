@@ -28,6 +28,8 @@ This repo's documentation is read by people and agents both inside and outside t
 3. Files listed as `excluded` have no `.zh.md` and no `.i18n.yaml` at all.
 4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new date-named Agent Notes merge bilingual from birth.
 
+Source-oriented code gates consume an exact `.zh.md` fence sequence as a derivative of its unsuffixed sibling instead of compiling or manifesting the same code twice. The sequence must match in length, order, fence kind, and byte-exact body; otherwise both copies remain independently checked and the pairing gate reports the structural mismatch.
+
 `pnpm run verify-translation-pairing --list` prints the current pairing state of every document in scope — missing, out-of-sync, or ok — and is the work list for translation batches. It never fails; it reports.
 
 The practical rule this gate creates: **when a PR edits either side of a paired document, the same PR updates the counterpart and re-records the pair** (run the [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill, then `--write`), exactly like the repo's existing doc-sync rule for code and READMEs. A PR that leaves a pair out of sync goes red in CI.
