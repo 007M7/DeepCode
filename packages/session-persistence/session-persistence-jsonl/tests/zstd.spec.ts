@@ -391,15 +391,21 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
 
   it('skips empty, incomplete, and non-header compressed artifacts while rejecting malformed header frames', async () => {
     const root = await freshRoot()
-    const bucket = sessionDir(root, undefined)
-    await mkdir(bucket, { recursive: true })
-    await writeFile(join(bucket, 'empty.jsonl.zstd'), '')
-    await writeFile(join(bucket, 'partial.jsonl.zstd'), MAGIC)
-    await writeFile(join(bucket, 'not-header.jsonl.zstd'), await compressZstdFrame('{"type":"turn/start"}\n'))
+    for (const [id, content] of [
+      ['empty', Buffer.alloc(0)],
+      ['partial', MAGIC],
+      ['not-header', await compressZstdFrame('{"type":"turn/start"}\n')],
+    ] as const) {
+      const sessionId = SessionId(id)
+      await mkdir(sessionDir(root, undefined, sessionId), { recursive: true })
+      await writeFile(logPath(root, undefined, sessionId, 'zstd'), content)
+    }
     const ctx = await mount(root)
     expect(await ctx.sessionPersistence.list()).toEqual([])
 
-    await writeFile(join(bucket, 'two-lines.jsonl.zstd'), await compressZstdFrame([
+    const twoLinesId = SessionId('two-lines')
+    await mkdir(sessionDir(root, undefined, twoLinesId), { recursive: true })
+    await writeFile(logPath(root, undefined, twoLinesId, 'zstd'), await compressZstdFrame([
       JSON.stringify(toHeaderLine(meta('two-lines'))),
       JSON.stringify({ type: 'turn/start' }),
       '',
@@ -411,8 +417,9 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
 
   it('rejects missing, empty, and checksum-corrupt header frames on targeted reads', async () => {
     const root = await freshRoot()
-    const bucket = sessionDir(root, undefined)
-    await mkdir(bucket, { recursive: true })
+    for (const id of ['partial-only', 'empty-header', 'bad-checksum']) {
+      await mkdir(sessionDir(root, undefined, SessionId(id)), { recursive: true })
+    }
     await writeFile(logPath(root, undefined, SessionId('partial-only'), 'zstd'), MAGIC)
     await writeFile(logPath(root, undefined, SessionId('empty-header'), 'zstd'), await compressZstdFrame(''))
     const corruptHeader = Buffer.from(await compressZstdFrame(`${JSON.stringify(toHeaderLine(meta('bad-checksum')))}\n`))
@@ -453,7 +460,7 @@ describe('SessionPersistenceJsonl: encoding selection', () => {
     expect(await ctx.sessionPersistence.list()).toEqual([])
 
     const loadHeader = meta('late-raw-load', '/late')
-    await mkdir(sessionDir(root, loadHeader.cwd), { recursive: true })
+    await mkdir(sessionDir(root, loadHeader.cwd, loadHeader.id), { recursive: true })
     await writeFile(logPath(root, loadHeader.cwd, loadHeader.id, 'none'), [
       JSON.stringify(toHeaderLine(loadHeader)),
       ...oneTurnLog().map(e => JSON.stringify(e)),
@@ -471,13 +478,13 @@ describe('SessionPersistenceJsonl: encoding selection', () => {
     await ctx.sessionPersistence.list()
     const header = meta('late-raw-materialize', '/late')
     await ctx.sessionPersistence.create(header)
-    await mkdir(sessionDir(root, header.cwd), { recursive: true })
+    await mkdir(sessionDir(root, header.cwd, header.id), { recursive: true })
     await writeFile(logPath(root, header.cwd, header.id, 'none'), [
       JSON.stringify(toHeaderLine(header)),
       ...oneTurnLog().map(e => JSON.stringify(e)),
       '',
     ].join('\n'))
     await expect(ctx.sessionPersistence.append(header.id, oneTurnLog())).rejects.toThrow(/uses \.jsonl/)
-    expect((await readdir(sessionDir(root, header.cwd))).some(name => name.endsWith('.jsonl.zstd'))).toBe(false)
+    expect((await readdir(sessionDir(root, header.cwd, header.id))).some(name => name.endsWith('.jsonl.zstd'))).toBe(false)
   })
 })

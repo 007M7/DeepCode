@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import { ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as RetryInvariant from '@deepseek-ai/dsh-llm-retry/invariant'
@@ -103,6 +104,75 @@ describe('llm-retry invariants', () => {
         failure,
       } as never)
     }).toThrow(/always mode must omit maxRetries/)
+  })
+
+  it('validates complete durable failures before either retry mode uses them', async () => {
+    const ctx = await setup()
+    const complete = closeStep(ctx, 'retry-invariant-complete-failure')
+    expect(() => {
+      complete.append('llm/retry', {
+        turn: 1,
+        step: 1,
+        provider: 'mock',
+        mode: 'always',
+        policyKey: alwaysPolicyKey,
+        retry: 1,
+        delayMs: 1,
+        failure: {
+          message: 'provider busy',
+          code: 'RATE_LIMIT',
+          status: 429,
+          providerRetryAfterMs: 25,
+          requestId: ProviderRequestId('request-1'),
+        },
+      })
+    }).not.toThrow()
+
+    const normalNull = closeStep(ctx, 'retry-invariant-normal-null-failure')
+    expect(() => {
+      normalNull.append('llm/retry', {
+        turn: 1, step: 1, ...normal,
+        retry: 1, maxRetries: 2, delayMs: 1, failure: null,
+      } as never)
+    }).toThrow(/failure must be an object/)
+
+    const invalidFailures: readonly [string, unknown, RegExp][] = [
+      ['always-null', null, /failure must be an object/],
+      ['message-type', { message: 1, code: 'RATE_LIMIT' }, /failure\.message/],
+      ['message-empty', { message: '', code: 'RATE_LIMIT' }, /failure\.message/],
+      ['code-type', { message: 'failed', code: 1 }, /failure\.code/],
+      ['code-empty', { message: 'failed', code: '' }, /failure\.code/],
+      ['status-type', { message: 'failed', code: 'RATE_LIMIT', status: 429.5 }, /failure\.status/],
+      ['status-low', { message: 'failed', code: 'RATE_LIMIT', status: 99 }, /failure\.status/],
+      ['status-high', { message: 'failed', code: 'RATE_LIMIT', status: 600 }, /failure\.status/],
+      [
+        'retry-after-type',
+        { message: 'failed', code: 'RATE_LIMIT', providerRetryAfterMs: '25' },
+        /failure\.providerRetryAfterMs/,
+      ],
+      [
+        'retry-after-zero',
+        { message: 'failed', code: 'RATE_LIMIT', providerRetryAfterMs: 0 },
+        /failure\.providerRetryAfterMs/,
+      ],
+      ['request-id-type', { message: 'failed', code: 'RATE_LIMIT', requestId: 1 }, /failure\.requestId/],
+      ['request-id-empty', { message: 'failed', code: 'RATE_LIMIT', requestId: '' }, /failure\.requestId/],
+    ]
+    for (const [name, invalidFailure, message] of invalidFailures) {
+      const session = closeStep(ctx, `retry-invariant-${name}`)
+      expect(() => {
+        session.append('llm/retry', {
+          turn: 1,
+          step: 1,
+          provider: 'mock',
+          mode: 'always',
+          policyKey: alwaysPolicyKey,
+          retry: 1,
+          delayMs: 1,
+          failure: invalidFailure,
+        } as never)
+      }).toThrow(message)
+    }
   })
 
   it('binds event mode and finite budget to the canonical policy key', async () => {

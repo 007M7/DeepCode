@@ -9,7 +9,7 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { readdirSync } from 'node:fs'
-import { open, mkdir, readFile, readdir, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
@@ -19,7 +19,7 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir, toHeaderLine,
   type JsonlCompression,
 } from './format.ts'
 import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from './zstd.ts'
@@ -40,9 +40,9 @@ export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories. An
-   * existing root must be a readable directory; an absent root is created on
-   * first materialization.
+   * (bash calls, subprocesses). Sessions group under human-readable project
+   * directories, then per-session directories. An existing root must be a
+   * readable directory; an absent root is created on first materialization.
    */
   root: string
   /**
@@ -141,7 +141,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   /* jscpd:ignore-end */
   // --- PersistenceBackend hooks (the file-bytes storage primitives) ---
 
-  /** Read a stored prefix by id across all cwd buckets when cwd is unknown. */
+  /** Read a stored prefix by id across all project directories when cwd is unknown. */
   async loadStored(id: SessionId): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
     await this.ensureRootEncoding()
     const path = await this.findLog(id)
@@ -168,7 +168,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
           : {},
       }
     }
-    this.assertStoredIdentity(path, prefix.meta, expectedId)
+    await this.assertStoredIdentity(path, prefix.meta, expectedId)
     return prefix
   }
 
@@ -278,9 +278,12 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     await this.ensureRootEncoding()
     const artifacts: Array<{ header: SessionHeader; path: string }> = []
     const ids = new Set<SessionId>()
-    for (const dir of await this.listCwdDirs()) {
-      for (const name of await this.listArtifactNames(dir)) {
-        const path = join(dir, name)
+    for (const project of await this.listProjectDirs()) {
+      for (const dir of await this.listSessionDirs(project)) {
+        const opposite = join(dir, `session${logSuffix(this.oppositeCompression())}`)
+        if (await this.exists(opposite)) throw this.encodingMismatch(opposite)
+        const path = join(dir, `session${logSuffix(this.compression)}`)
+        if (!await this.exists(path)) continue
         // Read only headers so listing scales with session count, not log size.
         const first = this.compression === 'zstd'
           ? await this.readFirstZstdLine(path)
@@ -288,9 +291,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
-        this.assertStoredIdentity(path, meta)
+        await this.assertStoredIdentity(path, meta)
         if (ids.has(meta.id)) {
-          throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple cwd buckets`)
+          throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple project directories`)
         }
         ids.add(meta.id)
         artifacts.push({ header: meta, path })
@@ -303,20 +306,22 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** Atomically write the header line + first batch (temp-write, fsync, publish). */
   private async materialize(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
-    const dir = sessionDir(this.root, meta.cwd)
+    const project = projectDir(this.root, meta.cwd)
+    const dir = sessionDir(this.root, meta.cwd, meta.id)
     const finalPath = logPath(this.root, meta.cwd, meta.id, this.compression)
     await this.rejectOppositeArtifact(meta.cwd, meta.id)
     const content = await this.encodeMaterialization(meta, events)
     /* v8 ignore next -- native Windows coverage exercises this platform dispatch; Linux covers the POSIX peer */
     if (process.platform === 'win32') {
-      await this.materializeWin32(dir, finalPath, meta.id, content)
+      await this.materializeWin32(project, dir, finalPath, meta.id, content)
     } else {
-      await this.materializePosix(dir, finalPath, meta.id, content)
+      await this.materializePosix(project, dir, finalPath, meta.id, content)
     }
   }
 
   /* v8 ignore start -- Windows uses the Win32 durable-publish path; POSIX coverage exercises this peer. */
   private async materializePosix(
+    project: string,
     dir: string,
     finalPath: string,
     id: SessionId,
@@ -324,8 +329,10 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   ): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 })
     await this.syncDirPosix(dirname(this.root))
-    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await mkdir(project, { recursive: true, mode: 0o700 })
     await this.syncDirPosix(this.root)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(project)
     await this.rejectExistingLog(finalPath, id)
     const tmp = await this.writeSyncedTempFile(finalPath, content)
     // Publish via link()+unlink(), NOT rename(): link fails with EEXIST if the
@@ -358,12 +365,14 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /* v8 ignore start -- native Windows coverage exercises this integration path */
   private async materializeWin32(
+    project: string,
     dir: string,
     finalPath: string,
     id: SessionId,
     content: Buffer | string,
   ): Promise<void> {
     await ensureDurableDirectoryWin32(this.root)
+    await ensureDurableDirectoryWin32(project)
     await ensureDurableDirectoryWin32(dir)
     await this.rejectExistingLog(finalPath, id)
     const tmp = await this.writeSyncedTempFile(finalPath, content)
@@ -541,19 +550,19 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /** Find the unique physical log for an id across every cwd bucket. */
+  /** Find the unique physical log for an id across every project directory. */
   private async findLog(id: SessionId): Promise<string | undefined> {
-    const target = encodeSegment(id) + logSuffix(this.compression)
-    const oppositeTarget = encodeSegment(id) + logSuffix(this.oppositeCompression())
     const matches: string[] = []
-    for (const dir of await this.listCwdDirs()) {
-      const path = join(dir, target)
-      const opposite = join(dir, oppositeTarget)
+    for (const project of await this.listProjectDirs()) {
+      await this.rejectLegacyFlatArtifact(project, id)
+      const dir = join(project, encodeSegment(id))
+      const path = join(dir, `session${logSuffix(this.compression)}`)
+      const opposite = join(dir, `session${logSuffix(this.oppositeCompression())}`)
       if (await this.exists(opposite)) throw this.encodingMismatch(opposite)
       if (await this.exists(path)) matches.push(path)
     }
     if (matches.length > 1) {
-      throw new Error(`duplicate JSONL session id "${id}" appears in multiple cwd buckets`)
+      throw new Error(`duplicate JSONL session id "${id}" appears in multiple project directories`)
     }
     return matches[0]
   }
@@ -569,7 +578,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** Reject metadata that does not identify the selected physical log. */
-  private assertStoredIdentity(path: string, meta: SessionHeader, expectedId?: SessionId): void {
+  private async assertStoredIdentity(path: string, meta: SessionHeader, expectedId?: SessionId): Promise<void> {
     if (expectedId !== undefined && meta.id !== expectedId) {
       throw new Error(`corrupt session log "${path}": requested id "${expectedId}" does not match header id "${meta.id}"`)
     }
@@ -579,13 +588,30 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     } catch (error) {
       throw new Error(`corrupt session log "${path}": header id cannot name a storage path`, { cause: error })
     }
-    if (path !== expectedPath) {
-      throw new Error(`corrupt session log "${path}": header id "${meta.id}" and cwd belong at "${expectedPath}"`)
+    if (path !== expectedPath && !await this.sameFile(path, expectedPath)) {
+      throw new Error(`corrupt session log "${path}": header id "${meta.id}" and cwd identify "${expectedPath}"`)
     }
   }
 
-  /** The cwd-bucket directories under the root (absolute paths). */
-  private async listCwdDirs(): Promise<string[]> {
+  /**
+   * Whether two path spellings resolve to the same physical file. This admits
+   * case aliases on case-insensitive filesystems without weakening identity
+   * checks on case-sensitive stores.
+   */
+  private async sameFile(path: string, expectedPath: string): Promise<boolean> {
+    try {
+      const [actual, expected] = await Promise.all([realpath(path), realpath(expectedPath)])
+      return actual === expected
+    } catch (error) {
+      /* v8 ignore else -- non-ENOENT realpath failures require an external permission or I/O fault */
+      if (isENOENT(error)) return false
+      /* v8 ignore next -- non-ENOENT realpath failures are external I/O faults, propagated unchanged */
+      throw error
+    }
+  }
+
+  /** The human-readable project directories under the configured root. */
+  private async listProjectDirs(): Promise<string[]> {
     try {
       const entries = await readdir(this.root, { withFileTypes: true })
       return entries.filter(e => e.isDirectory()).map(e => join(this.root, e.name))
@@ -596,13 +622,13 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  private async listArtifactNames(dir: string): Promise<string[]> {
-    const entries = await readdir(dir)
-    const oppositeSuffix = logSuffix(this.oppositeCompression())
-    const incompatible = entries.find(name => name.endsWith(oppositeSuffix))
-    if (incompatible !== undefined) throw this.encodingMismatch(`${dir}/${incompatible}`)
-    const suffix = logSuffix(this.compression)
-    return entries.filter(name => name.endsWith(suffix))
+  /** List session-owned directories and reject the obsolete flat-file layout. */
+  private async listSessionDirs(project: string): Promise<string[]> {
+    const entries = await readdir(project, { withFileTypes: true })
+    const legacy = entries.find(entry =>
+      entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.zstd')))
+    if (legacy !== undefined) throw this.legacyLayout(join(project, legacy.name))
+    return entries.filter(entry => entry.isDirectory()).map(entry => join(project, entry.name))
   }
 
   /** Reject a root that already belongs to the other physical encoding. */
@@ -612,11 +638,19 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   private async checkRootEncoding(): Promise<void> {
-    const oppositeSuffix = logSuffix(this.oppositeCompression())
-    for (const dir of await this.listCwdDirs()) {
-      const entries = await readdir(dir)
-      const incompatible = entries.find(name => name.endsWith(oppositeSuffix))
-      if (incompatible !== undefined) throw this.encodingMismatch(`${dir}/${incompatible}`)
+    for (const project of await this.listProjectDirs()) {
+      for (const dir of await this.listSessionDirs(project)) {
+        const incompatible = join(dir, `session${logSuffix(this.oppositeCompression())}`)
+        if (await this.exists(incompatible)) throw this.encodingMismatch(incompatible)
+      }
+    }
+  }
+
+  private async rejectLegacyFlatArtifact(project: string, id: SessionId): Promise<void> {
+    const encoded = encodeSegment(id)
+    for (const compression of ['zstd', 'none'] as const) {
+      const path = join(project, encoded + logSuffix(compression))
+      if (await this.exists(path)) throw this.legacyLayout(path)
     }
   }
 
@@ -637,6 +671,13 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     )
   }
 
+  private legacyLayout(path: string): Error {
+    return new Error(
+      `session artifact ${JSON.stringify(path)} uses the unsupported flat-file layout; `
+      + 'use a separate root or move it into a project/session directory before loading',
+    )
+  }
+
   private async exists(path: string): Promise<boolean> {
     try {
       const handle = await open(path, 'r')
@@ -646,7 +687,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       // Only ENOENT means absent. A permission/I/O error must surface rather
       // than letting load or collision checks proceed under false absence.
       // Windows reports ENOENT, not ENOTDIR, for `regular-file/child`; verify
-      // the immediate parent so a blocked cwd bucket remains a storage fault.
+      // the immediate parent so a blocked session directory remains a storage fault.
       /* v8 ignore else -- Windows reports file-valued parents as ENOENT; POSIX covers direct ENOTDIR. */
       if (isENOENT(error)) {
         await this.assertLogParentAllowsAbsence(path)

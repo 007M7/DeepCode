@@ -20,7 +20,7 @@ providers:
     retryPolicy:
       mode: normal
       maxRetries: 2
-      retryableCodes: [RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
+      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
       backoff:
         initialDelayMs: 500
         maxDelayMs: 10000

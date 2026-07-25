@@ -9,12 +9,19 @@
 
 import z from 'schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { EMPTY_RESPONSE_CODE } from './error.ts'
 
 const DEFAULT_MAX_RETRIES = 2
 const DEFAULT_INITIAL_DELAY_MS = 500
 const DEFAULT_MAX_DELAY_MS = 10_000
 const DEFAULT_JITTER_RATIO = 0.1
-const DEFAULT_RETRYABLE_CODES = Object.freeze(['RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'])
+const DEFAULT_RETRYABLE_CODES = Object.freeze([
+  EMPTY_RESPONSE_CODE,
+  'RATE_LIMIT',
+  'SERVER',
+  'TIMEOUT',
+  'TRANSPORT',
+])
 
 /** Bounded exponential backoff with symmetric jitter around each local delay. */
 export interface BackoffConfig {
@@ -159,7 +166,7 @@ export function resolveRetryPolicy(
       if (retryableCodes.length === 0) {
         throw new Error(`${path}.retryableCodes must not be empty`)
       }
-      if (retryableCodes.some(code => code.length === 0)) {
+      if (retryableCodes.some(code => typeof code !== 'string' || code.length === 0)) {
         throw new Error(`${path}.retryableCodes must contain only non-empty strings`)
       }
       if (new Set(retryableCodes).size !== retryableCodes.length) {

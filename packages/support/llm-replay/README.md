@@ -23,7 +23,7 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 | `file` | string | `$DSH_SNAPSHOT_FILE` | Path to the primary (parent) `session.jsonl` fixture. Required (config or env). |
 | `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | Optional path to a `ReplayEntry[]` sidecar that replaces the PRIMARY session's derived script. |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES` (path-delimited) | Recorded subagent child-session logs for a nested scenario; empty for a single-session scenario. |
-| `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Each model may publish `contextWindow`; configured routes dispatch through the replay adapter and never perform provider I/O. |
+| `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Each provider may set `retryPolicy`, and each model may publish `contextWindow`; configured routes dispatch through the replay adapter and never perform provider I/O. |
 
 ```yaml
 - id: llm-replay
@@ -32,6 +32,12 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
     providers:
       - id: deepseek
         name: DeepSeek
+        retryPolicy:
+          mode: normal
+          backoff:
+            initialDelayMs: 1
+            maxDelayMs: 1
+            jitterRatio: 0
         models:
           - id: deepseek-v4-flash
             contextWindow: 128000

@@ -187,8 +187,7 @@ describe('cell (render-layer session kit)', () => {
     const cell = b.svc.cell('s1')
     expect(cell).toBeDefined()
     expect(cell?.sessionId).toBe('s1')
-    // Bare-source form (store migration): the cell carries the Session
-    // observable itself; hook binding happens in the React machinery.
+    // Hook binding happens in React; the cell carries the observable itself.
     expect(cell?.session).toBe(b.svc.manager.get(sid('s1')))
     expect(b.svc.cell('s1')).toBe(cell)
     expect(b.svc.cell('ghost')).toBeUndefined()

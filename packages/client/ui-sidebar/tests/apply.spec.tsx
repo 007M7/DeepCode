@@ -36,8 +36,7 @@ async function bench() {
   ctx.provide('sessions', sessions)
   ctx.provide('layout', layout)
   const slots = ctx.get('slots') as SlotsService
-  // Stand-in for ui-layout's root entry: the sidebar slot only exists while
-  // a live entry declares it in children (declaration account: design §2.2).
+  // The sidebar slot exists only while its declaring entry is live.
   slots.register(
     { name: 'root', children: { 'sidebar': { kind: 'single', scope: 'root' } } } as never,
     () => null,

@@ -1,13 +1,12 @@
 /**
- * HMR plugin, node half: the host end of the dev reload chain. Stat-polls
- * every graph row's client bundle (fs.watchFile — polling by design: network
+ * HMR plugin, node half: the host end of the dev reload chain. One interval
+ * stat-polls every graph row's client bundle (polling by design: network
  * mounts deliver no inotify events), reports content changes through
  * `clientModuleHost.rebuilt(id)`, and serves the `/plugins/events` SSE channel
  * broadcasting graph/rebuilt frames to the browser half (src/client/).
  * Dev-only row: prod compositions never mount this plugin.
  */
-import type { Stats } from 'node:fs'
-import { unwatchFile, watchFile } from 'node:fs'
+import { statSync } from 'node:fs'
 import type { ServerResponse } from 'node:http'
 import type { Context } from 'cordis'
 import z from 'schemastery'
@@ -41,6 +40,13 @@ function sseData(frame: PluginsEventFrame): string {
   return `data: ${JSON.stringify(frame)}\n\n`
 }
 
+interface WatchedBundle {
+  path: string
+  mtimeMs: number
+  size: number
+  dirty: boolean
+}
+
 /**
  * Mount the dev chain: bundle watches, rebuilt reporting, and the SSE channel.
  * @param ctx - host plugin context carrying clientModuleHost and httpServer.
@@ -50,29 +56,59 @@ export function apply(ctx: Context, config: Config): void {
   // schemastery's .default() guarantees the field is set after validation.
   const pollIntervalMs = config.pollIntervalMs as number
 
-  // --- bundle watch: one fs.watchFile stat poll per graph row -------------
-  const watched = new Map<string, { path: string; listener: (curr: Stats, prev: Stats) => void }>()
+  // --- bundle watch: one HMR-owned stat poll ------------------------------
+  const watched = new Map<string, WatchedBundle>()
+
+  const rehash = (id: string, watch: WatchedBundle, current: { mtimeMs: number; size: number }): void => {
+    try {
+      // rebuilt() re-hashes; an unchanged hash stays silent (clientModuleHost
+      // fires onRebuilt only on a real rev change).
+      ctx.clientModuleHost.rebuilt(id)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        watch.dirty = true
+        return
+      }
+      ctx.logger.warn(error)
+    }
+    watch.mtimeMs = current.mtimeMs
+    watch.size = current.size
+    watch.dirty = false
+  }
 
   const watchRow = (id: string, path: string): void => {
-    const listener = (curr: Stats, prev: Stats): void => {
-      // fs.watchFile fires on any stat delta (atime included); only content
-      // signals count. An all-zero curr means the file vanished mid-rebuild
-      // — the completing write fires the next tick, so skipping is safe.
-      if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return
-      if (curr.mtimeMs === 0) return
-      try {
-        // rebuilt() re-hashes; an unchanged hash stays silent (clientModuleHost
-        // fires onRebuilt only on a real rev change). A torn read of a
-        // half-written bundle self-heals on the next poll tick.
-        ctx.clientModuleHost.rebuilt(id)
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT') return // mid-rename window; the completed write fires the next poll tick
-        ctx.logger.warn(error)
-      }
+    let baseline: { mtimeMs: number; size: number }
+    try {
+      baseline = statSync(path)
+    } catch (error) {
+      watched.set(id, { path, mtimeMs: 0, size: 0, dirty: true })
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') ctx.logger.warn(error)
+      return
     }
-    watchFile(path, { interval: pollIntervalMs, persistent: false }, listener)
-    watched.set(id, { path, listener })
+    const watch = { path, mtimeMs: baseline.mtimeMs, size: baseline.size, dirty: false }
+    watched.set(id, watch)
+    // The module host hashed before publishing the graph. Re-hash immediately
+    // after capturing this baseline so a write in between cannot become an
+    // already-current baseline paired with a stale graph rev.
+    rehash(id, watch, baseline)
+  }
+
+  const pollWatches = (): void => {
+    for (const [id, watch] of watched) {
+      let current: { mtimeMs: number; size: number }
+      try {
+        current = statSync(watch.path)
+      } catch (error) {
+        watch.dirty = true
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') ctx.logger.warn(error)
+        continue
+      }
+      if (!watch.dirty && current.mtimeMs === watch.mtimeMs && current.size === watch.size) continue
+      // Stat-before-hash preserves a detectable older baseline for writes that
+      // land during hashing. Repeated stat changes heal a torn read.
+      rehash(id, watch, current)
+    }
   }
 
   // Diff the watch set against the current graph: drop watches for removed
@@ -85,7 +121,6 @@ export function apply(ctx: Context, config: Config): void {
     }
     for (const [id, watch] of watched) {
       if (rows.get(id) === watch.path) continue
-      unwatchFile(watch.path, watch.listener)
       watched.delete(id)
     }
     for (const [id, path] of rows) {
@@ -99,9 +134,11 @@ export function apply(ctx: Context, config: Config): void {
     // own row — no self-exemption, a modules/hmr rebuild rides the same chain).
     syncWatches()
     const unsubscribe = ctx.clientModuleHost.onGraphChanged(syncWatches)
+    const timer = setInterval(pollWatches, pollIntervalMs)
+    timer.unref()
     return () => {
       unsubscribe()
-      for (const { path, listener } of watched.values()) unwatchFile(path, listener)
+      clearInterval(timer)
       watched.clear()
     }
   }, 'client-hmr: bundle watches')

@@ -2,6 +2,7 @@
 
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { LlmFailure } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { providerForClosedStep } from './history.ts'
 import { parseRetryPolicyKey } from './policy-key.ts'
@@ -14,6 +15,32 @@ export const name = 'llm-retry-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
+/** Validate the complete provider-neutral failure payload at the durable boundary. */
+function validateFailure(value: unknown, fail: InvariantFailure): asserts value is LlmFailure {
+  if (typeof value !== 'object' || value === null) {
+    fail('llm/retry failure must be an object')
+  }
+  const failure = value as Partial<LlmFailure>
+  if (typeof failure.message !== 'string' || failure.message.length === 0) {
+    fail('llm/retry failure.message must be a non-empty string')
+  }
+  if (typeof failure.code !== 'string' || failure.code.length === 0) {
+    fail('llm/retry failure.code must be a non-empty string')
+  }
+  if (failure.status !== undefined
+    && (!Number.isInteger(failure.status) || failure.status < 100 || failure.status > 599)) {
+    fail('llm/retry failure.status must be an integer from 100 through 599 when present')
+  }
+  if (failure.providerRetryAfterMs !== undefined
+    && (!Number.isFinite(failure.providerRetryAfterMs) || failure.providerRetryAfterMs <= 0)) {
+    fail('llm/retry failure.providerRetryAfterMs must be a positive finite number when present')
+  }
+  if (failure.requestId !== undefined
+    && (typeof failure.requestId !== 'string' || failure.requestId.length === 0)) {
+    fail('llm/retry failure.requestId must be a non-empty string when present')
+  }
+}
+
 /** Validate one retry record against the open turn and most recently closed step. */
 function validateRetry(
   history: readonly SessionEvent[],
@@ -21,6 +48,8 @@ function validateRetry(
   fail: InvariantFailure,
 ): void {
   const { turn, step, provider, mode, policyKey, retry, delayMs } = event.data
+  const failure: unknown = event.data.failure
+  validateFailure(failure, fail)
   if (!Number.isSafeInteger(retry) || retry < 1) {
     fail('llm/retry retry must be a positive safe integer')
   }
@@ -43,8 +72,8 @@ function validateRetry(
       if (keyedPolicy.maxRetries !== maxRetries) {
         fail(`llm/retry maxRetries ${maxRetries} must match policyKey`)
       }
-      if (!keyedPolicy.retryableCodes.includes(event.data.failure.code)) {
-        fail(`llm/retry failure code ${event.data.failure.code} must be eligible under policyKey`)
+      if (!keyedPolicy.retryableCodes.includes(failure.code)) {
+        fail(`llm/retry failure code ${failure.code} must be eligible under policyKey`)
       }
       break
     }

@@ -3504,8 +3504,7 @@ describe('terminal mounting', () => {
     await tick()
     expect(result.terminal.output.length).toBe(beforeSameScheme)
 
-    // Simulate the terminal responding with a light color scheme report
-    // (ESC [?997;2n = light, ESC [?997;1n = dark).
+    // ESC [?997;2n reports light; ESC [?997;1n reports dark.
     result.terminal.send('\x1b[?997;2n')
     await tick()
     await tick()
@@ -3517,11 +3516,9 @@ describe('terminal mounting', () => {
     // uses ANSI 90 for the same header text.
     expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
 
-    // Switch back to dark scheme.
     result.terminal.send('\x1b[?997;1n')
     await tick()
     await tick()
-    // After switching back, a new write uses SGR 2 for the header detail.
     expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
     await dispose(result)
   })

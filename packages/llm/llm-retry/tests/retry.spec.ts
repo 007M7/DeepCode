@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Fiber } from 'cordis'
-import LlmService, { CallId, LlmAdapter, LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, EMPTY_RESPONSE_CODE, LlmAdapter, LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type {
   AlwaysRetryPolicyConfig,
   BackoffConfig,
@@ -71,6 +71,25 @@ function textResponse(text: string): StreamChunk[] {
     { type: 'text-delta', index: 0, text },
     { type: 'block-end', index: 0, block: { type: 'text', text } },
     { type: 'finish', reason: { kind: 'stop' } },
+  ]
+}
+
+/**
+ * A degenerate empty provider completion as an error finish chunk. Both
+ * adapters emit this shape and the EMPTY_RESPONSE code (the field the policy
+ * routes on); the message text here is the deepseek adapter's phrasing (pi-ai
+ * qualifies it with the model name).
+ */
+function emptyCompletion(): StreamChunk[] {
+  return [
+    { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
+    {
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { message: 'model returned a completed response with no content', code: EMPTY_RESPONSE_CODE },
+      },
+    },
   ]
 }
 
@@ -184,7 +203,7 @@ describe('provider-routed retry policy', () => {
       step: 1,
       provider: 'mock',
       mode: 'normal',
-      policyKey: '["normal",2,["RATE_LIMIT","SERVER","TIMEOUT","TRANSPORT"],500,10000,0.1]',
+      policyKey: '["normal",2,["EMPTY_RESPONSE","RATE_LIMIT","SERVER","TIMEOUT","TRANSPORT"],500,10000,0.1]',
       retry: 1,
       maxRetries: 2,
       delayMs: 500,
@@ -244,6 +263,39 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
       role: 'assistant',
       content: [{ type: 'text', text: 'second turn recovered' }],
+    })
+  })
+
+  it('retries an EMPTY_RESPONSE error finish under the default retryable codes', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      emptyCompletion(),
+      textResponse('recovered'),
+    ])
+    // No retryableCodes override: this proves the default policy covers the
+    // adapters' empty-completion classification end to end (finish-chunk error
+    // delivery, not a thrown stream error).
+    ;({ ctx: context } = await harness(adapter))
+    const agent = context.agentLoop.create(SessionId('retry-empty-response'), { provider: 'mock', model: 'mock' })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.followup([{ type: 'text', text: 'go' }])
+    const event = await scheduled
+    expect(event.data.failure).toEqual({
+      message: 'model returned a completed response with no content',
+      code: EMPTY_RESPONSE_CODE,
+    })
+
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(500)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => event.data.step))
+      .toEqual([2])
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'recovered' }],
     })
   })
 
