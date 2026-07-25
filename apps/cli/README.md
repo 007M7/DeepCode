@@ -20,4 +20,4 @@ Symlink the source-running launcher onto your PATH; it resolves the checkout thr
 ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
 ```
 
-`pnpm run demo:tui` runs the same entry from the repo root. The built form (`lib/bin.js`, via `pnpm run build`) boots the same config under plain Node.
+`pnpm run dsh` runs the same entry from the repo root and forwards arguments directly, for example `pnpm run dsh -p "task"`. The built form (`lib/bin.js`, via `pnpm run build`) boots the same config under plain Node.
