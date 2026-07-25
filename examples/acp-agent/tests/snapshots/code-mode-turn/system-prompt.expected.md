@@ -77,6 +77,8 @@ interface ToolArgsMap {
   } & Record<string, JsonValue>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal: Record<string, JsonValue>;
+  /** List your background subagents: every subagent you started that can receive `send_message`, whether it is still working (running) or has finished its current turn (complete — a follow-up message starts a new turn on the same conversation). Children that could not be read are reported as diagnostics instead of being silently dropped. */
+  list_agents: Record<string, JsonValue>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph: {
     /** The immutable completion objective for every fresh Ralph round. */
@@ -273,6 +275,16 @@ interface ToolOutputMap {
     };
     activation: "armed" | "disarmed";
   };
+  list_agents: ({
+    kind: "child";
+    id: string;
+    label: string;
+    status: "running" | "complete";
+  } | {
+    kind: "diagnostic";
+    id: string;
+    reason: "corrupt" | "unsupported" | "unavailable";
+  })[];
   ralph: {
     runId: string;
     agentsStarted: number;

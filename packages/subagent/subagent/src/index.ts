@@ -36,6 +36,11 @@ import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import {
+  assertSessionHeadersCompatible,
+  SessionQueryError,
+} from '@deepseek-ai/dsh-session-query'
+import type { SessionQueryService, SessionRecord } from '@deepseek-ai/dsh-session-query'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -47,6 +52,7 @@ import type {
   SubagentStartRequest,
 } from './types.ts'
 import { SubagentError } from './error.ts'
+import { foldSubagentDescriptor } from './descriptor.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
 import { createActivationObserver, createLifecycleEmitter, observeRun } from './lifecycle.ts'
 import type { ActivationObserver, LifecycleEmitter } from './lifecycle.ts'
@@ -95,6 +101,28 @@ export type {
   SubagentFollowupOptions,
 } from './continuation.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
+
+/**
+ * One direct-child enumeration result. Descriptor-less ordinary children are
+ * omitted; a per-child inspection failure remains visible as a diagnostic.
+ */
+export type SubagentListEntry =
+  | {
+    readonly kind: 'child'
+    /** Durable child session id, stable across Activations. */
+    readonly id: SessionId
+    /** Durable creation label from the child's descriptor. */
+    readonly label: string
+    /** Whether the child is currently live or exists only in persistence. */
+    readonly status: 'running' | 'complete'
+  }
+  | {
+    readonly kind: 'diagnostic'
+    /** Traced candidate session id. */
+    readonly id: SessionId
+    /** Fixed reason the candidate could not be returned as a child. */
+    readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
+  }
 
 declare module 'cordis' {
   interface Context {
@@ -216,6 +244,80 @@ export class SubagentService extends Service {
     // Absent continuation services means nothing was ever materialized.
     if (manager === undefined) return
     await manager.drainDescendants(parents)
+  }
+
+  /**
+   * Enumerate one session's direct continuable children from the durable,
+   * live-preferred corpus without loading or resuming an Agent. The lineage
+   * trace supplies stable candidate order and live status; each candidate is
+   * then inspected independently for exactly one supported descriptor in its
+   * own suffix.
+   * @param parentSessionId - parent whose direct children are listed.
+   * @returns child and diagnostic entries in lineage-trace order.
+   */
+  async listChildren(parentSessionId: SessionId): Promise<SubagentListEntry[]> {
+    const query = this.ctx.get('sessionQuery')
+    if (query === undefined) {
+      throw new SubagentError(
+        'listing subagents requires session query (load a dsh-session-query backend)',
+        'SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE',
+      )
+    }
+    const trace = await query.traceSession(parentSessionId)
+    const entries: SubagentListEntry[] = []
+    for (const node of trace.descendants) {
+      const entry = await this.inspectChild(query, parentSessionId, node.session)
+      if (entry !== undefined) entries.push(entry)
+    }
+    return entries
+  }
+
+  /** Inspect one traced candidate without materializing its Agent. */
+  private async inspectChild(
+    query: SessionQueryService,
+    parentSessionId: SessionId,
+    candidate: SessionRecord,
+  ): Promise<SubagentListEntry | undefined> {
+    const childId = candidate.header.id
+    try {
+      const records = await query.listEvents(childId)
+      // Fork seeds replay ancestor events, so only this child's suffix owns its descriptor.
+      const seedLength = candidate.header.seedLength ?? 0
+      const descriptorSeqs = records
+        .filter(record => record.seq >= seedLength && record.type === 'subagent/descriptor')
+        .map(record => record.seq)
+      if (descriptorSeqs.length === 0) return undefined
+      if (descriptorSeqs.length > 1) {
+        return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+      }
+      // The length-one branch proves this index exists.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const seq = descriptorSeqs[0]!
+      const window = await query.readEvent({ sessionId: childId, seq })
+      assertSessionHeadersCompatible(window.session, candidate.header)
+      if (window.session.parentSession !== parentSessionId || window.target.type !== 'subagent/descriptor') {
+        return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+      }
+      let descriptor: ReturnType<typeof foldSubagentDescriptor>
+      try {
+        descriptor = foldSubagentDescriptor([window.target])
+      } catch {
+        return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+      }
+      if (descriptor === undefined) {
+        return { kind: 'diagnostic', id: childId, reason: 'unsupported' }
+      }
+      return {
+        kind: 'child',
+        id: childId,
+        label: descriptor.label,
+        status: candidate.live ? 'running' : 'complete',
+      }
+    } catch (error: unknown) {
+      const reason = perChildDiagnosticReason(error)
+      if (reason === undefined) throw error
+      return { kind: 'diagnostic', id: childId, reason }
+    }
   }
 
   /**
@@ -349,3 +451,19 @@ export class SubagentService extends Service {
 }
 
 export default SubagentService
+
+/** Map isolated session-query failures to the fixed child diagnostic taxonomy. */
+function perChildDiagnosticReason(error: unknown): 'corrupt' | 'unavailable' | undefined {
+  if (!(error instanceof SessionQueryError)) return undefined
+  switch (error.code) {
+    case 'SESSION_QUERY_SESSION_NOT_FOUND':
+    case 'SESSION_QUERY_EVENT_NOT_FOUND':
+    case 'SESSION_QUERY_PERSISTENCE_FAILED':
+      return 'unavailable'
+    case 'SESSION_QUERY_INVALID_SURFACE':
+    case 'SESSION_QUERY_SOURCE_CONFLICT':
+      return 'corrupt'
+    default:
+      return undefined
+  }
+}

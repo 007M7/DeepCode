@@ -1,6 +1,6 @@
 # Agent Note: Durable subagent catalog and list_agents
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-07-22-durable-subagent-catalog-and-list-agents.zh.md)
 
@@ -10,9 +10,9 @@ Continuable background subagents expose a stable child id and persist the recons
 
 Enumeration must cross-check immutable session lineage, descriptor validity, and the live-preferred session corpus without loading or resuming an Agent merely to display it. It must also define how missing, corrupt, deleted, or unsupported children affect the list and whether repeatedly loading many child logs needs an index.
 
-## Proposal
+## Decision
 
-Treat parent-to-child enumeration and `list_agents` as one separately reviewed feature built on the durable child-session contract. `SubagentService.listChildren(parentSessionId: SessionId)` must:
+Parent-to-child enumeration and `list_agents` are one separately reviewed feature built on the durable child-session contract. `SubagentService.listChildren(parentSessionId: SessionId)` does the following:
 
 - use `ctx.sessionQuery.traceSession(parentSessionId)` to obtain the parent's direct live-preferred child sessions;
 - read and validate each candidate's `subagent/descriptor` event without activating the child;
@@ -21,7 +21,7 @@ Treat parent-to-child enumeration and `list_agents` as one separately reviewed f
 - report a live child as `running` and a persisted-only child as `complete`;
 - return every resulting child in stable `createdAt` ascending, child-id ascending order.
 
-Descriptor persistence, by-id lookup, direct-parent authorization, and provider-independent cold resume remain owned by the implemented Activation contract. This proposal extends the descriptor with a durable `label` and requires listing to diagnose duplicate descriptor events; it cannot weaken the existing facts or invent a second descriptor representation.
+Descriptor persistence, by-id lookup, direct-parent authorization, and provider-independent cold resume remain owned by the implemented Activation contract. The catalog extends the descriptor with a durable `label` and requires listing to diagnose duplicate descriptor events; it does not weaken the existing facts or invent a second descriptor representation.
 
 ### Enumeration decision
 
@@ -46,7 +46,7 @@ If measured scale later requires an index, that index is derived state: session 
 - `kind: 'child'` carries readonly `id: SessionId`, durable `label: string`, and `status: 'running' | 'complete'`;
 - `kind: 'diagnostic'` carries readonly `id: SessionId` and `reason: 'corrupt' | 'unsupported' | 'unavailable'`.
 
-A valid descriptor produces one child entry, a per-child inspection failure produces one diagnostic entry, and a candidate without a descriptor produces no entry. Child status `running` means that the logical record is live in `ctx.sessions`; `complete` means that it exists only in persistence. These values are neither `AgentStatus` nor the manager's internal Activation state, and the result does not expose the internal `createdAt` sorting key. Exact Activation states and durable outcomes such as successful completion, failure, cancellation, and stop reason require a separate durable activation record and are outside this proposal.
+A valid descriptor produces one child entry, a per-child inspection failure produces one diagnostic entry, and a candidate without a descriptor produces no entry. Child status `running` means that the logical record is live in `ctx.sessions`; `complete` means that it exists only in persistence. These values are neither `AgentStatus` nor the manager's internal Activation state, and the result does not expose the internal `createdAt` sorting key. Exact Activation states and durable outcomes such as successful completion, failure, cancellation, and stop reason require a separate durable activation record and are outside this feature.
 
 The model-facing `list_agents` tool takes no arguments, derives `parentSessionId` from the current execution Agent, and is a thin adapter in `@deepseek-ai/dsh-tool-subagent-control`. It renders entries in array order as `<id> [<status>] — <label>` for a child and `<id> [diagnostic: <reason>]` for a diagnostic; an empty array renders `(no subagents)`.
 
@@ -82,27 +82,18 @@ The first version has no child deletion operation. If later product behavior del
 
 **Paginate or cap the query now (deferred).** This bounds one result, but makes model discovery stateful and can hide older children unless the model follows a cursor. The first version has no cursor, page arguments, or candidate-limit configuration and returns the complete stably ordered set; a service-level bound remains a later decision if measured scale requires it.
 
-## Acceptance criteria
+## Testing
 
-- `listChildren(parentSessionId: SessionId)` uses `ctx.sessionQuery.traceSession(parentSessionId)`, accepts a live or persisted target, considers only direct descendants, and does not duplicate corpus merging, lineage reconstruction, or sibling ordering.
-- Listing loads no Agent, materializes no Activation, and appends no catalog or descriptor event itself. After the initial trace it calls `listEvents()` once per candidate and calls `readEvent()` only for a candidate with exactly one descriptor; persisted reads may trigger interrupted-tail repair, and compacted and uncompacted logs return the same children.
-- The session header gains no subagent `kind`; a supported valid descriptor is the sole subagent discriminator and includes the delegation's durable `label`. Ordinary session forks and one-shot children lack that descriptor and are omitted without a diagnostic.
-- Initial creation writes exactly one descriptor event, cold resume writes none, and a candidate with more than one descriptor event is diagnosed as `corrupt`.
-- `listChildren()` returns one ordered `SubagentListEntry[]`; its closed `kind: 'child' | 'diagnostic'` union carries only the fields defined above. Each valid child or per-child diagnostic occupies its traced candidate's `createdAt`-then-id position, while a missing descriptor produces no entry. Diagnostics are transient and require no query beyond the candidate operation that produced them.
-- `list_agents` takes no arguments, derives the parent id from the current execution Agent, and renders the complete result without a cursor. Child, diagnostic, and empty results use the fixed text forms defined above.
-- A live logical session is `running`; a persisted-only logical session is `complete`. The result does not inspect the process-local Activation map or provider availability and leaves delivery-time authority and residency checks to `send_message`.
-- Parent resume does not activate children. A child is absent until its session is published, and listing may race publication, disposal, or later delivery without weakening `send_message`'s execution-time checks.
-- `list_agents` uses only `corrupt`, `unsupported`, or `unavailable` diagnostic reasons and never exposes descriptor contents in a diagnostic.
-- After a successful initial trace, a corrupt, unsupported, disappeared, or unreadable descriptor candidate cannot hide healthy siblings: it is omitted with an id-and-reason diagnostic. Corpus-level persistence, header-consistency, or lineage failure during that initial trace fails the whole call.
-- Per-child session-query failures map deterministically: invalid surfaces, exact-load source conflicts, immutable-header or direct-parent mismatches against the trace, and a changed read target are `corrupt`; missing sessions or events and persistence failures are `unavailable`; unknown descriptor versions are `unsupported`; and missing descriptors are omitted as non-continuable children.
-- The list tool requires `sessionQuery` at plugin load; a direct `listChildren()` call without it fails before enumeration with `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`, while by-id `send_message` remains usable without that service.
-- Keyless tests cover fresh and compacted discovery, ordinary fork and one-shot exclusion, live-to-complete transition, unmanaged-live-session snapshots, provider absence without child omission, durable `label` values, stable ordering, restart, direct-child tracing, duplicate descriptor rejection, isolated child diagnostics, phase-dependent persistence failure, load repair, snapshot races, and scan behavior. The model-facing complete-list-plus-diagnostics result has runnable snapshot coverage.
+- `packages/subagent/subagent/tests/list-children.spec.ts` drives the real stack (agent loop, JSONL persistence, spawn/fork providers, the subagent service, and a concrete session-query service) keylessly: fresh discovery through a real `startContinuable()` child; a persisted (restart-shaped) parent target; `createdAt`-then-id ordering with authored ties; ordinary-fork and fork-seed ancestor-descriptor exclusion without diagnostics; live `running` vs persisted `complete`; duplicate-descriptor, malformed-payload, invalid-surface, mismatched-header, and changed-read-target corruption diagnostics that leave healthy siblings visible; unsupported-version and per-child unavailable diagnostics; provider absence without child omission; compacted/uncompacted twins listing identically; grandchild exclusion; trace-phase failure failing the whole call while candidate-phase failures isolate to one child; configuration/window and unrecognized failures propagating as operation failures; and the `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` no-service contract.
+- `packages/subagent/tool-subagent-control/tests/list-agents.spec.ts` pins the `list_agents` schema (no parameters), the fixed child/diagnostic/empty text forms, an end-to-end settled-child listing with its durable label, the no-agent rejection, load-time `sessionQuery` injection, and HMR disposal.
+- The keyless ACP snapshot scenario `subagent-list-agents` (examples/acp-agent) pins the model-visible transcript: a background delegation settles, and `list_agents` executes for real against the subagent service, session query, and JSONL persistence, rendering `<id> [complete] — <label>`.
 
-## Risks
+## Consequences
 
 - Session tracing observes the complete logical corpus, then descriptor validation reads every direct-child log once and candidates with exactly one descriptor twice. In the persisted-only worst case, work is O(D × C + Σ L_i), not merely O(D), because each exact read rescans persistence and loads and clones the full candidate log. A later derived index must preserve the same authorization, per-child diagnostic, and fallback behavior.
-- Corpus construction is an all-or-nothing trust boundary: one live/persisted header conflict can fail the initial trace and hide otherwise healthy siblings. Per-child isolation begins only after that trace succeeds.
+- Corpus construction is an all-or-nothing trust boundary: one live/persisted header conflict fails the initial trace and hides otherwise healthy siblings. Per-child isolation begins only after that trace succeeds.
 - Session-query reads may repair interrupted child logs and persist synthetic closing events even though listing creates no Agent. This is the existing persistence-load contract, not a hidden catalog write.
 - The first version has no deletion operation, so persisted children remain listed for as long as their sessions remain in persistence even though live Agent resources remain bounded by resident Activations.
 - The query returns every direct continuable child and diagnostic without a service cursor or candidate cap. Stable ordering makes the result deterministic but does not bound model-context growth; service pagination or deletion remains a later product decision.
 - `running` and `complete` are process-local corpus snapshots, not delivery promises. Another process may activate a persisted child while this process reports it as `complete`; cross-process accuracy requires a shared lease.
+- Making the durable `label` a required descriptor field is a pre-release format change: the descriptor version stays 1, and logs written by pre-label builds fail descriptor validation as `corrupt` (consistent with the repo's no-compatibility stance before the first tagged release).

@@ -97,9 +97,14 @@
     providerName: fork
 
 # Continuable background children are selected per delegation tool. The
-# separately loaded follow-up tool registers the one global `send_message`.
+# separately loaded control package registers the one global `send_message`
+# shared by both delegation tools. Its list plugin additionally requires the
+# session query service supplied by the ACP app.
 - id: tool-subagent-control
   name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-list-agents
+  name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'

@@ -200,7 +200,11 @@ interface ContinuableCreateSpec {
 }
 ```
 
-描述符（[descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts) 中的 `SubagentDescriptorData`）会对显式字段建立快照——提供方名称、已解析的子 agent `agentOptions.provider`/`model`、可选的 `persona`/`toolFilter`——绝不会对可合并扩展的 `AgentOptions` 对象建立快照，因此无关的扩展值不会破坏继续执行，后续新增组合配置输入则是一次有意的版本更改。它省略 `subagentDepth`（冷恢复以持久化 header 中的 `delegationDepth` 作为单调下界）和 `outputSchema`（单次结果契约，而非持久化组合配置）。继续执行管理器会在任何提供方提供的谱系之后、初始 prompt 获准之前，追加对模型隐藏的 `subagent/descriptor` 事件；`header.seedLength` 仍是 fork 谱系边界，因此描述符查找会读取子 agent 自身的后缀。该事件只进入日志：不含 `surfaceOp`，绝不进入模型历史，并由仅追加日志跨压缩保留。
+描述符（[descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts) 中的 `SubagentDescriptorData`）会对显式字段建立快照——提供方名称、作为持久化创建 `label` 的委派 `description`、已解析的子 agent `agentOptions.provider`/`model`、可选的 `persona`/`toolFilter`——绝不会对可合并扩展的 `AgentOptions` 对象建立快照，因此无关的扩展值不会破坏继续执行，后续新增组合配置输入则是一次有意的版本更改。它省略 `subagentDepth`（冷恢复以持久化 header 中的 `delegationDepth` 作为单调下界）和 `outputSchema`（单次结果契约，而非持久化组合配置）。继续执行管理器会在任何提供方提供的谱系之后、初始 prompt 获准之前，追加对模型隐藏的 `subagent/descriptor` 事件；`header.seedLength` 仍是 fork 谱系边界，因此描述符查找会读取子 agent 自身的后缀。该事件只进入日志：不含 `surfaceOp`，绝不进入模型历史，并由仅追加日志跨压缩保留。
+
+## 持久化枚举：`listChildren()` 与 `SubagentListEntry`
+
+`SubagentService.listChildren(parentSessionId)` 从一次 `ctx.sessionQuery.traceSession()` 观测中枚举 parent 的直接可继续 child，而不会加载或恢复任何 Agent。会话谱系的范围比 subagent 身份更广——普通 fork 和一次性 child 都会共享 `parentSession`——因此，child 自身后缀中恰好一个受支持的 `subagent/descriptor` 事件（位于 `seedLength` 之后，避免 fork seed 泄漏祖先描述符）是唯一的 subagent 判别信息。结果是一个按追踪结果中 `createdAt`、再按 id 排列候选顺序的 `SubagentListEntry[]`：有效描述符生成 `child` 条目，其 `status` 是逻辑记录的快照（`running` 表示在 `ctx.sessions` 中存活，`complete` 表示只存在于持久化存储中并可由 `send_message` 恢复）；逐 child 检查失败生成 `diagnostic` 条目（`corrupt`、`unsupported` 或 `unavailable`），因此一个损坏的 sibling 不会隐藏健康 child；缺少描述符则不生成条目。构建初始追踪时的失败会让整个调用失败——只有得到可信候选集后才开始逐 child 隔离。服务将 `sessionQuery` 保持为按 id 继续执行时的可选依赖：缺少该服务时，`listChildren()` 抛出 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`，而面向模型的 `list_agents` 适配器（[dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) 中可单独加载的 `/list-agents` 插件）会在插件加载时要求该服务。枚举不会查询继续执行管理器的 Activation map 或提供方可用性；`send_message` 仍是消息送达时的权威操作，列表中的 `running` child 仍可能因所有权冲突而拒绝投递。
 
 ## 终态结果：`SubagentResult`
 

@@ -88,6 +88,7 @@ const testSignal = new AbortController().signal
 function startSpec(parent: Agent, provider = 'spawn', signal: AbortSignal = testSignal) {
   return {
     provider,
+    label: 'child task',
     request: { prompt: [{ type: 'text' as const, text: 'child task' }], parent },
     signal,
   }

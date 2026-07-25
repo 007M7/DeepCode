@@ -29,6 +29,7 @@ import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
+import * as ToolSubagentListAgents from '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
@@ -386,16 +387,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
     dir: 'tool-subagent-control',
     source: 'packages/subagent/tool-subagent-control/src/index.ts',
-    requires: ['ctx.tools', 'ctx.subagents'],
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.sessionQuery (list_agents only)'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
       await ctx.plugin(LocalTaskService)
       await ctx.plugin(AgentRegistry)
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionQuerySqlite, { path: ':memory:' })
       await ctx.plugin(ToolSubagentControl)
+      await ctx.plugin(ToolSubagentListAgents)
     },
     note:
-      'The one globally named follow-up tool over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once.',
+      'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once, plus `list_agents` from its separately loaded `/list-agents` plugin (which additionally requires session query).',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',

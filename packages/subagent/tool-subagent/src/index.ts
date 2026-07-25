@@ -299,6 +299,7 @@ export function apply(ctx: Context, config: Config): void {
             // there, so this call neither waits for nor collects a result.
             const started = await ctx.subagents.startContinuable({
               provider: config.provider,
+              label: args.description,
               request,
               signal: exec.signal,
             })

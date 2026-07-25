@@ -82,6 +82,7 @@ describe('dsh-tool-subagent-control', () => {
     const { ctx, parent } = await setup([textResponse('first answer'), textResponse('second answer')])
     const started = await ctx.subagents.startContinuable({
       provider: 'spawn',
+      label: 'child task',
       request: { prompt: [{ type: 'text', text: 'child task' }], parent },
       signal: testToolSignal,
     })
@@ -109,6 +110,7 @@ describe('dsh-tool-subagent-control', () => {
     const { ctx, parent, adapter } = await setup([textResponse('first'), textResponse('second')])
     const started = await ctx.subagents.startContinuable({
       provider: 'spawn',
+      label: 'long work',
       request: { prompt: [{ type: 'text', text: 'long work' }], parent },
       signal: testToolSignal,
     })
@@ -144,6 +146,7 @@ describe('dsh-tool-subagent-control', () => {
     const { ctx, parent } = await setup([textResponse('first')])
     const started = await ctx.subagents.startContinuable({
       provider: 'spawn',
+      label: 'child task',
       request: { prompt: [{ type: 'text', text: 'child task' }], parent },
       signal: testToolSignal,
     })

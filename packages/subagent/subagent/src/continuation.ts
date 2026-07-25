@@ -59,6 +59,8 @@ declare module '@deepseek-ai/dsh-llm' {
 export interface ContinuableStartSpec {
   /** The `ctx.subagents` provider whose continuable-creation capability establishes the child. */
   readonly provider: string
+  /** The initial delegation's short `description`, persisted as the child's creation label. */
+  readonly label: string
   /**
    * The delegation request. The manager reserves the stable child id, resolves
    * the durable descriptor, and composes the child itself.
@@ -297,6 +299,7 @@ export class SubagentContinuationManager {
     const agentModel = request.agentOptions?.model ?? parent.options.model
     const descriptor = snapshotSubagentDescriptor({
       provider: spec.provider,
+      label: spec.label,
       ...agentProvider !== undefined ? { agentProvider } : {},
       ...agentModel !== undefined ? { agentModel } : {},
       ...request.persona !== undefined ? { persona: request.persona } : {},

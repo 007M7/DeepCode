@@ -1,0 +1,76 @@
+/**
+ * The globally named `list_agents` tool: a thin model-facing adapter over
+ * `ctx.subagents.listChildren()`. It is separately loadable from the
+ * root `send_message` plugin because it additionally requires the session
+ * query service — a deployment may use `send_message` without loading session
+ * query, and this plugin catches that misconfiguration at load.
+ * @module @deepseek-ai/dsh-tool-subagent-control/list-agents
+ */
+
+import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-subagent'
+
+export const name = 'tool-subagent-list-agents'
+export const inject = ['tools', 'subagents', 'sessionQuery']
+
+/**
+ * Register the `list_agents` tool.
+ * @param ctx - context carrying the tool registry, subagent service, and session query.
+ */
+export function apply(ctx: Context): void {
+  ctx.tools.register(defineTool({
+    name: 'list_agents',
+    description:
+      'List your background subagents: every subagent you started that can receive `send_message`, '
+      + 'whether it is still working (running) or has finished its current turn (complete — a follow-up '
+      + 'message starts a new turn on the same conversation). Children that could not be read are '
+      + 'reported as diagnostics instead of being silently dropped.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'array',
+        items: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, enum: ['child'] },
+                id: { type: 'string', required: true },
+                label: { type: 'string', required: true },
+                status: { type: 'string', required: true, enum: ['running', 'complete'] },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, enum: ['diagnostic'] },
+                id: { type: 'string', required: true },
+                reason: { type: 'string', required: true, enum: ['corrupt', 'unsupported', 'unavailable'] },
+              },
+            },
+          ],
+        },
+      },
+      render: (_args, entries) => [{
+        type: 'text',
+        text: entries.length === 0
+          ? '(no subagents)'
+          : entries.map(entry => entry.kind === 'child'
+            ? `${entry.id} [${entry.status}] — ${entry.label}`
+            : `${entry.id} [diagnostic: ${entry.reason}]`).join('\n'),
+      }],
+    },
+    async execute(_args, exec) {
+      const parent = exec.agent
+      if (!parent) {
+        // Non-agent callers have no session whose children could be listed.
+        throw new Error('list_agents requires a calling agent (exec.agent was undefined)')
+      }
+      return await ctx.subagents.listChildren(parent.id)
+    },
+  }))
+}

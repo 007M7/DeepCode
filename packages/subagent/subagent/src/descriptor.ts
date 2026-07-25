@@ -47,6 +47,12 @@ export interface SubagentDescriptorData {
   readonly version: number
   /** The `ctx.subagents` provider name that established the child. */
   readonly provider: string
+  /**
+   * The initial delegation's short `description`, kept as the child's durable
+   * creation label so enumeration can identify the conversation without
+   * replaying parent tool results or exposing the child prompt.
+   */
+  readonly label: string
   /** Resolved child `agentOptions.provider`, when one was declared. */
   readonly agentProvider?: string
   /** Resolved child `agentOptions.model`, when one was declared. */
@@ -61,6 +67,8 @@ export interface SubagentDescriptorData {
 export interface SubagentDescriptorInput {
   /** The `ctx.subagents` provider name that will establish the child. */
   readonly provider: string
+  /** The initial delegation's short `description`, the durable creation label. */
+  readonly label: string
   /** Requested child `agentOptions.provider`. */
   readonly agentProvider?: string
   /** Requested child `agentOptions.model`. */
@@ -74,6 +82,7 @@ export interface SubagentDescriptorInput {
 const DESCRIPTOR_KEYS = new Set([
   'version',
   'provider',
+  'label',
   'agentProvider',
   'agentModel',
   'persona',
@@ -151,6 +160,10 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   if (typeof provider !== 'string') {
     throw new Error('persisted subagent descriptor provider must be a string')
   }
+  const label = value['label']
+  if (typeof label !== 'string') {
+    throw new Error('persisted subagent descriptor label must be a string')
+  }
   const agentProvider = optionalString(value, 'agentProvider')
   const agentModel = optionalString(value, 'agentModel')
   const persona = optionalString(value, 'persona')
@@ -160,6 +173,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   return {
     version: SUBAGENT_DESCRIPTOR_VERSION,
     provider,
+    label,
     ...agentProvider !== undefined ? { agentProvider } : {},
     ...agentModel !== undefined ? { agentModel } : {},
     ...persona !== undefined ? { persona } : {},
@@ -180,6 +194,7 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
   const candidate: SubagentDescriptorData = {
     version: SUBAGENT_DESCRIPTOR_VERSION,
     provider: input.provider,
+    label: input.label,
     ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
     ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
     ...input.persona !== undefined ? { persona: input.persona } : {},

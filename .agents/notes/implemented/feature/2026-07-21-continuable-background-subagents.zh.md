@@ -27,7 +27,7 @@ durable child Session
 
 前台委派保持一次性行为。继续执行覆盖后台的进程内 spawn 和 fork child。每个 `tool-subagent` 实例都会选择 `backgroundMode: 'one-shot' | 'continuable'`；配置为可继续模式时，所挂载提供方必须具备 `resume` 功能，而可恢复的提供方仍可采用一次性后台策略。在下述 ACP（Agent Client Protocol）后续工作完成前，ACP child 仍保持一次性行为。
 
-`ctx.subagents` 是唯一的公开服务。普通 `start` 不感知 child 集合、Task 与持久化：它校验提供方功能、分发一次激活、观察 run 生命周期，并返回由持有方负责的 run。注入的内部继续执行管理器负责管理稳定的 child id、描述符持久化与查找、由 Task 支撑的激活，以及通过 `startContinuable` 和 `followup` 进行的路由；管理器解析继续执行状态后，提供方的 start 与 resume 分发通过私有闭包进行。按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 插件及面向用户的适配器调用这些意图操作来处理可继续后台工作；前台和一次性后台委派使用普通 `start`。全局命名的模型工具是 `@deepseek-ai/dsh-tool-subagent-control` 中的可选轻量适配器，它是否存在不会决定是否启动可继续工作。parent 到 child 的枚举与 `list_agents` 属于单独的持久化目录提案。
+`ctx.subagents` 是唯一的公开服务。普通 `start` 不感知 child 集合、Task 与持久化：它校验提供方功能、分发一次激活、观察 run 生命周期，并返回由持有方负责的 run。注入的内部继续执行管理器负责管理稳定的 child id、描述符持久化与查找、由 Task 支撑的激活，以及通过 `startContinuable` 和 `followup` 进行的路由；管理器解析继续执行状态后，提供方的 start 与 resume 分发通过私有闭包进行。按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 插件及面向用户的适配器调用这些意图操作来处理可继续后台工作；前台和一次性后台委派使用普通 `start`。全局命名的模型工具是 `@deepseek-ai/dsh-tool-subagent-control` 中的可选轻量适配器，它是否存在不会决定是否启动可继续工作。parent 到 child 的枚举与 `list_agents` 属于[持久化 subagent 目录](2026-07-22-durable-subagent-catalog-and-list-agents.md)。
 
 ### Task 与取消的所有权
 

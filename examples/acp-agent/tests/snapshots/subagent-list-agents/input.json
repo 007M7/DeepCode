@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Follow these steps exactly, then stop. 1. Call the subagent tool once with run_in_background set to true, description 'Reply with CHILD_OK', and prompt 'Reply with exactly the word CHILD_OK and nothing else.'. 2. Collect its result with task_output using the task id from the acknowledgement and wait: true. 3. Call list_agents and observe the subagent you started. 4. Reply with the single word DONE. Do not use the bash tool."
+    }
+  ]
+}

@@ -173,6 +173,14 @@
       }
     },
     {
+      "name": "list_agents",
+      "description": "List your background subagents: every subagent you started that can receive `send_message`, whether it is still working (running) or has finished its current turn (complete — a follow-up message starts a new turn on the same conversation). Children that could not be read are reported as diagnostics instead of being silently dropped.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "ralph",
       "description": "Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.",
       "parameters": {

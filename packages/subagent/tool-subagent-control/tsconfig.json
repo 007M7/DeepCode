@@ -27,6 +27,9 @@
       "path": "../subagent"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

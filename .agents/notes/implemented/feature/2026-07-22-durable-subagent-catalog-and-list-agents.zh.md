@@ -1,6 +1,6 @@
 # Agent Note（agent 决策记录）：持久化 subagent 目录与 list_agents
 
-Status: proposed
+Status: implemented
 
 [English](2026-07-22-durable-subagent-catalog-and-list-agents.md) | 中文
 
@@ -10,9 +10,9 @@ Status: proposed
 
 枚举必须交叉核对不可变的会话谱系、描述符有效性与实时优先的会话语料，而不能仅为展示就加载或恢复 Agent。它还必须定义缺失、损坏、已删除或不受支持的 child 如何影响列表，以及反复加载大量 child 日志是否需要索引。
 
-## 提案
+## 决策
 
-将 parent 到 child 的枚举与 `list_agents` 作为一个基于持久化 child Session 契约、单独评审的功能。`SubagentService.listChildren(parentSessionId: SessionId)` 必须：
+parent 到 child 的枚举及 `list_agents` 是一个基于持久化 child Session 契约、单独评审的功能。`SubagentService.listChildren(parentSessionId: SessionId)` 执行以下操作：
 
 - 使用 `ctx.sessionQuery.traceSession(parentSessionId)` 获取 parent 的直接且实时优先的 child 会话；
 - 读取并校验每个候选会话的 `subagent/descriptor` 事件，但不激活 child；
@@ -21,7 +21,7 @@ Status: proposed
 - 将存活 child 报告为 `running`，只存在于持久化存储中的 child 报告为 `complete`；
 - 按 `createdAt` 升序、再按 child id 升序稳定返回所有结果 child。
 
-描述符持久化、按 id 查找、直接 parent 鉴权和不依赖提供方的冷恢复仍归已实现的 Activation 契约负责。本提案会为描述符增加持久化 `label`，并要求列表查询诊断重复的描述符事件；它不能削弱现有事实，也不能发明第二种描述符表示。
+描述符持久化、按 id 查找、直接 parent 鉴权和不依赖提供方的冷恢复仍归已实现的 Activation 契约负责。该目录会为描述符增加持久化 `label`，并要求列表查询诊断重复的描述符事件；它不会削弱现有事实，也不会发明第二种描述符表示。
 
 ### 枚举决策
 
@@ -46,7 +46,7 @@ subagent 服务将 `sessionQuery` 保持为可选依赖，因此没有该服务�
 - `kind: 'child'` 携带只读的 `id: SessionId`、持久化 `label: string` 和 `status: 'running' | 'complete'`；
 - `kind: 'diagnostic'` 携带只读的 `id: SessionId` 和 `reason: 'corrupt' | 'unsupported' | 'unavailable'`。
 
-有效描述符产生一个 child 条目，逐 child 检查失败产生一个 diagnostic 条目，缺少描述符的候选不产生条目。child 状态 `running` 表示逻辑记录在 `ctx.sessions` 中存活；`complete` 表示该记录只存在于持久化存储中。这些值既不是 `AgentStatus`，也不是管理器内部的 Activation 状态，结果不公开内部 `createdAt` 排序键。成功完成、失败、取消和停止原因等精确 Activation 状态与持久化结果需要单独的持久化激活记录，不在本提案范围内。
+有效描述符产生一个 child 条目，逐 child 检查失败产生一个 diagnostic 条目，缺少描述符的候选不产生条目。child 状态 `running` 表示逻辑记录在 `ctx.sessions` 中存活；`complete` 表示该记录只存在于持久化存储中。这些值既不是 `AgentStatus`，也不是管理器内部的 Activation 状态，结果不公开内部 `createdAt` 排序键。成功完成、失败、取消和停止原因等精确 Activation 状态与持久化结果需要单独的持久化激活记录，不在本功能范围内。
 
 面向模型的 `list_agents` 工具不接受参数，从当前正在执行的 Agent 推导 `parentSessionId`，并作为 `@deepseek-ai/dsh-tool-subagent-control` 中的轻量适配器。它按数组顺序将 child 渲染为 `<id> [<status>] — <label>`，将 diagnostic 渲染为 `<id> [diagnostic: <reason>]`；空数组渲染为 `(no subagents)`。
 
@@ -82,27 +82,18 @@ diagnostic 是瞬时查询结果，不属于会话事件或目录状态。推导
 
 **立即为查询分页或设置上限（暂缓）。** 这可以限制一次结果的大小，但会使模型发现成为有状态操作，而且除非模型继续跟随 cursor，否则可能隐藏更早的 child。第一版没有 cursor、分页参数或候选数量上限配置，而是返回经稳定排序的完整集合；如果实测规模需要限制，服务级限制仍留待后续决策。
 
-## 验收标准
+## 测试
 
-- `listChildren(parentSessionId: SessionId)` 使用 `ctx.sessionQuery.traceSession(parentSessionId)`，接受存活或只存在于持久化存储中的目标，只考虑直接后代，并且不重复实现语料合并、谱系重建或 sibling 排序。
-- 列表查询不会加载 Agent、物化 Activation，也不会自行追加目录或描述符事件。初始追踪完成后，它会对每个候选调用一次 `listEvents()`，且只对恰好含有一个描述符的候选调用 `readEvent()`；持久化读取可能触发中断尾部修复，且经过压缩和未经压缩的日志会返回相同的 child。
-- 会话 header 不新增 subagent `kind`；受支持且有效的描述符是唯一的 subagent 判别信息，并包含委派的持久化 `label`。普通会话 fork 和一次性 child 缺少该描述符，因此会被排除且不产生 diagnostic。
-- 初始创建恰好写入一个描述符事件，从持久化存储恢复时不写入任何描述符；如果候选包含多个描述符事件，则将其诊断为 `corrupt`。
-- `listChildren()` 返回一个有序的 `SubagentListEntry[]`；其封闭的 `kind: 'child' | 'diagnostic'` 联合类型只携带上文定义的字段。每个有效 child 或逐 child diagnostic 占据其追踪候选按 `createdAt`、再按 id 排列的位置，缺少描述符则不产生条目。diagnostic 是瞬时结果，除了产生该结果的候选操作外不需要其他查询。
-- `list_agents` 不接受参数，从当前正在执行的 Agent 推导 parent id，并在没有 cursor 的情况下渲染完整结果。child、diagnostic 和空结果使用上文定义的固定文本形式。
-- 存活的逻辑会话为 `running`；只存在于持久化存储中的逻辑会话为 `complete`。结果不检查进程内 Activation map 或提供方可用性，并将消息送达时的鉴权与驻留状态检查留给 `send_message`。
-- 恢复 parent 不会激活 child。child 会话发布前不会出现，列表查询可能与发布、dispose 或后续消息送达发生竞态，但不会削弱 `send_message` 在执行时进行的检查。
-- `list_agents` 只使用 `corrupt`、`unsupported` 或 `unavailable` 作为 diagnostic 原因，且绝不在 diagnostic 中暴露描述符内容。
-- 初始追踪成功后，描述符损坏、不受支持、已消失或无法读取的候选不能隐藏健康的 sibling：系统会排除该候选，并生成一条含 id 和原因的 diagnostic。初始追踪期间发生的语料级持久化、header 一致性或谱系失败会让整次调用失败。
-- 逐 child 会话查询失败采用固定映射：无效 surface、精确加载时的来源冲突、相对于追踪结果的不可变 header 或直接 parent 不匹配，以及已变化的读取目标映射为 `corrupt`；会话或事件缺失以及持久化失败映射为 `unavailable`；未知描述符版本映射为 `unsupported`；缺少描述符则作为不可继续 child 排除。
-- 列表工具在插件加载时要求 `sessionQuery`；直接调用 `listChildren()` 时如果缺少该服务，则会在枚举前以 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 失败，而按 id 的 `send_message` 在没有该服务时仍可使用。
-- 无密钥测试覆盖压缩前后的发现、排除普通 fork 和一次性 child、从存活到 complete 的转换、未受管理的存活会话快照、提供方缺失时不排除 child、持久化 `label` 值、稳定排序、重启、直接 child 追踪、重复描述符拒绝、单个 child diagnostic 隔离、依阶段而异的持久化失败、加载修复、快照竞态和扫描行为。面向模型的完整列表加 diagnostic 结果具有可运行的快照覆盖。
+- `packages/subagent/subagent/tests/list-children.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn/fork 提供方、subagent 服务，以及一个具体的会话查询服务）：通过真实 `startContinuable()` child 的全新发现；只存在于持久化存储中（重启形态）的 parent 目标；带有人工构造并列项的按 `createdAt` 再按 id 排序；排除普通 fork 和 fork seed 中祖先描述符且不产生 diagnostic；存活 `running` 与持久化 `complete` 的对比；重复描述符、载荷格式错误、无效 surface、header 不匹配和读取目标已变化的损坏 diagnostic 均不隐藏健康的 sibling；不受支持版本与逐 child unavailable diagnostic；提供方缺失时不排除 child；压缩与未压缩的孪生 child 列表结果一致；排除孙代会话；追踪阶段失败导致整次调用失败而候选阶段失败只隔离到单个 child；配置／窗口错误和无法识别的失败作为操作失败向上传播；以及 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 缺服务契约。
+- `packages/subagent/tool-subagent-control/tests/list-agents.spec.ts` 固定 `list_agents` 的 schema（无参数）、child／diagnostic／空结果的固定文本形式、带持久化 label 的已结束 child 端到端列表、无调用 agent 时的拒绝、加载时的 `sessionQuery` 注入，以及 HMR dispose。
+- 无密钥 ACP 快照场景 `subagent-list-agents`（examples/acp-agent）固定模型可见的转写：一次后台委派结束后，`list_agents` 针对 subagent 服务、会话查询和 JSONL 持久化真实执行，渲染 `<id> [complete] — <label>`。
 
-## 风险
+## 影响
 
 - 会话追踪会观察完整的逻辑语料，随后描述符校验会读取每个直接 child 的日志一次，并对恰好含有一个描述符的候选读取两次。对于只存在于持久化存储中的最坏情况，工作量为 O(D × C + Σ L_i)，而不只是 O(D)，因为每次精确读取都会重新扫描持久化存储，并加载和克隆候选的完整日志。后续的派生索引必须保持相同的鉴权、逐 child diagnostic 和回退行为。
-- 语料构建是一个全有或全无的信任边界：一处存活／持久化 header 冲突就可能导致初始追踪失败，并隐藏原本健康的 sibling。只有初始追踪成功后，逐 child 隔离才会生效。
+- 语料构建是一个全有或全无的信任边界：一处存活／持久化 header 冲突就会导致初始追踪失败，并隐藏原本健康的 sibling。只有初始追踪成功后，逐 child 隔离才会生效。
 - 会话查询读取可能修复中断的 child 日志并持久化合成的结束事件，即使列表查询不创建 Agent。这是现有的持久化加载契约，而非隐藏的目录写入。
 - 第一版没有删除操作，因此只要 child 会话仍保留在持久化存储中，它们就会继续出现在列表里，但存活 Agent 资源仍由驻留 Activation 数量限制。
 - 查询会返回每个直接可继续 child 和 diagnostic，不设服务 cursor 或候选数量上限。稳定排序可使结果确定，但不会限制模型上下文的增长；服务分页或删除仍是后续的产品决策。
 - `running` 和 `complete` 是进程内语料快照，而非消息送达承诺。另一个进程可能在当前进程将某个持久化 child 报告为 `complete` 时激活它；跨进程准确性需要共享租约。
+- 将持久化 `label` 设为描述符必填字段是一次发布前的格式变更：描述符版本保持为 1，加入 label 之前的构建所写入的日志会在描述符校验中判为 `corrupt`（与仓库首个正式版本之前不做兼容承诺的立场一致）。

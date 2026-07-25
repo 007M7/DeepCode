@@ -30,6 +30,9 @@
       "path": "../../session-persistence/session-persistence"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
       "path": "../../tasks/tasks"
     },
     {
