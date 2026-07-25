@@ -49,33 +49,33 @@ section contribution 使用 declaration-aware deferral，不依赖 client manife
 ### Service contracts
 
 ```ts
-type ThemePreference = 'light' | 'dark' | 'system'
+export type ThemePreference = 'light' | 'dark' | 'system'
 
-interface ThemeDefinition {
+export interface ThemeDefinition {
   id: string
   colorScheme: 'light' | 'dark'
   tokens: Record<string, string>
 }
 
-interface ThemeSnapshot {
+export interface ThemeSnapshot {
   preference: ThemePreference
   active: ThemeDefinition            // system 已解析为具体 light/dark 定义
   themes: readonly ThemeDefinition[]
   revision: number
 }
 
-interface LocaleDefinition {
+export interface LocaleDefinition {
   id: 'zh' | 'en'
   label: string
 }
 
-interface LocaleSnapshot {
+export interface LocaleSnapshot {
   active: 'zh' | 'en'
   locales: readonly LocaleDefinition[]
   revision: number
 }
 
-interface Events {
+export interface Events {
   /** @param snapshot - Current locale registry snapshot. @mode emit */
   'locale/change'(snapshot: LocaleSnapshot): void
   /** @param snapshot - Current theme registry snapshot. @mode emit */
