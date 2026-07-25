@@ -1443,7 +1443,50 @@ mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => v
 form<K extends keyof StorageForms>(form: K): StorageForms[K]
 ```
 
-Source: [`packages/storage/storage/src/index.ts:35`](../../packages/storage/storage/src/index.ts)
+Source: [`packages/storage/storage/src/index.ts:47`](../../packages/storage/storage/src/index.ts)
+
+## `ctx.storageDomain` — `DomainFacility`
+
+The mounted domain facility. Opens declared domains over routed backends; one facility instance owns the open-domain table and enforces single-open per domain name.
+
+```ts cordis-catalog
+/**
+ * Open one declared domain. Steps, each failing the whole call: reject a
+ * name that is already open (`already-open`); resolve the backend route
+ * (`backend-not-found` passes through from the hub); require its `kv` facet
+ * (`facet-unsupported`); open the unit projected from the spec (backend
+ * `version-mismatch`/`malformed-medium` pass through); load and validate
+ * every stored record against the spec's zod schemas (`invalid-record`
+ * with the offending table and key); construct the domain.
+ *
+ * Lifecycle: the CALLER owns the returned handle and closes it via
+ * `Domain.close()` (typically as its own `ctx.effect` disposer) — the
+ * facility does not tie the domain to any consumer fiber. Domains still
+ * open when the facility unmounts are closed by the plugin disposer.
+ * @param spec - The domain declaration, typically from `defineDomain`.
+ * @returns the opened domain handle, typed by the spec.
+ */
+async open<S extends DomainSpec>(spec: S): Promise<Domain<S>>
+
+/**
+ * Look up an open domain by name, untyped. Diagnostic surface (the package
+ * invariant cross-checks change events against live domain state); typed
+ * consumers hold the handle returned by {@link open}.
+ * @param name - Domain name.
+ * @returns the open domain runtime, or `undefined` when not open.
+ */
+get(name: string): DomainImpl | undefined
+
+/**
+ * Close every domain still open on this facility. The unmount path for
+ * consumers that never called `Domain.close()` themselves; closing is
+ * idempotent, so double-closing an already-closed domain is harmless.
+ * @returns resolution after every unit is released.
+ */
+async closeAll(): Promise<void>
+```
+
+Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/storage/storage-domain/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
@@ -1907,49 +1950,59 @@ Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/
 
 ## `ctx.workspace` — `WorkspaceRegistry`
 
-The workspace registry service. Opens the `workspace` domain at startup, rebuilds one entity per stored record, and serves entities from an in-memory cache keyed by id. Session persistence is an OPTIONAL peer (resolved via `ctx.get`, never injected): while it is absent, session attachment rejects (what cannot be validated is not recorded) and `sessionIds` projections serve the account unfiltered.
-
-There is deliberately no delete entry point in this phase: workspace deletion ships as one complete semantic together with the session-cascade primitives (future work in the owning Agent Note).
+Durable workspace registry. Startup waits for `sessionPersistence`, builds one canonical-cwd header index, and completes the one-time history bootstrap before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.
 
 ```ts cordis-catalog
 /**
- * Create a workspace over an existing directory. The path is canonicalized
- * through `fs.realpath` first — a nonexistent path rejects with the
- * original `ENOENT`, a path resolving to anything but a directory rejects,
- * and a canonical path already owned by another workspace (including a
- * symlink resolving to it) rejects.
- * @param path - Directory the workspace points at; canonicalized before storing.
- * @param title - Display title; defaults to `basename` of the canonical path.
- * @returns the created workspace after durability.
+ * Create or reuse a workspace for an existing directory. The path is
+ * canonicalized through `fs.realpath`; a nonexistent path rejects with the
+ * original error and a non-directory rejects. Repeated calls for the same
+ * canonical path return the existing entity without changing its title.
+ * A newly created workspace is prepended to the durable registry order.
+ * A different canonical path cannot create a duplicate display title.
+ * @param path - Existing directory to own, in any path spelling.
+ * @param title - Display title used only when a new record is created.
+ * @returns the existing or newly durable workspace.
  */
 async create(path: string, title?: string): Promise<Workspace>
 
 /**
  * Look up a workspace by id.
- * @param id - The workspace id.
+ * @param id - Workspace id.
  * @returns the workspace, or `undefined` when unknown.
  */
 get(id: WorkspaceId): Workspace | undefined
 
 /**
- * Snapshot of all workspaces, in load-then-creation order.
- * @returns a fresh array of the cached entities.
+ * Synchronous workspace projection in durable registry order. Every
+ * entity's `sessionIds` getter is already filtered by the startup/live
+ * canonical-cwd header index; this method performs no persistence reads.
+ * @returns a fresh ordered array of workspace entities.
  */
 list(): Workspace[]
 
 /**
- * Resolve a workspace by directory path, through the same `fs.realpath`
- * canon as {@link create} (hence async). A path that does not exist rejects
- * with the original error — a missing directory has no canonical form to
- * compare (a workspace whose recorded directory vanished is only reachable
- * by id; see `Workspace.status`).
- * @param path - Directory path in any spelling (symlinks, `..`, trailing slash).
- * @returns the owning workspace, or `undefined` when none matches.
+ * Move one accounted, cwd-validated session to the front of its workspace.
+ * Ungrouped sessions and candidates filtered by the header check are
+ * no-ops. The owning workspace's relative position never changes.
+ * @param sessionId - Session whose activity was observed.
+ * @returns resolution after the possible record write.
+ */
+async touchSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Resolve by canonical directory path without creating or mutating a
+ * workspace. A missing path rejects during `realpath`; an existing unowned
+ * directory returns `undefined`.
+ * @param path - Existing directory path in any spelling.
+ * @returns the workspace owning the canonical path, when one exists.
  */
 async resolveByPath(path: string): Promise<Workspace | undefined>
 ```
 
-Source: [`packages/workspace/workspace/src/index.ts:60`](../../packages/workspace/workspace/src/index.ts)
+Types: [SessionId](../core-data-structures/core.md)
+
+Source: [`packages/workspace/workspace/src/index.ts:75`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

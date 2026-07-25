@@ -40,8 +40,10 @@ flowchart LR
   pkg_storage_json["storage-json"]
   pkg_storage_sqlite["storage-sqlite"]
   pkg_storage_domain["storage-domain"]
+  svc_storageDomain["ctx.storageDomain<br/>Domain data facility"]
   pkg_workspace["workspace"]
   svc_workspace["ctx.workspace<br/>Workspace entity registry"]
+  pkg_apiproxy["apiproxy"]
   svc_sessionQuery["ctx.sessionQuery<br/>Session reads, traces, filters, and search"]
   pkg_session_reference["session-reference"]
   svc_sessionReferences["ctx.sessionReferences<br/>Cross-session snapshot preparation"]
@@ -180,6 +182,7 @@ flowchart LR
   pkg_spill --> svc_spillStore
   pkg_spill_local --> svc_spillStore
   pkg_storage --> svc_storage
+  pkg_storage_domain --> svc_storageDomain
   pkg_storage_json --> svc_storage
   pkg_storage_sqlite --> svc_storage
   pkg_subagent --> svc_subagents
@@ -253,7 +256,7 @@ flowchart LR
   svc_skills --> pkg_tool_skill
   svc_spillStore --> pkg_spill_policy
   svc_storage --> pkg_storage_domain
-  svc_storage --> pkg_workspace
+  svc_storageDomain --> pkg_workspace
   svc_subagents --> pkg_tool_ralph
   svc_subagents --> pkg_tool_subagent
   svc_systemPrompt --> pkg_agent_loop
@@ -282,6 +285,7 @@ flowchart LR
   svc_web --> pkg_tool_web
   svc_workflows --> pkg_tool_ralph
   svc_workflows --> pkg_tool_workflow
+  svc_workspace --> pkg_apiproxy
   svc_fs -. event gate .-> pkg_fs_policy
 ```
 
@@ -293,8 +297,9 @@ flowchart LR
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`cli-demo`](../packages/examples/cli-demo), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`invariants`](../packages/support/invariants) | - | Owns append-only Session instances and emits the durable session event feed. |
 | `ctx.invariants` | `core` | [`invariants`](../packages/support/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
-| `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain), [`workspace`](../packages/workspace/workspace) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
-| `ctx.workspace` | `core` | [`workspace`](../packages/workspace/workspace) | - | - | - | Owns WorkspaceId-branded records over the domain form; sessionIds is the single source of ownership truth. RPC and GUI consumers arrive next phase. |
+| `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
+| `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
+| `ctx.workspace` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | [`session-reference`](../packages/context/session-reference) | - | The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations on the same service. |
 | `ctx.sessionReferences` | `core` | [`session-reference`](../packages/context/session-reference) | - | [`tui`](../packages/ui/tui) | - | Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax. |
 | `ctx.sessionTitle` | `seam` | [`session-title`](../packages/session-title/session-title) | [`session-title-first-message-llm`](../packages/session-title/session-title-first-message-llm), [`session-title-all-messages-llm`](../packages/session-title/session-title-all-messages-llm) | - | - | Owns the deterministic fallback, latest-title fold, and sole optional asynchronous provider registration. |

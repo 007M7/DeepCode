@@ -74,8 +74,8 @@ export interface SessionStandardProps {}
 
 /**
  * Framework standard kit delivered to EVERY slot component (the global seat).
- * Declared empty here; the runtime package merges `useSessions` (the session
- * list selector hook — the sidebar tree's single derivation source).
+ * Declared empty here; the runtime package merges the global object-layer
+ * selector hooks that shared page composition consumes.
  */
 export interface GlobalStandardProps {}
 

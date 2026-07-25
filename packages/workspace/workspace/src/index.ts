@@ -1,8 +1,7 @@
 /**
- * Workspace entity registry (`ctx.workspace`): durable workspace records over
- * the domain data form, with session attachment validated against stored
- * session headers. This package owns the `WorkspaceId` brand and the
- * `workspace` domain; consumers see the {@link Workspace} interface only.
+ * Workspace entity registry (`ctx.workspace`): durable workspace records,
+ * stable registry order, and header-validated session membership over the
+ * domain data form.
  * @module @deepseek-ai/dsh-workspace
  */
 
@@ -11,20 +10,18 @@ import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { Context, Service } from 'cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-// Type-only: merges `sessionPersistence` into the Context service map for the
-// optional `ctx.get` lookups below.
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import { workspaceDomainSpec } from './spec.ts'
-import type { WorkspaceRecord } from './spec.ts'
+import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { WorkspaceEntity } from './entity.ts'
 import type { WorkspaceEntityHost } from './entity.ts'
 import { realpathNormalize } from './paths.ts'
+import { workspaceDomainSpec } from './spec.ts'
+import type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
 import type { Workspace, WorkspaceId as WorkspaceIdBrand } from './types.ts'
 
 export type { Workspace } from './types.ts'
-export { workspaceRecord, workspaceDomainSpec } from './spec.ts'
-export type { WorkspaceRecord } from './spec.ts'
+export { workspaceDomainState, workspaceRecord, workspaceDomainSpec } from './spec.ts'
+export type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
 export { realpathNormalize } from './paths.ts'
 
 /** Identifies one workspace record (see `src/types.ts` for the brand rationale). */
@@ -32,11 +29,22 @@ export type WorkspaceId = WorkspaceIdBrand
 
 /**
  * Brand a string as a {@link WorkspaceId}.
- * @param id - the raw workspace id string.
- * @returns the same string, branded (a compile-time cast — no runtime cost).
+ * @param id - Raw workspace id string.
+ * @returns the same string, branded at compile time.
  */
 export function WorkspaceId(id: string): WorkspaceId {
   return id as WorkspaceId
+}
+
+/** A create request would give two Workspaces the same display name. */
+export class WorkspaceNameConflictError extends Error {
+  /**
+   * @param workspaceName - Conflicting display name.
+   */
+  constructor(readonly workspaceName: string) {
+    super(`workspace name '${workspaceName}' is already in use`)
+    this.name = 'WorkspaceNameConflictError'
+  }
 }
 
 declare module 'cordis' {
@@ -45,61 +53,321 @@ declare module 'cordis' {
   }
 }
 
+interface BootstrapGroup {
+  readonly path: string
+  readonly headers: SessionHeader[]
+  readonly newestAt: number
+}
+
+const sameIds = (left: readonly WorkspaceId[], right: readonly WorkspaceId[]): boolean =>
+  left.length === right.length && left.every((id, index) => id === right[index])
+
+const compareHeaders = (left: SessionHeader, right: SessionHeader): number =>
+  right.createdAt - left.createdAt || String(left.id).localeCompare(String(right.id))
+
 /**
- * The workspace registry service. Opens the `workspace` domain at startup,
- * rebuilds one entity per stored record, and serves entities from an
- * in-memory cache keyed by id. Session persistence is an OPTIONAL peer
- * (resolved via `ctx.get`, never injected): while it is absent, session
- * attachment rejects (what cannot be validated is not recorded) and
- * `sessionIds` projections serve the account unfiltered.
- *
- * There is deliberately no delete entry point in this phase: workspace
- * deletion ships as one complete semantic together with the session-cascade
- * primitives (future work in the owning Agent Note).
+ * Durable workspace registry. Startup waits for `sessionPersistence`, builds
+ * one canonical-cwd header index, and completes the one-time history
+ * bootstrap before the service becomes active. The persistence dependency is
+ * mandatory so an unavailable peer can never be mistaken for an empty
+ * history and commit the initialized marker.
  */
 export class WorkspaceRegistry extends Service {
-  static inject = ['storage']
+  static inject = ['storageDomain', 'sessionPersistence']
 
   private table?: KvTable<WorkspaceId, WorkspaceRecord>
+  private global?: DomainGlobal<WorkspaceDomainState>
+  private state?: WorkspaceDomainState
   private readonly entities = new Map<WorkspaceId, WorkspaceEntity>()
-  /**
-   * Session ids known to exist in session persistence; `undefined` until the
-   * first successful listing. Refreshed at startup and on every attach
-   * validation — within one process sessions are only ever added (this phase
-   * has no delete primitive), so the set can only lag by missing very recent
-   * sessions, never by holding dead ones from this process's lifetime.
-   */
-  private known?: Set<string>
+  private readonly headers = new Map<SessionId, SessionHeader>()
+  private readonly sessionPaths = new Map<SessionId, string>()
+  private readonly invalidSessionPaths = new Map<SessionId, string>()
+  private readonly pendingTouches = new Map<SessionId, Promise<void>>()
+  private operationTail: Promise<void> = Promise.resolve()
 
   private readonly host: WorkspaceEntityHost = {
     table: () => this.requireTable(),
-    knownSessionIds: () => this.known,
+    sessionPath: id => this.sessionPaths.get(id),
     readSessionHeader: id => this.readSessionHeader(id),
+    rememberSessionPath: (id, path) => {
+      this.sessionPaths.set(id, path)
+      this.invalidSessionPaths.delete(id)
+    },
   }
 
   constructor(ctx: Context) {
     super(ctx, 'workspace')
   }
 
-  /** Open the domain and rebuild the entity cache before the service is published as active. */
+  /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */
   protected async [Service.init](): Promise<void> {
-    const domain = await this.ctx.storage.domain.open(workspaceDomainSpec)
-    // This registry owns the domain handle it opened: closing on fiber
-    // disposal frees the domain name, so a re-plugged registry can reopen it.
+    const domain = await this.ctx.storageDomain.open(workspaceDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'workspace.domainClose')
     this.table = domain.table('workspaces')
-    const persistence = this.ctx.get('sessionPersistence')
-    if (persistence !== undefined) {
-      this.known = new Set<string>((await persistence.list()).map(header => header.id))
+    this.global = domain.global
+    this.state = domain.global.get()
+
+    this.validateStoredState(this.state)
+    if (!this.state.initialized) {
+      const headers = await this.ctx.sessionPersistence.list()
+      await this.replaceHeaderIndex(headers)
+      await this.bootstrap(headers)
+    } else if (this.table.size > 0) {
+      await this.replaceHeaderIndex(await this.ctx.sessionPersistence.list())
     }
-    // Rebuild entities, rejecting states the write side makes structurally
-    // impossible (an external medium edit is the only way in, and hiding it
-    // would silently pick a winner): one session accounted under two
-    // workspaces, or two records claiming one canonical path (plain string
-    // equality — stored paths are already canonical, so no realpath here).
-    const accounted = new Map<string, WorkspaceId>()
+
+    await this.indexLiveSessions()
+    this.validateStoredState(this.requireState())
+    this.rebuildEntities()
+    this.reportFilteredCandidates()
+    // Session activity is authoritative even when no RPC/SSE consumer is
+    // connected. This service-owned listener is disposed with the registry.
+    this.ctx.on('session/event', (session) => {
+      void this.touchSession(session.id).catch((error: unknown) => {
+        this.ctx.logger.warn(`workspace activity touch failed for session '${session.id}': ${String(error)}`)
+      })
+    })
+  }
+
+  /**
+   * Create or reuse a workspace for an existing directory. The path is
+   * canonicalized through `fs.realpath`; a nonexistent path rejects with the
+   * original error and a non-directory rejects. Repeated calls for the same
+   * canonical path return the existing entity without changing its title.
+   * A newly created workspace is prepended to the durable registry order.
+   * A different canonical path cannot create a duplicate display title.
+   * @param path - Existing directory to own, in any path spelling.
+   * @param title - Display title used only when a new record is created.
+   * @returns the existing or newly durable workspace.
+   */
+  async create(path: string, title?: string): Promise<Workspace> {
+    const canonical = await realpathNormalize(path)
+    if (!(await stat(canonical)).isDirectory()) {
+      throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`)
+    }
+    return await this.enqueueOperation(() => this.createCanonical(canonical, title))
+  }
+
+  /**
+   * Look up a workspace by id.
+   * @param id - Workspace id.
+   * @returns the workspace, or `undefined` when unknown.
+   */
+  get(id: WorkspaceId): Workspace | undefined {
+    return this.entities.get(id)
+  }
+
+  /**
+   * Synchronous workspace projection in durable registry order. Every
+   * entity's `sessionIds` getter is already filtered by the startup/live
+   * canonical-cwd header index; this method performs no persistence reads.
+   * @returns a fresh ordered array of workspace entities.
+   */
+  list(): Workspace[] {
+    return this.requireState().workspaceIds.map((id) => {
+      const entity = this.entities.get(id)
+      if (entity === undefined) {
+        throw new Error(`workspace registry order references missing workspace '${id}'`)
+      }
+      return entity
+    })
+  }
+
+  /**
+   * Move one accounted, cwd-validated session to the front of its workspace.
+   * Ungrouped sessions and candidates filtered by the header check are
+   * no-ops. The owning workspace's relative position never changes.
+   * @param sessionId - Session whose activity was observed.
+   * @returns resolution after the possible record write.
+   */
+  async touchSession(sessionId: SessionId): Promise<void> {
+    const pending = this.pendingTouches.get(sessionId)
+    if (pending !== undefined) {
+      await pending
+      return
+    }
+    for (const entity of this.entities.values()) {
+      if (!entity.hasSession(sessionId)) continue
+      const touch = entity.touchSession(sessionId)
+      this.pendingTouches.set(sessionId, touch)
+      try {
+        await touch
+      } finally {
+        this.pendingTouches.delete(sessionId)
+      }
+      return
+    }
+  }
+
+  /**
+   * Resolve by canonical directory path without creating or mutating a
+   * workspace. A missing path rejects during `realpath`; an existing unowned
+   * directory returns `undefined`.
+   * @param path - Existing directory path in any spelling.
+   * @returns the workspace owning the canonical path, when one exists.
+   */
+  async resolveByPath(path: string): Promise<Workspace | undefined> {
+    const canonical = await realpathNormalize(path)
+    for (const entity of this.entities.values()) {
+      if (entity.path === canonical) return entity
+    }
+    return undefined
+  }
+
+  private async createCanonical(canonical: string, title?: string): Promise<WorkspaceEntity> {
+    for (const entity of this.entities.values()) {
+      if (entity.path === canonical) return entity
+    }
+
+    const workspaceName = title ?? basename(canonical)
+    if ([...this.entities.values()].some(entity => entity.title === workspaceName)) {
+      throw new WorkspaceNameConflictError(workspaceName)
+    }
+
+    const table = this.requireTable()
+    const state = this.requireState()
+    const id = WorkspaceId(randomUUID())
+    const now = new Date().toISOString()
+    const record: WorkspaceRecord = {
+      path: canonical,
+      title: workspaceName,
+      sessionIds: [],
+      createdAt: now,
+      updatedAt: now,
+    }
+    const entity = new WorkspaceEntity(this.host, id, record)
+    this.entities.set(id, entity)
+    try {
+      await table.put(id, record)
+    } catch (error) {
+      this.entities.delete(id)
+      throw error
+    }
+
+    try {
+      await this.setState({ initialized: true, workspaceIds: [id, ...state.workspaceIds] })
+    } catch (error) {
+      this.entities.delete(id)
+      try {
+        await table.delete(id)
+      } catch (rollbackError) {
+        this.entities.set(id, entity)
+        throw new AggregateError(
+          [error, rollbackError],
+          `workspace '${id}' was stored but its registry order and rollback both failed`,
+        )
+      }
+      throw error
+    }
+    return entity
+  }
+
+  private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {
+    const table = this.requireTable()
+    const state = this.requireState()
+    const groupsByPath = new Map<string, SessionHeader[]>()
+    for (const header of headers) {
+      const path = this.sessionPaths.get(header.id)
+      if (path === undefined) continue
+      const group = groupsByPath.get(path)
+      if (group === undefined) groupsByPath.set(path, [header])
+      else group.push(header)
+    }
+    const groups: BootstrapGroup[] = [...groupsByPath].map(([path, groupHeaders]) => {
+      groupHeaders.sort(compareHeaders)
+      const newest = groupHeaders[0] as SessionHeader
+      return { path, headers: groupHeaders, newestAt: newest.createdAt }
+    }).sort((left, right) =>
+      right.newestAt - left.newestAt || left.path.localeCompare(right.path))
+
+    const byPath = new Map<string, WorkspaceId>()
+    const accounted = new Map<SessionId, WorkspaceId>()
+    for (const [id, record] of table.entries()) {
+      byPath.set(record.path, id)
+      for (const sessionId of record.sessionIds) accounted.set(sessionId, id)
+    }
+
+    for (const group of groups) {
+      let id = byPath.get(group.path)
+      if (id === undefined) {
+        const sessionIds = group.headers
+          .map(header => header.id)
+          .filter(sessionId => !accounted.has(sessionId))
+        if (sessionIds.length === 0) continue
+        id = WorkspaceId(randomUUID())
+        const createdAt = new Date(group.newestAt).toISOString()
+        const record: WorkspaceRecord = {
+          path: group.path,
+          title: basename(group.path),
+          sessionIds,
+          createdAt,
+          updatedAt: createdAt,
+        }
+        await table.put(id, record)
+        byPath.set(group.path, id)
+        for (const sessionId of sessionIds) accounted.set(sessionId, id)
+        continue
+      }
+
+      const current = table.get(id) as WorkspaceRecord
+      const historical = group.headers
+        .map(header => header.id)
+        .filter(sessionId => accounted.get(sessionId) === undefined || accounted.get(sessionId) === id)
+      const historicalSet = new Set(historical)
+      const sessionIds = [
+        ...historical,
+        ...current.sessionIds.filter(sessionId => !historicalSet.has(sessionId)),
+      ]
+      if (sameSessionIds(current.sessionIds, sessionIds)) continue
+      await table.update(id, record => ({
+        ...record,
+        sessionIds,
+        updatedAt: new Date().toISOString(),
+      }))
+      for (const sessionId of historical) accounted.set(sessionId, id)
+    }
+
+    const groupRank = new Map(groups.map(group => [group.path, group.newestAt]))
+    const priorRank = new Map(state.workspaceIds.map((id, index) => [id, index]))
+    const workspaceIds = [...table.entries()]
+      .sort(([leftId, left], [rightId, right]) => {
+        const leftTime = groupRank.get(left.path) ?? Date.parse(left.createdAt)
+        const rightTime = groupRank.get(right.path) ?? Date.parse(right.createdAt)
+        return rightTime - leftTime
+          || (priorRank.get(leftId) ?? Number.MAX_SAFE_INTEGER)
+            - (priorRank.get(rightId) ?? Number.MAX_SAFE_INTEGER)
+          || String(leftId).localeCompare(String(rightId))
+      })
+      .map(([id]) => id)
+
+    if (!sameIds(state.workspaceIds, workspaceIds)) {
+      await this.setState({ initialized: false, workspaceIds })
+    }
+    await this.setState({ initialized: true, workspaceIds })
+  }
+
+  private validateStoredState(state: WorkspaceDomainState): void {
+    const table = this.requireTable()
+    const order = new Set<WorkspaceId>()
+    for (const id of state.workspaceIds) {
+      if (order.has(id)) {
+        throw new Error(`workspace domain is inconsistent: registry order repeats workspace '${id}'`)
+      }
+      if (table.get(id) === undefined) {
+        throw new Error(`workspace domain is inconsistent: registry order references missing workspace '${id}'`)
+      }
+      order.add(id)
+    }
+    if (state.initialized && order.size !== table.size) {
+      const orphan = [...table.keys()].find(id => !order.has(id))
+      throw new Error(
+        `workspace domain is inconsistent: workspace '${orphan as WorkspaceId}' is absent from registry order`,
+      )
+    }
+
     const paths = new Map<string, WorkspaceId>()
-    for (const [id, record] of this.table.entries()) {
+    const accounted = new Map<SessionId, WorkspaceId>()
+    for (const [id, record] of table.entries()) {
       const pathHolder = paths.get(record.path)
       if (pathHolder !== undefined) {
         throw new Error(
@@ -118,114 +386,112 @@ export class WorkspaceRegistry extends Service {
         }
         accounted.set(sessionId, id)
       }
+    }
+  }
+
+  private rebuildEntities(): void {
+    this.entities.clear()
+    for (const id of this.requireState().workspaceIds) {
+      const record = this.requireTable().get(id) as WorkspaceRecord
       this.entities.set(id, new WorkspaceEntity(this.host, id, record))
     }
   }
 
-  /**
-   * Create a workspace over an existing directory. The path is canonicalized
-   * through `fs.realpath` first — a nonexistent path rejects with the
-   * original `ENOENT`, a path resolving to anything but a directory rejects,
-   * and a canonical path already owned by another workspace (including a
-   * symlink resolving to it) rejects.
-   * @param path - Directory the workspace points at; canonicalized before storing.
-   * @param title - Display title; defaults to `basename` of the canonical path.
-   * @returns the created workspace after durability.
-   */
-  async create(path: string, title?: string): Promise<Workspace> {
-    const table = this.requireTable()
-    const canonical = await realpathNormalize(path)
-    if (!(await stat(canonical)).isDirectory()) {
-      throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`)
+  private async replaceHeaderIndex(headers: readonly SessionHeader[]): Promise<void> {
+    this.headers.clear()
+    this.sessionPaths.clear()
+    this.invalidSessionPaths.clear()
+    await this.indexHeaders(headers)
+  }
+
+  private async indexHeaders(headers: readonly SessionHeader[]): Promise<void> {
+    for (const header of headers) await this.indexHeader(header)
+  }
+
+  private async indexHeader(header: SessionHeader): Promise<void> {
+    this.headers.set(header.id, header)
+    this.sessionPaths.delete(header.id)
+    if (header.cwd === undefined) {
+      this.invalidSessionPaths.set(header.id, 'header has no cwd')
+      return
     }
+    try {
+      const path = await realpathNormalize(header.cwd)
+      if (!(await stat(path)).isDirectory()) {
+        this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' is not a directory`)
+        return
+      }
+      this.sessionPaths.set(header.id, path)
+      this.invalidSessionPaths.delete(header.id)
+    } catch {
+      this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' does not resolve`)
+    }
+  }
+
+  private async indexLiveSessions(): Promise<void> {
+    const sessions = this.ctx.get('sessions')
+    if (sessions === undefined) return
+    await this.indexHeaders(sessions.list().map(session => session.header))
+  }
+
+  private reportFilteredCandidates(): void {
     for (const entity of this.entities.values()) {
-      if (entity.path === canonical) {
-        throw new Error(`a workspace for '${canonical}' already exists ('${entity.id}')`)
+      const record = this.requireTable().get(entity.id) as WorkspaceRecord
+      for (const sessionId of record.sessionIds) {
+        const path = this.sessionPaths.get(sessionId)
+        if (path === record.path) continue
+        const reason = this.invalidSessionPaths.get(sessionId)
+          ?? (this.headers.has(sessionId)
+            ? `canonical cwd '${path}' differs from workspace path '${record.path}'`
+            : 'session header is missing')
+        this.ctx.logger.warn(
+          `workspace '${entity.id}' filtered session '${sessionId}' from membership: ${reason}`,
+        )
       }
     }
-    const id = WorkspaceId(randomUUID())
-    const now = new Date().toISOString()
-    const record: WorkspaceRecord = {
-      path: canonical,
-      title: title ?? basename(canonical),
-      sessionIds: [],
-      createdAt: now,
-      updatedAt: now,
-    }
-    const entity = new WorkspaceEntity(this.host, id, record)
-    // Cache before the durable put: a concurrent same-path create fails the
-    // scan above, and the entity already exists when `domain/changed` fires.
-    this.entities.set(id, entity)
-    try {
-      await table.put(id, record)
-    } catch (error) {
-      this.entities.delete(id)
-      throw error
-    }
-    return entity
   }
 
-  /**
-   * Look up a workspace by id.
-   * @param id - The workspace id.
-   * @returns the workspace, or `undefined` when unknown.
-   */
-  get(id: WorkspaceId): Workspace | undefined {
-    return this.entities.get(id)
-  }
-
-  /**
-   * Snapshot of all workspaces, in load-then-creation order.
-   * @returns a fresh array of the cached entities.
-   */
-  list(): Workspace[] {
-    return [...this.entities.values()]
-  }
-
-  /**
-   * Resolve a workspace by directory path, through the same `fs.realpath`
-   * canon as {@link create} (hence async). A path that does not exist rejects
-   * with the original error — a missing directory has no canonical form to
-   * compare (a workspace whose recorded directory vanished is only reachable
-   * by id; see `Workspace.status`).
-   * @param path - Directory path in any spelling (symlinks, `..`, trailing slash).
-   * @returns the owning workspace, or `undefined` when none matches.
-   */
-  async resolveByPath(path: string): Promise<Workspace | undefined> {
-    const canonical = await realpathNormalize(path)
-    for (const entity of this.entities.values()) {
-      if (entity.path === canonical) return entity
-    }
-    return undefined
-  }
-
-  private requireTable(): KvTable<WorkspaceId, WorkspaceRecord> {
-    if (this.table === undefined) {
-      throw new Error('workspace registry is not started yet')
-    }
-    return this.table
-  }
-
-  /**
-   * Read one stored session header for attach validation, refreshing the
-   * known-session view from the same listing. Rejects when session
-   * persistence is absent or holds no session with this id.
-   */
   private async readSessionHeader(id: SessionId): Promise<SessionHeader> {
-    const persistence = this.ctx.get('sessionPersistence')
-    if (persistence === undefined) {
-      throw new Error(
-        `cannot validate session '${id}': no session persistence service is available`,
-      )
+    const live = this.ctx.get('sessions')?.get(id)
+    if (live !== undefined) {
+      this.headers.set(id, live.header)
+      return live.header
     }
-    const headers = await persistence.list()
-    this.known = new Set<string>(headers.map(header => header.id))
-    const header = headers.find(candidate => candidate.id === id)
+    const cached = this.headers.get(id)
+    if (cached !== undefined) return cached
+
+    const headers = await this.ctx.sessionPersistence.list()
+    await this.indexHeaders(headers)
+    const header = this.headers.get(id)
     if (header === undefined) {
       throw new Error(`cannot validate session '${id}': session persistence holds no such session`)
     }
     return header
   }
+
+  private requireTable(): KvTable<WorkspaceId, WorkspaceRecord> {
+    if (this.table === undefined) throw new Error('workspace registry is not started yet')
+    return this.table
+  }
+
+  private requireState(): WorkspaceDomainState {
+    if (this.state === undefined) throw new Error('workspace registry is not started yet')
+    return this.state
+  }
+
+  private async setState(state: WorkspaceDomainState): Promise<void> {
+    await (this.global as DomainGlobal<WorkspaceDomainState>).set(state)
+    this.state = state
+  }
+
+  private enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationTail.then(operation)
+    this.operationTail = result.then(() => {}, () => {})
+    return result
+  }
 }
+
+const sameSessionIds = (left: readonly SessionId[], right: readonly SessionId[]): boolean =>
+  left.length === right.length && left.every((id, index) => id === right[index])
 
 export default WorkspaceRegistry

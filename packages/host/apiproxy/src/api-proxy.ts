@@ -5,16 +5,22 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
+import {
+  workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId, WorkspaceNameConflictError,
+} from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
+  WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
@@ -172,12 +178,14 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
   }
 }
 
-/** Host-level default agent routing: provider/model from the gateway config, cwd from the host process. */
+/** Resolved Host routing and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
   provider: string
   model: string
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
+  /** Parent directory for name-created workspaces. */
+  workspaceRoot: string
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -273,17 +281,62 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
  */
 class SessionNotFound extends Error {}
 
+/** Requested identity already belongs to a session with another project cwd. */
+class SessionCwdConflict extends Error {
+  constructor(
+    readonly sessionId: SessionId,
+    readonly requestedCwd: string,
+    readonly existingCwd: string | undefined,
+  ) {
+    super(
+      `session "${sessionId}" already exists with cwd ${JSON.stringify(existingCwd)}; `
+      + `requested ${JSON.stringify(requestedCwd)}`,
+    )
+  }
+}
+
+/** Host failed before the registry could adopt a name-created directory. */
+class WorkspaceDirectoryCreationError extends Error {}
+
+/** Wire projection of one workspace entity (the workspace.* value row). */
+function workspaceView(workspace: Workspace): WorkspaceView {
+  return {
+    workspaceId: workspace.id,
+    path: workspace.path,
+    title: workspace.title,
+    sessionIds: [...workspace.sessionIds],
+    createdAt: workspace.createdAt,
+    updatedAt: workspace.updatedAt,
+  }
+}
+
+/** Wire projection of the durable record carried by `domain/changed`. */
+function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceView {
+  const record: WorkspaceRecord = workspaceRecord.parse(value)
+  return {
+    workspaceId: workspaceId as WorkspaceId,
+    path: record.path,
+    title: record.title,
+    sessionIds: [...record.sessionIds],
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
+}
+
 /**
  * Implement ApiProxy over a composed host context.
- * @param ctx - a context with the host spine mounted (sessions/agents/tools/userInteraction services).
- * @param defaults - host-level default provider/model: injected as
- * agentOptions on create/resume, reported by describe from the same source.
+ * @param ctx - a context with the Host spine and Workspace registry mounted.
+ * @param defaults - host routing and project-directory defaults.
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
   const agentOptions = { provider: defaults.provider, model: defaults.model }
   /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
   const resumes = new Map<SessionId, Promise<Agent>>()
+  /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
+  const sessionCreations = new Map<SessionId, Promise<Agent>>()
+  /** Serializes path ownership checks with record creation across spellings. */
+  let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
 
@@ -384,6 +437,78 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
+  /** Resolve one requested identity to a live agent, creating or resuming it once. */
+  async function ensureSession(sessionId: SessionId, cwd: string, checkPersistedIdentity: boolean): Promise<Agent> {
+    let creation = sessionCreations.get(sessionId)
+    if (creation === undefined) {
+      creation = (async () => {
+        const live = ctx.agents.get(sessionId)
+        if (live !== undefined) return live
+
+        const persistence = checkPersistedIdentity ? ctx.get('sessionPersistence') : undefined
+        const stored = persistence === undefined
+          ? undefined
+          : (await persistence.list()).find(header => header.id === sessionId)
+        if (stored !== undefined) {
+          if (stored.cwd !== cwd) {
+            throw new SessionCwdConflict(sessionId, cwd, stored.cwd)
+          }
+          return (await ctx.agents.resume({ resumeSessionId: sessionId, agentOptions })).agent
+        }
+
+        try {
+          await mkdir(cwd, { recursive: true })
+        } catch (error: unknown) {
+          throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
+        }
+        return (await ctx.agents.create({ sessionId, agentOptions, meta: { cwd } })).agent
+      })().catch((error: unknown) => {
+        // Another Host entry path may have published the same identity while
+        // this operation crossed an asynchronous persistence/filesystem step.
+        const live = ctx.agents.get(sessionId)
+        if (live !== undefined) return live
+        throw error
+      }).finally(() => {
+        sessionCreations.delete(sessionId)
+      })
+      sessionCreations.set(sessionId, creation)
+    }
+    const agent = await creation
+    if (agent.session.header.cwd !== cwd) {
+      throw new SessionCwdConflict(sessionId, cwd, agent.session.header.cwd)
+    }
+    return agent
+  }
+
+  /** Resolve or create one path while holding the Host's workspace-create chain. */
+  function ensureWorkspace(
+    path: string,
+    title: string | undefined,
+    rejectExistingName = false,
+    createDirectory = false,
+  ): Promise<{ workspace: Workspace; created: boolean }> {
+    const operation = workspaceCreationChain.then(async () => {
+      if (rejectExistingName && title !== undefined
+        && ctx.workspace.list().some(workspace => workspace.title === title)) {
+        throw new WorkspaceNameConflictError(title)
+      }
+      if (createDirectory) {
+        try {
+          await mkdir(path, { recursive: true })
+        } catch (error: unknown) {
+          throw new WorkspaceDirectoryCreationError(
+            `failed to create workspace directory "${path}": ${String(error)}`,
+          )
+        }
+      }
+      const existing = await ctx.workspace.resolveByPath(path)
+      if (existing !== undefined) return { workspace: existing, created: false }
+      return { workspace: await ctx.workspace.create(path, title), created: true }
+    })
+    workspaceCreationChain = operation.then(() => undefined, () => undefined)
+    return operation
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -406,23 +531,51 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async create(request) {
-        const sessionId = `session-${randomUUID()}` as SessionId
-        // A session's cwd is its project path. When the creator does not choose
-        // one, the default project is the host-level default (the host process
-        // working directory unless boot overrides it). Ensure the directory
-        // exists so Create-workspace and typed paths land on a real folder.
-        const cwd = request.payload.cwd ?? defaults.cwd
+        const sessionId = request.payload.sessionId ?? `session-${randomUUID()}` as SessionId
+        let workspace: Workspace | undefined
+        if (request.payload.workspaceId !== undefined) {
+          workspace = ctx.workspace.get(brandWorkspaceId(request.payload.workspaceId))
+          if (workspace === undefined) {
+            return err(request, {
+              code: 'workspace-not-found',
+              message: `workspace "${request.payload.workspaceId}" not found`,
+              details: { workspaceId: request.payload.workspaceId },
+            })
+          }
+        }
+        const cwd = workspace?.path ?? request.payload.cwd ?? defaults.cwd
         try {
-          await mkdir(cwd, { recursive: true })
+          await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined)
         } catch (error: unknown) {
+          if (error instanceof SessionCwdConflict) {
+            return err(request, {
+              code: 'session-conflict',
+              message: error.message,
+              details: {
+                sessionId: error.sessionId,
+                requestedCwd: error.requestedCwd,
+                ...error.existingCwd === undefined ? {} : { existingCwd: error.existingCwd },
+              },
+            })
+          }
           return err(request, {
             code: 'internal',
-            message: `failed to ensure project directory "${cwd}": ${String(error)}`,
+            message: `failed to create session "${sessionId}": ${String(error)}`,
             details: {},
           })
         }
-        const handle = await ctx.agents.create({ sessionId, agentOptions, meta: { cwd } })
-        return ok(request, { sessionId: handle.agent.id })
+        if (workspace !== undefined) {
+          try {
+            await workspace.attachSession(sessionId)
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'workspace-attach-failed',
+              message: `session "${sessionId}" was created but could not attach to workspace "${workspace.id}": ${String(error)}`,
+              details: { sessionId, workspaceId: workspace.id },
+            })
+          }
+        }
+        return ok(request, { sessionId })
       },
 
       async history(request) {
@@ -472,12 +625,71 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    workspace: {
+      list(request) {
+        return Promise.resolve(ok(request, { items: ctx.workspace.list().map(workspaceView) }))
+      },
+
+      // Exactly one of path/name arrives (schema refine). Existing-folder
+      // adoption reuses its canonical path; create-by-name rejects a name
+      // already present in the registry.
+      async create(request) {
+        const { payload } = request
+        let path: string
+        if (payload.name !== undefined) {
+          const name = payload.name.trim()
+          if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name)) {
+            return err(request, {
+              code: 'workspace-invalid-path',
+              message: `workspace name must be one non-empty path segment, got "${payload.name}"`,
+              details: { path: payload.name },
+            })
+          }
+          path = join(defaults.workspaceRoot, name)
+        } else {
+          path = payload.path as string
+        }
+        try {
+          const name = payload.name?.trim()
+          const { workspace, created } = await ensureWorkspace(
+            path,
+            name,
+            name !== undefined,
+            name !== undefined,
+          )
+          return ok(request, { workspace: workspaceView(workspace), created })
+        } catch (error: unknown) {
+          if (error instanceof WorkspaceNameConflictError) {
+            return err(request, {
+              code: 'workspace-name-conflict',
+              message: error.message,
+              details: { name: error.workspaceName },
+            })
+          }
+          if (error instanceof WorkspaceDirectoryCreationError) {
+            return err(request, { code: 'internal', message: error.message, details: {} })
+          }
+          // The registry rejects a path that does not resolve to an existing
+          // directory (realpath ENOENT / not-a-directory) — the business
+          // error of the typed-path flow, surfaced as a validation failure.
+          return err(request, {
+            code: 'workspace-invalid-path',
+            message: `cannot create a workspace at "${path}": ${error instanceof Error ? error.message : String(error)}`,
+            details: { path },
+          })
+        }
+      },
+
+    },
+
     host: {
       describe(request) {
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
         return Promise.resolve(ok(request, {
           version: '0.0.1',
-          cwd: process.cwd(),
+          // Same source as session.create's fallback: the UI's default project
+          // must match where an unspecified-cwd session actually lands.
+          cwd: defaults.cwd,
           provider: defaults.provider,
           model: defaults.model,
           attachedSessions: ctx.agents.list().length,
@@ -542,12 +754,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       host(_request, signal) {
         const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const committedWorkspaceIds = new Set(
+          ctx.workspace.list().map(workspace => String(workspace.id)),
+        )
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
               type: 'host/session-added',
               sessionId: session.id,
               ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
+              // cwd rides the frame so the client list needs no refresh to group the new session.
+              ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {
@@ -559,6 +776,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: Error) => {
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: String(error) }))
+          }),
+          ctx.on('domain/changed', (change) => {
+            if (change.domain !== 'workspace' || change.operation !== 'put') return
+            if (change.table === '') {
+              const state = workspaceDomainState.parse(change.value)
+              for (const workspaceId of state.workspaceIds) {
+                if (committedWorkspaceIds.has(workspaceId)) continue
+                const workspace = ctx.workspace.get(workspaceId)
+                if (workspace === undefined) {
+                  throw new Error(`committed workspace registry references missing workspace "${workspaceId}"`)
+                }
+                committedWorkspaceIds.add(workspaceId)
+                queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
+              }
+              return
+            }
+            if (change.table !== 'workspaces' || !committedWorkspaceIds.has(change.key)) return
+            // Existing-entity table writes are complete attach/touch commits.
+            // A new entity's first put waits for the global registry write above.
+            queue.push(frame({
+              type: 'host/workspace-changed',
+              workspace: changedWorkspaceView(change.key, change.value),
+            }))
           }),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })

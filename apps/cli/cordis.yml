@@ -72,6 +72,22 @@
   config:
     root: './.sessions'
 
+- id: storage
+  name: '@deepseek-ai/dsh-storage'
+
+- id: storage-json
+  name: '@deepseek-ai/dsh-storage-json'
+  config:
+    root: './.storages'
+
+- id: storage-domain
+  name: '@deepseek-ai/dsh-storage-domain'
+  config:
+    backend: json
+
+- id: workspace
+  name: '@deepseek-ai/dsh-workspace'
+
 - id: bash-local
   name: '@deepseek-ai/dsh-bash-local'
 
@@ -216,6 +232,9 @@
 
 - id: ui-conversation
   name: '@deepseek-ai/dsh-client-ui-conversation'
+
+- id: ui-workspace
+  name: '@deepseek-ai/dsh-client-ui-workspace'
 
 - id: ui-question
   name: '@deepseek-ai/dsh-client-ui-question'
