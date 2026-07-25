@@ -108,6 +108,7 @@ export interface SubagentStopReasonMap {
   error: 'error'
   /** The child hit its token ceiling before finishing. */
   'max-tokens': 'max-tokens'
+  /** The child declined the task. */
   refusal: 'refusal'
 }
 
