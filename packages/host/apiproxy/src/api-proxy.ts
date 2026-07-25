@@ -299,6 +299,15 @@ class SessionCwdConflict extends Error {
 /** Host failed before the registry could adopt a name-created directory. */
 class WorkspaceDirectoryCreationError extends Error {}
 
+/** Shared workspace-not-found error response of the workspace.* mutation rows. */
+function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string): RpcResponse<T> {
+  return err(request, {
+    code: 'workspace-not-found',
+    message: `workspace "${workspaceId}" not found`,
+    details: { workspaceId },
+  })
+}
+
 /** Wire projection of one workspace entity (the workspace.* value row). */
 function workspaceView(workspace: Workspace): WorkspaceView {
   return {
@@ -684,13 +693,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async rename(request) {
         const { payload } = request
         const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
-        if (workspace === undefined) {
-          return err(request, {
-            code: 'workspace-not-found',
-            message: `workspace "${payload.workspaceId}" not found`,
-            details: { workspaceId: payload.workspaceId },
-          })
-        }
+        if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
         const title = payload.title.trim()
         // Uniqueness AND the same-title no-op both ride the create chain so
         // they observe the state left by earlier queued renames — checked
@@ -722,13 +725,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async insertSessionBefore(request) {
         const { payload } = request
         const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
-        if (workspace === undefined) {
-          return err(request, {
-            code: 'workspace-not-found',
-            message: `workspace "${payload.workspaceId}" not found`,
-            details: { workspaceId: payload.workspaceId },
-          })
-        }
+        if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
         try {
           await workspace.insertSessionBefore(payload.sessionId, payload.beforeSessionId)
         } catch (error: unknown) {
