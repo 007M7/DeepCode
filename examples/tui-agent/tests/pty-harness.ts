@@ -192,10 +192,12 @@ export async function runTuiPtySmoke(options: TuiPtySmokeOptions): Promise<strin
     await options.prepare?.(cwd)
     const launch = resolveExampleLaunch({
       srcBin: options.binScript,
+      // `configPath` is the dsh `--config <path>` tree override; `configArgs`
+      // is the raw-args escape (e.g. `['--resume', <id>]`) for other flags.
       configArgs: options.configArgs !== undefined
         ? [...options.configArgs]
         /* v8 ignore next -- every caller passes configPath or configArgs; the fallback keeps the type total */
-        : [options.configPath ?? './cordis.yml'],
+        : options.configPath !== undefined ? ['--config', options.configPath] : [],
       tsconfigPath: options.tsconfigPath,
       env: {
         DSH_HOME: join(cwd, '.dsh'),
