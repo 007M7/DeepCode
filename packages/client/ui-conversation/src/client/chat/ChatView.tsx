@@ -45,10 +45,35 @@ type RenderToolRow = ChatViewSlotProps['renderSlot']
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 
+/** One `run_code` sub-dispatch row: the identical keyed-slot dispatch as a
+ *  top-level call (same registrations, same fallback), nested by the parent. */
+const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, selected }: {
+  renderSlot: RenderToolRow
+  node: ToolResultNode
+  onOpenDetails: OpenDetails
+  selected: boolean
+}) {
+  const toolName = node.call?.name ?? ''
+  const owner = useMemo(() => ({
+    callId: node.callId, toolName, block: node,
+    openDetails: () => { onOpenDetails({ turnSeq: node.seq, callId: node.callId, toolName }) },
+  }), [node, toolName, onOpenDetails])
+  return (
+    <div className={css.callRow} data-selected={selected || undefined}>
+      {renderSlot('conversation.chat.toolview', owner, {
+        entryKey: toolName,
+        fallback: <GenericToolCard {...owner} />,
+      })}
+    </div>
+  )
+})
+
 /** One tool call row (result or running): dispatches through the keyed
  *  toolview slot with the owner payload; unregistered tools fall back to
- *  GenericToolCard at this render site. */
-const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq, onOpenDetails, selected }: {
+ *  GenericToolCard at this render site. A `run_code` call additionally
+ *  renders its logged sub-dispatches as always-visible indented rows —
+ *  each one the same keyed-slot dispatch as a native top-level call. */
+const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq, onOpenDetails, selected, subCalls, selectedCallId }: {
   renderSlot: RenderToolRow
   callId: string
   toolName: string
@@ -57,6 +82,10 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
   seq: number
   onOpenDetails: OpenDetails
   selected: boolean
+  /** `run_code` sub-dispatches in dispatch order (reference-stable per parent); undefined for ordinary calls. */
+  subCalls?: readonly ToolResultNode[] | undefined
+  /** The store's selected callId, matched against sub-rows (undefined when no sub-row here is selected). */
+  selectedCallId?: string | undefined
 }) {
   const owner = useMemo(() => ({
     callId, toolName, block,
@@ -68,17 +97,32 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
         entryKey: toolName,
         fallback: <GenericToolCard {...owner} />,
       })}
+      {subCalls !== undefined && subCalls.length > 0 && (
+        <div className={css.subCalls} data-subcalls>
+          {subCalls.map((node) => (
+            <SubCallRow
+              key={node.callId}
+              renderSlot={renderSlot}
+              node={node}
+              onOpenDetails={onOpenDetails}
+              selected={node.callId === selectedCallId}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 })
 
 /** Consecutive tool results as one step-run group (figma VERTICAL gap10). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, selectedCallId }: {
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, selectedCallId, codeDispatches }: {
   renderSlot: RenderToolRow
   results: readonly ToolResultNode[]
   onOpenDetails: OpenDetails
-  /** Only set when the selected call lives in THIS group (memo economy). */
+  /** Only set when the selected call lives in THIS group, top-level or nested (memo economy). */
   selectedCallId: string | undefined
+  /** Sub-dispatch index off the snapshot (map reference is chunk-storm stable). */
+  codeDispatches: ReadonlyMap<string, readonly ToolResultNode[]>
 }) {
   return (
     <div className={css.toolGroup}>
@@ -92,6 +136,8 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
           seq={node.seq}
           onOpenDetails={onOpenDetails}
           selected={node.callId === selectedCallId}
+          subCalls={codeDispatches.get(node.callId)}
+          selectedCallId={selectedCallId}
         />
       ))}
     </div>
@@ -116,6 +162,7 @@ function StreamingTail({ useSession, onGrow }: {
 export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession((s) => s.nodes)
   const runningCalls = useSession((s) => s.runningCalls)
+  const codeDispatches = useSession((s) => s.codeDispatches)
   const pending = useSession((s) => s.pending)
   const openState = useSession((s) => s.openState)
   const openErrorMessage = useSession((s) => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
@@ -203,7 +250,8 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
   const renderItem = (item: ChatFlowItem): ReactNode => {
     if (item.kind === 'tool-group') {
       const inGroup = selectedCallId !== undefined
-        && item.results.some((r) => r.callId === selectedCallId)
+        && item.results.some((r) => r.callId === selectedCallId
+          || codeDispatches.get(r.callId)?.some((sub) => sub.callId === selectedCallId) === true)
       return (
         <ToolGroup
           key={item.key}
@@ -211,6 +259,7 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
           results={item.results}
           onOpenDetails={openDetails}
           selectedCallId={inGroup ? selectedCallId : undefined}
+          codeDispatches={codeDispatches}
         />
       )
     }
@@ -250,6 +299,8 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
                 seq={call.turn}
                 onOpenDetails={openDetails}
                 selected={call.callId === selectedCallId}
+                subCalls={codeDispatches.get(call.callId)}
+                selectedCallId={selectedCallId}
               />
             ))}
           </div>

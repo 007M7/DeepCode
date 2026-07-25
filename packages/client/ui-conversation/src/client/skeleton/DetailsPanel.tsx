@@ -31,6 +31,15 @@ function materialFor(s: ConversationSnapshot, callId: string): CallMaterial | nu
   if (open !== undefined) {
     return { name: open.name, argsRaw: open.argsRaw, result: null, running: true }
   }
+  // run_code sub-dispatches: already ToolResultNode-shaped, so a selected
+  // sub-row resolves through the same material as a native settled call.
+  for (const subs of s.codeDispatches.values()) {
+    for (const sub of subs) {
+      if (sub.callId === callId) {
+        return { name: sub.call?.name ?? callId, argsRaw: sub.call?.argsRaw ?? null, result: sub, running: false }
+      }
+    }
+  }
   return null
 }
 

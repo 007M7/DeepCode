@@ -13,8 +13,8 @@ export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 /** The frozen slice the chat view hands to toolview components as `block`
  *  (both members are cache-stable references off ConversationSnapshot). */
 
-/** The seven row variants (think is fed by reasoning blocks, not tool calls). */
-export type ToolRowVariant = 'think' | 'search' | 'read' | 'bash' | 'write' | 'edit' | 'others'
+/** The eight row variants (think is fed by reasoning blocks, not tool calls). */
+export type ToolRowVariant = 'think' | 'search' | 'read' | 'bash' | 'write' | 'edit' | 'code' | 'others'
 
 /** Row state semantic; colors self-supplied via StateDot (design gives none). */
 export type ToolRowState = 'running' | 'ok' | 'error' | 'stopped'
@@ -22,7 +22,7 @@ export type ToolRowState = 'running' | 'ok' | 'error' | 'stopped'
 /** Figma row titles per variant (design literals, not translatable copy). */
 export const VARIANT_TITLES: Record<ToolRowVariant, string> = {
   think: 'Think', search: 'Search', read: 'Read', bash: 'Bash',
-  write: 'Write', edit: 'Edit', others: 'Tool call',
+  write: 'Write', edit: 'Edit', code: 'Code', others: 'Tool call',
 }
 
 /** Known tool name -> variant. */
@@ -35,6 +35,7 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   glob: 'search',
   write: 'write',
   edit: 'edit',
+  run_code: 'code',
 }
 
 /**
@@ -86,6 +87,7 @@ const SUMMARY_KEYS: Record<ToolRowVariant, readonly string[]> = {
   think: [],
   write: ['path', 'file_path'],
   edit: ['path', 'file_path'],
+  code: ['description'],
   others: [],
 }
 
@@ -101,10 +103,17 @@ function deriveSummary(variant: ToolRowVariant, argsRaw: string): string {
   return firstLine(argsRaw)
 }
 
-function deriveBody(argsRaw: string): string | null {
+function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
   if (argsRaw === '') return null
   const parsed = parseArgs(argsRaw)
-  return parsed === undefined ? argsRaw : JSON.stringify(parsed, null, 2)
+  if (parsed === undefined) return argsRaw
+  // The code row's expanded body IS the program (monospace via the row's
+  // variant styling), not the args JSON envelope around it.
+  if (variant === 'code' && typeof parsed === 'object' && parsed !== null) {
+    const code = (parsed as Record<string, unknown>).code
+    if (typeof code === 'string' && code !== '') return code
+  }
+  return JSON.stringify(parsed, null, 2)
 }
 
 /**
@@ -128,7 +137,7 @@ export function toolRowModel(toolName: string, block: ToolCallBlock): ToolRowMod
     variant,
     title: VARIANT_TITLES[variant],
     summary,
-    body: deriveBody(argsRaw),
+    body: deriveBody(variant, argsRaw),
     state,
   }
 }

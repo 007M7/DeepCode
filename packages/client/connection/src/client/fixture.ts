@@ -124,6 +124,57 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 64: one run_code turn with three logged sub-dispatches — the Code
+  // Mode acceptance surface (parent code row + nested native-identical rows,
+  // including an isError sub-call and a bash sub-call that must hit the same
+  // keyed registration a top-level bash row uses).
+  {
+    const turn = 64
+    const callId = `fx-call-${turn}`
+    const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
+      + 'const demo = await tools.read({ path: "notes/demo.txt" })\n'
+      + 'await tools.read({ path: "notes/missing.txt" }).catch(() => "tolerated")\n'
+      + 'return { listing, demo }'
+    const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
+    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：run_code 样本。`), source: { kind: 'user' } } })
+    push({ type: 'step/start', data: { turn, step: 0 } })
+    push({
+      type: 'assistant/message', surfaceOp: 'append',
+      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+    })
+    push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'run_code', arguments: args } })
+    push({
+      type: 'tool/code-dispatch',
+      data: {
+        parentCallId: callId, subCallId: `${callId}:code:1`, name: 'bash',
+        arguments: { command: 'ls notes', description: 'List notes' },
+        isError: false, content: [{ type: 'text', text: 'demo.txt\nnew-demo.txt' }],
+      },
+    })
+    push({
+      type: 'tool/code-dispatch',
+      data: {
+        parentCallId: callId, subCallId: `${callId}:code:2`, name: 'read',
+        arguments: { path: 'notes/demo.txt' },
+        isError: false, content: [{ type: 'text', text: 'hello fixture\n' }],
+      },
+    })
+    push({
+      type: 'tool/code-dispatch',
+      data: {
+        parentCallId: callId, subCallId: `${callId}:code:3`, name: 'read',
+        arguments: { path: 'notes/missing.txt' },
+        isError: true, content: [{ type: 'text', text: 'Error: ENOENT: notes/missing.txt not found' }],
+      },
+    })
+    push({
+      type: 'tool/result', surfaceOp: 'append',
+      data: { turn, step: 0, callId, content: text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), isError: false },
+    })
+    push({ type: 'step/end', data: { turn, step: 0 } })
+    push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
+  }
   return events as unknown as SessionEvent[]
 }
 

@@ -127,6 +127,17 @@ export type ConversationNode =
   | ToolResultNode
   | UnknownSurfaceNode
 
+/**
+ * One `run_code` sub-dispatch materialized as a {@link ToolResultNode} so every
+ * consumer (tool rows, details panel) renders it through the exact components
+ * that render a native settled call. Never part of the surface `nodes` flow —
+ * sub-calls live under their parent via {@link ConversationSnapshot.codeDispatches}.
+ * `callId` is the deterministic sub-call id (`<parent>:code:<n>`); `call`
+ * carries the sub-tool name and its JSON-stringified logged arguments;
+ * `content`/`isError` are the sub-call's complete logged outcome.
+ */
+export type CodeSubCall = ToolResultNode
+
 /** In-flight tool card material: tool/call seen, tool/result not yet. */
 export interface RunningToolCall {
   callId: string
@@ -212,6 +223,13 @@ export interface ConversationSnapshot {
   foldDegraded: boolean
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
+  /**
+   * `run_code` sub-dispatches grouped under their parent callId, in dispatch
+   * order. Populated from in-window `tool/code-dispatch` events (live and
+   * replay identically); the per-parent array reference is stable across
+   * unrelated snapshot swaps (memo premise, same regime as `nodes`).
+   */
+  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
   running: boolean
   /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */
