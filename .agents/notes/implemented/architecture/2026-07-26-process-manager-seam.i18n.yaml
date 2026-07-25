@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-26-process-manager-seam.md: 215725951792d23053c93da19c619c08393af1b9
-2026-07-26-process-manager-seam.zh.md: 268486de2f94d491529620941a6e00d90cb50cf0
+2026-07-26-process-manager-seam.zh.md: 03062f33d3d5fbafa1ce0b9bc3e723d10572cfd4
