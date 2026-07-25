@@ -36,7 +36,8 @@ function runBuiltBin(): Promise<{ stdout: string; code: number; stderr: string }
       child.kill('SIGKILL')
       reject(new Error(`dsh built bin did not exit within 25s. stdout:\n${stdout}\nstderr:\n${stderr}`))
     }, 25_000)
-    child.on('exit', (code) => { clearTimeout(timer); resolve({ stdout, code: code ?? -1, stderr }) })
+    // Resolve on `close` (all stdio drained), not `exit`, so captured output is complete.
+    child.on('close', (code) => { clearTimeout(timer); resolve({ stdout, code: code ?? -1, stderr }) })
     child.on('error', (err) => { clearTimeout(timer); reject(err) })
     child.stdin.end()
   })

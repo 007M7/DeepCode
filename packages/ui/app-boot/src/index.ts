@@ -1,5 +1,5 @@
 /**
- * Shared boot glue for the app bins (`dsh-tui-demo`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
+ * Shared boot glue for the app bins (`dsh`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
  * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
  * optional personal overlay patches from the Harness home (`~/.dsh`), and drive the cordis Loader
  * against a leaf `cordis.yml` until the whole tree has settled.
@@ -156,7 +156,6 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   }
 }
 
-/**
 /**
  * Context key a bin sets through {@link boot}'s `prepare` hook to hand a resume
  * session id to the booted config: `ctx.provide(RESUME_SESSION_ID_KEY, id)`

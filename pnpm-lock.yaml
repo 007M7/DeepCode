@@ -1539,9 +1539,6 @@ importers:
 
   packages/examples/tui-demo:
     devDependencies:
-      '@cordisjs/plugin-include':
-        specifier: workspace:^
-        version: link:../../../vendor/include
       '@cordisjs/plugin-loader':
         specifier: workspace:^
         version: link:../../../vendor/loader
@@ -1604,7 +1601,7 @@ importers:
         version: link:../../context/workspace-context
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
       schemastery:
         specifier: ^3.17.0
         version: 3.18.0

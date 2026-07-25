@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-24-dsh-commander-argument-adapter.md: c038f4facdc62039b8a31be5d660648fd81aebd2
-2026-07-24-dsh-commander-argument-adapter.zh.md: 285917af7c4b0da769ae7595bb1a6e5966adafd9
+2026-07-24-dsh-commander-argument-adapter.md: 0f6b18848eacc5d5771e500bf226cc6f680f8d3f
+2026-07-24-dsh-commander-argument-adapter.zh.md: ae523d0e37d09ce1f85b317bb0850194045474cb

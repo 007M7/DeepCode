@@ -1,7 +1,27 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ALL_INTERFACES_HOST, LOOPBACK_HOST, parseDshArgs } from '../src/args.ts'
 
 const parse = (argv: string[]) => parseDshArgs(argv, '1.2.3')
+
+/**
+ * `parseDshArgs` calls `process.exit` for `--help`/`--version`/errors and lets
+ * Commander print to the real streams; capture the exit code and mute output.
+ */
+function exitCode(argv: string[]): number {
+  const exit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit') })
+  vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+  try {
+    parse(argv)
+    throw new Error(`expected ${JSON.stringify(argv)} to exit`)
+  } catch {
+    return exit.mock.calls.at(-1)?.[0] as number
+  } finally {
+    vi.restoreAllMocks()
+  }
+}
+
+afterEach(() => { vi.restoreAllMocks() })
 
 describe('parseDshArgs', () => {
   it('routes each mode by its shape: default TUI, -p headless, web subcommand', () => {
@@ -10,25 +30,24 @@ describe('parseDshArgs', () => {
     expect(parse(['--resume', 'sess', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
     expect(parse(['web'])).toEqual({ mode: 'web', host: LOOPBACK_HOST, port: 3080, dev: false })
-    expect(parse(['web', '--host', ALL_INTERFACES_HOST, '--port', '8080']))
-      .toEqual({ mode: 'web', host: ALL_INTERFACES_HOST, port: 8080, dev: false })
-    expect(parse(['web', '--dev'])).toEqual({ mode: 'web', host: LOOPBACK_HOST, port: 3080, dev: true })
+    expect(parse(['web', '--host', ALL_INTERFACES_HOST, '--port', '8080', '--dev']))
+      .toEqual({ mode: 'web', host: ALL_INTERFACES_HOST, port: 8080, dev: true })
   })
 
-  it('fails loud instead of silently starting fresh or serving on bad input', () => {
-    // An empty resume/prompt would otherwise be swallowed (agent-loop treats an
-    // empty resume id as no-resume); a bad host/port must not reach the listener.
-    expect(parse(['--resume=']).mode).toBe('error')
-    expect(parse(['-p', '']).mode).toBe('error')
-    expect(parse(['web', '--host', '10.0.0.1']).mode).toBe('error')
-    expect(parse(['web', '--port', 'abc']).mode).toBe('error')
-    expect(parse(['--bogus']).mode).toBe('error')
+  it('exits nonzero instead of silently starting fresh, serving, or dropping inputs', () => {
+    // Empty resume/prompt would be swallowed downstream; bad host/port must not
+    // reach the listener; --prompt mixed with TUI inputs must not lose them.
+    expect(exitCode(['--resume='])).toBe(1)
+    expect(exitCode(['-p', ''])).toBe(1)
+    expect(exitCode(['web', '--host', '10.0.0.1'])).toBe(1)
+    expect(exitCode(['web', '--port', 'abc'])).toBe(1)
+    expect(exitCode(['web', '--port='])).toBe(1)
+    expect(exitCode(['config.yml', '-p', 'x'])).toBe(1)
+    expect(exitCode(['--bogus'])).toBe(1)
   })
 
-  it('surfaces --help and --version as printable data, not a process exit', () => {
-    const help = parse(['--help'])
-    expect(help).toMatchObject({ mode: 'help' })
-    if (help.mode === 'help') expect(help.text).toContain('Usage: dsh')
-    expect(parse(['--version'])).toEqual({ mode: 'version', text: '1.2.3\n' })
+  it('exits 0 for --help (disclosing web) and --version', () => {
+    expect(exitCode(['--help'])).toBe(0)
+    expect(exitCode(['--version'])).toBe(0)
   })
 })

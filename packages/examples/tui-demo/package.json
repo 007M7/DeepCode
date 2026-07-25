@@ -27,7 +27,6 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@cordisjs/plugin-include": "^1.0.4",
     "@cordisjs/plugin-loader": "^1.0.0-rc.5",
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-agent-loop": "^0.0.1",
@@ -51,7 +50,6 @@
     "schemastery": "^3.17.0"
   },
   "devDependencies": {
-    "@cordisjs/plugin-include": "workspace:^",
     "@cordisjs/plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",

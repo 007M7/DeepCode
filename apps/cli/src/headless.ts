@@ -71,7 +71,6 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
  * @param task - the prompt text for the single turn.
  */
 export async function runHeadless(task: string): Promise<void> {
-
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
   const host = await startHost({
     boot: {

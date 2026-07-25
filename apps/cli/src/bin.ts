@@ -3,8 +3,8 @@
  * dsh — command-line entry. Parses argv once through the Commander adapter and
  * switches on the resolved mode; dynamic imports keep unrelated modes out of
  * each dispatch path. `web` and headless prompts run their own module;
- * everything else opens the TUI. `--help`/`--version` print and exit 0; a parse
- * error prints to stderr and exits 1.
+ * everything else opens the TUI. The adapter itself prints and exits for
+ * `--help`/`--version`/a parse error, so only a valid mode reaches the switch.
  * @module @deepseek-ai/dsh/bin
  */
 
@@ -45,13 +45,6 @@ switch (invocation.mode) {
     await runTui(invocation.config, invocation.resume)
     break
   }
-  case 'help':
-  case 'version':
-    process.stdout.write(invocation.text)
-    process.exit(0)
-  case 'error':
-    process.stderr.write(`${invocation.message}\n`)
-    process.exit(1)
   default:
     invocation satisfies never
     throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)

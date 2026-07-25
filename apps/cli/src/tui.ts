@@ -74,13 +74,13 @@ export async function runTui(config: string | undefined, resumeSessionId: string
       if (current === undefined) throw new Error(`${NAME}: app boot has not completed`)
       // Rebuild argv from the parsed config plus the selected id: TUI mode's
       // only arguments are the optional config positional and `--resume <id>`.
+      // The `--` guard keeps a config named like a flag or `web` a positional.
       const nextArgv = [
         process.execPath,
         ...process.execArgv,
         entry,
-        ...config !== undefined ? [config] : [],
-        '--resume',
-        sessionId,
+        `--resume=${sessionId}`,
+        ...config !== undefined ? ['--', config] : [],
       ]
       try {
         await current.fiber.dispose()

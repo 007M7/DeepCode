@@ -1,16 +1,14 @@
 /**
  * Commander adapter for the `dsh` command-line entry: the one place argv is
  * parsed and routed to a mode. `bin.ts` switches on the returned discriminant
- * and dynamic-imports that mode's module; each mode module then consumes the
- * already-parsed values instead of re-reading argv. Output is suppressed and
- * `exitOverride` is set so Commander never writes or exits on its own — every
- * outcome (including `--help`/`--version` and parse errors) is returned to the
- * caller as data. The `web` subcommand is a reserved first token dispatched to
- * its own parser, so root flags and `web` flags never share a grammar.
+ * and dynamic-imports that mode's module. Commander owns `--help`/`--version`
+ * and parse errors: it prints and exits at the point of failure (a domain
+ * failure routes through `command.error`), so this returns only a resolved mode.
+ * The `web` subcommand is a reserved first token dispatched to its own parser.
  * @module @deepseek-ai/dsh/args
  */
 
-import { Command, CommanderError, InvalidArgumentError, Option } from 'commander'
+import { Command, CommanderError } from 'commander'
 
 /** The loopback host `dsh web` binds by default. */
 export const LOOPBACK_HOST = '127.0.0.1'
@@ -31,10 +29,7 @@ interface HeadlessInvocation {
   prompt: string
 }
 
-/**
- * Browser UI: `dsh web`. Host constrained to {@link LOOPBACK_HOST}/{@link ALL_INTERFACES_HOST};
- * port already coerced and range-checked; `dev` mounts the client HMR driver and bundle watch.
- */
+/** Browser UI: `dsh web`. Host is loopback/all-interfaces, port a 0–65535 integer, `dev` mounts the HMR driver. */
 interface WebInvocation {
   mode: 'web'
   host: string
@@ -42,120 +37,76 @@ interface WebInvocation {
   dev: boolean
 }
 
-/** `--help` or `--version` requested: `bin.ts` prints `text` to stdout and exits 0. */
-interface InfoInvocation {
-  mode: 'help' | 'version'
-  text: string
-}
+/** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
+export type DshInvocation = TuiInvocation | HeadlessInvocation | WebInvocation
 
-/** A parse error (unknown option, missing/invalid argument): `bin.ts` prints `message` to stderr and exits 1. */
-interface ErrorInvocation {
-  mode: 'error'
-  message: string
-}
-
-/** The resolved `dsh` invocation: exactly one mode, all values parsed and validated. */
-export type DshInvocation =
-  | TuiInvocation
-  | HeadlessInvocation
-  | WebInvocation
-  | InfoInvocation
-  | ErrorInvocation
-
-/** Coerce `--port` to an integer in 0–65535; a bad value fails loud as a parse error. */
-function parsePort(raw: string): number {
-  const port = Number(raw)
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new InvalidArgumentError(`invalid --port ${raw}`)
-  }
-  return port
-}
-
-/**
- * A configured `Command` under `exitOverride` with output captured into `sink`,
- * so `--help`, `--version`, and parse errors surface as thrown `CommanderError`s
- * (see {@link settle}) rather than writing to a stream or exiting.
- */
-function program(name: string, version: string, sink: string[]): Command {
-  return new Command()
-    .name(name)
-    .version(version, '-V, --version', 'output the version number')
-    .exitOverride()
-    .configureOutput({
-      writeOut: chunk => void sink.push(chunk),
-      writeErr: chunk => void sink.push(chunk),
-    })
-}
-
-/**
- * Run `command.parse` and map its thrown `CommanderError` to an info/error
- * invocation, or `undefined` when the parse succeeded (the caller then reads the
- * parsed options).
- */
-function settle(command: Command, argv: readonly string[], sink: string[]): InfoInvocation | ErrorInvocation | undefined {
-  try {
-    command.parse(argv, { from: 'user' })
-    return undefined
-  } catch (error) {
-    /* v8 ignore next -- Commander only throws CommanderError from parse under exitOverride */
-    if (!(error instanceof CommanderError)) throw error
-    if (error.code === 'commander.helpDisplayed') return { mode: 'help', text: sink.join('') }
-    if (error.code === 'commander.version') return { mode: 'version', text: sink.join('') }
-    return { mode: 'error', message: error.message }
-  }
+/** A `Command` under `exitOverride`, so {@link parseDshArgs} owns the exit, named for its usage line. */
+function program(name: string, version: string): Command {
+  return new Command().name(name).version(version, '-V, --version', 'output the version number').exitOverride()
 }
 
 /** Parse `dsh web` arguments (everything after the `web` token). */
-function parseWeb(argv: readonly string[], version: string): DshInvocation {
-  const sink: string[] = []
-  const web = program('dsh web', version, sink)
+function parseWeb(argv: readonly string[], version: string): WebInvocation {
+  const web = program('dsh web', version)
     .description('serve the browser UI')
-    .addOption(new Option('--host <host>', 'bind host').choices([LOOPBACK_HOST, ALL_INTERFACES_HOST]).default(LOOPBACK_HOST))
-    .addOption(new Option('--port <port>', 'listen port').default(DEFAULT_WEB_PORT).argParser(parsePort))
+    .option('--host <host>', `bind host (${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST})`, LOOPBACK_HOST)
+    .option('--port <port>', 'listen port', String(DEFAULT_WEB_PORT))
     .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
-  const settled = settle(web, argv, sink)
-  if (settled !== undefined) return settled
-  const { host, port, dev } = web.opts<{ host: string; port: number; dev?: boolean }>()
-  return { mode: 'web', host, port, dev: dev ?? false }
+  web.parse(argv, { from: 'user' })
+  const { host, port, dev } = web.opts<{ host: string; port: string; dev?: boolean }>()
+  if (host !== LOOPBACK_HOST && host !== ALL_INTERFACES_HOST) {
+    web.error(`error: --host must be ${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST}`)
+  }
+  const portNumber = Number(port)
+  if (!/^\d+$/.test(port) || !Number.isInteger(portNumber) || portNumber > 65535) {
+    web.error('error: --port must be an integer in 0-65535')
+  }
+  return { mode: 'web', host, port: portNumber, dev: dev === true }
 }
 
 /** Parse the default (TUI / headless) arguments: `[config]`, `-p/--prompt`, `--resume`. */
 function parseRoot(argv: readonly string[], version: string): DshInvocation {
-  const sink: string[] = []
-  const root = program('dsh', version, sink)
+  const root = program('dsh', version)
     .description('dsh: interactive TUI, headless task, and browser UI')
     .argument('[config]', 'config to boot instead of the shipped default (TUI mode)')
     .option('-p, --prompt <task>', 'run one headless turn for this task, print the result, and exit')
     .option('--resume <id>', 'resume the persisted session with this id (TUI mode)')
-  const settled = settle(root, argv, sink)
-  if (settled !== undefined) return settled
+    // Disclose the web mode in `dsh --help`; a real `web` subcommand would
+    // hijack the `[config]` positional. `parseDshArgs` intercepts `web` first.
+    .addHelpText('after', '\nCommands:\n  web            serve the browser UI (run `dsh web --help`)')
+  root.parse(argv, { from: 'user' })
   const { prompt, resume } = root.opts<{ prompt?: string; resume?: string }>()
   const config = root.processedArgs[0] as string | undefined
 
   if (prompt !== undefined) {
-    // A headless prompt owns the invocation; an empty task has nothing to run.
-    if (prompt === '') return { mode: 'error', message: "error: option '-p, --prompt <task>' must not be empty" }
+    // A headless prompt owns the invocation; an empty task has nothing to run,
+    // and a config or --resume alongside it is a TUI input that must not
+    // silently vanish from the run.
+    if (prompt === '') root.error('error: --prompt needs a task')
+    if (config !== undefined || resume !== undefined) root.error('error: --prompt takes no config or --resume')
     return { mode: 'headless', prompt }
   }
   // An empty `--resume=` id would silently start a fresh session downstream
   // (agent-loop treats '' as no-resume), so a mistyped resume must fail loud.
-  if (resume === '') return { mode: 'error', message: "error: option '--resume <id>' must not be empty" }
-  return {
-    mode: 'tui',
-    ...config !== undefined ? { config } : {},
-    ...resume !== undefined ? { resume } : {},
-  }
+  if (resume === '') root.error('error: --resume needs a session id')
+  return { mode: 'tui', ...config !== undefined && { config }, ...resume !== undefined && { resume } }
 }
 
 /**
- * Resolve the raw argv into a single {@link DshInvocation}. Never writes to a
- * stream and never exits; `--help`/`--version` and every parse error come back
- * as data for `bin.ts` to act on. A leading `web` token dispatches to the web
- * parser; everything else is the default TUI/headless grammar.
+ * Resolve the raw argv into a {@link DshInvocation}, or print and exit for
+ * `--help`/`--version`/a parse error. A leading `web` token dispatches to the
+ * web parser; everything else is the default TUI/headless grammar.
  * @param argv - the arguments after the node binary and script (`process.argv.slice(2)`).
  * @param version - the version string `--version` prints; read from this app's package.json.
- * @returns the resolved invocation, discriminated by `mode`.
+ * @returns the resolved invocation (only reached on a valid, non-help invocation).
  */
 export function parseDshArgs(argv: readonly string[], version: string): DshInvocation {
-  return argv[0] === 'web' ? parseWeb(argv.slice(1), version) : parseRoot(argv, version)
+  try {
+    return argv[0] === 'web' ? parseWeb(argv.slice(1), version) : parseRoot(argv, version)
+  } catch (error) {
+    // Commander printed help/version/the error under `exitOverride`; exit with
+    // the code it chose (0 for help/version, 1 for a parse or domain error).
+    /* v8 ignore next -- Commander only throws CommanderError from parse/error under exitOverride */
+    return process.exit(error instanceof CommanderError ? error.exitCode : 1)
+  }
 }

@@ -34,8 +34,8 @@
     model: deepseek-v4-pro
     # `dsh --resume <id>` provides the session id on the boot context (the ids
     # live under ./.sessions); with no flag the identifier is undefined and a
-    # fresh session starts each run. The demo bin never provides it, so the
-    # typeof guard reads undefined there rather than throwing.
+    # fresh session starts each run. The typeof guard tolerates a launcher that
+    # never provides the slot, reading undefined rather than throwing.
     resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
     persistenceRoot: './.sessions'
     # Printed on exit and listed by `/resume`; `{session}` fills the live id.
