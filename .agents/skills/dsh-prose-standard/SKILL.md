@@ -7,7 +7,7 @@ description: Use when writing, reviewing, restoring, trimming, or auditing prose
 
 Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates. It is guidance, not a script.
 
-comment should only describe what is not obvious in the code or not implied by the code.
+Comments describe non-obvious contracts or rationale that code cannot express; they do not restate what code already implies.
 
 ## Inputs and exclusions
 
