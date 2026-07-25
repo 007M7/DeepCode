@@ -1,12 +1,5 @@
 /**
- * SidebarRoot (figma 133:7629): logo row + collapse, New Session, WorkSpace
- * section header with the group-by menu, search, session tree list, Settings
- * foot. Pure presentational — the session list arrives through the standard
- * useSessions hook, viewing state (expansion, search) is local component
- * state, and rows are derived in render via useMemo (slot design section 6:
- * derived data is a pure function, no materializing store).
- *
- * Collapse is a slide + crossfade: the content freezes at its expanded
+ * Collapse is a slide plus crossfade: content freezes at its expanded
  * width (inline style) and fades out in place while the sliding column
  * (AppFrame grid tracks) clips it — nothing reflows mid-slide. At settle
  * the wide-only content (brand, labels, input, tree) unmounts, dropping
@@ -35,7 +28,7 @@ const EXPAND_SLIDE_MS = 300
 
 const GROUP_BY_ITEMS = [
   { id: 'workspace', label: 'WorkSpace' },
-  // Update/Status grouping has no design yet (figma §3) — visible, disabled.
+  // Only workspace grouping is implemented.
   { id: 'update', label: 'Update', disabled: true },
   { id: 'status', label: 'Status', disabled: true },
 ]
@@ -78,8 +71,7 @@ type SessionTreeProps = Pick<SidebarRootComponentProps, 'useSessions' | 'onOpen'
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({ useSessions, onOpen, onCreate, query }: SessionTreeProps) {
   const list = useSessions((s) => s)
-  // Wave-2 seam: row highlight expects `current` on the sessions list
-  // snapshot (sessions.current lives with the runtime sessions service).
+  // Selection belongs to the sessions snapshot, not layout state.
   const current = useSessions((s) => s.current)
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const [expandedSessions, setExpandedSessions] = useState<string[]>([])

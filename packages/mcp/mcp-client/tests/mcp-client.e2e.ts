@@ -314,18 +314,16 @@ describe('server-filesystem — real filesystem operations', () => {
     const filePath = join(tempDir, 'test.txt')
     const content = 'Hello from MCP e2e test!'
 
-    // Write via MCP tool
     const writeResult = await ctx.tools.execute({
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__write_file', arguments: { path: filePath, content },
     })
     expect(writeResult.isError).toBe(false)
 
-    // Verify file was actually written (world verification)
+    // Assert the filesystem effect independently of the tool result.
     const onDisk = await readFile(filePath, 'utf8')
     expect(onDisk).toBe(content)
 
-    // Read back via MCP tool
     const readResult = await ctx.tools.execute({
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__read_file', arguments: { path: filePath },
@@ -335,7 +333,6 @@ describe('server-filesystem — real filesystem operations', () => {
   })
 
   it('list_directory shows written file', async () => {
-    // Ensure a file exists
     await writeFile(join(tempDir, 'listed.txt'), 'listed')
 
     const result = await ctx.tools.execute({

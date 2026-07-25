@@ -1,13 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Selection survival across the store seat (terminal design §4): the chat
- * store now carries what the per-scope selection account used to — this pins
- * the same behavior contract in the new mechanism. Drives the REAL
- * SlotsService store axis with the shared createChatStore handle (the exact
- * apply.ts shape: one handle, two session-slot registrations): same session's
- * two slots resolve one instance (conversation writes, details reads);
- * sessions are isolated; a session's death buries its instance AND its
- * persisted draft; a list refresh does not touch instance identity.
+ * Exercises selection persistence through the real SlotsService store axis;
+ * component stubs cannot prove per-session identity or disposal.
  */
 import { Context } from 'cordis'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -15,8 +9,7 @@ import { SessionsService, SlotsService } from '@deepseek-ai/dsh-client-runtime/c
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { createChatStore } from '../src/client/stores.ts'
 
-// The runtime package's programmable fake lives in its tests; import through
-// the src path (same pattern the runtime specs use — test-support material).
+// Use the runtime's programmable fake to drive the real session service.
 import { FakeApiClient, ok } from '../../runtime/tests/fake-api.ts'
 
 const sid = (s: string): SessionId => s as SessionId

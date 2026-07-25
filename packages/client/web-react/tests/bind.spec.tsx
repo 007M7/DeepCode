@@ -5,10 +5,8 @@ import { act, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { HostObservable as ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 
-// Local one-level equality: the engine's shallowEqual moved to runtime with
-// the store relocation, and web-react tests must not import runtime (the
-// dependency direction is runtime → web-react). The eq PARAMETER contract is
-// what this suite asserts, not any specific equality implementation.
+// Keep equality local: this suite asserts the eq parameter contract without
+// adding a reverse dependency from web-react to runtime.
 const shallowEqual = (a: Record<string, unknown>, b: Record<string, unknown>): boolean =>
   Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => Object.is(a[k], b[k]))
 

@@ -62,7 +62,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
     // the model, not a turn failure).
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
 
-    // Verify that the denied hook left no filesystem effect.
+    // Assert the denied operation independently of the model response.
     await expect(access(join(workdir, 'proof.txt'))).rejects.toThrow()
 
     // ACP publishes only the committed answer; hook/tool trace stays in the session log.

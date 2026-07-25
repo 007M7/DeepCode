@@ -137,7 +137,6 @@ describe('conversation slot inject surface', () => {
     expect(injected.views.list().map(v => v.id)).toEqual(['chat'])
     injected.open(ROOT)
     expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
-    // loadOlder moved to the chat view entry's face (the ring rider).
     const chatView = b.chatViewSurface(ROOT)
     chatView.injected.loadOlder()
     expect(b.sessionFake.loadOlder).toHaveBeenCalledTimes(1)
