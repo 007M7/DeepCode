@@ -111,7 +111,17 @@ function registerDelegate(ctx: Context, captured: Agent[], raceSwitch?: 'danger-
     name: 'delegate',
     description: 'delegate a task to an in-process child (test scaffold)',
     parameters: { fork: { type: 'boolean', description: 'seed the child with the completed-turn prefix' } },
-    async execute(args, exec): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          stopReason: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `child:${(value).stopReason}` }],
+    },
+    async execute(args, exec) {
       const caller = exec.agent
       if (caller === undefined) throw new Error('delegate scaffold requires a calling agent')
       const events = caller.session.events
@@ -129,7 +139,7 @@ function registerDelegate(ctx: Context, captured: Agent[], raceSwitch?: 'danger-
       captured.push(run.localAgent as Agent)
       const result = await run.result
       await run.dispose()
-      return [{ type: 'text', text: `child:${result.stopReason}` }]
+      return { stopReason: result.stopReason }
     },
   }))
 }
@@ -174,7 +184,7 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       toolCallResponse('c-write', 'write', { file_path: blocked, content: 'escaped' }),
       textResponse('child done'),
     )
-    parent.send([{ type: 'text', text: 'stage the session policy' }])
+    parent.followup([{ type: 'text', text: 'stage the session policy' }])
     await parent.whenIdle()
     const parentLogLength = parent.session.events.length
 
@@ -228,9 +238,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('fork child done'),
       textResponse('turn two done'),
     )
-    parent.send([{ type: 'text', text: 'turn one' }])
+    parent.followup([{ type: 'text', text: 'turn one' }])
     await parent.whenIdle()
-    parent.send([{ type: 'text', text: 'turn two: delegate' }])
+    parent.followup([{ type: 'text', text: 'turn two: delegate' }])
     await parent.whenIdle()
 
     const child = captured[0] as Agent
@@ -258,9 +268,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('fork child done'),
       textResponse('turn two done'),
     )
-    parent.send([{ type: 'text', text: 'turn one' }])
+    parent.followup([{ type: 'text', text: 'turn one' }])
     await parent.whenIdle()
-    parent.send([{ type: 'text', text: 'turn two: delegate' }])
+    parent.followup([{ type: 'text', text: 'turn two: delegate' }])
     await parent.whenIdle()
 
     const child = captured[0] as Agent
@@ -290,9 +300,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('race child done'),
       textResponse('turn two done'),
     )
-    parent.send([{ type: 'text', text: 'stage' }])
+    parent.followup([{ type: 'text', text: 'stage' }])
     await parent.whenIdle()
-    parent.send([{ type: 'text', text: 'delegate' }])
+    parent.followup([{ type: 'text', text: 'delegate' }])
     await parent.whenIdle()
 
     const child = captured[0] as Agent
@@ -322,9 +332,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('child done'),
       textResponse('parent done'),
     )
-    parent.send([{ type: 'text', text: 'stage' }])
+    parent.followup([{ type: 'text', text: 'stage' }])
     await parent.whenIdle()
-    parent.send([{ type: 'text', text: 'delegate twice' }])
+    parent.followup([{ type: 'text', text: 'delegate twice' }])
     await parent.whenIdle()
 
     expect(captured).toHaveLength(2)
@@ -356,7 +366,7 @@ describe('inheritance survives prompt vetoes', () => {
       },
       // No child model entries: the blocked prompt closes a zero-step turn.
     )
-    parent.send([{ type: 'text', text: 'stage' }])
+    parent.followup([{ type: 'text', text: 'stage' }])
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -422,7 +432,7 @@ describe('what a blocked child experiences', () => {
       },
       textResponse('child done'),
     )
-    parent.send([{ type: 'text', text: 'stage' }])
+    parent.followup([{ type: 'text', text: 'stage' }])
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -458,7 +468,7 @@ describe('what a blocked child experiences', () => {
       }),
       textResponse('child gave up'),
     )
-    parent.send([{ type: 'text', text: 'stage' }])
+    parent.followup([{ type: 'text', text: 'stage' }])
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})

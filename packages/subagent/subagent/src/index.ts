@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
+import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -242,7 +242,7 @@ export class SubagentService extends Service {
     }
     this.assertCapabilities(provider, request)
     assertSubagentMaxDepth(request.maxDepth)
-    if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
+    if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
 
     const parent = request.parent
     const run = await provider.start(request)

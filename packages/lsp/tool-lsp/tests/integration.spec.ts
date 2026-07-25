@@ -90,7 +90,7 @@ describe('tool-lsp integration', () => {
     const ctx = await mount(true, 300)
     const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 7 })
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('TOOL_TIMEOUT')
+    expect(result.error?.info?.code).toBe('TOOL_TIMEOUT')
     await ctx.fiber.dispose()
   }, 30_000)
 })

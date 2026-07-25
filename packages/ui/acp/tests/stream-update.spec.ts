@@ -12,6 +12,11 @@ import FsLocal from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { streamSessionEventUpdate, agentOptions, todosToPlan, ToolPresenter } from '../src/index.ts'
 
+const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
+  schema: { type: 'null' },
+  render: () => [],
+}
+
 /** Collect the updates a single event produces (no presenter → generic fallback). */
 function updatesFor(event: SessionEvent): SessionNotification['update'][] {
   const out: SessionNotification['update'][] = []
@@ -279,6 +284,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
     name: 'bash',
     description: 'run a command',
     parameters: {},
+    output: UNUSED_TOOL_OUTPUT,
     execute: async () => [],
     presentCall: (args: unknown) => {
       const a = args as { command: string; description: string }
@@ -336,7 +342,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
   })
 
   it('a tool with no presentCall/presentResult gets the generic fallback (title = name)', () => {
-    const plain: ToolDefinition = { name: 'plain', description: 'p', parameters: {}, execute: async () => [] }
+    const plain: ToolDefinition = { name: 'plain', description: 'p', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [] }
     const presenter = new ToolPresenter(registryOf(plain))
     const [update] = updatesWith(presenter, evt('tool/call', {
       turn: 1, step: 1, callId: CallId('c1'), name: 'plain', arguments: '{"a":1}',
@@ -352,6 +358,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       name: 'mini',
       description: 'm',
       parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
       execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Doing a thing' }),
       presentResult: () => ({ card: 'generic', title: 'Did the thing' }),
@@ -398,6 +405,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       name: 'boom',
       description: 'b',
       parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
       execute: async () => [],
       presentCall: () => { throw new Error('call boom') },
       presentResult: () => { throw new Error('result boom') },
@@ -427,6 +435,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       name: 'boom',
       description: 'b',
       parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
       execute: async () => [],
       presentCall: () => { throw new Error('call boom') },
       presentResult: () => { throw new Error('result boom') },
@@ -450,6 +459,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       name: 'rogue',
       description: 'r',
       parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
       execute: async () => [],
       // A card value outside the union — forced with a cast (no valid input reaches this).
       presentCall: () => ({ card: 'chart', title: 'nope' }) as unknown as ReturnType<NonNullable<ToolDefinition['presentCall']>>,
@@ -468,6 +478,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       name: 'rogue',
       description: 'r',
       parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
       execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'r' }),
       presentResult: () => ({ card: 'chart' }) as unknown as ReturnType<NonNullable<ToolDefinition['presentResult']>>,
@@ -530,6 +541,7 @@ describe('terminal-card mapping (capability-gated)', () => {
     name: 'bash',
     description: 'run a command',
     parameters: {},
+    output: UNUSED_TOOL_OUTPUT,
     execute: async () => [],
     presentCall: (args: unknown) => {
       const command = (args as { command: string }).command
@@ -691,6 +703,7 @@ describe('terminal-card mapping (capability-gated)', () => {
       name: 'bash',
       description: 'run a command',
       parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
       execute: async () => [],
       presentCall: (args: unknown) => ({ card: 'terminal', title: (args as { command: string }).command }),
     }
@@ -713,6 +726,7 @@ describe('diff-card mapping', () => {
     name: 'writer',
     description: 'writes a file',
     parameters: {},
+    output: UNUSED_TOOL_OUTPUT,
     execute: async () => [],
     presentCall: () => view as ReturnType<NonNullable<ToolDefinition['presentCall']>>,
   })
@@ -848,6 +862,7 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
       name: 'writer',
       description: 'writes a file',
       parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
       execute: async () => [],
       presentCall: () => ({ card: 'diff', title: 'Write x', diffs: [{ path: 'x', oldText: null, newText: 'y' }] }),
       presentResult: () => ({ card: 'diff', diffs: [] }),

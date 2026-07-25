@@ -151,8 +151,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },
       {
-        signature: 'inheritOverride(parent: Session, child: Session): void',
-        jsDoc: '/**\n * Stamp the parent\'s approval-policy OVERRIDE onto a child session through\n * the canonical write path — the delegation-inheritance step: a `\'never\'`\n * (headless/CI) parent must not mint children that fall back to a prompting\n * default. Only the override chain is copied: an unswitched parent stamps\n * nothing, so the child keeps following the LIVE configured default. A\n * child whose log (e.g. a fork seed) already folds to the inherited policy\n * is left untouched. Callers must append inside an open child turn — a bare\n * between-turn event is crash-tail garbage on reload.\n * @param parent - the delegating session whose effective override is read.\n * @param child - the child session the override is appended to.\n */',
+        signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
+        jsDoc: '/**\n * A session\'s approval-policy OVERRIDE — the fold alone, never the\n * configured default. The read half of delegation inheritance: the subagent\n * driver captures this synchronously at delegation, so a parent switch\n * racing the child\'s asynchronous creation belongs to the parent\'s future,\n * not to the child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to fold.\n * @returns the last switched policy, or `undefined` for a never-switched session.\n */',
+      },
+      {
+        signature: 'stampOverride(child: Session, policy: ApprovalPolicy): void',
+        jsDoc: '/**\n * Stamp a captured override onto a child session through the canonical\n * write path — the write half of delegation inheritance: a `\'never\'`\n * (headless/CI) parent must not mint children that fall back to a prompting\n * default. A child whose log (e.g. a fork seed) already folds to the policy\n * is left untouched. Callers must append inside an open child turn — a bare\n * between-turn event is crash-tail garbage on reload.\n * @param child - the child session the override is appended to.\n * @param policy - the captured {@link overrideOf} value to stamp.\n */',
       },
     ],
   },
@@ -407,6 +411,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Create and publish one owner-scoped session after backend setup succeeds.\n * @param owner - exact registered Agent that owns access and cleanup.\n * @param request - backend type plus optional owner-local name and cwd.\n * @param signal - cancellation of unpublished setup.\n * @returns published identity, metadata, status, and MOTD.\n */',
       },
       {
+        signature: 'hasOwnerActivity(owner: Agent): boolean',
+        jsDoc: '/**\n * Test whether an exact owner has a published session or unpublished spawn.\n * @param owner - exact live owner to inspect.\n * @returns true across the entire spawn-to-close interval, with no publication gap.\n */',
+      },
+      {
         signature: 'startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation',
         jsDoc: '/**\n * Start one exclusive interactive send.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - explicit text, submit behavior, and cancellation.\n * @returns live operation handle for foreground await or task registration.\n */',
       },
@@ -447,8 +455,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
       },
       {
-        signature: 'inheritOverride(parent: Session, child: Session): void',
-        jsDoc: '/**\n * Stamp the parent\'s sandbox-mode OVERRIDE onto a child session through the\n * canonical write path — the delegation-inheritance step: a child agent runs\n * under the policy its delegating parent was switched to, not under the\n * (possibly wider) deployment default. Only the override chain is copied: an\n * unswitched parent stamps nothing, so the child keeps following the LIVE\n * deployment default. A child whose log (e.g. a fork seed) already folds to\n * the inherited mode is left untouched. Callers must append inside an open\n * child turn — a bare between-turn event is crash-tail garbage on reload.\n * @param parent - the delegating session whose effective override is read.\n * @param child - the child session the override is appended to.\n */',
+        signature: 'overrideOf(session: Session): SandboxMode | undefined',
+        jsDoc: '/**\n * A session\'s sandbox-mode OVERRIDE — the fold alone, never the deployment\n * default. The read half of delegation inheritance: the subagent driver\n * captures this synchronously at delegation, so a parent switch racing the\n * child\'s asynchronous creation belongs to the parent\'s future, not to the\n * child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to fold.\n * @returns the last switched mode, or `undefined` for a never-switched session.\n */',
+      },
+      {
+        signature: 'stampOverride(child: Session, mode: SandboxMode): void',
+        jsDoc: '/**\n * Stamp a captured override onto a child session through the canonical\n * write path — the write half of delegation inheritance: a child agent runs\n * under the policy its delegating parent was switched to, not under the\n * (possibly wider) deployment default. A child whose log (e.g. a fork seed)\n * already folds to the mode is left untouched. Callers must append inside\n * an open child turn — a bare between-turn event is crash-tail garbage on\n * reload.\n * @param child - the child session the override is appended to.\n * @param mode - the captured {@link overrideOf} value to stamp.\n */',
       },
     ],
   },
@@ -466,25 +478,49 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
-        jsDoc: '/**\n * Durably persist a batch of events (called from the write-behind drain at\n * the `session/flush` checkpoint). Honors the append-only and contiguous-seq\n * contracts: the first event\'s `seq` MUST equal the stored next-seq (after\n * `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
+        jsDoc: '/**\n * Durably persist a batch of events. Honors the append-only and contiguous-\n * seq contracts: the first event\'s `seq` MUST equal the stored next-seq\n * (after `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
       },
       {
         signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+      },
+      {
+        signature: 'abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
       },
       {
         signature: 'abstract list(): Promise<SessionHeader[]>',
         jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @returns one header per materialized session.\n */',
       },
+      {
+        signature: 'abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>',
+        jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
+      },
     ],
   },
   {
     key: 'sessionQuery',
-    summary: 'Live-preferred logical-corpus exact-read and relationship-tracing service.',
+    summary: 'Unified live-preferred session query service.',
     methods: [
+      {
+        signature: 'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
+        jsDoc: '/**\n * Search the live-preferred logical corpus and group by session.\n * @param request - query text, metadata filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns session hits ranked by their strongest matching event.\n */',
+      },
+      {
+        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
+        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits in deterministic relevance order.\n */',
+      },
       {
         signature: 'listSessions(): Promise<SessionRecord[]>',
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
+      },
+      {
+        signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
+        jsDoc: '/**\n * Read and replay-validate one complete logical session log without making it live.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned header and complete raw event log from one observation.\n * @throws when persistence, header compatibility, or replay validation fails.\n */',
+      },
+      {
+        signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
       {
         signature: 'async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>',
@@ -493,6 +529,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
         jsDoc: '/**\n * List lightweight raw-log event records for one logical session.\n * @param sessionId - live-preferred session id to read.\n * @returns event records in ascending seq order.\n */',
+      },
+      {
+        signature: 'async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>',
+        jsDoc: '/**\n * Scan first-party semantic event documents with provider-independent filters.\n * @param sessionId - live-preferred session id to scan.\n * @param filters - ANDed metadata and literal-text predicates.\n * @returns matching semantic documents in ascending seq order.\n */',
       },
       {
         signature: 'async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>',
@@ -738,7 +778,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'register(definition: ToolDefinition): () => void',
-        jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - the tool schema, execution, and optional presentation functions.\n * @returns the exact disposer that unregisters the tool.\n */',
+        jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - tool schema, execution, and optional finalization/presentation callbacks.\n * @returns the exact disposer that unregisters the tool.\n */',
       },
       {
         signature: 'restrict(filter: ToolRestriction): () => void',
@@ -762,7 +802,17 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
-        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy,\n * definition-owned content finalization, and final notification. Tool and\n * listener failures resolve as materialized error results; an invisible tool\n * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen\n * snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+      },
+    ],
+  },
+  {
+    key: 'tui',
+    summary: 'Optional terminal-local interaction service provided by one mounted TUI.',
+    methods: [
+      {
+        signature: 'abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession',
+        jsDoc: '/**\n * Queue an interactive overlay owned by the calling plugin fiber.\n *\n * The TUI displays one overlay at a time in FIFO order. Disposing the caller\n * removes a queued overlay or closes an active one before plugin teardown\n * settles. This live presentation is neither logged nor replayed.\n *\n * @param request - component factory, layout constraints, and cancellation.\n * @returns the effect-owned overlay session.\n * @throws when the TUI has begun shutting down.\n */',
       },
     ],
   },
@@ -852,6 +902,27 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
+    name: 'agent/inbox/dequeue',
+    mode: 'emit',
+    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
+  },
+  {
+    name: 'agent/inbox/discard',
+    mode: 'emit',
+    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void',
+    jsDoc: '/**\n * Pending inbox items were dropped without delivering them, so every\n * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR\n * `agent/inbox/discard`. Emitters: `cancel()` without `keepInbox` (after\n * `agent/cancel-requested`, before the abort); a terminal `agent/turn-stop`\n * dropping pending steering (in-turn and on the post-turn late-steering\n * drain); and disposal of any still-pending items (before\n * `agent/status(\'disposed\')`). Fires once per drop with every dropped item.\n * @param agent - the agent whose inbox items were dropped.\n * @param messages - the discarded messages in FIFO order (queued then steering); never empty.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Pending inbox items were dropped without delivering them, so every enqueued id receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`.',
+  },
+  {
+    name: 'agent/inbox/enqueue',
+    mode: 'emit',
+    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `message` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection through\n * `agent.inject()` or equivalent `send()` routing bypasses the FIFOs\n * and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'A detached, frozen item entered the agent\'s inbox (queued or steering FIFO).',
+  },
+  {
     name: 'agent/post-step',
     mode: 'serial',
     signature: '\'agent/post-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
@@ -871,13 +942,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
     jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default. A listener wrapping a\n * downstream `allow` must preserve its `content` and `additionalContexts`\n * unless it intentionally replaces them. The signal controls only this turn;\n * listeners may cooperate with it but must not retain it to control another\n * turn. Steering messages do not dispatch this event; they join an open turn\n * at a steering checkpoint.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message.',
-  },
-  {
-    name: 'agent/queued',
-    mode: 'emit',
-    signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; contexts: HookContext[]; steering: boolean }): void',
-    jsDoc: '/**\n * Detached, frozen content entered the agent\'s inbox. Source defaults have\n * already been applied, so these are the exact values retained for the log.\n * @param agent - the agent whose inbox received the message.\n * @param content - the accepted content blocks retained by the inbox.\n * @param info - the accepted source, contexts, and whether it entered as steering.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Detached, frozen content entered the agent\'s inbox.',
   },
   {
     name: 'agent/request',
@@ -911,7 +975,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
-    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does\n * not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). A waking\n * delivery does not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`, or → `disposed`).',
   },
   {
@@ -1137,7 +1201,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(cause?: AgentCancelCause): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    followup(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    queue(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: InjectOptions): AgentMessageId;\n    send(input: ResolvedAgentInput): AgentMessageId;\n    cancel(cause?: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -1150,6 +1214,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentHandle',
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'AgentMessageId',
+    declaration: 'export type AgentMessageId = Branded<\'AgentMessageId\'>;',
   },
   {
     name: 'AgentOptions',
@@ -1252,16 +1320,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CallId = Branded<\'CallId\'>;',
   },
   {
+    name: 'CancelOptions',
+    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean;\n}',
+  },
+  {
+    name: 'CodeBindingErrorClass',
+    declaration: 'export interface CodeBindingErrorClass {\n    name: string;\n    memberNameProperty: string;\n}',
+  },
+  {
     name: 'CodeBindingFunction',
-    declaration: 'export type CodeBindingFunction = (args: unknown) => Promise<unknown>;',
+    declaration: 'export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>;',
   },
   {
     name: 'CodeBindingNamespace',
-    declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n}',
+    declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n    errorClass?: CodeBindingErrorClass;\n}',
+  },
+  {
+    name: 'CodeJsonValue',
+    declaration: 'export type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | {\n    [key: string]: CodeJsonValue;\n};',
   },
   {
     name: 'CodeRunFailure',
-    declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\';\n    message: string;\n}',
+    declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\' | \'invalid-output\' | \'output-limit\';\n    message: string;\n}',
   },
   {
     name: 'CodeRunRequest',
@@ -1269,7 +1349,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodeRunResult',
-    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
+    declaration: 'export interface CodeRunResult {\n    value?: CodeJsonValue;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
     name: 'CollectedOutput',
@@ -1417,7 +1497,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\';\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -1461,7 +1541,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InjectOptions',
-    declaration: 'export interface InjectOptions extends Omit<SendOptions, \'contexts\'> {\n    meta?: JsonValue;\n}',
+    declaration: 'export interface InjectOptions {\n    source?: MessageSource;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'InvariantFailure',
@@ -1472,8 +1552,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void | Promise<void>;\n    readonly inject?: Inject;\n}',
   },
   {
+    name: 'JsonSchemaNode',
+    declaration: 'export interface JsonSchemaNode {\n    type?: JsonSchemaType;\n    oneOf?: JsonSchemaNode[];\n    properties?: Record<string, JsonSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: JsonSchemaNode;\n    enum?: JsonSchemaScalar[];\n    const?: JsonSchemaScalar;\n    description?: string;\n    title?: string;\n    default?: JsonValue;\n    examples?: JsonValue;\n}',
+  },
+  {
+    name: 'JsonSchemaScalar',
+    declaration: 'export type JsonSchemaScalar = string | number | boolean | null;',
+  },
+  {
+    name: 'JsonSchemaType',
+    declaration: 'export type JsonSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
+  },
+  {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'LlmAdapter',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext | undefined>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmCallConfig',
@@ -1508,6 +1604,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
   },
   {
+    name: 'ObjectJsonSchema',
+    declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
+  },
+  {
     name: 'OutOfBandSessionEventMap',
     declaration: 'export interface OutOfBandSessionEventMap {\n}',
   },
@@ -1533,7 +1633,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptMessageData',
-    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n}',
+    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'PromptMessageEnvelope',
@@ -1636,6 +1736,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
   {
+    name: 'RequestHeaderReason',
+    declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
+  },
+  {
+    name: 'ResolvedAgentInput',
+    declaration: 'export type ResolvedAgentInput = {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta: JsonValue | undefined;\n} & ({\n    target: \'next-turn\';\n    wakeup: boolean;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: true;\n    contexts: HookContext[];\n} | {\n    target: \'next-step\';\n    wakeup: false;\n    contexts: [\n    ];\n});',
+  },
+  {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
@@ -1669,7 +1777,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SendOptions',
-    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n}',
+    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'Session',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+  },
+  {
+    name: 'SessionAvailability',
+    declaration: 'export type SessionAvailability = \'live\' | \'persisted\';',
   },
   {
     name: 'SessionEvent',
@@ -1677,7 +1793,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: Req /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
+  },
+  {
+    name: 'SessionEventMetadataFilter',
+    declaration: 'export type SessionEventMetadataFilter = Exclude<SessionEventResultFilter, {\n    kind: \'text\';\n}>;',
   },
   {
     name: 'SessionEventReadRequest',
@@ -1686,6 +1806,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionEventRecord',
     declaration: 'export interface SessionEventRecord {\n    sessionId: SessionId;\n    seq: number;\n    type: SessionEventType;\n    time: number;\n    surface: SessionEventSurface;\n}',
+  },
+  {
+    name: 'SessionEventResultFilter',
+    declaration: 'export type SessionEventResultFilter = ({\n    kind: \'seq\';\n} & SessionResultRange) | ({\n    kind: \'time\';\n} & SessionResultRange) | {\n    kind: \'type\';\n    values: readonly SessionEventType[];\n} | {\n    kind: \'surface\';\n    values: readonly SessionEventSurface[];\n} | {\n    kind: \'text\';\n    text: string;\n};',
+  },
+  {
+    name: 'SessionEventSearchDocument',
+    declaration: 'export interface SessionEventSearchDocument extends SessionEventRecord {\n    text: string;\n}',
+  },
+  {
+    name: 'SessionEventSearchHit',
+    declaration: 'export interface SessionEventSearchHit extends SessionEventRecord {\n    snippet: string;\n}',
+  },
+  {
+    name: 'SessionEventSearchRequest',
+    declaration: 'export interface SessionEventSearchRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
   },
   {
     name: 'SessionEventSurface',
@@ -1732,6 +1868,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionLocation {\n    readonly kind: string;\n    readonly path: string;\n}',
   },
   {
+    name: 'SessionLogSnapshot',
+    declaration: 'export interface SessionLogSnapshot {\n    session: SessionHeader;\n    events: SessionEvent[];\n}',
+  },
+  {
+    name: 'SessionPersistenceRevision',
+    declaration: 'export type SessionPersistenceRevision = Branded<\'SessionPersistenceRevision\'>;',
+  },
+  {
+    name: 'SessionPersistenceSnapshot',
+    declaration: 'export interface SessionPersistenceSnapshot {\n    header: SessionHeader;\n    revision: SessionPersistenceRevision;\n}',
+  },
+  {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
   },
@@ -1742,6 +1890,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionReferenceInput',
     declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
+  },
+  {
+    name: 'SessionResultFilter',
+    declaration: 'export type SessionResultFilter = {\n    kind: \'id\';\n    values: readonly SessionId[];\n} | {\n    kind: \'cwd\';\n    values: readonly (string | null)[];\n} | ({\n    kind: \'created-at\';\n} & SessionResultRange) | {\n    kind: \'parent\';\n    values: readonly (SessionId | null)[];\n} | {\n    kind: \'availability\';\n    values: readonly SessionAvailability[];\n};',
+  },
+  {
+    name: 'SessionResultRange',
+    declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
+  },
+  {
+    name: 'SessionSearchCursor',
+    declaration: 'export type SessionSearchCursor = Branded<\'SessionSearchCursor\'>;',
+  },
+  {
+    name: 'SessionSearchExecContext',
+    declaration: 'export interface SessionSearchExecContext {\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionSearchHit',
+    declaration: 'export interface SessionSearchHit extends SessionRecord {\n    bestMatch: SessionEventSearchHit;\n}',
+  },
+  {
+    name: 'SessionSearchPage',
+    declaration: 'export interface SessionSearchPage<T> {\n    items: readonly T[];\n    nextCursor?: SessionSearchCursor;\n}',
+  },
+  {
+    name: 'SessionSearchRequest',
+    declaration: 'export interface SessionSearchRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
+  },
+  {
+    name: 'SessionSurface',
+    declaration: 'export interface SessionSurface {\n    readonly nodes: readonly number[];\n    readonly replaceGeneration: number;\n}',
   },
   {
     name: 'SessionSurfaceSnapshot',
@@ -1840,22 +2020,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
   {
-    name: 'StructuredOutputSchema',
-    declaration: 'export type StructuredOutputSchema = StructuredSchemaNode & {\n    type: \'object\';\n};',
-  },
-  {
-    name: 'StructuredScalar',
-    declaration: 'export type StructuredScalar = string | number | boolean | null;',
-  },
-  {
-    name: 'StructuredSchemaNode',
-    declaration: 'export interface StructuredSchemaNode {\n    type: StructuredSchemaType;\n    properties?: Record<string, StructuredSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: StructuredSchemaNode;\n    enum?: StructuredScalar[];\n    const?: StructuredScalar;\n    description?: string;\n    title?: string;\n    default?: unknown;\n    examples?: unknown;\n}',
-  },
-  {
-    name: 'StructuredSchemaType',
-    declaration: 'export type StructuredSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
-  },
-  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
@@ -1873,7 +2037,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: StructuredOutputSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -1889,7 +2053,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurfaceEventType',
-    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'context/message\' | \'steering/message\';',
+    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'steering/message\';',
+  },
+  {
+    name: 'SurfaceIntent',
+    declaration: 'export interface SurfaceIntent {\n    surfaceOp: SurfaceOp;\n    sourceEventSeqs?: number[];\n}',
   },
   {
     name: 'SurfaceOp',
@@ -1925,11 +2093,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskSnapshot',
-    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
   },
   {
     name: 'TaskStart',
-    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
   },
   {
     name: 'TaskStatus',
@@ -1977,19 +2145,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
     declaration: 'export interface ToolErrorInfo {\n    name: string;\n    code: string;\n}',
   },
   {
-    name: 'ToolExecuteReturn',
-    declaration: 'export type ToolExecuteReturn = ContentBlock[] | {\n    content: ContentBlock[];\n    meta?: unknown;\n};',
-  },
-  {
     name: 'ToolExecution',
     declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly token: ToolExecutionToken;\n}',
+  },
+  {
+    name: 'ToolExecutionFailure',
+    declaration: 'export interface ToolExecutionFailure {\n    readonly isError: true;\n    readonly error: ToolFailure;\n    readonly value?: never;\n    readonly content: ContentBlock[];\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: HookContext[];\n}',
   },
   {
     name: 'ToolExecutionInput',
@@ -2001,15 +2169,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContexts?: HookContext[];\n    meta?: unknown;\n}',
+    declaration: 'export type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure;',
+  },
+  {
+    name: 'ToolExecutionSuccess',
+    declaration: 'export interface ToolExecutionSuccess {\n    readonly isError: false;\n    readonly value: JsonValue;\n    readonly content: ContentBlock[];\n    readonly error?: never;\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: HookContext[];\n}',
   },
   {
     name: 'ToolExecutionToken',
     declaration: 'export type ToolExecutionToken = symbol & {\n    readonly [toolExecutionTokenBrand]: true;\n};',
   },
   {
+    name: 'ToolFailure',
+    declaration: 'export interface ToolFailure {\n    message: string;\n    info?: ToolErrorInfo;\n}',
+  },
+  {
     name: 'ToolGuard',
     declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
+  },
+  {
+    name: 'ToolOutputDefinition',
+    declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
   },
   {
     name: 'ToolProviderResult',
@@ -2021,7 +2201,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResult',
-    declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'ToolResultBlock',
@@ -2038,6 +2218,58 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'TuiComponent',
+    declaration: 'export interface TuiComponent {\n    render(width: number): string[];\n    handleInput?(data: string): void;\n    wantsKeyRelease?: boolean;\n    invalidate(): void;\n}',
+  },
+  {
+    name: 'TuiFocusable',
+    declaration: 'export interface TuiFocusable {\n    focused: boolean;\n}',
+  },
+  {
+    name: 'TuiOverlayAnchor',
+    declaration: 'export type TuiOverlayAnchor = \'center\' | \'top-left\' | \'top-right\' | \'bottom-left\' | \'bottom-right\' | \'top-center\' | \'bottom-center\' | \'left-center\' | \'right-center\';',
+  },
+  {
+    name: 'TuiOverlayCloseReason',
+    declaration: 'export type TuiOverlayCloseReason = \'closed\' | \'aborted\' | \'owner-disposed\' | \'tui-disposed\' | \'error\';',
+  },
+  {
+    name: 'TuiOverlayHost',
+    declaration: 'export interface TuiOverlayHost {\n    readonly signal: AbortSignal;\n    readonly viewport: TuiViewport;\n    readonly theme: TuiTheme;\n    display(value: string): string;\n    invalidate(): void;\n    close(): void;\n}',
+  },
+  {
+    name: 'TuiOverlayMargin',
+    declaration: 'export interface TuiOverlayMargin {\n    readonly top?: number;\n    readonly right?: number;\n    readonly bottom?: number;\n    readonly left?: number;\n}',
+  },
+  {
+    name: 'TuiOverlayOptions',
+    declaration: 'export interface TuiOverlayOptions {\n    readonly width?: number | `${number}%`;\n    readonly minWidth?: number;\n    readonly maxHeight?: number | `${number}%`;\n    readonly anchor?: TuiOverlayAnchor;\n    readonly margin?: number | TuiOverlayMargin;\n}',
+  },
+  {
+    name: 'TuiOverlayOutcome',
+    declaration: 'export type TuiOverlayOutcome = {\n    readonly reason: Exclude<TuiOverlayCloseReason, \'error\'>;\n} | {\n    readonly reason: \'error\';\n    readonly error: unknown;\n};',
+  },
+  {
+    name: 'TuiOverlayRequest',
+    declaration: 'export interface TuiOverlayRequest {\n    readonly create: (host: TuiOverlayHost) => TuiComponent & Partial<TuiFocusable>;\n    readonly options?: TuiOverlayOptions;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'TuiOverlaySession',
+    declaration: 'export interface TuiOverlaySession {\n    readonly state: TuiOverlayState;\n    readonly closed: Promise<TuiOverlayOutcome>;\n    close(): Promise<TuiOverlayOutcome>;\n}',
+  },
+  {
+    name: 'TuiOverlayState',
+    declaration: 'export type TuiOverlayState = \'queued\' | \'active\' | \'closed\';',
+  },
+  {
+    name: 'TuiTheme',
+    declaration: 'export interface TuiTheme {\n    readonly text: (value: string) => string;\n    readonly muted: (value: string) => string;\n    readonly dim: (value: string) => string;\n    readonly accent: (value: string) => string;\n    readonly success: (value: string) => string;\n    readonly warning: (value: string) => string;\n    readonly error: (value: string) => string;\n    readonly bold: (value: string) => string;\n}',
+  },
+  {
+    name: 'TuiViewport',
+    declaration: 'export interface TuiViewport {\n    readonly columns: number;\n    readonly rows: number;\n}',
   },
   {
     name: 'TurnEndReason',

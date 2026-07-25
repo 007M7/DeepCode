@@ -1,10 +1,17 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
+// Resolution facade shared by every plugin instance below: tsconfig.base.json
+// has no include, which vite-tsconfig-paths treats as match-all, so its paths
+// map applies to every test file. paths must win over package exports so built
+// lib/ never loads a second module-singleton copy.
+const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
+
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
       'packages/bash/*',
       'packages/hooks/*',
+      'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
       'packages/sdk/create-sdk',
       'packages/sdk/helper',
@@ -40,12 +47,7 @@ const processBoundTests = [
 ]
 
 export default defineConfig({
-  // Native path resolution reads each package's nearest tsconfig, but only the root defines
-  // workspace paths. Keep this plugin pinned to the root map so bare package imports resolve
-  // to source — with built lib/ present, manifest-exports fallthrough would load a second
-  // copy of module singletons. tsconfig.vitest.json widens include to .tsx specs (the root
-  // include stops at .ts for tsc -b; the plugin scopes applicability by include).
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+  plugins: [pathsPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
@@ -55,10 +57,13 @@ export default defineConfig({
     // for lower startup/IPC overhead; only explicit process-bound suites fork.
     projects: [
       {
-        plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+        plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
-          pool: 'threads',
+          // Node 24 has aborted in its CJS lexer from a macOS arm64 worker
+          // thread. A fork contains that external runtime failure to the test
+          // process; other hosts retain the lower-overhead thread pool.
+          pool: process.platform === 'darwin' ? 'forks' : 'threads',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
@@ -68,7 +73,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+        plugins: [pathsPlugin()],
         test: {
           name: 'process-bound',
           pool: 'forks',
@@ -95,8 +100,16 @@ export default defineConfig({
         // branches need a browser-grade harness the jsdom lane doesn't cover
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
+        'packages/client/ui-question/src/client/QuestionComposer.tsx',
         'packages/client/web-react/src/*',
+        'packages/client/runtime/src/*',
+        'packages/client/ui-conversation/src/*',
+        'packages/client/ui-slots/src/*',
+        'packages/client/ui-layout/src/*',
+        'packages/client/web/src/*',
         'packages/host/webserver/src/*',
+        'packages/client/modules/src/loader.ts',
+        'packages/client/hmr/src/client/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

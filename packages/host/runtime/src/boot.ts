@@ -8,6 +8,9 @@ import { Context } from 'cordis'
 import Timer from '@cordisjs/plugin-timer'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
+import SessionTitleService, { type Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'
+import * as SessionTitleFirstMessageLlm from '@deepseek-ai/dsh-session-title-first-message-llm'
+import type { Config as SessionTitleLlmConfig } from '@deepseek-ai/dsh-session-title-first-message-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -23,6 +26,7 @@ import FsLocal from '@deepseek-ai/dsh-fs-local'
 import * as fsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as toolFs from '@deepseek-ai/dsh-tool-fs'
 import * as toolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -37,15 +41,38 @@ import * as toolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import SpillLocal from '@deepseek-ai/dsh-spill-local'
 import * as spillPolicy from '@deepseek-ai/dsh-spill-policy'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+
+/** Default deterministic title policy for sessions created through the host. */
+const DEFAULT_SESSION_TITLE_CONFIG: SessionTitleConfig = {
+  fallbackMaxWords: 5,
+  fallbackMaxBytes: 40,
+  maxTitleBytes: 80,
+}
+
+/** Default first-message model-title policy for sessions created through the host. */
+const DEFAULT_SESSION_TITLE_LLM_CONFIG: SessionTitleLlmConfig = {
+  targetWords: 5,
+  targetCjkCharacters: 10,
+  maxInputBytes: 4_096,
+  maxOutputTokens: 64,
+  timeoutMs: 60_000,
+}
 
 /** Options for bootHost — the assembly-layer composition knobs. */
 export interface BootHostOptions {
   /** Root directory for JSONL session persistence. */
   persistenceRoot: string
+  /** Workspace-instruction byte budget/config, or false to disable AGENTS.md/CLAUDE.md loading. */
+  workspaceContext: workspaceContext.Config | false
   /** Default provider route for created/resumed agents (defaults to 'deepseek', the only adapter bootHost registers). */
   provider?: string
   /** Default model id (defaults to 'deepseek-v4-flash', matching the demos). */
   model?: string
+  /** Deterministic fallback-title limits. */
+  sessionTitle?: SessionTitleConfig
+  /** Opt-in first-message model-title policy; `true` selects host defaults and an explicit config overrides them. */
+  sessionTitleLlm?: true | SessionTitleLlmConfig
   /**
    * Default project directory for sessions created without an explicit cwd
    * (defaults to the host process working directory). A session's cwd is its
@@ -76,7 +103,7 @@ export interface HostHandle {
 /**
  * Compose the harness host plugin assembly (the one place deciding which plugins mount and
  * with what defaults — shells must not alter the assembly).
- * @param options - persistence root and optional default provider/model.
+ * @param options - persistence, workspace instructions, and optional default routing.
  * @returns the booted handle (ctx + defaults + dispose).
  */
 export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
@@ -89,13 +116,21 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(Timer)
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionTitleService, options.sessionTitle ?? DEFAULT_SESSION_TITLE_CONFIG)
+  if (options.sessionTitleLlm !== undefined) {
+    await ctx.plugin(
+      SessionTitleFirstMessageLlm,
+      options.sessionTitleLlm === true ? DEFAULT_SESSION_TITLE_LLM_CONFIG : options.sessionTitleLlm,
+    )
+  }
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
+  await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TaskService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, {})
-  await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot, compression: 'none' })
+  await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
   await ctx.plugin(LocalBashExecutor, {})
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +
   // the agent-spine bundle) so web sessions get the same coding-agent tool
@@ -109,6 +144,9 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(fsPolicy)
   await ctx.plugin(toolFs, {})
   await ctx.plugin(toolFsSearch, {})
+  if (options.workspaceContext !== false) {
+    await ctx.plugin(workspaceContext, options.workspaceContext)
+  }
   // Skill stack with the demo default dshHome (~/.dsh via resolveDshHome).
   await ctx.plugin(SkillService, {})
   await ctx.plugin(SkillLocal, {})

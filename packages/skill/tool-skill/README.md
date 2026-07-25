@@ -16,7 +16,7 @@ The plugin contributes one user-role `<system-reminder>` catalog through `agent/
 |---|---|---|
 | `name` | string (required) | Exact kebab-case skill name from the available skills listing. |
 
-Execution uses the calling agent's `session.header.cwd` so workspace-sensitive providers resolve the winning skill. A successful call returns one text result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`.
+Execution uses the calling agent's `session.header.cwd` so workspace-sensitive providers resolve the winning skill. A successful call returns canonical `{ name, provider, resourceBase?, content }`, excluding catalog ranking and provider-internal machinery; its Native renderer produces one text result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`.
 
 Resource guidance resolves only paths or URLs explicitly referenced by the instructions against `resourceBase`; scripts, references, and assets load on demand, and the result does not enumerate a skill directory. Local providers may supply a directory, while remote or embedded providers may supply a URL or opaque loading guidance.
 

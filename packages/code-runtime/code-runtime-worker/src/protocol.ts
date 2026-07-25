@@ -5,16 +5,20 @@
  * @module @deepseek-ai/dsh-code-runtime-worker/src/protocol
  */
 
+import type { WorkerJsonWire } from './worker-json.ts'
+
 /** What the host hands the worker at spawn, via `workerData`. */
 export interface WorkerBootData {
   /** The type-stripped (plain JS) program body. */
   code: string
-  /** Binding namespaces to materialize: the global name plus the function names (functions themselves stay host-side). */
-  namespaces: { global: string; names: string[] }[]
-  /** Shared byte budget for captured log text; exceeding it drops further entries after one in-band marker. */
-  maxLogBytes: number
-  /** Byte cap for the rendered completion value (see the value-preparation contract in bootstrap.ts). */
-  maxValueBytes: number
+  /** Binding namespaces to materialize; functions themselves stay host-side. */
+  namespaces: {
+    global: string
+    names: string[]
+    errorClass?: { name: string; memberNameProperty: string }
+  }[]
+  /** Hard cap for the combined serialized outer logs plus completion value or failure diagnostic. */
+  maxOutputBytes: number
 }
 
 /** Worker → host: one bridged binding call. */
@@ -26,8 +30,8 @@ interface CallMessage {
   global: string
   /** The function name within the namespace. */
   name: string
-  /** The single argument, structured-clone-plain. */
-  args: unknown
+  /** The single argument as a flat lossless-JSON wire value. */
+  args: WorkerJsonWire
 }
 
 /** Worker → host: captured text, streamed eagerly so output survives a mid-run termination (timeout, abort, OOM). */
@@ -36,37 +40,29 @@ interface LogMessage {
   text: string
 }
 
+/** Worker → host: worker-side capture or completion measurement exceeded the outer cap. */
+interface OutputLimitMessage {
+  type: 'output-limit'
+}
+
 /**
- * Worker → host: the program settled. `error` carries a program exception
- * (the only failure the bootstrap itself can report — budgets, aborts, and
- * substrate death are observed host-side). `value` is present only on a
- * clean completion that produced one (already size-capped and
- * clone-safe per the bootstrap's value preparation). Logs are NOT carried
- * here — they streamed eagerly as {@link LogMessage}s.
+ * Worker → host: the program settled. `error` carries a program exception,
+ * invalid completion, or output overflow (budgets, aborts, and substrate death
+ * are observed host-side). `value` is present only on a clean completion that
+ * produced one, as a flat wire value already lossless and admitted against
+ * the remaining combined output cap. Logs are NOT carried here — they streamed
+ * eagerly as {@link LogMessage}s.
  */
 export interface DoneMessage {
   type: 'done'
-  value?: unknown
-  error?: { message: string }
+  value?: WorkerJsonWire
+  error?: { kind: 'exception' | 'invalid-output' | 'output-limit'; message: string }
 }
 
 /** Every message the worker sends. */
-export type WorkerToHost = CallMessage | LogMessage | DoneMessage
+export type WorkerToHost = CallMessage | LogMessage | OutputLimitMessage | DoneMessage
 
 /** Host → worker: the answer to one {@link CallMessage}. */
 export type ReplyMessage =
-  | { type: 'reply'; id: number; ok: true; value: unknown }
+  | { type: 'reply'; id: number; ok: true; value: WorkerJsonWire }
   | { type: 'reply'; id: number; ok: false; message: string }
-
-/**
- * The in-band marker entry text announcing that log capture stopped at the
- * byte budget. Shared wire vocabulary: the worker's LogBuffer emits it when
- * ITS budget exhausts, and the host emits the identical text when its own
- * ledger drops an entry first (forged port traffic, stray pipe bytes) — so
- * a truncated run reads the same however the cap was hit.
- * @param maxBytes - the configured `maxLogBytes` the marker names.
- * @returns the marker line.
- */
-export function logTruncationMarker(maxBytes: number): string {
-  return `[dsh-code-runtime-worker] log capture truncated at ${maxBytes} bytes`
-}

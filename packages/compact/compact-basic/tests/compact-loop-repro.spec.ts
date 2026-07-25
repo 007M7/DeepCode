@@ -4,7 +4,7 @@ import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-a
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -134,7 +134,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TokenMeterService)
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
-  ctx.tools.register(defineTool({
+  ctx.tools.register(defineContentToolFixture({
     name: 'work',
     description: 'does work',
     parameters: { i: { type: 'number' } },
@@ -197,7 +197,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
         provider: 'unconfigured-agent-fallback',
         model: 'unconfigured-agent-fallback',
       })
-      agent.send([{ type: 'text', text: 'do a routed multi-step task' }])
+      agent.followup([{ type: 'text', text: 'do a routed multi-step task' }])
       await waitForIdle(ctx, agent)
 
       expect(agent.session.requestHeader()?.config.model).toBe('mock')
@@ -215,7 +215,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'do tool work' }])
+      agent.followup([{ type: 'text', text: 'do tool work' }])
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -241,7 +241,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('repro'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'do a long multi-step task' }])
+      agent.followup([{ type: 'text', text: 'do a long multi-step task' }])
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -297,7 +297,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
         })
         seedOverflowHistory(agent)
 
-        agent.send([{ type: 'text', text: 'continue from history' }])
+        agent.followup([{ type: 'text', text: 'continue from history' }])
         await agent.whenIdle()
 
         expect(adapter.conversationRequests).toHaveLength(2)
@@ -360,7 +360,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
     try {
       const agent = ctx.agentLoop.create(SessionId('alternating-recovery'), { provider: 'mock', model: 'mock' })
       seedOverflowHistory(agent)
-      agent.send([{ type: 'text', text: 'continue from history' }])
+      agent.followup([{ type: 'text', text: 'continue from history' }])
       await agent.whenIdle()
 
       expect(adapter.conversationRequests).toHaveLength(3)

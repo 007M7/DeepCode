@@ -1,8 +1,11 @@
+import { realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/tui-demo/src/bin.ts', import.meta.url))
@@ -13,14 +16,24 @@ const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
 /**
- * Seed the harness workspace: personal files land in the isolated Harness home
- * (`.dsh`), skill bundles under the agents home's `skills/` root — the same
- * trees `$DSH_HOME` / `$DSH_AGENTS_HOME` point the child at.
+ * Seed the isolated process workspace: ordinary files land in `cwd`, personal
+ * files in the Harness home (`.dsh`), and skill bundles under the agents
+ * home's `skills/` root — the same trees `$DSH_HOME` /
+ * `$DSH_AGENTS_HOME` point the child at.
  */
 function seedWorkspace(
-  files: { personal?: Record<string, string>; skills?: Record<string, string> },
+  files: {
+    workspace?: Record<string, string>
+    personal?: Record<string, string>
+    skills?: Record<string, string>
+  },
 ): (cwd: string) => Promise<void> {
   return async (cwd) => {
+    for (const [name, content] of Object.entries(files.workspace ?? {})) {
+      const file = join(cwd, name)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, content)
+    }
     for (const [name, content] of Object.entries(files.personal ?? {})) {
       const file = join(cwd, '.dsh', name)
       await mkdir(dirname(file), { recursive: true })
@@ -32,6 +45,31 @@ function seedWorkspace(
       await writeFile(file, content)
     }
   }
+}
+
+/** Seed one real plaintext JSONL session for the `/resume` selector and host handoff smoke. */
+async function seedResumeSession(cwd: string): Promise<void> {
+  const sessionCwd = realpathSync.native(cwd)
+  const id = SessionId('resume-target')
+  const meta: SessionHeader = { version: 0, id, createdAt: 1_700_000_000_000, cwd: sessionCwd }
+  const events: SessionEvent[] = [
+    { type: 'turn/start', seq: 0, time: 1_700_000_000_001, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: { content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'step/start', seq: 2, time: 1_700_000_000_003, data: { turn: 1, step: 1 } },
+    { type: 'request/header', seq: 3, time: 1_700_000_000_004, data: { header: { config: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, reason: 'initial' } },
+    { type: 'assistant/message', seq: 4, time: 1_700_000_000_005, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'persisted answer' }], provenance: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, surfaceOp: 'append' },
+    { type: 'step/end', seq: 5, time: 1_700_000_000_006, data: { turn: 1, step: 1 } },
+    { type: 'session/title', seq: 6, time: 1_700_000_000_007, data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
+    { type: 'todo/write', seq: 7, time: 1_700_000_000_008, data: { todos: [{ content: 'Preserve restored state', status: 'in_progress' }] } },
+    { type: 'turn/end', seq: 8, time: 1_700_000_000_009, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  const file = logPath(join(cwd, '.sessions'), sessionCwd, id, 'none')
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, [
+    JSON.stringify(toHeaderLine(meta)),
+    ...events.map(event => JSON.stringify(event)),
+    '',
+  ].join('\n'))
 }
 
 /** The rendered system prompt from the first `request/header` in the workspace's persisted session log. */
@@ -77,14 +115,16 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     const output = await smoke({
       label: 'tui-agent boot',
       actions: [
-        { waitFor: 'main-session-', send: '/plan\r' },
-        { waitFor: 'Entering plan mode (applies from the next step).', send: '/exit\r' },
+        { waitFor: 'main-session-', send: '/plan' },
+        { waitFor: '[off|message] — Enter or leave plan mode', send: '\r' },
+        { waitFor: 'Entering plan mode (applies from the next step). Use /plan off to leave.', send: '/exit\r' },
       ],
     })
     expect(output).toContain('DEEPSEEK')
     expect(output).toContain('HARNESS')
     expect(output).toContain('main-session-')
-    expect(output).toContain('Entering plan mode (applies from the next step).')
+    expect(output).toContain('[off|message] — Enter or leave plan mode')
+    expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
     // Borderless: no box-drawing frame around the banner.
     expect(output).not.toContain('╭')
     expect(output).not.toContain('╮')
@@ -110,12 +150,16 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
         // window title as `<session title> — <configured title>` via OSC 0.
         // Gating /status on it keeps the assertion race-free; the diagnostics
         // card is then exercised through the same real Loader/PTY composition.
-        { waitFor: 'scripted session title — DeepSeek Harness', send: '/status\r' },
+        { waitFor: 'scripted session title — DeepSeek Harness', send: '/plan off\r' },
+        { waitFor: 'Leaving plan mode (applies from the next step).', send: 'Confirm the scripted run left plan mode.\r' },
+        { waitFor: 'Default mode confirmed.', send: '/status\r' },
         { waitFor: 'Session status', send: '/exit\r' },
       ],
     })
     expect(output).toContain('I need one decision before I continue.')
-    expect(output).toContain('Entering plan mode (applies from the next step).')
+    expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
+    expect(output).toContain('Leaving plan mode (applies from the next step).')
+    expect(output).toContain('Default mode confirmed.')
     expect(output).toContain(String.raw`\x1b]2;MODEL_CONTROLLED\x07`)
     expect(output).toContain(String.raw`\x1b[999CMODEL_CURSOR`)
     expect(output).toContain(String.raw`\x9b31mMODEL_C1`)
@@ -168,6 +212,27 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
+  it('fuzzy-completes an @file path without reading or submitting the file', async () => {
+    const output = await smoke({
+      label: 'tui-agent file autocomplete',
+      tempDirPrefix: 'tui-agent-file-autocomplete-',
+      prepare: seedWorkspace({
+        workspace: {
+          'src/terminal-special-case.ts': 'export const marker = true\n',
+          'src/other.ts': 'export const other = true\n',
+        },
+      }),
+      actions: [
+        { waitFor: 'main-session-', send: '@tsc' },
+        { waitFor: 'File · terminal-special-case.t', send: '\t' },
+        { waitFor: '@src/terminal-special-case.ts', send: '\x03/exit\r' },
+      ],
+    })
+    expect(output).toContain('File · terminal-special-case.t')
+    expect(output).toContain('@src/terminal-special-case.ts')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('boots the Code Mode overlay tree, renders its banner, and exits cleanly', async () => {
     // The overlay's only keyless composition proof: the include+patch tree,
     // worker code runtime, and one-tool registry all mount before the banner.
@@ -196,6 +261,27 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
 })
 
 describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
+  it('exec-replaces the TUI for /resume and restores the same session state', async () => {
+    const output = await smoke({
+      label: 'dsh in-place resume',
+      tempDirPrefix: 'dsh-in-place-resume-',
+      binScript: dshBinScript,
+      configArgs: [scriptedConfigPath],
+      prepare: seedResumeSession,
+      actions: [
+        { waitFor: 'scripted TUI ready.', send: '/resume\r' },
+        { waitFor: 'Resume selector design', send: 'Resume selector design' },
+        { waitFor: '⌕ Resume selector design', send: '\r' },
+        { waitFor: 'Preserve restored state', send: '/exit\r' },
+      ],
+    })
+    const released = output.indexOf('\u001B[?2004l')
+    const restored = output.indexOf('Resume selector design — DeepSeek Harness')
+    expect(released).toBeGreaterThanOrEqual(0)
+    expect(restored).toBeGreaterThan(released)
+    expect(output).toContain('Preserve restored state')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('boots the shipped default config with no arguments and no personal overlay', async () => {
     const output = await smoke({
       label: 'dsh default boot',

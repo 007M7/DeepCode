@@ -1,4 +1,4 @@
-# Agent Note: Resume command hint and `/resume`
+# Agent Note: Product-level TUI session resume
 
 Status: implemented
 
@@ -6,36 +6,34 @@ English | [中文](2026-07-21-tui-resume-command.zh.md)
 
 ## Problem
 
-The TUI can resume a session by launch (`RESUME_SESSION_ID=<id> dsh` feeding `dsh-tui-demo`'s `resumeSessionId`), but nothing told the user the command. On exit the session id survived only in the log and `./.sessions` filenames — the [no-banner Agent Note](2026-07-21-tui-no-banner.md) removed the last place it was shown — so resuming meant hunting for the id and reconstructing the invocation. There was also no in-session way to see which sessions in this workspace are resumable.
+The original `/resume` printed shell commands. It did not let a keyboard user inspect titles or outcomes, distinguish corruption from a missing adapter, or safely transfer the terminal. Leaving the TUI and manually launching a command also hid the required ordering: finish current work, flush it, release the UI and app, then restore the exact persisted identity without silently creating a replacement.
 
 ## Decision
 
-A single optional `resumeCommand` config field on `dsh-tui` gates both surfaces: a shell command template whose every `{session}` is replaced with the live session id (e.g. `dsh --resume {session}`). Absent, neither surface appears.
+`/resume` uses the TUI's existing interactive overlay seam as a full-viewport picker rather than a centered dialog. The flat page keeps the search field, workspace, candidates, and shortcut footer in stable screen regions; only the active row uses the accent role. Its search editor starts immediately after the search glyph and emits pi-tui's cursor marker, so terminal IME composition remains anchored in the field. Escape clears a non-empty query before a second Escape closes the picker. It lists the current workspace by last logged activity and searches log-backed title or id. Each candidate displays current/live/persisted state, last turn outcome, recent provider/model, durable goal phase when present, and the id as secondary text. The current session and sessions already live in this runtime remain visible but disabled.
 
-- **Exit hint.** Process-exiting shutdown prints `To resume this session: <command>` (muted label) via `runtime.terminal.write` after `ui.stop()`, before `runtime.exit`. It prints only once the session is durably persisted: `currentResumeCommand()` scans the session list for the current id and returns `undefined` if it is absent, so a session abandoned before its first flush advertises no command that would fail to load.
-- **`/resume`.** Lists this workspace's persisted sessions newest-first, each with its resume command, marking the current one `(current)`. It warns when `resumeCommand` is unconfigured or no persistence backend is mounted, and notes when nothing is persisted yet. The listing is asynchronous, so the transcript updates a tick after submit.
-- **Listing.** `listWorkspaceSessions()` reads the optional `sessionPersistence` service's `list()`, keeps headers whose `cwd === agent.session.header.cwd`, and sorts by `createdAt` descending. A `list()` rejection is swallowed to `[]` — a persistence failure must never block terminal exit or crash `/resume`.
+`session-query.readSession()` supplies a detached complete log validated by the same core replay boundary used by resume. The TUI folds title and goal state from that log. A candidate load failure is local to that row; selecting a candidate revalidates the log, `cwd`, route, current agent's idle status, and the exclusions for the current session and sessions already live in this runtime, so a stale listing cannot bypass preflight. A missing adapter reports an intact session with an unavailable route. This preflight does not lock the target or exclude another process.
 
-`sessionPersistence` is an optional injected service reached through `ctx.get('sessionPersistence')` (not `inject`), declared as an optional peer dependency. Without a backend the field still parses; the exit hint and `/resume` degrade to nothing and the unconfigured/no-backend warnings respectively. `dsh-tui-demo` forwards `resumeCommand` to `dsh-tui`, and the runnable `examples/tui-agent` leaves set `dsh --resume {session}`. The `dsh` CLI (`apps/cli`) parses that `--resume <id>` flag through `parseResumeArg` in [`dsh-app-boot`](../../../../packages/ui/app-boot/README.md), setting `RESUME_SESSION_ID` before boot so the printed command runs back through the config's existing `resumeSessionId` intake; a mistyped or repeated flag fails loud rather than silently starting fresh.
+After preflight, the TUI flushes the current session, confirms that its agent remains idle, then stops the terminal before calling `TuiRuntime.handoffResume`. The shipped `dsh` host disposes the root app and uses `process.execve` with a normalized `--resume` argument, atomically replacing the process rather than starting a child. The resumed app publishes the same `SessionId`; ordinary replay restores transcript, title, todos, and durable goal state. Goal activation is intentionally disarmed, and the TUI asks for human confirmation or `/goal resume`.
+
+`resumeCommand` remains an exit and no-host fallback. The TUI substitutes `{session}` only for display and never executes arbitrary shell text. The exit hint still appears only after the current session is durable.
 
 ## Alternatives considered
 
-**Hardcode or auto-detect the resume invocation.** Rejected: the launch command is deployment-specific — the env-var name, binary, and flags all vary — so a `DEFAULT_*` constant would be a fixed tunable, not configurability. A template owned by the leaf keeps the choice where the deployment lives, and `{session}` is the only substitution the TUI must know.
+**Have the TUI spawn `resumeCommand`.** Rejected: the template is deployment text, not trusted argv, and the TUI does not own app teardown or process lifetime. The constrained host seam receives only a validated `SessionId`.
 
-**Two config fields, one per surface.** Rejected: both render the identical command, so one field keeps them symmetric and unable to drift; there is no deployment that wants the hint but not the listing.
+**Construct the resumed agent inside the existing TUI.** Rejected: replacing one config-created agent would cross Loader ownership, scoped plugin setup, persistence retirement, and terminal lifecycle in the presentation layer. Root disposal plus process replacement reuses the supported startup path.
 
-**Print the exit hint unconditionally.** Rejected: resuming a session id that never flushed fails to load, so advertising it is a broken instruction. Gating on the id appearing in `list()` costs one scan and only ever suppresses a dead command.
+**Treat a missing adapter as a missing session.** Rejected: storage validity and current route availability are independent facts. The selector keeps the row and names the unavailable provider/model.
 
-**Resume in place from `/resume` (relaunch or reattach).** Rejected: the TUI does not own agent lifecycle or process spawning ([front-door Agent Note](2026-07-17-dedicated-full-screen-tui-front-door.md)). Printing a copyable command respects that boundary and matches the `pi --resume` affordance the request cited.
-
-**Make `sessionPersistence` a required `inject`.** Rejected: the TUI must run without persistence (fixtures, ephemeral runs). An optional service that degrades preserves that, and matches the [`session-query`](../../../../packages/session-query/session-query/package.json) precedent for the same optional peer.
+**Persist goal activation across resume.** Rejected: durable intent is not authorization to continue after a human or process boundary. Goal phase survives; automatic continuation does not.
 
 ## Consequences
 
-- `dsh-tui` gains an optional peer dependency on `@deepseek-ai/dsh-session-persistence` (`peerDependenciesMeta.optional`), matching `session-query`; the package still loads and passes its coverage gate without a backend mounted.
-- The help line and autocomplete gain `/resume`; two existing snapshots re-recorded for the wider help line, and a new `resume-sessions` checkpoint pins the rendered listing.
-- `dsh-tui-demo` and both `examples/tui-agent` leaves carry `resumeCommand`, so a real TUI run now prints its own resume command on exit, and the `dsh` CLI accepts the printed `--resume <id>` flag to run it.
+- Concurrent processes can select or resume the same persisted session because preflight does not serialize them.
+- `/resume` depends on `session-query` for discovery and complete-log reads, but persistence and host handoff remain optional; without a host, the command fallback stays usable.
+- Process replacement intentionally restarts Loader composition. Runtime-only state is rebuilt, while only logged or header-backed session state survives.
 
 ## Testing
 
-`packages/ui/tui/tests/tui.spec.ts` pins the seven behaviors: the exit hint prints only when the current session is persisted, is omitted when it is not and when `list()` rejects; `/resume` lists workspace sessions newest-first with the `(current)` marker and cwd filter, warns when unconfigured and when no backend is mounted, and notes when nothing is persisted. The `resume-sessions` snapshot verifies the full rendered frame. The harness provides a fake `sessionPersistence` through `ctx.provide`. For the `--resume` flag, `packages/ui/app-boot/tests/app-boot.spec.ts` pins `parseResumeArg` (space and inline forms, position independence, and the fail-loud on a valueless, empty, or repeated flag), and `examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` boots `apps/cli` with `--resume <missing-id>` and asserts the config resume fails loud — proving the flag reaches the `resumeSessionId` intake.
+TUI tests cover keyboard navigation, title/id search, search-clear/cancel behavior, running-agent refusal, refusal of the current session and sessions already live in this runtime, route absence, corrupt rows, preflight revalidation, fallback commands, and stop-before-handoff ordering. Session-query tests pin detached full-log validation. Agent-loop resume tests pin exact identity and history; title, todo, and goal replay suites pin restored projections and disarmed goal activation. The keyless TUI snapshot owns the full-viewport selector and its IME cursor anchor, and a real PTY smoke covers search plus handoff.

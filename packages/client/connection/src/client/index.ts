@@ -21,15 +21,12 @@ export type {
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
 } from './api.ts'
-export { RpcId, AbstractApiClient, resultOf, transportError } from './api.ts'
+export { RpcId, AbstractApiClient, transportError } from './api.ts'
 
-// ---- Connection loop ----
-export { ConnectionController } from './connection.ts'
+// ---- Connection loop types (part of the ConnectionHandle.start contract;
+// the controller class itself stays package-internal — apply owns the loop,
+// tests reach it via src) ----
 export type { ConnectionConfig, ConnectionSinks, ConnectionState }
-
-// ---- Platform client subclasses ----
-export { WebApiClient } from './web-api-client.ts'
-export { FixtureApiClient, createFixtureApi } from './fixture.ts'
 
 
 /** Required services (none — this is the wire root). */

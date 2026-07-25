@@ -1,25 +1,34 @@
+/* Full-bleed scroll host so Turn sticky bars can paint edge-to-edge;
+ * cell content width is capped on the turn body (max 880). */
 .root {
-  padding: 16px;
   overflow-y: auto;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
   color: var(--dsw-alias-label-primary);
-  font-size: 13px;
+  background: var(--dsw-specific-sidebar-fill);
 }
 
 .empty {
+  padding: 16px;
   color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xs-13);
 }
 
+/* Waterfall placeholder rows (shared module). */
 .row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
+  padding: 4px 16px;
 }
 
 .turnTag {
   flex: none;
   width: 64px;
   color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
 }
 
 .bar {
@@ -29,9 +38,10 @@
 }
 
 .barCalls {
-  background: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary-new-colorprimary-new-color);
 }
 
 .meta {
   color: var(--dsw-alias-label-caption);
+  font: var(--dsw-font-xs-13);
 }

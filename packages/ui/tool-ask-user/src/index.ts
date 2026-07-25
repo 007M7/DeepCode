@@ -27,6 +27,7 @@ export function apply(ctx: Context): void {
         description: 'Questions to ask the user before continuing.',
         items: {
           type: 'object',
+          additionalProperties: true,
           properties: {
             id: { type: 'string', required: true, description: 'Stable id for this question; echoed in the answer.' },
             question: { type: 'string', required: true, description: 'The specific question to ask the user.' },
@@ -39,6 +40,7 @@ export function apply(ctx: Context): void {
               description: 'Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.',
               items: {
                 type: 'object',
+                additionalProperties: true,
                 properties: {
                   label: { type: 'string', required: true, description: 'Short user-facing option label.' },
                   description: { type: 'string', description: 'One sentence explaining the tradeoff or impact.' },
@@ -53,6 +55,28 @@ export function apply(ctx: Context): void {
         },
       },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          answers: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true },
+                selected: { type: 'array', required: true, items: { type: 'string' } },
+                custom: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
     async execute(args, exec) {
       const result = await ctx.userInteraction.ask({
         questions: args.questions.map(question => ({
@@ -65,7 +89,13 @@ export function apply(ctx: Context): void {
         ...exec.agent !== undefined ? { agent: exec.agent } : {},
         signal: exec.signal,
       })
-      return [{ type: 'text', text: JSON.stringify(result) }]
+      return {
+        answers: result.answers.map(answer => ({
+          id: answer.id,
+          selected: [...answer.selected],
+          ...answer.custom !== undefined ? { custom: answer.custom } : {},
+        })),
+      }
     },
   }))
 }

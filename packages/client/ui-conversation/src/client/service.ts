@@ -1,8 +1,10 @@
 /**
- * ConversationService implementation: scope-addressed send/cancel, per-scope
- * selection/draft stores booked on the session scope fiber, view registry
- * with a uSES read face, openDetails orchestration, and the empty-state
- * startSession chain. Contract: api-contracts v3 section 7.
+ * ConversationService implementation: scope-addressed send/cancel and the
+ * empty-state startSession chain. Contract: api-contracts v3 section 7.
+ * Selection/draft state moved to the declared chat store (slot terminal
+ * design §4); the view registry moved to the 'conversation.view' slot (slot
+ * ledger owns registration, ordering, and disposal) — what remains is the
+ * send/stop orchestration face.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
@@ -13,36 +15,13 @@
  */
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
-// Value import MUST use the /client subpath: only that specifier is in the
-// bundle externals (CLIENT_EXTERNALS), so it resolves to the shared runtime
-// module at load time. A bare-specifier value import gets INLINED as a second
-// module instance whose private scope-tag Symbol never matches the one
-// SessionsService tags contexts with — scopeOf then always returns undefined
-// in the browser while unit tests (single-instance path resolution) stay green.
-import { scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only imports: a plugin-to-plugin value import is a bundle purity
+// error, so scope resolution goes through the sessions service (scopeOf
+// method) instead of the standalone helper.
 import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SelectionTarget, ViewEntry, ViewId } from './index.ts'
-
-/** Mutable view-registry cell (plain object: mutation never crosses the tracker proxy). */
-interface ViewsState {
-  entries: Map<string, ViewEntry>
-  /** Sorted projection cache; null = rebuild on next read. */
-  cache: readonly ViewEntry[] | null
-  tick: number
-  listeners: Set<() => void>
-}
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service {
-  private readonly selections = new Map<SessionId, SnapshotStore<SelectionTarget | null>>()
-  private readonly draftStores = new Map<SessionId, SnapshotStore<string>>()
-  private readonly viewsState: ViewsState = {
-    entries: new Map(), cache: null, tick: 0, listeners: new Set(),
-  }
-
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
@@ -71,91 +50,6 @@ export class ConversationService extends Service {
     if (!result.ok) throw new Error(`conversation.cancel failed: ${result.error.code}: ${result.error.message}`)
   }
 
-  /** Per-scope selection channel (details linkage); root access throws. */
-  get selection(): SnapshotStore<SelectionTarget | null> {
-    return this.scopeStore(this.selections, 'selection',
-      () => createSnapshotStore<SelectionTarget | null>(null))
-  }
-
-  /**
-   * Per-scope draft store, persisted per session id; root access throws.
-   * Persistence is hand-rolled (raw string per key): the snapshot-store
-   * engine's persist middleware object-spreads state on save, corrupting
-   * primitive-state stores.
-   */
-  get drafts(): SnapshotStore<string> {
-    return this.scopeStore(this.draftStores, 'drafts', (id) => {
-      const key = `dsh.conversation.draft.${id}`
-      const store = createSnapshotStore<string>(loadDraft(key))
-      store.subscribe(() => { saveDraft(key, store.getSnapshot()) })
-      return store
-    })
-  }
-
-  /**
-   * Write the scoped selection and open the details panel. Orchestration
-   * only — panel geometry stays with ctx.layout.
-   * @param target - selection target.
-   */
-  openDetails(target: SelectionTarget): void {
-    this.selection.set(target)
-    this.requireLayout().openDetails()
-  }
-
-  /**
-   * Register a conversation view. Duplicate ids throw; the registration is an
-   * effect on the caller's fiber (plugin unload collects it).
-   * @param entry - the view entry.
-   * @returns disposer removing the view.
-   */
-  registerView<Id extends ViewId>(entry: ViewEntry<Id>): () => void {
-    const views = this.viewsState
-    const dispose = this.ctx.effect(() => {
-      if (views.entries.has(entry.id)) {
-        throw new Error(`conversation view "${entry.id}" is already registered`)
-      }
-      views.entries.set(entry.id, entry)
-      bumpViews(views)
-      return () => {
-        views.entries.delete(entry.id)
-        bumpViews(views)
-      }
-    }, 'conversation.registerView()')
-    // The effect disposer settles asynchronously; the registry face stays a
-    // synchronous fire-and-forget disposer.
-    return () => { void dispose() }
-  }
-
-  /**
-   * Registered views ordered by `order` (ties keep registration sequence).
-   * Stable array reference between mutations (uSES getSnapshot source).
-   * @returns the view entries.
-   */
-  views(): readonly ViewEntry[] {
-    const state = this.viewsState
-    state.cache ??= [...state.entries.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    return state.cache
-  }
-
-  /**
-   * Subscribe to view registry changes (synchronous, like the toolview registry).
-   * @param fn - change callback.
-   * @returns unsubscribe.
-   */
-  subscribeViews(fn: () => void): () => void {
-    const { listeners } = this.viewsState
-    listeners.add(fn)
-    return () => { listeners.delete(fn) }
-  }
-
-  /**
-   * Monotonic view registry version for uSES pairing.
-   * @returns current version.
-   */
-  viewsVersion(): number {
-    return this.viewsState.tick
-  }
-
   /**
    * Empty-state first-send chain (root-context method; does not read scope):
    * create the session, navigate to it, then send through the new scope.
@@ -170,9 +64,9 @@ export class ConversationService extends Service {
     const sessions = this.requireSessions()
     const id = await sessions.create(opts.cwd === undefined ? {} : { cwd: opts.cwd })
     // The manager notifier flushes per microtask; one await guarantees the
-    // list-store projection landed before layout.open validates against it.
+    // list-store projection landed before sessions.open validates against it.
     await Promise.resolve()
-    this.requireLayout().open(id)
+    sessions.open(id)
     const scoped = sessions.scope(id)
     if (scoped === undefined) throw new Error(`conversation.startSession: created session "${id}" resolved no scope`)
     // ctx.get, not scoped.conversation: property access walks the fiber
@@ -189,30 +83,13 @@ export class ConversationService extends Service {
     return this.requireSessions().manager.get(id)
   }
 
-  /** Read the caller's session scope tag; root contexts fail loud. */
+  /** Read the caller's session scope tag via the sessions service; root contexts fail loud. */
   private scopeId(op: string): SessionId {
-    const id = scopeOf(this.ctx)
+    const id = this.requireSessions().scopeOf(this.ctx)
     if (id === undefined) {
       throw new Error(`conversation.${op} requires a session scope — address one via ctx.sessions.scope(id).conversation`)
     }
     return id
-  }
-
-  /**
-   * Per-scope store account: lazily created, booked on the scope fiber so the
-   * scope teardown (SessionsService prune) collects the entry.
-   */
-  private scopeStore<T>(
-    map: Map<SessionId, SnapshotStore<T>>, op: string,
-    make: (id: SessionId) => SnapshotStore<T>): SnapshotStore<T> {
-    const id = this.scopeId(op)
-    let store = map.get(id)
-    if (store === undefined) {
-      store = make(id)
-      map.set(id, store)
-      this.ctx.effect(() => () => { map.delete(id) }, `conversation.${op} scope account`)
-    }
-    return store
   }
 
   private requireSessions(): SessionsService {
@@ -223,29 +100,4 @@ export class ConversationService extends Service {
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
     return sessions
   }
-
-  private requireLayout(): LayoutService {
-    const layout = this.ctx.get('layout')
-    if (layout === undefined) throw new Error('conversation: layout service unavailable')
-    return layout
-  }
-}
-
-function bumpViews(state: ViewsState): void {
-  state.cache = null
-  state.tick += 1
-  for (const fn of [...state.listeners]) fn()
-}
-
-function loadDraft(key: string): string {
-  /* v8 ignore next -- storage-less environment guard (workers/tests without DOM); jsdom always provides localStorage. */
-  if (typeof localStorage === 'undefined') return ''
-  return localStorage.getItem(key) ?? ''
-}
-
-function saveDraft(key: string, text: string): void {
-  /* v8 ignore next -- storage-less environment guard (workers/tests without DOM); jsdom always provides localStorage. */
-  if (typeof localStorage === 'undefined') return
-  if (text === '') localStorage.removeItem(key)
-  else localStorage.setItem(key, text)
 }

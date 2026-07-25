@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, TurnEndReason, type JsonValue } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -42,7 +42,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('agent loop', () => {
@@ -89,7 +89,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: 'echo back',
       parameters: { text: { type: 'string' } },
@@ -118,22 +118,27 @@ describe('agent loop', () => {
     const types = agent.session.events.map(e => e.type)
     expect(types).toContain('tool/call')
     expect(types).toContain('tool/result')
+    const durableResult = agent.session.events.find(event => event.type === 'tool/result')
+    expect(durableResult?.type === 'tool/result' && 'value' in durableResult.data).toBe(false)
   })
 
-  it('threads a tool-attached meta (execute object return) onto the tool/result event', async () => {
+  it('persists presentation metadata projected from the canonical value', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'writer', { path: 'a.txt' }, 'writing'),
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    // A tool that returns the { content, meta } object form: the loop must
-    // persist `meta` on the tool/result event so a UI reproduces the card on replay.
     ctx.tools.register(defineTool({
       name: 'writer',
       description: 'writes a file',
       parameters: { path: { type: 'string' } },
+      output: {
+        schema: { type: 'string' },
+        render: () => [{ type: 'text', text: 'ok' }],
+        presentationMeta: (_args, value) => ({ diffs: [{ path: value, oldText: null, newText: 'x' }] }),
+      },
       async execute() {
-        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] } }
+        return 'a.txt'
       },
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -152,7 +157,7 @@ describe('agent loop', () => {
     // projecting this agent's configured model, so the model knows its own name.
     const ctx = await harness(adapter, 'You are a test agent on {{model}}.')
     ctx.systemPrompt.section({ name: 'tool:noop', order: 100, text: 'Use the noop tool wisely.' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'noop',
       description: 'does nothing',
       parameters: {},
@@ -248,7 +253,7 @@ describe('agent loop', () => {
     ['BigInt', { n: 1n }],
     ['Map', new Map([['key', 'value']])],
     ['class instance', new (class ResultMeta { x = 1 })()],
-  ])('normalizes non-JSON tool meta (%s) before the durable result commit', async (_kind, meta) => {
+  ])('rejects non-JSON presentation metadata (%s) before the durable result commit', async (_kind, meta) => {
     const adapter = new MockAdapter([
       toolCallResponse('bad-meta-call', 'bad-meta', {}, 'calling'),
       textResponse('recovered'),
@@ -258,7 +263,12 @@ describe('agent loop', () => {
       name: 'bad-meta',
       description: 'returns invalid durable metadata',
       parameters: {},
-      execute: () => Promise.resolve({ content: [{ type: 'text' as const, text: 'apparent success' }], meta }),
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+        presentationMeta: () => meta as unknown as JsonValue,
+      },
+      execute: () => Promise.resolve('apparent success'),
     }))
     const agent = ctx.agentLoop.create(SessionId('bad-meta-agent'), { provider: 'mock', model: 'mock' })
 
@@ -271,15 +281,16 @@ describe('agent loop', () => {
       expect(result.data.callId).toBe('bad-meta-call')
       expect(result.data.isError).toBe(true)
       expect(result.data.meta).toBeUndefined()
+      expect(result.data.error).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
       expect(result.data.content).toEqual([{
         type: 'text',
-        text: 'Error: tool result must be losslessly JSON-serializable',
+        text: 'Error: tool "bad-meta" returned invalid output: output.presentationMeta returned non-lossless JSON',
       }])
     }
     // The normalized failure was durably logged and fed back to the model; the
     // turn continued normally instead of failing after an apparent success.
     expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('losslessly JSON-serializable')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('output.presentationMeta returned non-lossless JSON')
   })
 
   it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {
@@ -326,7 +337,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
 
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow',
       description: '',
       parameters: {},
@@ -380,7 +391,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     agent.inject([{ type: 'text', text: 'file changed: a.ts' }], { source: { kind: 'plugin', plugin: 'watcher' } })
-    // The idle inject records a self-contained turn (turn/start → context/message
+    // The idle inject records a self-contained turn (turn/start → user/message
     // → turn/end) so the event stays turn-enclosed, but does NOT run the model.
     await new Promise(r => setTimeout(r, 20))
     expect(agent.status).toBe('idle')
@@ -416,8 +427,8 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    const contextEvent = agent.session.events.find(event => event.type === 'context/message')
-    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ meta })
+    const contextEvent = agent.session.events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+    expect(contextEvent?.type === 'user/message' && contextEvent.data).toMatchObject({ meta })
     const requestText = JSON.stringify(adapter.requests[0]!.messages)
     expect(requestText).toContain('Additional instructions from: pkg/AGENTS.md')
     expect(requestText).not.toContain('<context source=')
@@ -432,7 +443,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let visibleDuringTool = false
     const meta = { kind: 'deferred-test', version: 1 }
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'noticer',
       description: 'injects a notice',
       parameters: {},
@@ -445,7 +456,7 @@ describe('agent loop', () => {
         })
         first.text = 'mutated after inject'
         agent.inject([{ type: 'text', text: 'second notice' }], { source: { kind: 'plugin', plugin: 'x' } })
-        visibleDuringTool = agent.session.events.some(e => e.type === 'context/message')
+        visibleDuringTool = agent.session.events.some(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
         return [{ type: 'text', text: 'ok' }]
       },
     }))
@@ -462,13 +473,13 @@ describe('agent loop', () => {
     const ts0 = turnStarts[0]!
     expect(ts0.type === 'turn/start' && ts0.data.trigger.kind).toBe('message')
     const result = agent.session.events.find(e => e.type === 'tool/result')!
-    const contexts = agent.session.events.filter(e => e.type === 'context/message')
+    const contexts = agent.session.events.filter(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
     expect(contexts).toHaveLength(2)
     expect(result.seq).toBeLessThan(contexts[0]!.seq)
-    expect(contexts[0]?.type === 'context/message' && contexts[0].data).toMatchObject({
+    expect(contexts[0]?.type === 'user/message' && contexts[0].data).toMatchObject({
       meta,
     })
-    expect(contexts.flatMap(event => event.type === 'context/message' ? event.data.content : []))
+    expect(contexts.flatMap(event => event.type === 'user/message' ? event.data.content : []))
       .toEqual([
         { type: 'text', text: 'mid-turn notice' },
         { type: 'text', text: 'second notice' },
@@ -494,7 +505,7 @@ describe('agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('invalid-context'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'invalid-injector',
       description: 'attempts an invalid context injection',
       parameters: {},
@@ -512,7 +523,29 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(agent.session.events.some(event => event.type === 'context/message')).toBe(false)
+    expect(agent.session.events.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
+  })
+
+  it('preserves SendOptions.meta on the durable user/message and steering/message', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'noop', description: '', parameters: {},
+      async execute() {
+        // Running steer carries its own meta onto the durable steering/message.
+        agent.steer([{ type: 'text', text: 's' }], { source: { kind: 'plugin', plugin: 'p' }, meta: { steer: 1 } })
+        return []
+      },
+    }))
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    agent.followup([{ type: 'text', text: 'go' }], { meta: { prompt: 1 } })
+    await waitForIdle(ctx, agent)
+
+    const user = agent.session.events.find(e => e.type === 'user/message')
+    expect(user?.type === 'user/message' && user.data.meta).toEqual({ prompt: 1 })
+    const steering = agent.session.events.find(e => e.type === 'steering/message')
+    expect(steering?.type === 'steering/message' && steering.data.meta).toEqual({ steer: 1 })
   })
 
   it('agent/turn-continuation can force-continue (/loop pattern) and force-stop', async () => {
@@ -541,7 +574,7 @@ describe('agent loop', () => {
   it('agent/turn-continuation can veto continuation despite tool calls (budget-guard pattern)', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', { text: 'x' })])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -589,7 +622,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo', description: 'echo', parameters: {},
       async execute() { return [{ type: 'text', text: 'echoed' }] },
     }))
@@ -621,7 +654,7 @@ describe('agent loop', () => {
     ctx.on('agent/pre-step', (subject) => {
       if (subject === agent && !injected) {
         injected = true
-        subject.session.append('context/message', {
+        subject.session.append('user/message', {
           content: [{ type: 'text', text: 'INJECTED-IN-PRE-STEP' }],
           source: { kind: 'plugin', plugin: 'test' },
         }, { surfaceOp: 'append' })
@@ -639,7 +672,7 @@ describe('agent loop', () => {
     // And the injected event sits BEFORE the first step/start in the log —
     // the seam fired outside the step.
     const events = agent.session.events
-    const injectedSeq = events.find(e => e.type === 'context/message')!.seq
+    const injectedSeq = events.find(e => e.type === 'user/message' && e.data.source.kind === 'plugin')!.seq
     const firstStepStartSeq = events.find(e => e.type === 'step/start')!.seq
     expect(injectedSeq).toBeLessThan(firstStepStartSeq)
   })
@@ -781,7 +814,7 @@ describe('agent loop', () => {
     ]])
     const ctx = await harness(adapter)
     let executions = 0
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -821,7 +854,7 @@ describe('agent loop', () => {
       { type: 'finish', reason: { kind: 'max-tokens' } },
     ]])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -908,7 +941,7 @@ describe('agent loop', () => {
       textResponse('continued after tool call'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -1017,13 +1050,13 @@ describe('agent loop', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('turn-end listener message')
   })
 
-  it('keeps a reentrant agent/queued send as the next independent turn', async () => {
+  it('keeps a reentrant agent/inbox/enqueue send as the next independent turn', async () => {
     const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let nested = false
-    ctx.on('agent/queued', (subject) => {
+    ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject !== agent || nested) return
       nested = true
       send(agent, 'queued listener message')
@@ -1050,9 +1083,9 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const idle = waitForIdle(ctx, agent)
-    agent.send([{ type: 'text', text: 'user message' }])
+    agent.followup([{ type: 'text', text: 'user message' }])
     await Promise.resolve()
-    agent.send(
+    agent.followup(
       [{ type: 'text', text: 'plugin message' }],
       { source: { kind: 'plugin', plugin: 'test' } },
     )
@@ -1240,7 +1273,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },

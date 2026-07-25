@@ -1,131 +1,191 @@
 // @vitest-environment jsdom
 /**
  * View registration acceptance on the real framework stack: the plugin fiber
- * registers trajectory/waterfall into a real ConversationService, tabs switch
- * inside ConversationRoot without collapsing chat, chrome.header renders the
- * span stats bar, and fiber disposal removes both tabs. Span derivation edge
- * cases ride along.
+ * registers trajectory/waterfall into a real SlotsService view ring, tabs
+ * switch inside ConversationRoot (renderSlot share driven by the same tab
+ * projection apply uses) without collapsing chat, trajectory renders the
+ * turn-list chrome (no span stats bar), waterfall keeps in-body stats, and
+ * fiber disposal removes both tabs. Span derivation edge cases ride along.
  */
 import { Context } from 'cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { createElement, Fragment, type FC, type ReactNode } from 'react'
-import { bindSnapshotSelector, createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+import { createElement, type FC, type ReactNode } from 'react'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { ConversationSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationRoot, ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ConvViewProps, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import {
-  apply, deriveSpans, deriveSpanStats, inject, TrajectoryStatsHeader, TrajectoryView, WaterfallView,
-} from '@deepseek-ai/dsh-client-ui-trajectory/client'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Export discipline: packages/client/AGENTS.md.
+import { ConversationRoot, type ConversationRootProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationRoot.tsx'
+import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
+import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
+import { deriveSpans, deriveSpanStats } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/spans.ts'
+import { TrajectoryStatsHeader } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/TrajectoryStatsHeader.tsx'
+import { TrajectoryView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/TrajectoryView.tsx'
+import { WaterfallView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/WaterfallView.tsx'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 
 const SID = 's1' as SessionId
+/** Fallback-only chain stub (no composer takeover in these benches). */
+const fallbackRenderSlotChain: ConversationRootProps['renderSlotChain'] =
+  (_key, _owner, opts) => opts?.fallback ?? null
 
 afterEach(cleanup)
+// The chat store persists under its declared key; clear so one case's active
+// view cannot rehydrate into the next.
+beforeEach(() => {
+  // Node 22+ exposes an experimental localStorage global that is undefined
+  // without --localstorage-file; only clear when a real Storage is present.
+  if (typeof localStorage !== 'undefined') localStorage.clear()
+})
 
 /** Node fixture: user prologue, two turns, one tool result inside turn 1. */
 const NODES = [
-  { kind: 'user', seq: 1, content: [], source: null },
-  { kind: 'assistant', seq: 2, turn: 1, step: 1, blocks: [] },
-  { kind: 'tool-result', seq: 3, callId: 'c1', call: null, content: [], isError: false, callView: null, resultView: null },
-  { kind: 'assistant', seq: 4, turn: 2, step: 1, blocks: [] },
+  { kind: 'user', seq: 1, time: 1_000, content: [], source: null },
+  { kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [] },
+  {
+    kind: 'tool-result', seq: 3, time: 3_000, callId: 'c1', call: null, callTime: null,
+    content: [], isError: false, callView: null, resultView: null,
+  },
+  { kind: 'assistant', seq: 4, time: 4_000, turn: 2, step: 1, blocks: [] },
 ] as unknown as ConversationSnapshot['nodes']
 
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
-  const store = createSnapshotStore<{ nodes: ConversationSnapshot['nodes'] }>({ nodes })
-  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession }
+  const store = createSnapshotStore({
+    nodes, partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
+  })
+  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
 
-/** Real-stack bench: root Context + real ConversationService + the plugin fiber. */
+/** Empty sessions-list hook stub (breadcrumbs fall back to the raw id; engines carry no hook since the store migration — bind here). */
+function emptySessions() {
+  const store = createSnapshotStore<SessionListState>(
+    { ids: [], byId: {}, current: undefined } as SessionListState)
+  return bindSnapshotSelector(store)
+}
+
+/** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
+const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
+
+/** Standalone view props: the session-scope standard kit the outlet would bake. */
+function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
+  return {
+    sessionId: SID,
+    useSession: fakeSession(nodes).useSession,
+    useSessions: emptySessions(),
+  } as unknown as ConvViewProps
+}
+
+/** Real-stack bench: root Context + real SlotsService ring + the plugin fiber. */
 async function bench() {
   const ctx = new Context()
-  const svc = new ConversationService(ctx)
+  const slots = new SlotsService(ctx)
+  // The conversation entry's role: declare the ring, then seed the chat entry.
+  slots.register({
+    name: 'root',
+    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+  }, (_p: { renderSlot?: unknown }) => null)
   const chatBody = vi.fn(() => <div data-testid="chat-body" />)
-  svc.registerView({ id: 'chat' as ViewId, label: 'Chat', order: 0, component: chatBody as unknown as FC<ConvViewProps> })
+  slots.register(
+    { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
+  // 'conversation' inject is an ordering edge; the bench declares the ring
+  // itself, so a stub satisfies the wait.
+  ctx.provide('conversation', {})
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, svc, fiber }
+  return { ctx, slots, fiber }
 }
 
-/** Mount ConversationRoot over the service's registry face, rendering chrome like the conversation apply does. */
-function mount(svc: ConversationService, nodes: ConversationSnapshot['nodes'] = NODES) {
-  const { useSession } = fakeSession(nodes)
-  const activeStore = createSnapshotStore<string | undefined>(undefined)
-  const ancestry: SessionSummary[] = [{ id: SID, title: 'self', running: false, updatedAt: 1 }]
-  const viewProps = {
-    sessionId: SID, useSession,
-    useSelection: () => null,
-    actions: { openDetails: vi.fn(), loadOlder: vi.fn() },
-    slots: undefined,
-  } as unknown as ConvViewProps
-  const renderView = (entry: ViewEntry): ReactNode => {
-    const children: ReactNode[] = []
-    if (entry.chrome?.header !== undefined) {
-      children.push(createElement(entry.chrome.header, { key: 'h', sessionId: SID, useSession }))
-    }
-    children.push(createElement(entry.component, { key: 'b', ...viewProps }))
-    if (entry.chrome?.footer !== undefined) {
-      children.push(createElement(entry.chrome.footer, { key: 'f', sessionId: SID, useSession }))
-    }
-    return createElement(Fragment, null, children)
-  }
-  const sessionSnapshot = createSnapshotStore<{ running: boolean; removed: boolean; promptError: null; nodes: ConversationSnapshot['nodes'] }>({
+/** Tab projection twin of apply's viewTabs (the render-side consumption path). */
+function tabsOf(slots: SlotsService): ViewTab[] {
+  return slots.entries('conversation.view')
+    .map(e => ({ id: e.options.id!, label: e.options.label ?? e.options.id! }))
+}
+
+/** Mount ConversationRoot over the ring ledger with an outlet-faithful renderSlot. */
+function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
+  const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
+    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
   })
+  const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
+  const chat = createChatStore().create()
+  // Minimal outlet twin: resolve the ring entry by the `only` filter and
+  // render it with the session standard kit (what SlotOutlet does for a
+  // list-kind session slot, minus machinery).
+  const renderSlot = ((key: string, _owner: object, opts?: { only?: string }): ReactNode => {
+    const entry = slots.entries('conversation.view').find(e => e.options.id === opts?.only)
+    if (entry === undefined) return null
+    const View = entry.component as FC<ConvViewProps>
+    return (
+      <View
+        {...({ sessionId: SID, useSession, useSessions: emptySessions() } as unknown as ConvViewProps)}
+        key={key}
+      />
+    )
+  }) as unknown as ConversationRootProps['renderSlot']
   return render(
     <ConversationRoot
       sessionId={SID}
-      useSession={bindSnapshotSelector(sessionSnapshot) as unknown as UseSession}
-      useAncestry={() => ancestry}
+      useSession={useSession}
+      useSessions={emptySessions()}
+      useStore={bindSnapshotSelector(chat)}
+      actions={chat.actions}
+      renderSlot={renderSlot}
+      renderSlotChain={fallbackRenderSlotChain}
+      SessionProvider={SessionProviderStub}
       views={{
-        list: () => svc.views(),
-        subscribe: (fn) => svc.subscribeViews(fn),
-        version: () => svc.viewsVersion(),
+        list: () => tabsOf(slots),
+        subscribe: (fn) => slots.subscribe('conversation.view', fn),
+        version: () => slots.getVersion('conversation.view'),
       }}
-      useActiveView={() => activeStore.useSelector((s) => s) as ViewId | undefined}
-      composer={{ useDraft: () => '', setDraft: vi.fn(), send: vi.fn(), stop: vi.fn() }}
-      actions={{ openView: ((v: string) => { activeStore.set(v) }) as (v: never) => void, open: vi.fn() }}
-      renderView={renderView}
+      send={vi.fn()}
+      stop={vi.fn()}
+      open={vi.fn()}
     />,
   )
 }
 
 describe('plugin registration', () => {
-  it('registers trajectory and waterfall after chat, both with header chrome', async () => {
+  it('registers trajectory and waterfall after chat on the ring', async () => {
     const b = await bench()
-    const views = b.svc.views()
-    expect(views.map((v) => v.id)).toEqual(['chat', 'trajectory', 'waterfall'])
-    expect(views[1]?.chrome?.header).toBeDefined()
-    expect(views[2]?.chrome?.header).toBeDefined()
-    expect(views[1]?.chrome?.footer).toBeUndefined()
+    expect(tabsOf(b.slots)).toEqual([
+      { id: 'chat', label: 'Chat' },
+      { id: 'trajectory', label: 'Trajectory' },
+      { id: 'waterfall', label: 'Waterfall' },
+    ])
   })
 
   it('fiber disposal removes both tabs and leaves chat standing', async () => {
     const b = await bench()
     await b.fiber.dispose()
-    expect(b.svc.views().map((v) => v.id)).toEqual(['chat'])
+    expect(tabsOf(b.slots).map((v) => v.id)).toEqual(['chat'])
   })
 })
 
 describe('tab switching in ConversationRoot', () => {
-  it('renders all three tabs, defaults to chat, and switches to trajectory with its header stats', async () => {
+  it('renders all three tabs, defaults to chat, and switches to trajectory without stats chrome', async () => {
     const b = await bench()
-    mount(b.svc)
+    mount(b.slots)
     expect(screen.getByTestId('chat-body')).toBeTruthy()
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Chat', 'Trajectory', 'Waterfall'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    // chrome.header stats over NODES: turns 0/1/2, 2 assistant steps, 1 tool call.
-    expect(screen.getByText('3 turns · 2 steps · 1 tool calls')).toBeTruthy()
-    expect(screen.getByText('turn 0')).toBeTruthy()
-    expect(screen.getByText('1 steps · 1 calls · 2 nodes')).toBeTruthy()
+    // Trajectory no longer mounts the span stats bar; the turn-list chrome owns the body.
+    expect(screen.queryByText(/turns ·/)).toBeNull()
+    expect(screen.getByText('Turn 1')).toBeTruthy()
+    expect(screen.getByText('Turn 2')).toBeTruthy()
+    expect(screen.getAllByText('Message').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Step 1').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Input').length).toBeGreaterThan(0)
     expect(screen.queryByTestId('chat-body')).toBeNull()
   })
 
   it('waterfall renders bars and switching back to chat does not collapse it', async () => {
     const b = await bench()
-    mount(b.svc)
+    mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Waterfall' }))
     expect(screen.getByTitle('2 nodes')).toBeTruthy()
     expect(screen.getByTitle('1 tool calls')).toBeTruthy()
@@ -134,9 +194,9 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.getByTestId('chat-body')).toBeTruthy()
   })
 
-  it('empty window: placeholder copy in the body, header chrome renders nothing', async () => {
+  it('empty window: placeholder copy in the body, the stats header renders nothing', async () => {
     const b = await bench()
-    mount(b.svc, [] as unknown as ConversationSnapshot['nodes'])
+    mount(b.slots, [] as unknown as ConversationSnapshot['nodes'])
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.getByText('暂无轨迹数据')).toBeTruthy()
     expect(screen.queryByText(/turns ·/)).toBeNull()
@@ -161,30 +221,24 @@ describe('span derivation', () => {
   it('empty inputs produce zero stats and standalone components render their empty forms', () => {
     expect(deriveSpanStats(deriveSpans([] as unknown as ConversationSnapshot['nodes']))).toEqual({ turns: 0, steps: 0, calls: 0 })
     const { useSession } = fakeSession([] as unknown as ConversationSnapshot['nodes'])
-    const { container } = render(createElement(TrajectoryStatsHeader, { sessionId: SID, useSession }))
+    const { container } = render(createElement(TrajectoryStatsHeader, { useSession: useSession as never }))
     expect(container.firstChild).toBeNull()
-    render(createElement(TrajectoryView as FC<ConvViewProps>, {
-      sessionId: SID, useSession, useSelection: () => null,
-      actions: { openDetails: vi.fn(), loadOlder: vi.fn() }, slots: undefined,
-    } as unknown as ConvViewProps))
+    render(createElement(TrajectoryView as FC<ConvViewProps>,
+      standaloneProps([] as unknown as ConversationSnapshot['nodes'])))
     expect(screen.getByText('暂无轨迹数据')).toBeTruthy()
   })
 })
 
 describe('WaterfallView standalone branches', () => {
-  const props = (nodes: ConversationSnapshot['nodes']) => ({
-    sessionId: SID, useSession: fakeSession(nodes).useSession, useSelection: () => null,
-    actions: { openDetails: vi.fn(), loadOlder: vi.fn() }, slots: undefined,
-  } as unknown as ConvViewProps)
-
   it('empty window renders the placeholder copy', () => {
-    render(createElement(WaterfallView as FC<ConvViewProps>, props([] as unknown as ConversationSnapshot['nodes'])))
+    render(createElement(WaterfallView as FC<ConvViewProps>,
+      standaloneProps([] as unknown as ConversationSnapshot['nodes'])))
     expect(screen.getByText('暂无瀑布数据')).toBeTruthy()
   })
 
   it('a turn without tool calls renders the node bar only', () => {
     const nodes = [{ kind: 'user', seq: 1 }] as unknown as ConversationSnapshot['nodes']
-    render(createElement(WaterfallView as FC<ConvViewProps>, props(nodes)))
+    render(createElement(WaterfallView as FC<ConvViewProps>, standaloneProps(nodes)))
     expect(screen.getByTitle('1 nodes')).toBeTruthy()
     expect(screen.queryByTitle(/tool calls/)).toBeNull()
   })

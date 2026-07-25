@@ -1,15 +1,8 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types",
-    "jsx": "react-jsx",
-    "lib": [
-      "ES2024",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": []
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -17,6 +10,12 @@
   "references": [
     {
       "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../modules"
     },
     {
       "path": "../ui-slots"
@@ -28,16 +27,7 @@
       "path": "../web-react"
     },
     {
-      "path": "../connection"
-    },
-    {
       "path": "../runtime"
-    },
-    {
-      "path": "../ui-theme"
-    },
-    {
-      "path": "../ui-layout"
     },
     {
       "path": "../../support/invariants"

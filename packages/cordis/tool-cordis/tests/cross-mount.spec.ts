@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { call, CONSUMER_CODE, PROVIDER_CODE, setup, text } from './helpers.ts'
+import { call, CONSUMER_CODE, CONTENT_OUTPUT_CODE, PROVIDER_CODE, setup, text } from './helpers.ts'
 
 /**
  * Cross-mount composition through ordinary cordis provide/inject semantics:
@@ -116,6 +116,7 @@ describe('cross-mount provide/inject', () => {
               name: 'answer',
               description: 'Read the provided primitive services.',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() {
                 return [{ type: 'text', text: ctx.answer + '/' + ctx.get('answer') + '/' + ctx.nothing }]
               },

@@ -1,19 +1,26 @@
 // @vitest-environment jsdom
 /**
- * SidebarRoot interaction spec on the real framework stack: real tree store
- * (web-react SnapshotStore) feeding the component through the same selector
- * hook the inject surface hands out. Covers expand/collapse, subtree unfold,
- * search filtering, row activation, and the creation entries.
+ * SidebarRoot interaction spec, props-direct (slot-parity test doctrine:
+ * components are fed composed props, no assembly machinery). The standard
+ * useSessions hook is stubbed with a real web-react SnapshotStore selector;
+ * expansion/search live inside the component, so all viewing behavior is
+ * driven through the DOM. Covers expand/collapse, subtree unfold, search
+ * filtering, row activation, and the creation entries.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { act } from 'react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+import { act, useSyncExternalStore } from 'react'
+// Engine home: runtime/client since the store migration; the engine carries
+// no hook (runtime is React-free), so the spec binds the selector locally.
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  createSidebarTreeStore, SidebarRoot,
-  type SidebarActions, type SidebarTreeStore,
-} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
+
+/** Minimal selector hook over an engine store (production binding lives in the renderer). */
+function hookOf<T>(src: { getSnapshot(): T; subscribe(fn: () => void): () => void }) {
+  return <S,>(sel: (s: T) => S, _eq?: (a: S, b: S) => boolean): S =>
+    sel(useSyncExternalStore(src.subscribe.bind(src), src.getSnapshot.bind(src)))
+}
 
 const sid = (s: string) => s as SessionId
 
@@ -31,6 +38,7 @@ function summary(init: SummaryInit): SessionSummary {
   const s: SessionSummary = {
     id: sid(init.id),
     title: init.title ?? init.id,
+    displayTitle: init.title ?? init.id,
     running: init.running ?? false,
     updatedAt: init.updatedAt ?? 0,
   }
@@ -42,29 +50,36 @@ function summary(init: SummaryInit): SessionSummary {
 function listStateOf(...summaries: SessionSummary[]): SessionListState {
   const byId: Record<SessionId, SessionSummary> = {}
   for (const s of summaries) byId[s.id] = s
-  return { ids: summaries.map((s) => s.id), byId }
+  return { ids: summaries.map((s) => s.id), byId, current: undefined }
 }
 
 afterEach(cleanup)
 
 function mount(...summaries: SessionSummary[]) {
-  const list = createSnapshotStore<SessionListState>(listStateOf(...summaries))
-  const tree: SidebarTreeStore = createSidebarTreeStore({ list })
-  const current = createSnapshotStore<{ id: SessionId | undefined }>({ id: undefined })
-  const actions: SidebarActions = {
-    open: vi.fn((id: SessionId) => { current.update((d) => { d.id = id }) }),
-    create: vi.fn(),
-    toggleSidebar: vi.fn(),
-  }
-  const utils = render(
+  // Real engine store as the useSessions stub: same uSES selector shape the
+  // framework delivers, so list updates re-render exactly like production.
+  const sessions = createSnapshotStore<SessionListState>(listStateOf(...summaries))
+  const onOpen = vi.fn((id: SessionId) => { sessions.update((d) => { d.current = id }) })
+  const onCreate = vi.fn()
+  // The owner decides collapsed in production (AppFrame maps the preference);
+  // the harness mirrors that loop so the toggle drives a re-render.
+  let collapsed = false
+  const view = (width: number) => (
     <SidebarRoot
-      useTree={tree.store.useSelector}
-      useCurrent={() => current.useSelector((s) => s.id)}
-      actions={actions}
-      tree={tree}
-    />,
+      collapsed={collapsed}
+      width={width}
+      useSessions={hookOf(sessions)}
+      onOpen={onOpen}
+      onCreate={onCreate}
+      onToggleSidebar={onToggleSidebar}
+    />
   )
-  return { list, tree, current, actions, ...utils }
+  const onToggleSidebar = vi.fn(() => {
+    collapsed = !collapsed
+    utils.rerender(view(collapsed ? 56 : 300))
+  })
+  const utils = render(view(300))
+  return { sessions, onOpen, onCreate, onToggleSidebar, ...utils }
 }
 
 const projectData = () => [
@@ -73,10 +88,16 @@ const projectData = () => [
   summary({ id: 'lone', title: 'elsewhere', cwd: '/other', updatedAt: 3 }),
 ]
 
+/** Flush the store's microtask-batched notification into React. */
+const flush = async () => { await act(async () => { await Promise.resolve() }) }
+
+/** The brand wordmark is decorative svg (aria-hidden, no text); locate it by its native viewBox. */
+const wordmark = () => document.querySelector('svg[viewBox="0 0 182 24"]')
+
 describe('SidebarRoot', () => {
   it('renders chrome and collapsed project rows', () => {
     mount(...projectData())
-    expect(screen.getByText('HARNESS')).toBeTruthy()
+    expect(wordmark()).not.toBeNull()
     expect(screen.getByText('New Session')).toBeTruthy()
     expect(screen.getByText('proj')).toBeTruthy()
     expect(screen.getByText('2 sessions')).toBeTruthy()
@@ -95,11 +116,13 @@ describe('SidebarRoot', () => {
     expect(screen.queryByText('forked child')).toBeNull()
   })
 
-  it('opens a session on row click and marks it selected', () => {
-    const { actions } = mount(...projectData())
+  it('opens a session on row click and marks it selected', async () => {
+    const { onOpen } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByText('proj')) })
     act(() => { fireEvent.click(screen.getByText('root work')) })
-    expect(actions.open).toHaveBeenCalledWith('root')
+    expect(onOpen).toHaveBeenCalledWith('root')
+    // The mock routed the open into sessions.current — highlight follows.
+    await flush()
     expect(screen.getByText('root work').closest('[role="treeitem"]')!.getAttribute('aria-selected')).toBe('true')
   })
 
@@ -129,20 +152,96 @@ describe('SidebarRoot', () => {
   })
 
   it('routes the three creation entries with the right cwd', () => {
-    const { actions } = mount(...projectData())
+    const { onCreate } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByText('New Session')) })
-    expect(actions.create).toHaveBeenLastCalledWith()
+    expect(onCreate).toHaveBeenLastCalledWith()
     act(() => { fireEvent.click(screen.getByLabelText('New workspace')) })
-    expect(actions.create).toHaveBeenLastCalledWith()
+    expect(onCreate).toHaveBeenLastCalledWith()
     // Per-project "+" is hover-revealed by CSS; still clickable in jsdom.
     act(() => { fireEvent.click(screen.getAllByLabelText('New session here')[0]!) })
-    expect(actions.create).toHaveBeenLastCalledWith('/proj')
+    expect(onCreate).toHaveBeenLastCalledWith('/proj')
   })
 
-  it('collapse button and group-by menu behave', () => {
-    const { actions } = mount(...projectData())
-    act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
-    expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+  it('collapse fades the wide content out, then the rail keeps the four controls', () => {
+    vi.useFakeTimers()
+    try {
+      const { onToggleSidebar, onCreate } = mount(...projectData())
+      act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
+      expect(onToggleSidebar).toHaveBeenCalledOnce()
+      // Fade window: the wide chrome is still mounted while it fades.
+      expect(wordmark()).not.toBeNull()
+      expect(screen.getByRole('tree')).toBeTruthy()
+      // Settle: wide content unmounts, the rail controls remain.
+      act(() => { vi.advanceTimersByTime(300) })
+      expect(wordmark()).toBeNull()
+      expect(screen.queryByText('New Session')).toBeNull()
+      expect(screen.queryByRole('tree')).toBeNull()
+      // Rail order mirrors the expanded rows: open, new session, new workspace, search.
+      const rail = ['Open sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']
+        .map((label) => screen.getByLabelText(label))
+      for (let i = 1; i < rail.length; i++) {
+        expect(rail[i - 1]!.compareDocumentPosition(rail[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      }
+      // Rail creation entries route like their expanded counterparts.
+      act(() => { fireEvent.click(screen.getByLabelText('New session')) })
+      expect(onCreate).toHaveBeenLastCalledWith()
+      act(() => { fireEvent.click(screen.getByLabelText('Open sidebar')) })
+      expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+      expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy()
+      expect(screen.getByText('New Session')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rail search expands the sidebar and focuses the search box', () => {
+    vi.useFakeTimers()
+    try {
+      const { onToggleSidebar } = mount(...projectData())
+      // While expanded the search control is inert (the row click focuses instead).
+      act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+      expect(onToggleSidebar).not.toHaveBeenCalled()
+      act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
+      act(() => { vi.advanceTimersByTime(300) })
+      act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+      expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+      // Focus waits out the 300ms column slide (EXPAND_SLIDE_MS).
+      act(() => { vi.advanceTimersByTime(300) })
+      const input = screen.getByPlaceholderText('Search name, keywords...')
+      expect(document.activeElement).toBe(input)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('expanded search focuses without toggling the sidebar', () => {
+    const { onToggleSidebar } = mount(...projectData())
+    const input = screen.getByPlaceholderText('Search name, keywords...')
+    act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+    expect(document.activeElement).toBe(input)
+    expect(onToggleSidebar).not.toHaveBeenCalled()
+  })
+
+  it('the search query survives a collapse/expand round trip', () => {
+    vi.useFakeTimers()
+    try {
+      mount(...projectData())
+      const input = screen.getByPlaceholderText('Search name, keywords...')
+      act(() => { fireEvent.change(input, { target: { value: 'forked' } }) })
+      act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
+      act(() => { vi.advanceTimersByTime(300) })
+      act(() => { fireEvent.click(screen.getByLabelText('Open sidebar')) })
+      const restored = screen.getByPlaceholderText('Search name, keywords...') as HTMLInputElement
+      expect(restored.value).toBe('forked')
+      expect(screen.getByText('forked child')).toBeTruthy()
+      expect(screen.queryByText('elsewhere')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('group-by menu behaves', () => {
+    mount(...projectData())
     expect(screen.queryByText('Update')).toBeNull()
     act(() => { fireEvent.click(screen.getByLabelText('Group by')) })
     expect(screen.getByText('Update')).toBeTruthy()
@@ -157,28 +256,27 @@ describe('SidebarRoot', () => {
   })
 
   it('re-renders when the sessions list gains a session', async () => {
-    const { list } = mount(...projectData())
+    const { sessions } = mount(...projectData())
     act(() => {
-      list.update((draft) => {
+      sessions.update((draft) => {
         draft.ids.push(sid('fresh'))
         draft.byId[sid('fresh')] = summary({ id: 'fresh', title: 'brand new', cwd: '/fresh', updatedAt: 99 })
       })
     })
     // Store notifications are microtask-batched.
-    await act(async () => { await Promise.resolve() })
+    await flush()
     expect(screen.getByText('fresh')).toBeTruthy()
   })
 
   it('row "More" anchors swallow the click without opening or toggling', () => {
-    const { actions, tree } = mount(...projectData())
+    const { onOpen } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByText('proj')) })
-    const before = tree.store.getSnapshot().expandedProjects.length
-    // Project-row anchor: must not collapse the project.
+    // Project-row anchor: must not collapse the project (rows stay visible).
     act(() => { fireEvent.click(screen.getAllByLabelText('More')[0]!) })
-    expect(tree.store.getSnapshot().expandedProjects).toHaveLength(before)
+    expect(screen.getByText('root work')).toBeTruthy()
     // Session-row anchor: must not open the session.
     act(() => { fireEvent.click(screen.getAllByLabelText('More')[1]!) })
-    expect(actions.open).not.toHaveBeenCalled()
+    expect(onOpen).not.toHaveBeenCalled()
   })
 
   it('shows the running state dot only for running sessions', () => {

@@ -69,7 +69,7 @@ describe('SandboxPolicyService', () => {
     })
   })
 
-  it('resolves a symlink-sensitive session cwd with filesystem semantics', async () => {
+  it.skipIf(process.platform === 'win32')('resolves a symlink-sensitive session cwd with POSIX component semantics', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-policy-cwd-'))
     try {
       const lexical = join(root, 'lexical')
@@ -78,7 +78,7 @@ describe('SandboxPolicyService', () => {
       mkdirSync(lexical)
       mkdirSync(child, { recursive: true })
       const link = join(lexical, 'link')
-      symlinkSync(child, link, process.platform === 'win32' ? 'junction' : 'dir')
+      symlinkSync(child, link, 'dir')
       const cwd = `${link}${sep}..`
       const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
 

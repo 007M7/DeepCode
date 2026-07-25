@@ -1,9 +1,10 @@
 /**
  * Plan mode is logged per-agent collaboration state: while active, a
  * deployment-owned guidance section shapes each model request, and
- * `exit_plan_mode` presents the completed plan for user review. It is
- * independent of sandbox mode and approval policy; those enforcement axes do
- * not read or write plan state.
+ * `exit_plan_mode` presents the completed plan for user review, while the
+ * `/plan off` command lets a user leave directly. Plan mode is independent of
+ * sandbox mode and approval policy; those enforcement axes do not read or
+ * write plan state.
  *
  * The state in force is folded from the session log (`plan/mode`, last one
  * wins), so resume and fork restore it without a live mirror. User selections
@@ -210,13 +211,27 @@ export class PlanModeService extends Service {
     ctx.inject(['commands'], (commandCtx) => {
       commandCtx.commands.register({
         name: 'plan',
-        description: 'Enter plan mode',
-        input: { hint: '[message]' },
+        description: 'Enter or leave plan mode',
+        input: { hint: '[off|message]' },
         handler: ({ agent, rawInput }) => {
           const message = rawInput.trim()
+          if (message === 'off') {
+            const state = this.get(agent)
+            this.set(agent, false)
+            if (state.active) {
+              return { kind: 'success', text: 'Leaving plan mode (applies from the next step).' }
+            }
+            if (state.pending === true) {
+              return { kind: 'success', text: 'Plan mode entry cancelled.' }
+            }
+            return { kind: 'success', text: 'Plan mode is already inactive.' }
+          }
           this.set(agent, true)
           if (message !== '') agent.steer([{ type: 'text', text: message }])
-          return { kind: 'success', text: 'Entering plan mode (applies from the next step).' }
+          return {
+            kind: 'success',
+            text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+          }
         },
       })
     })
@@ -226,6 +241,16 @@ export class PlanModeService extends Service {
       description: EXIT_DESCRIPTION,
       parameters: {
         plan: { type: 'string', required: true, description: 'The complete plan, as markdown, starting with a # heading that names it.' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            approved: { type: 'boolean', const: true, required: true },
+          },
+        },
+        render: () => [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }],
       },
       execute: async (args, exec) => {
         const agent = exec.agent
@@ -270,7 +295,7 @@ export class PlanModeService extends Service {
         // Keep plan guidance for the rest of this assistant tool batch. The
         // silent intent flushes after the step, before the next assembly.
         this.pendingIntents.set(agent.session, { active: false, narrate: false })
-        return [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }]
+        return { approved: true }
       },
       presentCall: args => ({
         card: 'generic',
@@ -332,7 +357,7 @@ export class PlanModeService extends Service {
     const text = target
       ? 'The user switched this session to plan mode.'
       : 'The user switched this session back to the default mode.'
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text }],
       source: { kind: 'plugin', plugin: 'plan-mode' },
     }, { surfaceOp: 'append' })

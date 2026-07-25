@@ -197,7 +197,6 @@ export async function runTuiPtySmoke(options: TuiPtySmokeOptions): Promise<strin
         /* v8 ignore next -- every caller passes configPath or configArgs; the fallback keeps the type total */
         : [options.configPath ?? './cordis.yml'],
       tsconfigPath: options.tsconfigPath,
-      exposeInternals: true,
       env: {
         DSH_HOME: join(cwd, '.dsh'),
         DSH_AGENTS_HOME: join(cwd, '.agents'),

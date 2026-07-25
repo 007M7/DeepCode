@@ -9,14 +9,23 @@
       "DOM",
       "DOM.Iterable"
     ],
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src",
     "tests"
   ],
   "references": [
-    { "path": "../../packages/client/web" },
-    { "path": "../../packages/host/webserver" }
+    {
+      "path": "../../packages/client/web"
+    },
+    {
+      "path": "../../packages/host/webserver"
+    },
+    {
+      "path": "../../packages/client/modules"
+    }
   ]
 }

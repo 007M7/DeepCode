@@ -261,6 +261,7 @@ export async function generateSessionTitleWithLlm(
     system,
     maxTokens: config.maxOutputTokens,
     sessionId: request.session.id,
+    purpose: 'session-title',
     signal: callDeadline.signal,
   })
   await appendSessionTitleOutOfBand(ctx, request.session, 'session/title-llm-request', {

@@ -32,9 +32,10 @@ In-package relative imports use explicit `.ts` specifiers in source (for example
 | File | Change |
 |---|---|
 | `tsconfig.base.json` | no edit for an existing group; for a new group, add a `./packages/<group>/*/src` candidate to the `@deepseek-ai/dsh-*` wildcard |
-| `tsconfig.json` | add `{ "path": "./packages/<group>/<pkg>" }` to `references` |
-| `tsconfig.build.json` | add `{ "path": "./packages/<group>/<pkg>" }` to `references` |
+| `tsconfig.host.json` (host-side package) or `tsconfig.client.json` (client-side package) | add `{ "path": "./packages/<group>/<pkg>" }` to `references` — exactly one aggregate, never both ([layout](../development.md#typescript-project-layout)) |
 | `knip.json` | only if the package has non-`*.spec.ts` entries (e.g. `*.e2e.ts` → add a per-workspace override like `packages/llm/llm-deepseek`) |
+
+A `packages/client/*` package additionally extends `tsconfig.base.client.json` instead of `tsconfig.base.json`, and a client plugin package declares `dshClient` in package.json, exports `./client`, and calls the shared tsdown preset (`packages/client/tsdown.client.ts`) — see [packages/client/AGENTS.md](../../packages/client/AGENTS.md) for the client-side contract.
 
 Covered automatically by globs or package-manifest discovery — no edits needed: root `package.json` workspaces, `scripts/publint-all.ts`, `tsdown.config.ts`, `vitest.config.ts`, `eslint.config.mjs`, `scripts/check-workspace-constraints.ts`.
 

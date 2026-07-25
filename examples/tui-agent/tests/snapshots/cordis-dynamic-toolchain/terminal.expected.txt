@@ -101,6 +101,6 @@ buffer
   style 1-1 inverse
 46| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-47| "deepseek-v4-flash  /workspace/project  ↑18 ↓18  cache 0%  7% cont"
+47| "deepseek-v4-flash  /workspace/project  ↑18 ↓18  cache 0%  8% cont"
   style 0-90 dim
   style 93-99 dim

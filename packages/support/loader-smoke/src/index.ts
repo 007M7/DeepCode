@@ -59,8 +59,6 @@ export interface ExampleLaunchOptions {
   readonly mode?: ExampleMode
   /** Absolute repo tsconfig whose `paths` map resolves unbuilt workspace imports. Required in `src` mode, ignored in `lib`. */
   readonly tsconfigPath?: string
-  /** Prepend `--expose-internals` (the Cordis Loader's bare-plugin resolver needs it for some bins); defaults to `false`. */
-  readonly exposeInternals?: boolean
   /** Extra environment entries the mode-specific ones layer over; the caller then merges the result over `process.env`. */
   readonly env?: NodeJS.ProcessEnv
 }
@@ -90,9 +88,9 @@ function toLibBin(srcBin: string): string {
 /**
  * Resolve how to spawn an example bin in the selected mode.
  *
- * `src` yields `node [--expose-internals] --import <tsx> <srcBin> <configArgs>` with `TSX_TSCONFIG_PATH`
- * set so the tsconfig `paths` map resolves workspace imports to source. `lib` yields
- * `node [--expose-internals] <libBin> <configArgs>` under plain Node with no tsx and no paths map, so
+ * `src` yields `node --import <tsx> <srcBin> <configArgs>` with `TSX_TSCONFIG_PATH` set so the
+ * tsconfig `paths` map resolves workspace imports to source. `lib` yields
+ * `node <libBin> <configArgs>` under plain Node with no tsx and no paths map, so
  * bare package plugins resolve through real package `exports` into built `lib/`; relative example-local
  * TypeScript plugins remain source files loaded through Node's built-in type stripping. Bare resolution
  * requires the config to live below a workspace that declares its `cordis.yml` package dependencies.
@@ -103,7 +101,6 @@ function toLibBin(srcBin: string): string {
 export function resolveExampleLaunch(options: ExampleLaunchOptions): ExampleLaunch {
   const mode = options.mode ?? resolveExampleMode()
   const configArgs = options.configArgs ?? []
-  const flags = options.exposeInternals === true ? ['--expose-internals'] : []
   const env: NodeJS.ProcessEnv = { ...options.env }
 
   if (mode === 'src') {
@@ -112,10 +109,10 @@ export function resolveExampleLaunch(options: ExampleLaunchOptions): ExampleLaun
     }
     const tsxLoader = import.meta.resolve('tsx')
     env.TSX_TSCONFIG_PATH = options.tsconfigPath
-    return { command: process.execPath, args: [...flags, '--import', tsxLoader, options.srcBin, ...configArgs], env }
+    return { command: process.execPath, args: ['--import', tsxLoader, options.srcBin, ...configArgs], env }
   }
 
-  return { command: process.execPath, args: [...flags, options.libBin ?? toLibBin(options.srcBin), ...configArgs], env }
+  return { command: process.execPath, args: [options.libBin ?? toLibBin(options.srcBin), ...configArgs], env }
 }
 
 /** Inputs that vary between real-Loader example smokes. */
@@ -172,7 +169,6 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
       configArgs: options.binArgs ?? [options.configPath],
       ...options.mode !== undefined ? { mode: options.mode } : {},
       tsconfigPath: options.tsconfigPath,
-      exposeInternals: true,
       env: { DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents'), ...options.env },
     })
     const result = await new Promise<LoaderSmokeResult>((resolve, reject) => {

@@ -12,6 +12,7 @@ export default tseslint.config(
       '**/.sessions/**',
       '.claude/**', // harness-local state (worktrees, skills) — other checkouts, not this one's sources
       '**/.doc-typecheck-*/**',
+      '**/.node-next-types-*/**',
       'website/.generated/**',
       'vendor/**', // vendored source keeps upstream style and idioms
       'native/**', // imported landlock-run subtree: self-contained workspace with its own gates (native/README.md)
@@ -86,7 +87,8 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         // Same shared project service as the src block: test files resolve
-        // through the root tsconfig (its include covers every tests/ tree).
+        // through the root solution to tsconfig.host.json (its include covers
+        // every host tests/ tree).
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },

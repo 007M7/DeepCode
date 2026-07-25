@@ -50,7 +50,6 @@ describe('resolveExampleLaunch', () => {
     expect(args).toContain('--import')
     expect(args).toContain(SRC_BIN)
     expect(args[args.length - 1]).toBe('./cordis.yml')
-    expect(args).not.toContain('--expose-internals')
     expect(env.TSX_TSCONFIG_PATH).toBe(TSCONFIG)
   })
 
@@ -76,11 +75,6 @@ describe('resolveExampleLaunch', () => {
     const fixture = '/repo/fixture.ts'
     const { args } = resolveExampleLaunch({ srcBin: fixture, libBin: fixture, mode: 'lib' })
     expect(args).toContain(fixture)
-  })
-
-  it('prepends --expose-internals when requested', () => {
-    const { args } = resolveExampleLaunch({ srcBin: SRC_BIN, mode: 'lib', exposeInternals: true })
-    expect(args[0]).toBe('--expose-internals')
   })
 
   it('lib mode: rewrites only the last /src/ segment', () => {

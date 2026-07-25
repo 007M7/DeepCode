@@ -1,27 +1,39 @@
-// TrajectoryView: P-I placeholder body for the trajectory tab — per-turn
-// span list with node-count weights (no timing data exists yet; deviation
-// ledger #3 defers real rendering to P-III).
+// TrajectoryView: sticky Turn sections with Message/Step groups and step cells.
 
 import { useMemo } from 'react'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { deriveSpans } from './spans.ts'
+import { TrajectoryCell } from './TrajectoryCell.tsx'
+import { TrajectoryGroupHeader } from './TrajectoryGroupHeader.tsx'
+import { TrajectoryTurn } from './TrajectoryTurn.tsx'
+import { deriveTrajectoryLayout } from './layout.ts'
 import css from './views.module.css'
 
 export function TrajectoryView({ useSession }: ConvViewProps) {
-  const nodes = (useSession as SnapshotSelectorHook<ConversationSnapshot>)((s) => s.nodes)
-  const spans = useMemo(() => deriveSpans(nodes), [nodes])
-  if (spans.length === 0) return <div className={css.root}><p className={css.empty}>暂无轨迹数据</p></div>
+  const nodes = useSession((s) => s.nodes)
+  const partial = useSession((s) => s.partial)
+  const runningCalls = useSession((s) => s.runningCalls)
+  const turns = useMemo(
+    () => deriveTrajectoryLayout({ nodes, partial, runningCalls }),
+    [nodes, partial, runningCalls],
+  )
+  if (turns.length === 0) {
+    return <div className={css.root}><p className={css.empty}>暂无轨迹数据</p></div>
+  }
   return (
     <div className={css.root}>
-      {spans.map((span) => (
-        <div key={span.turn} className={css.row}>
-          <span className={css.turnTag}>turn {span.turn}</span>
-          <span className={css.meta}>
-            {span.steps} steps · {span.calls} calls · {span.nodes} nodes
-          </span>
-        </div>
+      {turns.map((turn) => (
+        <TrajectoryTurn key={turn.turn} turn={turn.turn}>
+          {turn.groups.flatMap((group) => [
+            <TrajectoryGroupHeader
+              key={`${group.title}-h`}
+              title={group.title}
+              {...(group.description !== undefined ? { description: group.description } : {})}
+            />,
+            ...group.cells.map((cell) => (
+              <TrajectoryCell key={cell.index} {...cell} />
+            )),
+          ])}
+        </TrajectoryTurn>
       ))}
     </div>
   )

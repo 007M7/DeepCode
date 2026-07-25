@@ -82,8 +82,10 @@ describe('dsh-tool-workflow', () => {
     engine.settle({ value: { findings: [1, 2] }, stopReason: 'completed', agentsStarted: 7 })
     const result = await pending
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected workflow success')
+    expect(result.value).toEqual({ runId: 'run-1', agentsStarted: 7, result: { findings: [1, 2] } })
     const rendered = (result.content[0] as { text: string }).text
-    expect(rendered).toContain('workflow "stub-flow" completed (7 agents)')
+    expect(rendered).toContain('workflow "audit" completed (7 agents)')
     expect(rendered).toContain('"findings"')
     expect(engine.disposed).toBe(1)
   })
@@ -154,7 +156,7 @@ describe('dsh-tool-workflow', () => {
     const { ctx, parent } = await setup()
     const result = await execute(ctx, {}, { agent: parent })
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('INVALID_ARGS')
+    expect(result.error?.info?.code).toBe('INVALID_ARGS')
   })
 
   it('skips workflow startup when exec.signal is already aborted', async () => {
@@ -163,7 +165,10 @@ describe('dsh-tool-workflow', () => {
     controller.abort()
     const result = await execute(ctx, { script: SCRIPT, meta: META }, { agent: parent, signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
     expect(engine.requests).toHaveLength(0)
     expect(engine.cancels).toHaveLength(0)
     expect(engine.disposed).toBe(0)
@@ -174,7 +179,10 @@ describe('dsh-tool-workflow', () => {
     const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
     engine.settle({ value: { blob: 'x'.repeat(500) }, stopReason: 'completed', agentsStarted: 1 })
-    const rendered = ((await pending).content[0] as { text: string }).text
+    const result = await pending
+    if (result.isError) throw new Error('expected workflow success')
+    expect(result.value).toEqual({ runId: 'run-1', agentsStarted: 1, result: { blob: 'x'.repeat(500) } })
+    const rendered = (result.content[0] as { text: string }).text
     expect(rendered).toContain('[truncated:')
     expect(rendered.length).toBeLessThan(400)
   })

@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent, type ContinuationStop } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -34,12 +34,12 @@ async function harness(adapter: MockAdapter): Promise<Context> {
 }
 
 function send(agent: Agent, text = 'go'): Promise<void> {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
   return agent.whenIdle()
 }
 
 function registerEcho(ctx: Context): void {
-  ctx.tools.register(defineTool({
+  ctx.tools.register(defineContentToolFixture({
     name: 'echo',
     description: 'echo',
     parameters: { text: { type: 'string' } },
@@ -116,7 +116,7 @@ describe('agent/turn-stop', () => {
     ctx.on('session/flush', (session) => {
       if (session !== agent.session || queued) return
       queued = true
-      agent.send([{ type: 'text', text: 'ordinary queued follow-up' }])
+      agent.followup([{ type: 'text', text: 'ordinary queued follow-up' }])
     })
 
     await send(agent)

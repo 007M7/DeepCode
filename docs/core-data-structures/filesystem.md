@@ -1,5 +1,7 @@
 # Filesystem
 
+English | [中文](filesystem.zh.md)
+
 The optional filesystem capability has four parts: [dsh-fs](../../packages/fs/fs) owns `ctx.fs` and atomic text operations with optional version guards, [dsh-fs-local](../../packages/fs/fs-local) implements local disk, [dsh-fs-policy](../../packages/fs/fs-policy) adds observed-state and freshness rules through events rather than a service, and [dsh-tool-fs](../../packages/fs/tool-fs) directly executes model-facing read/write/edit calls and renders windows. It is outside the agent-loop spine; alternate backends do not change policy or tool schemas.
 
 The model is **additive, not subtractive**: `ctx.fs` alone is a complete, unconstrained text-storage seam (`write` unconditionally creates-or-overwrites, `edit` unconditionally replaces literal text). `dsh-fs-policy` is a plugin that *adds* policy on top by deciding the `fs/*` waterfalls; removing it leaves the bare provider rather than breaking the tool, because the tool is not method-coupled to the policy. A deployment that loads `dsh-tool-fs` is expected to also load `dsh-fs-policy` so the default behavior is read-before-write/edit.
@@ -205,7 +207,7 @@ interface FsPolicyExec {
 
 ## Read outcome (consumer / read rendering)
 
-A text read is bounded by line window, byte cap, and backend limits. The outcome the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits `fs/observed` with the stat's version directly), so any windowed read can authorize a later write/edit when the file is unchanged. Read windowing and this outcome shape live in `dsh-tool-fs` (the executor that owns the read), not in the policy plugin.
+A text read is bounded by line window, byte cap, and backend limits. After the byte cap is reached, scanning continues without retaining more lines so `totalLines` remains exact. The outcome the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits `fs/observed` with the stat's version directly), so any windowed read can authorize a later write/edit when the file is unchanged. Read windowing and this outcome shape live in `dsh-tool-fs` (the executor that owns the read), not in the policy plugin.
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
@@ -214,9 +216,9 @@ interface FileReadOutcome {
   offset: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
-  /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
+  /** Exact total line count in the file. */
   totalLines: number
-  /** Whether selected output hit the byte cap before EOF or the requested limit. */
+  /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
 }
 ```

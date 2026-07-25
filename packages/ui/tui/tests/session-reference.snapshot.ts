@@ -11,10 +11,10 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import CommandService from '@deepseek-ai/dsh-commands'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import SessionQueryService from '@deepseek-ai/dsh-session-query'
 import SessionReferenceService, { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { createTuiChat } from '../src/index.ts'
 import { HeadlessTerminal } from './headless-terminal.ts'
+import { TestSessionQueryService } from './session-query.ts'
 
 const EXPECTED = join(dirname(fileURLToPath(import.meta.url)), 'snapshots/session-reference.expected.txt')
 const REFRESHING = process.env.DSH_SNAPSHOT === 'refresh'
@@ -57,7 +57,7 @@ describe('TUI session-reference snapshot', () => {
     await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(SessionQueryService)
+    await ctx.plugin(TestSessionQueryService)
     await ctx.plugin(SessionReferenceService)
 
     const adapter = new SnapshotAdapter()
@@ -128,7 +128,7 @@ describe('TUI session-reference snapshot', () => {
       type: 'text',
       text: '\n\n## My request:\n',
     })
-    expect(target.session.events.some(event => event.type === 'context/message')).toBe(false)
+    expect(target.session.events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
 
     const snapshot = await terminal.snapshot({ includeScrollback: true })
     if (REFRESHING) {

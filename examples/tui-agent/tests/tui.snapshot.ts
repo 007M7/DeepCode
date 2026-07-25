@@ -26,7 +26,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
-import { createTuiChat } from '@deepseek-ai/dsh-tui'
+import { createTuiChat, FILE_REFERENCE_PROMPT } from '@deepseek-ai/dsh-tui'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-terminal.ts'
@@ -47,6 +47,7 @@ interface Scenario {
   expectedEventCounts?: Record<string, number>
   childSessions?: number
   enterPlanMode?: boolean
+  leavePlanModeAfterFirstTurn?: boolean
   recorded: boolean
   seedWorkspace?: boolean
   /**
@@ -62,8 +63,9 @@ const SCENARIOS: Scenario[] = [
     name: 'multi-turn-conversation',
     composition: 'native',
     expectedTools: [],
-    expectedEventCounts: { 'plan/mode': 1 },
+    expectedEventCounts: { 'plan/mode': 2 },
     enterPlanMode: true,
+    leavePlanModeAfterFirstTurn: true,
     recorded: true,
   },
   {
@@ -294,6 +296,12 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       remainingPrompts = prompts.slice(1)
     }
 
+    if (scenario.leavePlanModeAfterFirstTurn === true) {
+      terminal.send('/plan off')
+      terminal.send('\r')
+      await settleTerminal(terminal)
+    }
+
     for (const prompt of remainingPrompts) {
       terminal.send(prompt)
       terminal.send('\r')
@@ -302,14 +310,18 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     const events: SessionEvent[] = [...agent.session.events]
+    const firstHeader = events.find(event => event.type === 'request/header')
+    expect(firstHeader?.type === 'request/header' && firstHeader.data.header.system)
+      .toContain(FILE_REFERENCE_PROMPT)
     expect(events.filter(event => event.type === 'tool/call').map(event => event.data.name)).toEqual(scenario.expectedTools)
     for (const [type, count] of Object.entries(scenario.expectedEventCounts ?? {})) {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
     }
     if (scenario.enterPlanMode === true) {
-      expect(ctx.planMode.get(agent)).toEqual({ active: true })
+      expect(ctx.planMode.get(agent)).toEqual({
+        active: scenario.leavePlanModeAfterFirstTurn !== true,
+      })
       const planMode = events.find(event => event.type === 'plan/mode')
-      const firstHeader = events.find(event => event.type === 'request/header')
       if (planMode === undefined || firstHeader === undefined) {
         throw new Error('plan-mode command snapshot needs plan/mode before its first request/header')
       }
@@ -317,6 +329,20 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(firstHeader.data.header.system).toContain('Snapshot plan mode instructions.')
       const firstMessage = events.find(event => event.type === 'user/message')
       expect(firstMessage?.data.content).toEqual([{ type: 'text', text: prompts[0] }])
+    }
+    if (scenario.leavePlanModeAfterFirstTurn === true) {
+      const planModes = events.filter(event => event.type === 'plan/mode')
+      expect(planModes.map(event => event.data.active)).toEqual([true, false])
+      const headers = events.filter(event => event.type === 'request/header')
+      const exit = planModes[1]
+      const afterExit = headers[1]
+      if (exit === undefined || afterExit === undefined) {
+        throw new Error('active plan exit snapshot needs a committed exit and changed request header')
+      }
+      expect(exit.seq).toBeLessThan(afterExit.seq)
+      expect(afterExit.data.header.system).not.toContain('Snapshot plan mode instructions.')
+      expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin').map(event => (event.data as { content: unknown }).content))
+        .toContainEqual([{ type: 'text', text: 'The user switched this session back to the default mode.' }])
     }
     expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)

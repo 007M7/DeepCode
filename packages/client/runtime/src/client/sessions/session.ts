@@ -5,13 +5,19 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
-import { transportError } from '@deepseek-ai/dsh-client-connection/client'
-import type { ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type {
-  ConversationNode, ConversationSnapshot, OpenState, PendingInteraction, PromptError, RunningToolCall,
+  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
+  SessionId, ToolEventView,
+} from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ObservableSnapshot } from '../contract/store.ts'
+import type {
+  ConversationNode, ConversationSnapshot, OpenState, PromptError, RunningToolCall,
 } from './conversation.ts'
+import type { PendingInteraction } from './pending.ts'
+import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
@@ -19,11 +25,13 @@ import { PartialAccumulator } from './partial.ts'
 /** Messages per page (F.4 ledger: promote to Config at graduation; every call site references this constant). */
 export const PAGE_MESSAGES = 50
 
-/** Per-session state owner: event window + fold + partial, snapshot out via uSES (see the web client architecture RFC). */
+/**
+ * Per-session state owner: event window + fold + partial, snapshot out via
+ * subscribe/getSnapshot (see the web client architecture RFC). Bare source
+ * only (store migration): the React machinery binds the per-cell useSession
+ * hook at its own seam — no selector hook member lives on the data layer.
+ */
 export class Session implements ObservableSnapshot<ConversationSnapshot> {
-  /** Typed selector hook bound to this instance (the SessionBinding `useSession` source). */
-  readonly useSelector: SnapshotSelectorHook<ConversationSnapshot> = bindSnapshotSelector(this)
-
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
@@ -182,7 +190,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.events = []
     this.views = []
     this.baseSeq = 0
-    this.pending.clear() // the subscribed baseline replay re-sends still-pending requested frames verbatim
+    // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
+    // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
+    this.pending.clear()
     this.pendingRev++
     this.subscribedLastSeq = null
     this.liveBuffer = []
@@ -228,33 +238,27 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return // pure baseline bookkeeping, no visible change
       }
       case 'approval/requested': {
-        this.pending.set(`a:${rpcId}`, {
-          kind: 'approval', rpcId, approvalId: frame.approvalId, toolName: frame.toolName,
-          ...(frame.callId !== undefined ? { callId: frame.callId } : {}),
-          ...(frame.reason !== undefined ? { reason: frame.reason } : {}),
-        })
-        this.pendingRev++
+        const { type: _type, sessionId: _sid, ...payload } = frame
+        this.mint(new PendingWait('approval', rpcId, this.sessionId, payload, m => this.api.respond(m)))
         this.notifier.markDirty()
         return
       }
       case 'approval/resolved': {
-        for (const [key, item] of this.pending) {
-          if (item.kind === 'approval' && item.approvalId === frame.approvalId) {
-            this.pending.delete(key)
-            this.pendingRev++
-          }
+        for (const item of this.pending.values()) {
+          if (item.kind === 'approval' && item.payload.approvalId === frame.approvalId) this.settle(item)
         }
         this.notifier.markDirty()
         return
       }
       case 'question/requested': {
-        this.pending.set(`q:${rpcId}`, { kind: 'question', rpcId, questions: frame.questions })
-        this.pendingRev++
+        const { type: _type, sessionId: _sid, ...payload } = frame
+        this.mint(new PendingWait('question', rpcId, this.sessionId, payload, m => this.api.respond(m)))
         this.notifier.markDirty()
         return
       }
       case 'question/resolved': {
-        if (this.pending.delete(`q:${frame.questionRpcId}`)) this.pendingRev++
+        const item = this.pending.get(`q:${frame.questionRpcId}`)
+        if (item !== undefined) this.settle(item)
         this.notifier.markDirty()
         return
       }
@@ -293,6 +297,19 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   dispose(): void {}
 
   // ---- 私有 ----
+
+  /** Requested-frame arrival: the wait enters the pending map under its own key. */
+  private mint(wait: PendingInteraction): void {
+    this.pending.set(wait.key, wait)
+    this.pendingRev++
+  }
+
+  /** Authoritative resolved-frame settlement: mark, then drop from the pending map. */
+  private settle(wait: PendingInteraction): void {
+    wait.markSettled()
+    this.pending.delete(wait.key)
+    this.pendingRev++
+  }
 
   /** @param generation - openGeneration at launch; every await re-checks it and a stale pass
    *  drops all writes (resync superseded this open — its outcome belongs to a dead connection). */
@@ -417,7 +434,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       case 'tool/call': {
         this.openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
-          turn: event.data.turn, step: event.data.step,
+          turn: event.data.turn, step: event.data.step, time: event.time,
           callView: view?.for === 'call' ? view.view : null,
         })
         this.callsRev++
@@ -438,7 +455,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
             this.frozenNodes.push({
-              kind: 'assistant', seq: event.seq - 0.9, turn: this.partial.turn, step: this.partial.step,
+              kind: 'assistant', seq: event.seq - 0.9, time: event.time,
+              turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
             this.frozenRev++
@@ -452,8 +470,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
           this.frozenNodes.push({
-            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, callId,
+            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
+            callId,
             call: { name: call.name, argsRaw: call.argsRaw },
+            callTime: call.time,
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })

@@ -38,8 +38,7 @@ vendored TypeScript 源码中的本地相对导入/导出在复制后使用显�
 | 文件 | 修改内容 |
 |---|---|
 | `tsconfig.base.json` | 在 `paths` 中添加 `"<npm-name>": ["./vendor/<dir>/src"]` |
-| `tsconfig.json` | 在 `references` 中添加 `{ "path": "./vendor/<dir>" }` |
-| `tsconfig.build.json` | 在 `references` 中添加 `{ "path": "./vendor/<dir>" }`（置于 `packages/*` 条目之前） |
+| `tsconfig.host.json` | 在 `references` 中添加 `{ "path": "./vendor/<dir>" }`（置于 `packages/*` 条目之前；vendored 代码只经 host 聚合进图） |
 | `vendor/README.md` | 添加一行 manifest 表格行（dir、npm name、version、upstream repo、commit SHA）并记录所有本地修改 |
 | `scripts/publint-all.ts` | 仅当该 vendored 包本身从此仓库发布时才需要（vendored 依赖通常不发布——跳过） |
 
@@ -57,4 +56,4 @@ pnpm run typecheck
 pnpm run build && pnpm run test && pnpm run constraints
 ```
 
-源码 `paths` 映射由构建配置和根类型检查配置共享。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入根目录的严格程序中。
+源码 `paths` 映射只在 `tsconfig.base.json` 存在一份，服务所有图。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入某个聚合的严格程序中（[布局](../development.md#typescript-project-layout)）。

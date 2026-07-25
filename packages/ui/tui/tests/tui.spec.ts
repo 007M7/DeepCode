@@ -1,26 +1,32 @@
-import { homedir } from 'node:os'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, type Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, assembleContextFor, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
 import { type LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type JsonValue, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
 import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import SessionQueryService from '@deepseek-ai/dsh-session-query'
 import SessionReferenceService, { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
+  FILE_REFERENCE_PROMPT,
   mountTui,
   renderSkillInvocation,
   resolveTuiConfig,
+  type TuiOverlayHost,
+  type TuiOverlaySession,
   type TuiRuntime,
 } from '../src/index.ts'
+import { WorkspaceFileSearch } from '../src/file-autocomplete.ts'
 import {
   appendAssistant,
   appendUser,
@@ -28,6 +34,12 @@ import {
   disposeTuiTestHarness,
   type TuiHarnessOptions,
 } from './harness.ts'
+import { TestSessionQueryService } from './session-query.ts'
+
+const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
+  schema: { type: 'null' },
+  render: () => [],
+}
 
 class FakeTerminal implements Terminal {
   columns = 88
@@ -142,10 +154,14 @@ describe('TUI config', () => {
       maxToolOutputLines: 6,
       maxQuestionOptions: 8,
       maxModelOptions: 8,
+      maxResumeOptions: 8,
       questionDialogWidth: 200,
       questionDialogMaxHeight: 20,
       modelDialogWidth: 72,
       modelDialogMaxHeight: 20,
+      fileSearchMaxResults: 20,
+      fileSearchMaxEntries: 10_000,
+      fileSearchExcludedDirectories: ['.git', 'node_modules'],
       showHardwareCursor: false,
       color: true,
       truecolor: false,
@@ -156,10 +172,14 @@ describe('TUI config', () => {
       maxToolOutputLines: 2,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
+      maxResumeOptions: 5,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      fileSearchMaxResults: 7,
+      fileSearchMaxEntries: 123,
+      fileSearchExcludedDirectories: ['.git', 'generated'],
       showHardwareCursor: true,
       color: false,
       truecolor: true,
@@ -169,10 +189,14 @@ describe('TUI config', () => {
       maxToolOutputLines: 2,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
+      maxResumeOptions: 5,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      fileSearchMaxResults: 7,
+      fileSearchMaxEntries: 123,
+      fileSearchExcludedDirectories: ['.git', 'generated'],
       showHardwareCursor: true,
       color: false,
       truecolor: true,
@@ -185,6 +209,21 @@ describe('resume command and /resume', () => {
   const RESUME = 'RESUME_SESSION_ID={session} dsh'
   const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
     ({ version: 0, id: SessionId(id), createdAt, cwd })
+  const resumeEvents = (
+    title: string,
+    provider = 'deepseek',
+    time = 100,
+    reason: TurnEndReason = { kind: 'completed' },
+  ): SessionEvent[] => [
+    { type: 'turn/start', seq: 0, time, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'user/message', seq: 1, time: time + 1, data: { content: [{ type: 'text', text: 'resume me' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'step/start', seq: 2, time: time + 2, data: { turn: 1, step: 1 } },
+    { type: 'request/header', seq: 3, time: time + 3, data: { header: { config: { provider, model: 'model-1' } }, reason: 'initial' } },
+    { type: 'assistant/message', seq: 4, time: time + 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'done' }], provenance: { provider, model: 'model-1' } }, surfaceOp: 'append' },
+    { type: 'step/end', seq: 5, time: time + 5, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
+    { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
+  ]
 
   it('prints the resume command on exit once the session is persisted', async () => {
     const result = await setup({
@@ -224,73 +263,832 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('lists this workspace\'s sessions newest-first and marks the current one', async () => {
+  it('opens a newest-active-first searchable selector and Esc clears before cancelling', async () => {
+    const older = header('older-session', 500, '/workspace')
+    const newer = header('newer-session', 2000, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
     const result = await setup({
       cwd: '/workspace',
       config: { resumeCommand: RESUME },
+      handoffResume: handoff,
       sessionPersistence: {
-        list: async () => [
-          header('main-session', 1000, '/workspace'),
-          header('older-session', 500, '/workspace'),
-          header('newer-session', 2000, '/workspace'),
-          header('foreign-session', 3000, '/elsewhere'),
-        ],
+        list: async () => [older, newer, header('foreign-session', 3000, '/elsewhere')],
+        load: async id => id === newer.id
+          ? { meta: newer, events: resumeEvents('Newer product work', 'deepseek', 300) }
+          : { meta: older, events: resumeEvents('Older investigation', 'deepseek', 100) },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    const output = result.terminal.output
+    expect(output).toContain('Resume session')
+    expect(output).toContain('Newer product work')
+    expect(output).toContain('Older investigation')
+    expect(output).toContain('current · live')
+    expect(output.indexOf('Newer product work')).toBeLessThan(output.indexOf('Older investigation'))
+    expect(output).not.toContain('foreign-session')
+    result.terminal.send('Older')
+    await tick()
+    expect(result.terminal.output).toContain('⌕ Older')
+    result.terminal.send('\x1b')
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .not.toContain('⌕ Older')
+    result.terminal.send('\x1b')
+    await tick()
+    expect(handoff).not.toHaveBeenCalled()
+    await dispose(result)
+  })
+
+  it('handles selector navigation, empty matches, and backspace search edits', async () => {
+    const target = header('keyboard-target', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Keyboard target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[A')
+    result.terminal.send('\t')
+    result.terminal.send('zz')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('No session matches this search')
+    result.terminal.send('\x7f')
+    result.terminal.send('\x7f')
+    await tick()
+    const cleared = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(cleared).toContain('⌕ ')
+    expect(cleared).not.toContain('zz')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('current session')
+    result.terminal.send('\x1b')
+    await dispose(result)
+  })
+
+  it('sanitizes bracketed-paste terminal controls before storing the search query', async () => {
+    const target = header('safe-target', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Safe target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\x1b[200~Safe\x1b]0;own')
+    result.terminal.send('ed\x07 target\x1b[31m\x1b[201~')
+    await tick()
+    const rendered = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(rendered).toContain('⌕ Safe target')
+    expect(rendered).not.toContain('owned')
+    expect(rendered).not.toContain('[31m')
+    result.terminal.send('\x1b')
+    result.terminal.send('Safe\x1b[200~\x1b[201~ target')
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .toContain('⌕ Safe target')
+    await dispose(result)
+  })
+
+  it('pages by the number of candidates that fit the current viewport', async () => {
+    const targets = Array.from({ length: 8 }, (_, index) =>
+      header(`paged-${index}`, 1000 - index, '/workspace'))
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => targets,
+        load: async id => ({
+          meta: targets.find(target => target.id === id)!,
+          events: resumeEvents(`Paged ${id.slice('paged-'.length)}`, 'deepseek', 1000 - Number(id.slice('paged-'.length)) * 10),
+        }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\x1b[6~')
+    await tick()
+    const rendered = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(rendered).toContain('❯ Paged 3')
+    result.terminal.send('\x1b[5~')
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .toContain('❯ Untitled session')
+    result.terminal.resize(10)
+    await tick()
+    expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
+      .toContain('⌕')
+    result.terminal.send('\x03')
+    await dispose(result)
+  })
+
+  it('clips candidate count through the configured visible-session limit', async () => {
+    const targets = [header('limited-a', 10, '/workspace'), header('limited-b', 20, '/workspace')]
+    const result = await setup({
+      cwd: '/workspace',
+      config: { maxResumeOptions: 1 },
+      sessionPersistence: {
+        list: async () => targets,
+        load: async id => ({
+          meta: targets.find(target => target.id === id)!,
+          events: resumeEvents(`Limited ${id}`),
+        }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('(1 of 3)')
+    await dispose(result)
+  })
+
+  it.each([
+    [{ kind: 'aborted' }, 'cancelled'],
+    [{ kind: 'error', step: 1, message: 'failed' }, 'error'],
+    [{ kind: 'disposed' }, 'disposed'],
+    [{ kind: 'max-tokens' }, 'max tokens'],
+    [{ kind: 'rejected', reason: 'policy' }, 'rejected'],
+    [{ kind: 'interrupted' }, 'interrupted'],
+    [{ kind: 'future-result' } as unknown as TurnEndReason, 'unknown result'],
+  ] as const)('renders the last turn result %s', async (reason, label) => {
+    const target = header(`turn-${label}`, 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents(`Turn ${label}`, 'deepseek', 100, reason) }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain(`turn 1: ${label}`)
+    await dispose(result)
+  })
+
+  it('refuses while running instead of cancelling or switching', async () => {
+    const result = await setup({ cwd: '/workspace', status: 'running' })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('finish or be cancelled first')
+    expect(result.agent.cancelled).toEqual([])
+    await dispose(result)
+  })
+
+  it('warns when the optional session-query service is absent', async () => {
+    const result = await setup({ cwd: '/workspace', mountSessionQuery: false })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session query is not mounted')
+    await dispose(result)
+  })
+
+  it('keeps persisted query records readable without a persistence service', async () => {
+    const target = header('query-only-persisted', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{
+            header: target,
+            live: false,
+            persisted: true,
+          }]),
+          readSession: () => Promise.resolve({
+            session: target,
+            events: resumeEvents('Query-only persisted session'),
+          }),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Query-only persisted session')
+    expect(result.terminal.output).toContain('persisted')
+    expect(result.terminal.output).not.toContain('session cannot be loaded')
+    await dispose(result)
+  })
+
+  it('contains a session-query scan failure in the current TUI', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.reject(new Error('index unavailable')),
+        } as never)
       },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick()
-    const output = result.terminal.output
-    expect(output).toContain('Resumable sessions')
-    expect(output).toContain('RESUME_SESSION_ID=main-session dsh')
-    expect(output).toContain('(current)')
-    expect(output).toContain('RESUME_SESSION_ID=newer-session dsh')
-    expect(output).not.toContain('foreign-session')
-    // Newest-first: the newer session's command precedes the current session's.
-    // Match the full resume command, not the bare id: the banner detail line
-    // echoes the current session id (`main-session`) above the listing.
-    expect(output.indexOf('RESUME_SESSION_ID=newer-session')).toBeLessThan(
-      output.indexOf('RESUME_SESSION_ID=main-session'),
-    )
-    expect(output.indexOf('RESUME_SESSION_ID=main-session')).toBeLessThan(
-      output.indexOf('RESUME_SESSION_ID=older-session'),
-    )
+    expect(result.terminal.output).toContain('Resume session scan failed: index unavailable')
+    expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })
 
-  it('warns from /resume when resume is not configured', async () => {
-    const result = await setup({ cwd: '/workspace' })
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Resume is not configured')
-    await dispose(result)
-  })
-
-  it('warns from /resume when no persistence backend is mounted', async () => {
-    const result = await setup({ cwd: '/workspace', config: { resumeCommand: RESUME } })
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('no persistence backend is mounted')
-    await dispose(result)
-  })
-
-  it('notes from /resume when no workspace sessions are persisted yet', async () => {
+  it('supersedes a slower prior selector scan', async () => {
+    const first = Promise.withResolvers<SessionRecord[]>()
+    let calls = 0
     const result = await setup({
-      cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: { list: async () => [header('foreign-session', 10, '/elsewhere')] },
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => ++calls === 1 ? first.promise : Promise.resolve([]),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    first.reject(new Error('superseded scan failed'))
+    await tick()
+    expect(calls).toBe(2)
+    expect(result.terminal.output).toContain('No matching sessions')
+    expect(result.terminal.output).not.toContain('superseded scan failed')
+    result.terminal.send('\x1b[A')
+    result.terminal.send('\x1b[B')
+    await dispose(result)
+  })
+
+  it('drops a selector scan that resolves after TUI disposal', async () => {
+    const listing = Promise.withResolvers<SessionRecord[]>()
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', { listSessions: () => listing.promise } as never)
+      },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output).toContain('No resumable sessions found')
+    await dispose(result)
+    listing.resolve([])
+    await tick()
+    expect(result.terminal.stopped).toBeGreaterThan(0)
+  })
+
+  it('drops loaded selector summaries when the TUI disposed during log reads', async () => {
+    const target = header('dispose-during-load', 10, '/workspace')
+    const loading = Promise.withResolvers<{ meta: SessionHeader; events: SessionEvent[] }>()
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: () => loading.promise,
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    await dispose(result)
+    loading.resolve({ meta: target, events: resumeEvents('Disposed load') })
+    await tick()
+    expect(result.terminal.stopped).toBeGreaterThan(0)
+  })
+
+  it('preflights route availability and corrupt sessions without losing the current TUI', async () => {
+    const missing = header('missing-route', 10, '/workspace')
+    const corrupt = header('corrupt', 30, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: {
+        list: async () => [missing, corrupt],
+        load: async (id) => {
+          if (id === corrupt.id) throw new Error('checksum mismatch')
+          return {
+            meta: missing,
+            events: resumeEvents('Missing adapter', 'absent-provider'),
+          }
+        },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Missing adapter')
+    expect(result.terminal.output).toContain('absent-provider/model-1')
+    expect(result.terminal.output).toContain('Unreadable session')
+    result.terminal.send('Missing adapter')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('route is currently unavailable')
+    expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
+  })
+
+  it('keeps a session already live in this runtime visible but disabled', async () => {
+    const target = header('live-target', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{
+            header: target,
+            live: true,
+            persisted: true,
+          }]),
+          readSession: () => Promise.resolve({
+            session: target,
+            events: resumeEvents('Live target'),
+          }),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Live target')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session is already live in this runtime')
+    expect(handoff).not.toHaveBeenCalled()
+    await dispose(result)
+  })
+
+  it('falls back to assistant provenance and header creation time for sparse logs', async () => {
+    const assistantOnly = header('assistant-route', 20, '/workspace')
+    const empty = header('empty-log', 10, '/workspace')
+    const events = resumeEvents('Assistant route', 'deepseek')
+      .filter(event => event.type !== 'request/header')
+      .map((event, seq) => ({ ...event, seq })) as SessionEvent[]
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [assistantOnly, empty],
+        load: async id => id === assistantOnly.id
+          ? { meta: assistantOnly, events }
+          : { meta: empty, events: [] },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('deepseek/model-1')
+    expect(result.terminal.output).toContain(new Date(empty.createdAt).toISOString())
+    await dispose(result)
+  })
+
+  it('flushes, releases the terminal, and invokes one host handoff for the same SessionId', async () => {
+    const target = header('target-session', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(() => Promise.reject(new Error('test host retained process')))
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Target session') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Target session')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(handoff).toHaveBeenCalledTimes(1)
+    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(result.terminal.stopped).toBeGreaterThan(0)
+    expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
+    await dispose(result)
+  })
+
+  it('restores the UI when a host returns instead of replacing the process', async () => {
+    const target = header('returning-host', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: async () => undefined as never,
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Returning host') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Returning host')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('resume host returned without replacing the process')
+    await dispose(result)
+  })
+
+  it('keeps the current TUI when the selected log fails its second preflight load', async () => {
+    const target = header('racing-corruption', 10, '/workspace')
+    let loads = 0
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => {
+          if (++loads > 1) throw new Error('log changed during selection')
+          return { meta: target, events: resumeEvents('Racing corruption') }
+        },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Racing corruption')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Resume failed: session cannot be loaded: failed to inspect session')
+    expect(result.terminal.output).toContain('log changed during selection')
+    expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
+  })
+
+  it('does not flush or hand off when disposal begins during selected-session preflight', async () => {
+    const target = header('dispose-during-preflight', 10, '/workspace')
+    const secondListing = Promise.withResolvers<SessionRecord[]>()
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const flush = vi.fn()
+    let listings = 0
+    const record: SessionRecord = { header: target, live: false, persisted: true }
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.on('session/flush', flush)
+        ctx.provide('sessionQuery', {
+          listSessions: () => ++listings === 1 ? Promise.resolve([record]) : secondListing.promise,
+          readSession: () => Promise.resolve({
+            session: target,
+            events: resumeEvents('Dispose during preflight'),
+          }),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('Dispose during preflight')
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(listings).toBe(2) })
+    await dispose(result)
+    secondListing.resolve([record])
+    await tick()
+    expect(flush).not.toHaveBeenCalled()
+    expect(handoff).not.toHaveBeenCalled()
+  })
+
+  it('hands off a validated session exposed by a query backend without a persistence service', async () => {
+    const target = header('query-without-persistence', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(
+      () => Promise.reject(new Error('test host retained process')),
+    )
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{
+            header: target,
+            live: false,
+            persisted: true,
+          }]),
+          readSession: () => Promise.resolve({
+            session: target,
+            events: resumeEvents('Query without persistence'),
+          }),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Query without persistence')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
+    await dispose(result)
+  })
+
+  it('does not hand off after disposal begins during the current-session flush', async () => {
+    const target = header('dispose-during-flush', 10, '/workspace')
+    const flushing = Promise.withResolvers<undefined>()
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.on('session/flush', () => flushing.promise)
+      },
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Dispose during flush') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Dispose during flush')
+    result.terminal.send('\r')
+    await tick()
+    const disposing = dispose(result)
+    await tick()
+    flushing.resolve(undefined)
+    await disposing
+    expect(handoff).not.toHaveBeenCalled()
+  })
+
+  it('does not hand off after disposal begins while terminal input drains', async () => {
+    const target = header('dispose-during-drain', 10, '/workspace')
+    const draining = Promise.withResolvers<undefined>()
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Dispose during drain') }),
+      },
+    })
+    result.terminal.drainInput.mockImplementationOnce(() => draining.promise)
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Dispose during drain')
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.terminal.drainInput).toHaveBeenCalled() })
+    await dispose(result)
+    draining.resolve(undefined)
+    await tick()
+    expect(handoff).not.toHaveBeenCalled()
+  })
+
+  it('does not restart the terminal when a pending host rejects during disposal', async () => {
+    const target = header('host-rejects-during-disposal', 10, '/workspace')
+    const host = Promise.withResolvers<never>()
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(() => host.promise)
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Host disposal') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Host disposal')
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(handoff).toHaveBeenCalled() })
+    const startsBeforeDispose = result.terminal.started
+    await dispose(result)
+    host.reject(new Error('host rejected after disposal'))
+    await tick()
+    expect(result.terminal.started).toBe(startsBeforeDispose)
+    expect(result.terminal.output).not.toContain('host rejected after disposal')
+  })
+
+  it('rejects a candidate whose cwd changes between listing and preflight', async () => {
+    const target = header('moving-workspace', 10, '/workspace')
+    let listings = 0
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [++listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere')],
+        load: async () => ({
+          meta: listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere'),
+          events: resumeEvents('Moving workspace'),
+        }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Moving workspace')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('different workspace')
+    await dispose(result)
+  })
+
+  it('admits only one handoff while the selected preflight is pending', async () => {
+    const target = header('single-handoff', 10, '/workspace')
+    const preflight = Promise.withResolvers<{ meta: SessionHeader; events: SessionEvent[] }>()
+    let loads = 0
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: () => ++loads === 1
+          ? Promise.resolve({ meta: target, events: resumeEvents('Single handoff') })
+          : preflight.promise,
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Single handoff')
+    result.terminal.send('\r')
+    result.terminal.send('\r')
+    await tick()
+    preflight.resolve({ meta: target, events: resumeEvents('Single handoff') })
+    await tick(); await tick()
+    expect(loads).toBe(2)
+    await dispose(result)
+  })
+
+  it('rechecks running state and candidate existence before loading the selected log', async () => {
+    const target = header('preflight-races', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Preflight races') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.agent.status = 'running'
+    result.terminal.send('Preflight races')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Resume requires an idle agent (status: running)')
+    result.agent.status = 'idle'
+    await dispose(result)
+
+    let disappearingLists = 0
+    const disappearing = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => ++disappearingLists <= 2 ? [target] : [],
+        load: async () => ({ meta: target, events: resumeEvents('Disappearing target') }),
+      },
+    })
+    disappearing.terminal.send('/resume')
+    disappearing.terminal.send('\r')
+    await tick(); await tick()
+    disappearing.terminal.send('Disappearing target')
+    disappearing.terminal.send('\r')
+    await tick()
+    expect(disappearing.terminal.output).toContain('is no longer available')
+    await dispose(disappearing)
+  })
+
+  it('rechecks idleness after the selected log finishes loading', async () => {
+    const target = header('load-turns-running', 10, '/workspace')
+    let loads = 0
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => {
+          loads += 1
+          if (loads === 2) result.agent.status = 'running'
+          return { meta: target, events: resumeEvents('Load turns running') }
+        },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Load turns running')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Resume requires an idle agent (status: running)')
+    result.agent.status = 'idle'
+    await dispose(result)
+  })
+
+  it('keeps resumeCommand as a displayed fallback when the host cannot hand off', async () => {
+    const target = header('fallback-session', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Fallback target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Fallback target')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
+    expect(result.terminal.output).toContain('RESUME_SESSION_ID=fallback-session')
+    expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
+  })
+
+  it('keeps the selector independent from an absent command fallback', async () => {
+    const target = header('no-fallback-session', 10, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('No fallback target') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('No fallback target')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
+    await dispose(result)
+  })
+
+  it('rechecks idleness after the current-session flush', async () => {
+    const target = header('post-flush-running', 10, '/workspace')
+    const control: { setRunning?: () => void } = {}
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.on('session/flush', () => { control.setRunning?.() })
+      },
+      sessionPersistence: {
+        list: async () => [target],
+        load: async () => ({ meta: target, events: resumeEvents('Post-flush running') }),
+      },
+    })
+    control.setRunning = () => { result.agent.status = 'running' }
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Post-flush running')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Resume requires an idle agent (status: running)')
+    expect(handoff).not.toHaveBeenCalled()
+    result.agent.status = 'idle'
     await dispose(result)
   })
 })
 
 describe('pi-tui chat lifecycle and transcript', () => {
+  it('restores durable goal phase without implying automatic continuation', async () => {
+    const change: GoalSnapshotChangeMeta = {
+      kind: 'goal/change',
+      version: GOAL_CHANGE_VERSION,
+      operation: 'create',
+      goal: {
+        id: GoalId('restored-goal'),
+        revision: 1,
+        objective: 'Resume only with human confirmation',
+        phase: 'active',
+        maxGoalRounds: 4,
+      },
+      roundsStarted: 0,
+      createdAt: 10,
+      updatedAt: 10,
+    }
+    const result = await setup({
+      beforeMount(session) {
+        session.append('user/message', {
+          content: renderGoalChange(change),
+          source: { kind: 'goal', goalId: change.goal.id, revision: change.goal.revision, round: 0 },
+          meta: change as unknown as JsonValue,
+        }, { surfaceOp: 'append' })
+      },
+    })
+    expect(result.terminal.output).toContain('Goal restored (active) with automatic continuation disarmed')
+    expect(result.terminal.output).toContain('/goal resume')
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('goal active')
+    await dispose(result)
+  })
+
   it('uses the latest log-backed title for the header subtitle and terminal window', async () => {
     const result = await setup({
       // A fixed short cwd keeps the footer's token counters inside the 88-column
@@ -374,8 +1172,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('user/message', { content: [{ type: 'text', text: '   ' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: 'steering note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('context/message', { content: [{ type: 'text', text: 'user context' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('context/message', { content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    result.session.append('user/message', { content: [{ type: 'text', text: 'user context' }], source: { kind: 'plugin', plugin: 'ctx' } }, { surfaceOp: 'append' })
+    result.session.append('user/message', { content: [{ type: 'text', text: '' }], source: { kind: 'plugin', plugin: 'ctx' } }, { surfaceOp: 'append' })
+    // A non-plugin injected source (goal) has no `plugin` field, so its context
+    // card label falls back to the source kind.
+    result.session.append('user/message', { content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0 } as never }, { surfaceOp: 'append' })
     result.session.append('prompt/blocked', { content: [{ type: 'text', text: 'blocked' }], source: { kind: 'user' }, reason: 'test policy' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
@@ -456,6 +1257,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Enter sends steering, Esc cancels')
     expect(result.terminal.output).toContain('Steering')
     expect(result.terminal.output).toContain('user context')
+    expect(result.terminal.output).toContain('Context · goal') // goal-sourced injected context labels by kind
     expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
     expect(result.terminal.progress).toContain(true)
@@ -552,16 +1354,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('queued')
 
     const queueSteering = (text: string): void => {
-      result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text }], { source: { kind: 'user' }, contexts: [], steering: true })
+      result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     }
     const drainSteering = (text: string): void => {
       result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     }
 
     // A steering queue for a different agent never touches this status line.
-    const other = { ...result.agent, id: SessionId('other') } as Agent
+    const other = { ...result.agent, id: SessionId('other') } as unknown as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/queued', other, [{ type: 'text', text: 'elsewhere' }], { source: { kind: 'user' }, contexts: [], steering: true })
+    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -574,7 +1376,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     // A non-steering queue (an idle-style send) leaves the badge untouched.
     result.terminal.output = ''
-    result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text: 'sent' }], { source: { kind: 'user' }, contexts: [], steering: false })
+    result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'sent' }], source: { kind: 'user' }, contexts: [], steering: false, wakeup: true })
     drainSteering('first')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -594,8 +1396,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output).toContain('1 queued')
 
-    // A loop-authored steering event (plugin source, no matching agent/queued)
-    // cannot consume a pending user slot, even when it drains first.
+    // A steering/message whose source matches no pending badge entry (here a
+    // plugin source with no tracked enqueue) pops nothing, so it cannot consume
+    // a pending user slot even when it drains first.
     result.terminal.output = ''
     result.session.append('steering/message', {
       turn: 1,
@@ -627,7 +1430,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const idle = await setup()
     // A steering queue arriving while idle has no status line to badge, so the
     // refresh is a no-op beyond requesting a render.
-    idle.ctx.emit('agent/queued', idle.agent, [{ type: 'text', text: 'early' }], { source: { kind: 'user' }, contexts: [], steering: true })
+    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
     await tick()
     expect(idle.terminal.output).not.toContain('Executing tools')
@@ -794,31 +1597,43 @@ describe('pi-tui chat lifecycle and transcript', () => {
         appendAssistant(session, [{ type: 'text', text: 'home' }], { inputTokens: 25_000, outputTokens: 10_000 })
       },
     })
-    expect(homeResult.terminal.output).toContain('~  ↑25k ↓10k')
+    await vi.waitFor(() => {
+      expect(homeResult.terminal.output).toContain('~  ↑25k ↓10k')
+    })
     await dispose(homeResult)
 
     const childResult = await setup({ cwd: join(home, 'projects', 'dsh-tui') })
-    expect(childResult.terminal.output).toContain(join('~', 'projects', 'dsh-tui'))
+    await vi.waitFor(() => {
+      expect(childResult.terminal.output).toContain(join('~', 'projects', 'dsh-tui'))
+    })
     await dispose(childResult)
 
     const unsetResult = await setup({ cwd: null })
-    expect(unsetResult.terminal.output).toContain('cwd unset')
+    await vi.waitFor(() => {
+      expect(unsetResult.terminal.output).toContain('cwd unset')
+    })
     await dispose(unsetResult)
 
     const homeParent = resolve(home, '..')
     const parentResult = await setup({ cwd: homeParent })
-    expect(parentResult.terminal.output).toContain(homeParent)
+    await vi.waitFor(() => {
+      expect(parentResult.terminal.output).toContain(homeParent)
+    })
     await dispose(parentResult)
 
     const outsideResult = await setup({ cwd: '/opt' })
-    expect(outsideResult.terminal.output).toContain('/opt')
+    await vi.waitFor(() => {
+      expect(outsideResult.terminal.output).toContain('/opt')
+    })
     await dispose(outsideResult)
 
     const logicalResult = await setup({
       cwd: '/w',
       formatCwd: cwd => `logical:${cwd}\x1b`,
     })
-    expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
+    await vi.waitFor(() => {
+      expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
+    })
     await dispose(logicalResult)
   })
 
@@ -1012,7 +1827,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: process.cwd(), createdAt: 1 } })
         sourceId = source.id
@@ -1056,13 +1871,133 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('fuzzy-completes files and directories while sending only the selected path text', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-file-completion-'))
+    await mkdir(join(cwd, 'src'), { recursive: true })
+    await mkdir(join(cwd, 'docs'), { recursive: true })
+    await writeFile(join(cwd, 'src', 'source-file.ts'), 'export const source = true\n')
+    await writeFile(join(cwd, 'docs', 'design notes.md'), '# Design\n')
+    await writeFile(join(cwd, 'unsafe\u007ffile.ts'), 'unsafe name\n')
+    const result = await setup({
+      cwd,
+      tools: {
+        read: {
+          name: 'read',
+          description: 'Read a file.',
+          parameters: {},
+          output: UNUSED_TOOL_OUTPUT,
+          execute: () => Promise.resolve([]),
+        },
+      },
+    })
+    try {
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      expect(assembly.sections).toContainEqual({
+        name: 'ui:tui-file-reference',
+        text: FILE_REFERENCE_PROMPT,
+      })
+
+      result.terminal.send('@sfts')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('File · source-file.ts')
+      })
+      expect(result.terminal.output).toContain('src/source-file.ts')
+      result.terminal.send('\t')
+      await tick()
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+      expect(result.agent.sent[0]).toEqual([{ type: 'text', text: '@src/source-file.ts' }])
+      expect(result.agent.sentOptions[0]?.contexts).toEqual([])
+
+      result.terminal.send('@do')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('Folder · docs/')
+      })
+      result.terminal.send('\t')
+      result.terminal.output = ''
+      result.terminal.send('\t')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('@"docs/design notes.md"')
+      })
+      await tick()
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
+      expect(result.agent.sent[1]).toEqual([{ type: 'text', text: '@"docs/design notes.md"' }])
+      expect(result.agent.sentOptions[1]?.contexts).toEqual([])
+
+      result.terminal.send('@unsafe')
+      await tick()
+      expect(result.terminal.output).not.toContain('File · unsafe')
+      result.terminal.send('\x03')
+    } finally {
+      await result.controller.dispose()
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      expect(assembly.sections).not.toContainEqual({
+        name: 'ui:tui-file-reference',
+        text: FILE_REFERENCE_PROMPT,
+      })
+      await result.ctx.fiber.dispose()
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('isolates failed file discovery from editor autocomplete', async () => {
+    const list = vi.spyOn(WorkspaceFileSearch.prototype, 'list').mockRejectedValue(new Error('search failed'))
+    const result = await setup()
+    try {
+      result.terminal.send('@failed')
+      await vi.waitFor(() => { expect(list).toHaveBeenCalled() })
+      await tick()
+      expect(result.agent.sent).toEqual([])
+    } finally {
+      list.mockRestore()
+      await dispose(result)
+    }
+  })
+
+  it('shows file-reference guidance only while read is visible to the agent', async () => {
+    const read: ToolDefinition = {
+      name: 'read',
+      description: 'Read a file.',
+      parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
+      execute: () => Promise.resolve([]),
+    }
+    let visibility: 'none' | 'global' | 'agent' = 'none'
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', {
+          get(name: string, scope?: Agent) {
+            if (name !== 'read' || visibility === 'none') return undefined
+            return (scope === undefined) === (visibility === 'global') ? read : undefined
+          },
+        } as never)
+      },
+    })
+    const fileReferenceText = async (): Promise<string | undefined> => {
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      return assembly.sections.find(section => section.name === 'ui:tui-file-reference')?.text
+    }
+    try {
+      expect(await fileReferenceText()).toBe('')
+      visibility = 'global'
+      expect(await fileReferenceText()).toBe('')
+      visibility = 'agent'
+      expect(await fileReferenceText()).toBe(FILE_REFERENCE_PROMPT)
+      visibility = 'none'
+      expect(await fileReferenceText()).toBe('')
+    } finally {
+      await dispose(result)
+    }
+  })
+
   it('escapes session autocomplete metadata while preserving the referenced session id', async () => {
     const unsafeId = SessionId('evil\x1b\x07\u009b\ns')
     const unsafeCwd = '/x/\x1b\x07\u009b\nf'
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         const source = ctx.sessions.create(unsafeId, { meta: { cwd: unsafeCwd, createdAt: 1 } })
         appendUser(source, 'safe background')
@@ -1094,7 +2029,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
       },
     })
@@ -1159,7 +2094,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
       },
     })
@@ -1221,7 +2156,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')
     expect(result.terminal.output).not.toContain('hidden non-reference prefix')
 
-    result.session.append('context/message', {
+    result.session.append('user/message', {
       content: [{ type: 'text', text: 'secret full snapshot payload' }],
       source: { kind: 'plugin', plugin: 'session-reference' },
       meta: {
@@ -1240,13 +2175,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
       [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],
     ]
     for (const [meta, text] of invalidCards) {
-      result.session.append('context/message', {
+      result.session.append('user/message', {
         content: [{ type: 'text', text }],
         source: { kind: 'plugin', plugin: 'session-reference' },
         meta,
       }, { surfaceOp: 'append' })
     }
-    result.session.append('context/message', {
+    result.session.append('user/message', {
       content: [{ type: 'text', text: 'same-label snapshot' }],
       source: { kind: 'plugin', plugin: 'session-reference' },
       meta: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] },
@@ -1279,7 +2214,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         ctx.sessions.create(SessionId('source'))
       },
@@ -1329,7 +2264,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const lateSuccess = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         ctx.sessions.create(SessionId('source'))
       },
@@ -1379,13 +2314,27 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('advertised by multiple providers')
     expect(result.terminal.output).toContain('already alpha/a1')
 
-    result.agent.status = 'running'
+    const firstSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(firstSelectorOutput)).toContain('Select model')
+    })
+    result.terminal.send('\x1b')
     await tick()
-    expect(result.terminal.output).toContain('Select model')
-    expect(result.terminal.output).toContain('alpha/a1')
-    expect(result.terminal.output).toContain('Alpha One — Fast — current')
+
+    result.agent.status = 'running'
+    const runningSelectorOutput = result.terminal.output.length
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      const output = result.terminal.output.slice(runningSelectorOutput)
+      expect(output).toContain('Select model')
+      expect(output).toContain('alpha/a1')
+      expect(output).toContain('Alpha One — Fast — current')
+    })
     result.terminal.send('\x1b[B')
     result.terminal.send('\x1b[B')
     result.terminal.send('\r')
@@ -1397,9 +2346,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output).not.toContain('50% context  tools:collapsed')
 
+    const cancelledSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')
-    await tick()
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(cancelledSelectorOutput)).toContain('Select model')
+    })
     result.terminal.send('\x1b')
     await tick()
     expect(result.agent.cancelled).not.toContain('cancelled from terminal')
@@ -1559,6 +2511,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
       handler: () => ({ kind: 'error' as const, text: 'plugin error result' }),
     })
 
+    result.terminal.send('/plugin-ch')
+    await tick()
+    expect(result.terminal.output).toContain('<value> — Run a plugin command')
+    result.terminal.send('\x03')
+
     result.terminal.send('/plugin-check  value  ')
     result.terminal.send('\r')
     await tick()
@@ -1658,7 +2615,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const events = await setup()
     const unrelatedSession = events.ctx.sessions.create(SessionId('unrelated-session'))
-    const unrelatedAgent = { ...events.agent, id: unrelatedSession.id, session: unrelatedSession }
+    const unrelatedAgent = { ...events.agent, id: unrelatedSession.id, session: unrelatedSession } as unknown as Agent
     unrelatedSession.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     unrelatedSession.append('todo/write', { todos: [{ content: 'hidden', status: 'pending' }] })
     agentEvents(events.ctx, unrelatedAgent).emit('agent/status', 'running')
@@ -1846,17 +2803,17 @@ describe('renderSkillInvocation', () => {
 describe('tool cards and surface replay', () => {
   const tools: Record<string, ToolDefinition> = {
     bash: {
-      name: 'bash', description: '', parameters: {}, execute: async () => [],
+      name: 'bash', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'printf hello', description: 'Run command', cwd: '/tmp' }),
       presentResult: () => ({ card: 'terminal', output: 'hello\nworld\nthird', exitCode: 0 }),
     },
     signal: {
-      name: 'signal', description: '', parameters: {}, execute: async () => [],
+      name: 'signal', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'sleep 10' }),
       presentResult: () => ({ card: 'terminal', signal: 'SIGTERM' }),
     },
     edit: {
-      name: 'edit', description: '', parameters: {}, execute: async () => [],
+      name: 'edit', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({
         card: 'diff',
         title: 'Edit files',
@@ -1868,35 +2825,35 @@ describe('tool cards and surface replay', () => {
       presentResult: () => ({ card: 'diff', diffs: [{ path: 'a.txt', oldText: null, newText: 'created' }] }),
     },
     generic: {
-      name: 'generic', description: '', parameters: {}, execute: async () => [],
+      name: 'generic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Inspect value', rawInput: { alpha: 1 } }),
       presentResult: () => ({ card: 'generic', title: 'Inspected', content: [{ type: 'text', text: 'result text' }] }),
     },
     throwing: {
-      name: 'throwing', description: '', parameters: {}, execute: async () => [],
+      name: 'throwing', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => { throw new Error('call presenter boom') },
       presentResult: () => { throw new Error('result presenter boom') },
     },
     rawTerminal: {
-      name: 'rawTerminal', description: '', parameters: {}, execute: async () => [],
+      name: 'rawTerminal', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'raw command' }),
     },
     undefinedViews: {
-      name: 'undefinedViews', description: '', parameters: {}, execute: async () => [],
+      name: 'undefinedViews', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => undefined,
       presentResult: () => undefined,
     },
     empty: {
-      name: 'empty', description: '', parameters: {}, execute: async () => [],
+      name: 'empty', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Empty card' }),
     },
     terminalResult: {
-      name: 'terminalResult', description: '', parameters: {}, execute: async () => [],
+      name: 'terminalResult', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Becomes terminal' }),
       presentResult: () => ({ card: 'terminal', output: 'converted terminal' }),
     },
     symbolic: {
-      name: 'symbolic', description: '', parameters: {}, execute: async () => [],
+      name: 'symbolic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Symbol input', rawInput: Symbol('input') }),
     },
   }
@@ -2021,7 +2978,7 @@ describe('tool cards and surface replay', () => {
       turn: 1, step: 1, callId: 'old-call' as never, content: [{ type: 'text', text: 'old output' }], isError: false,
     }, { surfaceOp: 'append' })
     const start = result.session.surface.nodes[0] as number
-    result.session.append('context/message', {
+    result.session.append('user/message', {
       content: [{ type: 'text', text: 'summary replacement' }],
       source: { kind: 'plugin', plugin: 'compact' },
     }, {
@@ -2193,6 +3150,141 @@ describe('TUI user-interaction dialogs', () => {
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
     await result.ctx.fiber.dispose()
   })
+
+  it('rejects malformed questions when a dialog cannot be constructed', async () => {
+    const result = await setup()
+    const broken = {
+      id: 'broken',
+      question: 'Broken question',
+      get options(): never {
+        throw new Error('question setup failed')
+      },
+    }
+    const answer = result.ctx.userInteraction.ask({ questions: [broken] })
+    await expect(answer).rejects.toThrow('ask_user_question TUI failed: question setup failed')
+    await tick()
+    expect(result.terminal.output).toContain('TUI overlay failed: question setup failed')
+    await dispose(result)
+  })
+})
+
+describe('TUI extension service', () => {
+  it('renders effect-owned plugin overlays in the shared FIFO and restores editor input', async () => {
+    const result = await setup()
+    const sessions: TuiOverlaySession[] = []
+    const hosts: TuiOverlayHost[] = []
+    const plugin = result.ctx.inject(['tui'], (pluginCtx) => {
+      expect(pluginCtx.tui.agent).toBe(result.agent)
+      for (const label of ['first', 'second']) {
+        sessions.push(pluginCtx.tui.openOverlay({
+          create(host) {
+            hosts.push(host)
+            return {
+              focused: false,
+              render: width => [
+                host.theme.accent(`${label} plugin overlay`),
+                [
+                  host.theme.text('text'),
+                  host.theme.muted('muted'),
+                  host.theme.dim('dim'),
+                  host.theme.success('success'),
+                  host.theme.warning('warning'),
+                  host.theme.error('error'),
+                  host.theme.bold('bold'),
+                ].join(' '),
+                `${String(host.viewport.columns)}x${String(host.viewport.rows)} · ${String(width)}`,
+              ],
+              handleInput(data) {
+                host.invalidate()
+                if (data === label[0]) host.close()
+              },
+              invalidate() {},
+            }
+          },
+          options: { width: 50, maxHeight: 8, anchor: 'center', margin: 1 },
+        }))
+      }
+    })
+    await plugin
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('first plugin overlay')
+    })
+    expect(sessions.map(session => session.state)).toEqual(['active', 'queued'])
+    expect(hosts).toHaveLength(1)
+
+    const question = result.ctx.userInteraction.ask({
+      questions: [{ id: 'after-plugin', question: 'Question after plugins?', options: [{ label: 'Yes' }] }],
+    })
+    result.terminal.send('f')
+    await expect(sessions[0]!.closed).resolves.toEqual({ reason: 'closed' })
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('second plugin overlay')
+    })
+    expect(hosts).toHaveLength(2)
+    expect(sessions[1]?.state).toBe('active')
+
+    result.terminal.send('s')
+    await expect(sessions[1]!.closed).resolves.toEqual({ reason: 'closed' })
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Question after plugins?')
+    })
+    result.terminal.send('\r')
+    await expect(question).resolves.toEqual({
+      answers: [{ id: 'after-plugin', selected: ['Yes'] }],
+    })
+
+    result.terminal.send('editor works again')
+    result.terminal.send('\r')
+    expect(result.agent.sent.at(-1)).toEqual([{ type: 'text', text: 'editor works again' }])
+    await plugin.dispose()
+    await dispose(result)
+  })
+
+  it('unloads and reloads dependent plugins with the mounted TUI', async () => {
+    const result = await setup()
+    const sessions: TuiOverlaySession[] = []
+    const signals: AbortSignal[] = []
+    let starts = 0
+    const plugin = result.ctx.inject(['tui'], (pluginCtx) => {
+      starts += 1
+      sessions.push(pluginCtx.tui.openOverlay({
+        create(host) {
+          signals.push(host.signal)
+          return {
+            render: () => [`plugin mount ${String(starts)}`],
+            invalidate() {},
+          }
+        },
+      }))
+    })
+    await plugin
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('plugin mount 1')
+    })
+
+    await result.controller.dispose()
+    await expect(sessions[0]!.closed).resolves.toEqual({ reason: 'owner-disposed' })
+    expect(signals[0]?.aborted).toBe(true)
+    expect(result.ctx.get('tui')).toBeUndefined()
+
+    const secondTerminal = new FakeTerminal()
+    const secondController = createTuiChat(result.ctx, {
+      sessionId: result.agent.id,
+      color: false,
+      welcome: 'Mounted again.',
+    }, {
+      terminal: secondTerminal,
+      exit: vi.fn(),
+    })
+    await vi.waitFor(() => {
+      expect(starts).toBe(2)
+      expect(secondTerminal.output).toContain('plugin mount 2')
+    })
+    await sessions[1]?.close()
+    await secondController.dispose()
+    await plugin.dispose()
+    await result.ctx.fiber.dispose()
+  })
 })
 
 describe('terminal mounting', () => {
@@ -2207,7 +3299,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { color: false }, { terminal, exit: vi.fn() })
@@ -2231,7 +3323,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -2265,14 +3357,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -2302,7 +3394,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -2344,7 +3436,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }
@@ -2355,6 +3447,7 @@ describe('terminal mounting', () => {
     expect(ctx.commands.list(ctx.agents.get(SessionId('failed-start-session'))!)).toEqual([])
     expect(terminal.stopped).toBe(1)
     expect(terminal.progress).toEqual([false, true, false])
+    expect(ctx.get('tui')).toBeUndefined()
     await expect(ctx.userInteraction.ask({ questions: [{ id: 'late', question: 'Late?' }] }))
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
     session.append('assistant/chunk', {

@@ -1,46 +1,36 @@
 /**
- * Trajectory/Waterfall plugin, browser half: merges ConversationViewMap and
- * registers the two placeholder views. Pure consumer — no ctx service, no
- * Context declaration merge; the minimal-plugin exemplar. Contract:
- * api-contracts v3 section 8.
+ * Trajectory/Waterfall plugin, browser half: contributes the two placeholder
+ * views into the conversation view ring (the 'conversation.view' list slot
+ * declared by ui-conversation). Pure consumer — no ctx service, no Context
+ * declaration merge; the minimal-plugin exemplar. Contract: api-contracts v3
+ * section 8.
  */
 import type { Context } from 'cordis'
-import { TrajectoryStatsHeader, type TrajectoryChromeProps } from './TrajectoryStatsHeader.tsx'
+// Type-only: the 'conversation.view' SlotMap row (declared by the slot's
+// owning package) must be in the program for the register calls to type.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TrajectoryView } from './TrajectoryView.tsx'
-import { WaterfallView, type WaterfallExtraProps } from './WaterfallView.tsx'
-
-export { deriveSpans, deriveSpanStats, type SpanStats, type TurnSpan } from './spans.ts'
-export { TrajectoryStatsHeader, type TrajectoryChromeProps } from './TrajectoryStatsHeader.tsx'
-export { TrajectoryView } from './TrajectoryView.tsx'
-export { WaterfallView, type WaterfallExtraProps } from './WaterfallView.tsx'
-
-declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
-  interface ConversationViewMap {
-    // Per-view extension shapes merged through the map (view-ring design):
-    // the stats header's chrome props ride both entries; the waterfall body
-    // additionally takes its lane-density extra. P-III widens these.
-    trajectory: { chromeProps: TrajectoryChromeProps }
-    waterfall: { chromeProps: TrajectoryChromeProps; extraProps: WaterfallExtraProps }
-  }
-}
-
-/** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
-export const inject = ['conversation']
+import { WaterfallView } from './WaterfallView.tsx'
 
 /**
- * Client plugin body: register the trajectory and waterfall views. The
- * registrations are effects on this fiber (plugin unload removes both tabs).
+ * Required services (cordis fiber inject). 'conversation' is an ordering
+ * edge, not a call dependency: the 'conversation.view' slot is declared by
+ * ui-conversation's apply (which then provides the service), and register()
+ * into an undeclared slot throws — service waiting is what orders this
+ * apply after the declaring one.
+ */
+export const inject = ['slots', 'conversation']
+
+/**
+ * Client plugin body: register the trajectory and waterfall view tabs. The
+ * registrations ride the slot service's effect wrapper (plugin unload
+ * removes both tabs). Trajectory owns its turn list in-body; Waterfall keeps
+ * the span stats header inside its body (chrome attachment retired).
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
-  // chrome.header on both views: the second chrome-attachment consumer
-  // (chat's footer StatsLine is the first) — proves both mount points live.
-  ctx.conversation.registerView({
-    id: 'trajectory', label: 'Trajectory', order: 10,
-    component: TrajectoryView, chrome: { header: TrajectoryStatsHeader },
-  })
-  ctx.conversation.registerView({
-    id: 'waterfall', label: 'Waterfall', order: 20,
-    component: WaterfallView, chrome: { header: TrajectoryStatsHeader },
-  })
+  ctx.slots.register(
+    { name: 'conversation.view', id: 'trajectory', order: 10, label: 'Trajectory' }, TrajectoryView)
+  ctx.slots.register(
+    { name: 'conversation.view', id: 'waterfall', order: 20, label: 'Waterfall' }, WaterfallView)
 }

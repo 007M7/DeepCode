@@ -9,12 +9,30 @@
 /**
  * One host-side function exposed to the program as an async callable. The
  * runtime bridges calls to it (possibly across a serialization boundary), so
- * `args` and the resolution value MUST be structured-cloneable; a runtime
- * rejects a non-cloneable value with a descriptive error rather than
- * corrupting the run. A rejection of this function surfaces inside the
- * program as a rejection of the corresponding call.
+ * `args` and the resolution value MUST be lossless JSON. A runtime rejects a
+ * lossy or non-cloneable value with a descriptive error rather than corrupting
+ * the run. No seam-level byte cap applies to a binding resolution. A rejection
+ * of this function surfaces inside the program as a rejection of the
+ * corresponding call.
  */
-export type CodeBindingFunction = (args: unknown) => Promise<unknown>
+export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>
+
+/** A lossless JSON value transferable across the dependency-light code-runtime seam. */
+export type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | { [key: string]: CodeJsonValue }
+
+/**
+ * Program-visible typed rejection for one binding namespace. The runtime
+ * injects a real error constructor under `name`; rejected member calls become
+ * its instances and expose the exact member name through
+ * `memberNameProperty`. Both strings are runtime data rather than knowledge
+ * of a particular consumer such as Code Mode.
+ */
+export interface CodeBindingErrorClass {
+  /** Constructor global and resulting `Error.name` (must be a usable JS identifier). */
+  name: string
+  /** Non-empty own property for the member name; cannot replace `name`, `message`, or `stack`. */
+  memberNameProperty: string
+}
 
 /**
  * A named group of {@link CodeBindingFunction}s the runtime exposes to the
@@ -28,6 +46,8 @@ export interface CodeBindingNamespace {
   global: string
   /** The callable members, keyed by the exact name the program calls. */
   functions: Record<string, CodeBindingFunction>
+  /** Optional program-visible typed rejection contract for this namespace. */
+  errorClass?: CodeBindingErrorClass
 }
 
 /**
@@ -63,10 +83,12 @@ export interface CodeRunRequest {
  * - `'timeout'` — an implementation-owned budget expired; the message says which.
  * - `'abort'` — {@link CodeRunRequest.signal} fired.
  * - `'worker-exit'` — the execution substrate died without settling (e.g. OOM).
+ * - `'invalid-output'` — the completion value was not lossless JSON.
+ * - `'output-limit'` — the serialized outer logs/value/diagnostic exceeded the configured cap.
  */
 export interface CodeRunFailure {
   /** The failure class (see the interface doc for each kind's meaning). */
-  kind: 'exception' | 'timeout' | 'abort' | 'worker-exit'
+  kind: 'exception' | 'timeout' | 'abort' | 'worker-exit' | 'invalid-output' | 'output-limit'
   /** Human-readable detail, suitable for feeding back to a model to self-correct. */
   message: string
 }
@@ -79,12 +101,12 @@ export interface CodeRunFailure {
 export interface CodeRunResult {
   /**
    * The program's completion value (its top-level `return`), when it ran to
-   * completion and the value survived the runtime's serialization boundary;
-   * a non-transferable value is replaced by a string rendering, and a failed
-   * or value-less run leaves this absent.
+   * completion and the value crossed the runtime's lossless-JSON boundary.
+   * Invalid or over-limit completions fail the run instead of substituting a
+   * rendered string; a failed or value-less run leaves this absent.
    */
-  value?: unknown
-  /** Text the program emitted, in order (capped by the implementation). */
+  value?: CodeJsonValue
+  /** Text the program emitted, in order, bounded only as part of the outer result. */
   logs: string[]
   /** Present iff the run failed; see {@link CodeRunFailure} for the taxonomy. */
   error?: CodeRunFailure

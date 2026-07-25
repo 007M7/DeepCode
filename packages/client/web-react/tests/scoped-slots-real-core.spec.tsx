@@ -1,70 +1,121 @@
 // @vitest-environment jsdom
 /**
- * Integration against the real ui-slots SlotCore (T1): the outlet's uSES
- * pairing rides the real subscribe/getVersion/entries surfaces, and the
- * whitelist narrows at compile time (expect-error negative samples).
+ * Integration against the real ui-slots SlotCore through a passthrough host:
+ * registrations go through the real register() (options form, children
+ * declaration), and the outlets ride the real subscribe/getVersion/entries/
+ * isLive surfaces — microtask-batched notifications, mutation-stable entry
+ * references (the cache axis), and ledger-fed stale bindings are the
+ * real-core semantics the fake-host suite cannot vouch for.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
-import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
-import { scopedSlots } from '@deepseek-ai/dsh-client-web-react'
+import { SlotCore, type PropsRenderSlots, type SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
+import { createSlotRenderer, StaleAuthorizationError } from '@deepseek-ai/dsh-client-web-react'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    'spec.single': { kind: 'single'; scope: 'root'; props: { label?: string } }
-    'spec.list': { kind: 'list'; scope: 'root'; props: object }
-    'spec.off-limits': { kind: 'single'; scope: 'root'; props: object }
+    // No 'root' merge: the aggregate client program already carries runtime's
+    // authoritative 'root' declaration (a private merge would TS2717-collide);
+    // only this suite's own test keys merge here.
+    'spec.single': { kind: 'single'; scope: 'root'; owner: { label?: string } }
+    'spec.list': { kind: 'list'; scope: 'root' }
   }
 }
 
-describe('scopedSlots over the real SlotCore', () => {
-  it('renders registrations live: define, register, dispose back to fallback', async () => {
+type FrameSlots = PropsRenderSlots<'spec.single' | 'spec.list'>
+
+/** Passthrough host over the real core (store/session seats unused here). */
+function hostOver(core: SlotCore): SlotRendererHost {
+  return {
+    subscribe: (key, fn) => core.subscribe(key, fn),
+    getVersion: (key) => core.getVersion(key),
+    entriesOf: (key) => core.entries(key),
+    specOf: (key) => core.specDynamic(key),
+    isLive: (entry) => core.isLive(entry),
+    storeOf: () => undefined,
+    sessions: {
+      list: { getSnapshot: () => ({}), subscribe: () => () => {} },
+      current: { getSnapshot: () => undefined, subscribe: () => () => {} },
+      cell: () => undefined,
+    },
+  }
+}
+
+/** Register the root frame (declaring both child keys) and mount the renderer. */
+function mountFrame(core: SlotCore, body: (renderSlot: FrameSlots['renderSlot']) => React.ReactNode) {
+  const dispose = core.register({
+    name: 'root',
+    children: {
+      'spec.single': { kind: 'single', scope: 'root' },
+      'spec.list': { kind: 'list', scope: 'root' },
+    },
+  }, (props: FrameSlots) => <>{body(props.renderSlot)}</>)
+  const view = render(<>{createSlotRenderer().renderRoot(hostOver(core), {})}</>)
+  return { view, dispose }
+}
+
+describe('createSlotRenderer over the real SlotCore', () => {
+  it('renders registrations live through real microtask batching: register, dispose back to fallback', async () => {
     const core = new SlotCore()
-    core.define('spec.single', { kind: 'single', scope: 'root' })
-    const slots = scopedSlots(core, 'spec.single')
-    const view = render(<>{slots.renderSlot('spec.single', {}, { fallback: <i>none</i> })}</>)
+    const { view } = mountFrame(core, (renderSlot) =>
+      renderSlot('spec.single', {}, { fallback: <i>none</i> }))
     expect(view.container.textContent).toBe('none')
     let dispose = () => {}
     // The real core batches subscriber notification per microtask: async act.
-    await act(async () => { dispose = core.register('spec.single', ({ label }) => <b>{label ?? 'on'}</b>) })
+    await act(async () => {
+      dispose = core.register({ name: 'spec.single' }, ({ label }: { label?: string }) => <b>{label ?? 'on'}</b>)
+    })
     expect(view.container.textContent).toBe('on')
     await act(async () => { dispose(); dispose() })   // disposer is idempotent in the real core
     expect(view.container.textContent).toBe('none')
   })
 
-  it('passes owner props through and orders list entries', () => {
+  it('coalesces same-tick mutations into one notification (uSES pairing stays consistent)', async () => {
     const core = new SlotCore()
-    core.define('spec.single', { kind: 'single', scope: 'root' })
-    core.define('spec.list', { kind: 'list', scope: 'root' })
-    core.register('spec.single', ({ label }) => <b>{label}</b>)
-    core.register('spec.list', () => <span>2</span>, { id: 'two', order: 2 })
-    core.register('spec.list', () => <span>1</span>, { id: 'one', order: 1 })
-    const slots = scopedSlots(core, 'spec.single', 'spec.list')
-    const view = render(
-      <>
-        {slots.renderSlot('spec.single', { label: 'owner' })}
-        {slots.renderSlot('spec.list', {})}
-      </>,
-    )
-    expect(view.container.textContent).toBe('owner12')
+    const notified = vi.fn()
+    core.subscribe('spec.list', notified)
+    const { view } = mountFrame(core, (renderSlot) => renderSlot('spec.list', {}))
+    await act(async () => {
+      core.register({ name: 'spec.list', id: 'two', order: 2 }, () => <span>2</span>)
+      core.register({ name: 'spec.list', id: 'one', order: 1 }, () => <span>1</span>)
+    })
+    expect(notified).toHaveBeenCalledTimes(1)   // two same-tick mutations, one batch
+    expect(view.container.textContent).toBe('12')
   })
 
-  it('fails loud when rendering a key that was never defined', () => {
+  it('passes owner props through and keeps sibling entries() references stable across mutations', async () => {
     const core = new SlotCore()
-    const slots = scopedSlots(core, 'spec.single')
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => render(<>{slots.renderSlot('spec.single', {})}</>)).toThrow(/before define/)
-    spy.mockRestore()
+    core.register({ name: 'root', children: {
+      'spec.single': { kind: 'single', scope: 'root' },
+      'spec.list': { kind: 'list', scope: 'root' },
+    } }, (props: FrameSlots) => <>
+      {props.renderSlot('spec.single', { label: 'owner' })}
+      {props.renderSlot('spec.list', {})}
+    </>)
+    core.register({ name: 'spec.single' }, ({ label }: { label?: string }) => <b>{label}</b>)
+    const view = render(<>{createSlotRenderer().renderRoot(hostOver(core), {})}</>)
+    expect(view.container.textContent).toBe('owner')
+    // A mutation on the sibling key leaves this key's entries() reference
+    // untouched (real-core stability the inject/renderSlot caches key on).
+    const before = core.entries('spec.single')
+    await act(async () => { core.register({ name: 'spec.list', id: 'l' }, () => <span>L</span>) })
+    expect(core.entries('spec.single')).toBe(before)
+    expect(view.container.textContent).toBe('ownerL')
   })
 
-  it('narrows the whitelist at compile time and backstops at runtime', () => {
+  it('feeds stale bindings from the real ledger: a disposed registration throws off isLive', () => {
     const core = new SlotCore()
-    core.define('spec.single', { kind: 'single', scope: 'root' })
-    core.define('spec.off-limits', { kind: 'single', scope: 'root' })
-    const slots = scopedSlots(core, 'spec.single')
-    // @ts-expect-error spec.off-limits is outside this ScopedSlots whitelist
-    expect(() => slots.renderSlot('spec.off-limits', {})).toThrow(/whitelist/)
-    // @ts-expect-error unknown keys are rejected even before whitelist narrowing
-    expect(() => slots.renderSlot('spec.nonexistent', {})).toThrow(/whitelist/)
+    let captured: FrameSlots['renderSlot'] | undefined
+    const { view, dispose } = mountFrame(core, (renderSlot) => {
+      captured = renderSlot
+      return null
+    })
+    expect(captured!('spec.single', {})).not.toBeUndefined()   // live binding renders
+    // Unmount before disposing: an empty 'root' makes a LIVE root outlet
+    // rethrow boot-order (covered in the fake-host suite); the scenario here
+    // is a retained closure outliving both tree and registration.
+    view.unmount()
+    dispose()
+    expect(() => captured!('spec.single', {})).toThrow(StaleAuthorizationError)
   })
 })

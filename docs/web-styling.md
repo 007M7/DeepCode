@@ -1,6 +1,6 @@
 # Web GUI 样式规范
 
-> **【token 体系已换代——§1 表格仅历史参考】** 本文的 `--bg-*`/`--text-*`/`--accent` token 族与其宿主包 `packages/client/web-ui` 已随插件化重构退役。现行 token 唯一来源=`packages/client/ui-theme/src/styles/` 的 `--dsw-*` 体系（static 色阶+alias 语义层，暗色=`body[data-ds-dark-theme]` 覆写）；组件对账基准=`missions/tasks/20260721-1520-web-plugin-rfc/style-spec.md`。**仍然有效**：工程约束（CSS Modules + clsx、无组件库、无 tailwind、组件禁 hardcode 色值）、字号成对写行高、间距 4 倍数、代码字体栈末位不放 monospace——这些已收编进 architecture.md §15。
+> **【token 体系已换代——§1 表格仅历史参考】** 本文的 `--bg-*`/`--text-*`/`--accent` token 族与其宿主包 `packages/client/web-ui` 已随插件化重构退役。现行 token 唯一来源=`packages/client/ui-theme/src/styles/` 的 `--dsw-*` 体系（static 色阶+alias 语义层，暗色=`body[data-ds-dark-theme]` 覆写），sheet 即权威、组件对账以它为准。**仍然有效**：工程约束（CSS Modules + clsx、无组件库、无 tailwind、组件禁 hardcode 色值）、字号成对写行高、间距 4 倍数、代码字体栈末位不放 monospace。
 
 > 状态：原「活文档」（随 `packages/client/web-ui` 演进）。视觉基线源自对 deepseekchat 前端仓的实测调研。框架决策与工程约束由 [web-styling-system RFC](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md) 拍板，本文不重复论证。
 

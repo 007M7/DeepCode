@@ -29,6 +29,7 @@ describe('RpcId', () => {
 describe('rpcErrorSchema', () => {
   it('accepts every code branch with its required details', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
+    expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
@@ -123,6 +124,7 @@ describe('events frame schemas', () => {
     const frames = [
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
+      { type: 'session/title', sessionId: 's', title: 'Durable title', eventSeq: 2, updatedAt: 3 },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
@@ -131,7 +133,18 @@ describe('events frame schemas', () => {
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
+    for (const invalid of [
+      { type: 'session/title', sessionId: 's', title: '', eventSeq: 0, updatedAt: 1 },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: -1, updatedAt: 1 },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0.5, updatedAt: 1 },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: 'now' },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: Number.NaN },
+    ]) expect(() => muxFrameSchema.parse(invalid)).toThrow()
     expect(askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?' }).id).toBe('q')
+  })
+
+  it('rejects an empty question batch (ask() guarantees at least one, so an empty frame is host breakage)', () => {
+    expect(() => muxFrameSchema.parse({ type: 'question/requested', sessionId: 's', questions: [] })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

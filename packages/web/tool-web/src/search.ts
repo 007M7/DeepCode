@@ -8,7 +8,6 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { WebSearchResult } from '@deepseek-ai/dsh-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -108,16 +107,50 @@ export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: 
     parameters: {
       query: { type: 'string', required: true, description: 'The search query.' },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          content: { type: 'string' },
+          sources: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                url: { type: 'string', required: true },
+                title: { type: 'string' },
+                snippet: { type: 'string' },
+                publishedAt: { type: 'string' },
+              },
+            },
+          },
+          truncated: { type: 'boolean', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: formatSearchOutput(value) }],
+    },
     timeoutMs,
     // Provider reads do not mutate parent-agent state.
     isConcurrencySafe: () => true,
-    async execute(args, exec): Promise<ContentBlock[]> {
+    async execute(args, exec) {
       const input = parseSearchArgs(args)
       const result = await ctx.web.search(
         { query: input.query, maxResults },
         exec.signal,
       )
-      return [{ type: 'text', text: formatSearchOutput(result) }]
+      return {
+        ...result.content !== undefined ? { content: result.content } : {},
+        sources: result.sources.map(source => ({
+          url: source.url,
+          ...source.title !== undefined ? { title: source.title } : {},
+          ...source.snippet !== undefined ? { snippet: source.snippet } : {},
+          ...source.publishedAt !== undefined ? { publishedAt: source.publishedAt } : {},
+        })),
+        truncated: result.truncated,
+      }
     },
     presentCall: presentSearchCall,
   }))

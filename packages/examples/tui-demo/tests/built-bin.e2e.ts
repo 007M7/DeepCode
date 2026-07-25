@@ -54,9 +54,9 @@ async function makeConsumer(): Promise<string> {
 /** Run the built bin in `cwd` with PIPED stdio; resolve with output + exit code. */
 function runBuiltBin(cwd: string): Promise<{ stdout: string; code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    // NO tsx — this is the published `node lib/bin.js` path (`--expose-internals`
-    // matches the demo command; the guard fires before the Loader needs it).
-    const child = spawn(process.execPath, ['--expose-internals', tuiBin, './cordis.yml'], {
+    // NO tsx — this is the published `node lib/bin.js` path; the guard fires
+    // before the Loader resolves the config tree.
+    const child = spawn(process.execPath, [tuiBin, './cordis.yml'], {
       cwd,
       env: { ...process.env, DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents') },
       stdio: ['pipe', 'pipe', 'pipe'],

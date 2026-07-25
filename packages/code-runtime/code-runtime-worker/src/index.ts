@@ -8,14 +8,17 @@
 
 import { Worker } from 'node:worker_threads'
 import { stripTypeScriptTypes } from 'node:module'
+import type { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeBindingFunction, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import { prepareValue, truncateUtf8Bytes } from './bootstrap.ts'
-import { logTruncationMarker } from './protocol.ts'
+import type { CodeBindingNamespace, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
+import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
+import { decodeWorkerJson, encodeWorkerJson } from './worker-json.ts'
+import type { WorkerJsonWire } from './worker-json.ts'
 
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
@@ -35,14 +38,11 @@ export interface Config {
    * nobody will resolve).
    */
   maxWallMs?: number
-  /** Shared byte budget for captured log text (console + raw stream writes), truncation marked in-band. */
-  maxLogBytes?: number
   /**
-   * Byte cap for the completion value, measured by its real cross-boundary
-   * size (string bytes, or structured-clone wire size); an oversized or
-   * non-cloneable value crosses as a capped string rendering.
+   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
+   * fixed result-envelope syntax is excluded.
    */
-  maxValueBytes?: number
+  maxOutputBytes?: number
   /** The worker's max old-generation heap in MiB (`resourceLimits`); overflow kills the worker, surfacing as kind `'worker-exit'`. */
   maxOldGenerationSizeMb?: number
 }
@@ -59,6 +59,9 @@ type ResolvedConfig = Required<Config>
  */
 const ELU_POLL_INTERVAL_MS = 25
 
+/** Smallest cap that can represent the counted payloads: an empty logs array plus an empty JSON failure message. */
+const MIN_OUTPUT_BYTES = 4
+
 /** ECMAScript reserved words that cannot be async-function parameter names — rejected as binding globals. */
 const RESERVED_WORDS = new Set([
   'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do',
@@ -70,6 +73,9 @@ const RESERVED_WORDS = new Set([
 
 /** Valid async-function parameter name (the binding global becomes one). */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+/** Error properties whose binding-member replacement would destroy the promised Error contract. */
+const RESERVED_ERROR_PROPERTIES = new Set(['name', 'message', 'stack'])
 
 /**
  * The shell a program is wrapped in for the type-strip, matching the
@@ -109,6 +115,26 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Resolve after a worker pipe emits all queued data, or closes/errors during termination. */
+function waitForPipeDrain(stream: Readable): Promise<void> {
+  if (stream.readableEnded || stream.destroyed) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = (): void => {
+      stream.off('end', done)
+      stream.off('close', done)
+      stream.off('error', done)
+      resolve()
+    }
+    stream.once('end', done)
+    stream.once('close', done)
+    stream.once('error', done)
+    // Close the event-registration race if termination finished between the
+    // initial state check and the listeners above.
+    /* v8 ignore next -- this race cannot be scheduled deterministically between the adjacent state check and listener registration. */
+    if (stream.readableEnded || stream.destroyed) done()
+  })
+}
+
 /**
  * Runtime shape gate for inbound port traffic. The peer runs MODEL CODE and
  * can post anything — `null`, primitives, objects with poisoned fields — so
@@ -124,31 +150,88 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
   switch (m.type) {
     case 'call': {
       if (typeof m.id !== 'number' || typeof m.global !== 'string' || typeof m.name !== 'string') return undefined
-      return { type: 'call', id: m.id, global: m.global, name: m.name, args: m.args }
+      return { type: 'call', id: m.id, global: m.global, name: m.name, args: m.args as WorkerJsonWire }
     }
     case 'log': {
       if (typeof m.text !== 'string') return undefined
       return { type: 'log', text: m.text }
     }
+    case 'output-limit': return { type: 'output-limit' }
     case 'done': {
-      if (m.error === undefined) return { type: 'done', ...m.value !== undefined ? { value: m.value } : {} }
+      if (m.error === undefined) return { type: 'done', ...m.value !== undefined ? { value: m.value as WorkerJsonWire } : {} }
       const error = m.error
       if (typeof error !== 'object' || error === null) return undefined
-      const message = (error as Record<string, unknown>).message
-      if (typeof message !== 'string') return undefined
-      return { type: 'done', ...m.value !== undefined ? { value: m.value } : {}, error: { message } }
+      const { kind, message } = error as Record<string, unknown>
+      if ((kind !== 'exception' && kind !== 'invalid-output' && kind !== 'output-limit') || typeof message !== 'string') return undefined
+      return { type: 'done', error: { kind, message } }
     }
     default: return undefined
   }
 }
 
-/**
- * Headroom the host's value re-cap grants over `maxValueBytes`: exactly the
- * truncation suffix {@link prepareValue} appends, so a value the WORKER
- * already capped (byte-exact prefix + this marker) passes through unchanged
- * instead of being marked twice.
- */
-const VALUE_RENDER_SLACK = Buffer.byteLength('… [truncated]', 'utf8')
+
+/** One run's combined outer-output ledger; binding values never enter it. */
+class OutputLedger {
+  private bytes = 2 // JSON serialization of the empty logs array: []
+  private entries = 0
+
+  constructor(private readonly maxBytes: number) {}
+
+  /** Admit one exact log entry, or report that the hard cap was crossed. */
+  admit(text: string, sink: string[]): boolean {
+    const separatorBytes = this.entries > 0 ? 1 : 0
+    const stringBytes = jsonStringBytesUpTo(text, this.maxBytes - this.bytes - separatorBytes)
+    if (stringBytes === undefined) return false
+    this.bytes += stringBytes + separatorBytes
+    this.entries += 1
+    sink.push(text)
+    return true
+  }
+
+  /** Finalize a successful absent-or-JSON completion against the combined cap. */
+  success(logs: string[], value?: CodeJsonValue): CodeRunResult {
+    if (value !== undefined && jsonValueBytesUpTo(value, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
+    return { logs, ...value !== undefined ? { value } : {} }
+  }
+
+  /** Finalize a failure diagnostic, with output-limit taking precedence when combined bytes exceed the cap. */
+  failure(logs: string[], error: CodeRunFailure): CodeRunResult {
+    if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
+    return { logs, error }
+  }
+
+  /** Build the explicit output-limit failure while retaining a fitting prefix of the final log. */
+  limit(logs: string[]): CodeRunResult {
+    const fullMessage = `outer output exceeded ${this.maxBytes} bytes`
+    // The fixed diagnostic is ASCII, so every character is one byte plus the quotes.
+    const messageBytes = fullMessage.length + 2
+    const retained: string[] = []
+    let retainedBytes = 2
+    const logBudget = this.maxBytes - messageBytes
+    for (const text of logs) {
+      const separatorBytes = retained.length > 0 ? 1 : 0
+      const availableBytes = logBudget - retainedBytes - separatorBytes
+      const stringBytes = jsonStringBytesUpTo(text, availableBytes)
+      if (stringBytes !== undefined) {
+        retained.push(text)
+        retainedBytes += stringBytes + separatorBytes
+        continue
+      }
+      const prefix = truncateJsonStringBytes(text, availableBytes)
+      if (prefix.length > 0) {
+        const prefixBytes = jsonStringBytesUpTo(prefix, availableBytes)
+        /* v8 ignore next -- truncateJsonStringBytes guarantees its returned prefix fits the same budget. */
+        if (prefixBytes === undefined) throw new Error('output ledger produced an oversized log prefix')
+        retained.push(prefix)
+        retainedBytes += prefixBytes + separatorBytes
+      }
+      break
+    }
+    const availableMessageBytes = this.maxBytes - retainedBytes
+    const message = truncateJsonStringBytes(fullMessage, availableMessageBytes)
+    return { logs: retained, error: { kind: 'output-limit', message } }
+  }
+}
 
 /**
  * The shipped {@link CodeRuntime} backend (`ctx.codeRuntime`). Registers as
@@ -161,8 +244,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
   static Config: z<Config> = z.object({
     computeMs: z.number().default(60_000),
     maxWallMs: z.number().default(600_000),
-    maxLogBytes: z.number().default(65_536),
-    maxValueBytes: z.number().default(32_768),
+    maxOutputBytes: z.number().default(67_108_864),
     maxOldGenerationSizeMb: z.number().default(512),
   })
 
@@ -180,6 +262,9 @@ export class WorkerCodeRuntime extends CodeRuntime {
     this.config = config as ResolvedConfig
     for (const [key, value] of Object.entries(this.config)) {
       if (!(Number.isFinite(value) && value > 0)) throw new Error(`dsh-code-runtime-worker: config.${key} must be a positive number, got ${String(value)}`)
+    }
+    if (!Number.isSafeInteger(this.config.maxOutputBytes) || this.config.maxOutputBytes < MIN_OUTPUT_BYTES) {
+      throw new Error(`dsh-code-runtime-worker: config.maxOutputBytes must be a safe integer of at least ${MIN_OUTPUT_BYTES}, got ${String(this.config.maxOutputBytes)}`)
     }
     ctx.effect(() => () => this.teardown(), 'worker code-runtime teardown')
   }
@@ -208,7 +293,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
     if (this.disposed) throw new Error('dsh-code-runtime-worker: run() after disposal')
     const bindings = this.validateBindings(request)
     if (request.signal?.aborted) {
-      return { logs: [], error: { kind: 'abort', message: String(request.signal.reason) } }
+      return this.failureBeforeWorker({ kind: 'abort', message: String(request.signal.reason) })
     }
 
     let code: string
@@ -219,15 +304,20 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // A program that does not survive the type-strip (syntax error,
       // non-erasable syntax like `enum`) is a program failure, reported the
       // same way a thrown exception would be — and no worker ever spawns.
-      return { logs: [], error: { kind: 'exception', message: messageOf(error) } }
+      return this.failureBeforeWorker({ kind: 'exception', message: messageOf(error) })
     }
 
     return await this.execute(request, code, bindings)
   }
 
-  /** Reject (seam misuse) malformed binding namespaces: non-identifier or reserved globals, duplicates, and the `console` collision. */
-  private validateBindings(request: CodeRunRequest): Map<string, Record<string, CodeBindingFunction>> {
-    const bindings = new Map<string, Record<string, CodeBindingFunction>>()
+  /** Apply the outer-output ledger to failures that occur before a worker owns one. */
+  private failureBeforeWorker(error: CodeRunFailure): CodeRunResult {
+    return new OutputLedger(this.config.maxOutputBytes).failure([], error)
+  }
+
+  /** Reject malformed binding globals or typed-error declarations as seam misuse. */
+  private validateBindings(request: CodeRunRequest): Map<string, CodeBindingNamespace> {
+    const bindings = new Map<string, CodeBindingNamespace>()
     for (const namespace of request.bindings) {
       if (!IDENTIFIER.test(namespace.global) || RESERVED_WORDS.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: binding global ${JSON.stringify(namespace.global)} is not a usable identifier`)
@@ -235,7 +325,23 @@ export class WorkerCodeRuntime extends CodeRuntime {
       if (namespace.global === 'console' || bindings.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: duplicate binding global ${JSON.stringify(namespace.global)}`)
       }
-      bindings.set(namespace.global, namespace.functions)
+      bindings.set(namespace.global, namespace)
+    }
+
+    const errorClassNames = new Set<string>()
+    for (const namespace of request.bindings) {
+      const descriptor = namespace.errorClass
+      if (!descriptor) continue
+      if (!IDENTIFIER.test(descriptor.name) || RESERVED_WORDS.has(descriptor.name)) {
+        throw new Error(`dsh-code-runtime-worker: binding error class ${JSON.stringify(descriptor.name)} is not a usable identifier`)
+      }
+      if (descriptor.name === 'console' || bindings.has(descriptor.name) || errorClassNames.has(descriptor.name)) {
+        throw new Error(`dsh-code-runtime-worker: duplicate injected global ${JSON.stringify(descriptor.name)}`)
+      }
+      if (descriptor.memberNameProperty.length === 0 || RESERVED_ERROR_PROPERTIES.has(descriptor.memberNameProperty)) {
+        throw new Error(`dsh-code-runtime-worker: binding error member property ${JSON.stringify(descriptor.memberNameProperty)} is not usable`)
+      }
+      errorClassNames.add(descriptor.name)
     }
     return bindings
   }
@@ -244,13 +350,16 @@ export class WorkerCodeRuntime extends CodeRuntime {
   private execute(
     request: CodeRunRequest,
     code: string,
-    bindings: Map<string, Record<string, CodeBindingFunction>>,
+    bindings: Map<string, CodeBindingNamespace>,
   ): Promise<CodeRunResult> {
     const bootData: WorkerBootData = {
       code,
-      namespaces: [...bindings].map(([global, functions]) => ({ global, names: Object.keys(functions) })),
-      maxLogBytes: this.config.maxLogBytes,
-      maxValueBytes: this.config.maxValueBytes,
+      namespaces: [...bindings].map(([global, namespace]) => ({
+        global,
+        names: Object.keys(namespace.functions),
+        ...namespace.errorClass ? { errorClass: namespace.errorClass } : {},
+      })),
+      maxOutputBytes: this.config.maxOutputBytes,
     }
     const worker = new Worker(WORKER_PATH, {
       workerData: bootData,
@@ -274,28 +383,22 @@ export class WorkerCodeRuntime extends CodeRuntime {
       const answered = new Set<number>()
       const logs: string[] = []
       const strayLogs: string[] = []
+      const output = new OutputLedger(this.config.maxOutputBytes)
+      let terminalOverride: CodeRunResult | undefined
 
-      // One host-side budget covers normal, forged, and stray-pipe log entries. The first
-      // overflow emits the shared in-band marker and drops everything after it.
-      let logBudget = this.config.maxLogBytes
-      let logsTruncated = false
-      const admit = (text: string, sink: string[]): void => {
-        if (logsTruncated) return
-        const cost = Buffer.byteLength(text, 'utf8')
-        if (cost > logBudget) {
-          logsTruncated = true
-          sink.push(logTruncationMarker(this.config.maxLogBytes))
-          return
-        }
-        logBudget -= cost
-        sink.push(text)
-      }
-
-      // No settled guard: `finish` snapshots the arrays when it resolves, so
-      // a chunk flushing after settlement mutates only the discarded buffers,
-      // and the ledger bounds that growth until the pipes close.
+      // Pipe and message-port delivery are independent. Continue bounded pipe
+      // capture after a terminal message while worker termination drains bytes
+      // that were already queued; `finish` materializes the result only after
+      // termination completes.
       const captureStray = (chunk: Buffer): void => {
-        admit(chunk.toString('utf8'), strayLogs)
+        /* v8 ignore next -- a second post-overflow chunk races immediate worker termination; the first overflow path is covered. */
+        if (terminalOverride !== undefined) return
+        const text = chunk.toString('utf8')
+        if (!output.admit(text, strayLogs)) {
+          const limited = output.limit([...logs, ...strayLogs, text])
+          terminalOverride = limited
+          finish(limited)
+        }
       }
       worker.stdout.on('data', captureStray)
       worker.stderr.on('data', captureStray)
@@ -304,27 +407,42 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // logs captured before timeout, abort, or failure remain in the result.
       let finishResolve!: () => void
       const finished = new Promise<void>((done) => { finishResolve = done })
-      const finish = (result: Omit<CodeRunResult, 'logs'>): void => {
+      const finish = (finalize: CodeRunResult | (() => CodeRunResult)): void => {
         if (settled) return
         settled = true
         clearInterval(eluTimer)
         clearTimeout(wallTimer)
         request.signal?.removeEventListener('abort', onAbort)
         this.live.delete(live)
-        void worker.terminate().then(() => {
+        // Let the poll phase deliver pipe bytes already queued independently
+        // of the terminal port message before termination closes the streams.
+        void new Promise<void>((resume) => { setImmediate(resume) }).then(async () => {
+          const stdoutDrained = waitForPipeDrain(worker.stdout)
+          const stderrDrained = waitForPipeDrain(worker.stderr)
+          await Promise.all([worker.terminate(), stdoutDrained, stderrDrained])
+          const result = terminalOverride ?? (typeof finalize === 'function' ? finalize() : finalize)
           finishResolve()
-          resolve({ ...result, logs: [...logs, ...strayLogs] })
+          resolve(result)
         })
       }
 
       const onDone = (message: WorkerToHost): void => {
         if (message.type !== 'done') return
-        // Re-cap forged completion traffic at the hostile boundary. Honest worker-capped values
-        // pass unchanged via VALUE_RENDER_SLACK; error text is bounded too.
-        finish({
-          ...prepareValue(message.value, this.config.maxValueBytes + VALUE_RENDER_SLACK),
-          ...message.error ? { error: { kind: 'exception' as const, message: truncateUtf8Bytes(message.error.message, this.config.maxValueBytes) } } : {},
-        })
+        if (message.error) {
+          const error = message.error
+          finish(() => output.failure([...logs, ...strayLogs], error))
+          return
+        }
+        if (message.value === undefined) {
+          finish(() => output.success([...logs, ...strayLogs]))
+          return
+        }
+        const value = decodeWorkerJson(message.value)
+        if (value === undefined) {
+          finish(() => output.failure([...logs, ...strayLogs], { kind: 'invalid-output', message: 'program completion must be lossless JSON' }))
+        } else {
+          finish(() => output.success([...logs, ...strayLogs], value))
+        }
       }
 
       const onCall = (message: WorkerToHost): void => {
@@ -336,15 +454,11 @@ export class WorkerCodeRuntime extends CodeRuntime {
         answered.add(message.id)
         const reply = (payload: ReplyMessage): void => {
           if (settled) return
-          try {
-            worker.postMessage(payload)
-          } catch {
-            // The reply value failed structured clone; renegotiate as an error
-            // reply, which is always clone-plain. Nothing else throws here.
-            worker.postMessage({ type: 'reply', id: message.id, ok: false, message: 'binding resolution is not structured-cloneable' })
-          }
+          // Canonical resolutions were snapshotted as lossless JSON before
+          // this point, so this payload is structured-cloneable by contract.
+          worker.postMessage(payload)
         }
-        const record = bindings.get(message.global)
+        const record = bindings.get(message.global)?.functions
         // Own-property lookup only: a forged name like 'constructor' or
         // 'hasOwnProperty' must not walk the record's prototype chain and
         // reach a callable the consumer never declared.
@@ -353,9 +467,25 @@ export class WorkerCodeRuntime extends CodeRuntime {
           reply({ type: 'reply', id: message.id, ok: false, message: `unknown binding ${JSON.stringify(`${message.global}.${message.name}`)}` })
           return
         }
+        const args = decodeWorkerJson(message.args)
+        if (args === undefined) {
+          reply({ type: 'reply', id: message.id, ok: false, message: 'binding arguments must be lossless JSON' })
+          return
+        }
         void (async () => {
           try {
-            reply({ type: 'reply', id: message.id, ok: true, value: await fn(message.args) })
+            const resolved = await fn(args)
+            let value: CodeJsonValue | undefined
+            try {
+              value = snapshotJsonValue(resolved)
+            } catch {
+              value = undefined
+            }
+            if (value === undefined) {
+              reply({ type: 'reply', id: message.id, ok: false, message: 'binding resolution must be lossless JSON' })
+            } else {
+              reply({ type: 'reply', id: message.id, ok: true, value: encodeWorkerJson(value) })
+            }
           } catch (error: unknown) {
             reply({ type: 'reply', id: message.id, ok: false, message: messageOf(error) })
           }
@@ -367,15 +497,24 @@ export class WorkerCodeRuntime extends CodeRuntime {
         // this listener would crash the host process. Junk drops silently.
         const message = parseWorkerMessage(raw)
         if (!message) return
-        if (message.type === 'log' && !settled) admit(message.text, logs)
+        if (message.type === 'log' && !settled && !output.admit(message.text, logs)) {
+          const limited = output.limit([...logs, ...strayLogs, message.text])
+          finish(limited)
+          return
+        }
+        if (message.type === 'output-limit' && !settled) {
+          const limited = output.limit([...logs, ...strayLogs])
+          finish(limited)
+          return
+        }
         onCall(message)
         onDone(message)
       })
       worker.on('error', (error: Error) => {
-        finish({ error: { kind: 'worker-exit', message: `worker error: ${error.message}` } })
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'worker-exit', message: `worker error: ${error.message}` }))
       })
       worker.on('exit', (exitCode: number) => {
-        finish({ error: { kind: 'worker-exit', message: `worker exited with code ${exitCode} before completing` } })
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'worker-exit', message: `worker exited with code ${exitCode} before completing` }))
       })
 
       // The compute budget reads the worker's own measured busy time, so a
@@ -384,21 +523,21 @@ export class WorkerCodeRuntime extends CodeRuntime {
       const eluTimer = setInterval(() => {
         const elu = worker.performance.eventLoopUtilization()
         if (elu.active > this.config.computeMs) {
-          finish({ error: { kind: 'timeout', message: `compute budget exhausted (${this.config.computeMs}ms busy)` } })
+          finish(() => output.failure([...logs, ...strayLogs], { kind: 'timeout', message: `compute budget exhausted (${this.config.computeMs}ms busy)` }))
         }
       }, ELU_POLL_INTERVAL_MS)
       const wallTimer = setTimeout(() => {
-        finish({ error: { kind: 'timeout', message: `wall-clock ceiling reached (${this.config.maxWallMs}ms)` } })
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'timeout', message: `wall-clock ceiling reached (${this.config.maxWallMs}ms)` }))
       }, this.config.maxWallMs)
       const onAbort = (): void => {
-        finish({ error: { kind: 'abort', message: String(request.signal?.reason) } })
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'abort', message: String(request.signal?.reason) }))
       }
       request.signal?.addEventListener('abort', onAbort, { once: true })
 
       const live: LiveRun = {
         worker,
         finished,
-        settle: (failure: CodeRunFailure) => { finish({ error: failure }) },
+        settle: (failure: CodeRunFailure) => { finish(() => output.failure([...logs, ...strayLogs], failure)) },
       }
       this.live.add(live)
     })

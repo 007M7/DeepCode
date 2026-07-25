@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { agentEvents, type Agent, type RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -95,19 +95,29 @@ function header(session: Session): void {
 
 function noticeTexts(session: Session): string[] {
   return session.events
-    .filter(event => event.type === 'context/message')
+    .filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     .map(event => (event.data as { content: { type: string; text?: string }[] }).content.map(block => block.text ?? '').join(''))
 }
 
 function registerNamedTools(ctx: Context, names: string[]): void {
   for (const name of names) {
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name,
       description: `test tool ${name}`,
       parameters: {},
       execute: () => Promise.resolve([{ type: 'text', text: `ran ${name}` }]),
     }))
   }
+}
+
+/** Assert the mapped Code Mode SDK includes the stable plan exit binding and test tools. */
+function expectPlanCodeSdkBindings(sdk: string): void {
+  expect(sdk).toContain('interface ToolArgsMap {')
+  expect(sdk).toContain('read: Record<string, JsonValue>;')
+  expect(sdk).toContain('write: Record<string, JsonValue>;')
+  expect(sdk).toContain('interface ToolOutputMap {')
+  expect(sdk).toContain('exit_plan_mode: {\n    approved: true;\n  };')
+  expect(sdk).toContain('[K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;')
 }
 
 let callCounter = 0
@@ -445,9 +455,7 @@ describe('the soft layer', () => {
     // The SDK documents the full binding set plus the exit; plan mode never
     // prunes capabilities and restrains through guidance alone.
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toContain('read(args:')
-    expect(sdk).toContain('write(args:')
-    expect(sdk).toContain('exit_plan_mode(args:')
+    expectPlanCodeSdkBindings(sdk)
   })
 
   it('keeps native wire schemas and the SDK in step under mode both', async () => {
@@ -468,9 +476,7 @@ describe('the soft layer', () => {
     // is present on the wire AND in the SDK alongside the untouched toolset.
     expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code', 'write'])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toContain('read(args:')
-    expect(sdk).toContain('write(args:')
-    expect(sdk).toContain('exit_plan_mode(args:')
+    expectPlanCodeSdkBindings(sdk)
   })
 
   it('keeps the Code Mode SDK byte-identical across mode switches', async () => {
@@ -487,9 +493,7 @@ describe('the soft layer', () => {
     registerNamedTools(withPlanMode, ['read', 'write'])
     const agent = await agentWithSession(withPlanMode)
     const defaultSdk = (await assembleFor(withPlanMode, agent)).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(defaultSdk).toContain('read(args:')
-    expect(defaultSdk).toContain('write(args:')
-    expect(defaultSdk).toContain('exit_plan_mode(args:')
+    expectPlanCodeSdkBindings(defaultSdk)
     agent.session.append('plan/mode', { active: true })
     const planSdk = (await assembleFor(withPlanMode, agent)).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
     expect(planSdk).toBe(defaultSdk)
@@ -502,7 +506,7 @@ describe('the soft layer', () => {
     await bare.plugin(FakeRuntime)
     registerNamedTools(bare, ['read', 'write'])
     const bareSdk = (await bare.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(bareSdk).not.toContain('exit_plan_mode(args:')
+    expect(bareSdk).not.toContain('exit_plan_mode:')
     expect(defaultSdk).not.toBe(bareSdk)
   })
 })
@@ -542,14 +546,17 @@ describe('/plan', () => {
     const plainSteer = vi.fn()
     ;(plainAgent as unknown as { steer: typeof plainSteer }).steer = plainSteer
     expect(ctx.commands.list(plainAgent)).toEqual([
-      { name: 'plan', description: 'Enter plan mode', input: { hint: '[message]' } },
+      { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
     ])
 
     const signal = new AbortController().signal
     expect(await ctx.commands.execute(plainAgent, '/mode', signal)).toBeUndefined()
     expect(await ctx.commands.execute(plainAgent, '/review', signal)).toBeUndefined()
     const plain = await ctx.commands.execute(plainAgent, '/plan', signal)
-    expect(plain).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(plain).toEqual({
+      kind: 'success',
+      text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+    })
     expect(ctx.planMode.get(plainAgent)).toEqual({ active: false, pending: true })
     expect(plainSteer).not.toHaveBeenCalled()
 
@@ -557,9 +564,48 @@ describe('/plan', () => {
     const messageSteer = vi.fn()
     ;(messageAgent as unknown as { steer: typeof messageSteer }).steer = messageSteer
     const plan = await ctx.commands.execute(messageAgent, '/plan   draft the migration  ', signal)
-    expect(plan).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(plan).toEqual({
+      kind: 'success',
+      text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+    })
     expect(ctx.planMode.get(messageAgent)).toEqual({ active: false, pending: true })
     expect(messageSteer).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text: 'draft the migration' }])
+  })
+
+  it('leaves active plan mode, cancels a pending entry, and treats inactive exit as idempotent', async () => {
+    const ctx = await setup()
+    await ctx.plugin(CommandService)
+    await new Promise(resolve => setImmediate(resolve))
+    const signal = new AbortController().signal
+
+    const inactive = await agentWithSession(ctx, 'inactive-plan-command')
+    expect(await ctx.commands.execute(inactive, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Plan mode is already inactive.' })
+    expect(ctx.planMode.get(inactive)).toEqual({ active: false })
+
+    const entering = await agentWithSession(ctx, 'entering-plan-command')
+    const enteringSteer = vi.fn()
+    ;(entering as unknown as { steer: typeof enteringSteer }).steer = enteringSteer
+    await ctx.commands.execute(entering, '/plan', signal)
+    expect(await ctx.commands.execute(entering, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Plan mode entry cancelled.' })
+    expect(ctx.planMode.get(entering)).toEqual({ active: false, pending: false })
+    expect(enteringSteer).not.toHaveBeenCalled()
+    await boundary(ctx, entering, 'turn/start')
+    expect(ctx.planMode.get(entering)).toEqual({ active: false })
+    expect(entering.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+
+    const active = await agentWithSession(ctx, 'active-plan-command', { active: true })
+    const activeSteer = vi.fn()
+    ;(active as unknown as { steer: typeof activeSteer }).steer = activeSteer
+    expect(await ctx.commands.execute(active, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Leaving plan mode (applies from the next step).' })
+    expect(ctx.planMode.get(active)).toEqual({ active: true, pending: false })
+    expect(await ctx.commands.execute(active, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Leaving plan mode (applies from the next step).' })
+    expect(activeSteer).not.toHaveBeenCalled()
+    await boundary(ctx, active, 'turn/start')
+    expect(ctx.planMode.get(active)).toEqual({ active: false })
   })
 
   it('removes the contributed command when the plan-mode plugin is disposed', async () => {
@@ -662,6 +708,8 @@ describe('exit_plan_mode', () => {
     const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected approved plan result')
+    expect(result.value).toEqual({ approved: true })
     expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }])
     // Boundary-applied, not a direct append: the fold stays plan until the
     // step's end, so the plan policy covers any remaining call of the SAME batch.

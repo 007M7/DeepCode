@@ -10,6 +10,21 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 /** Internal exported basis for the public `PtySessionId` type/value pair. */
 export type PtySessionIdValue = Branded<'PtySessionId'>
 
+/**
+ * Backend-reported failure to clean partial resources after unpublished setup failed.
+ * @param spawnError - original setup or cancellation failure.
+ * @param cleanupError - failure that may leave backend-owned resources alive.
+ */
+export class PtyBackendCleanupError extends AggregateError {
+  constructor(
+    readonly spawnError: unknown,
+    readonly cleanupError: unknown,
+  ) {
+    super([spawnError, cleanupError], 'PTY backend startup and cleanup both failed')
+    this.name = 'PtyBackendCleanupError'
+  }
+}
+
 /** Why one interactive send returned control to its caller. */
 export type PtyWaitReason = 'stdin_read' | 'inferred_idle' | 'timeout' | 'session_exit'
 
@@ -147,7 +162,7 @@ export interface PtyBackendSession {
 export interface PtyBackend {
   /** Stable type selected by {@link PtySpawnRequest.type}. */
   readonly type: string
-  /** Create an unpublished session or reject after cleaning partial resources. */
+  /** Create an unpublished session or reject after cleaning partial resources; cleanup failure uses {@link PtyBackendCleanupError}. */
   spawn(spec: PtyBackendSpawnSpec): Promise<PtyBackendSession>
 }
 

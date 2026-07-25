@@ -3,7 +3,7 @@ import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/d
 import {
   deriveRows, formatRelativeTime, projectLabel, UNGROUPED_KEY, UNGROUPED_LABEL,
   type SessionRow, type TreeView,
-} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+} from '../src/client/tree.ts'
 
 const sid = (s: string) => s as SessionId
 
@@ -11,6 +11,7 @@ const sid = (s: string) => s as SessionId
 interface SummaryInit {
   id: string
   title?: string
+  displayTitle?: string
   cwd?: string
   parentId?: string
   running?: boolean
@@ -20,10 +21,11 @@ interface SummaryInit {
 function summary(init: SummaryInit): SessionSummary {
   const s: SessionSummary = {
     id: sid(init.id),
-    title: init.title ?? init.id,
+    displayTitle: init.displayTitle ?? init.title ?? init.id,
     running: init.running ?? false,
     updatedAt: init.updatedAt ?? 0,
   }
+  if (init.title !== undefined) s.title = init.title
   if (init.cwd !== undefined) s.cwd = init.cwd
   if (init.parentId !== undefined) s.parentId = sid(init.parentId)
   return s
@@ -32,12 +34,12 @@ function summary(init: SummaryInit): SessionSummary {
 function listOf(...summaries: SessionSummary[]): SessionListState {
   const byId: Record<SessionId, SessionSummary> = {}
   for (const s of summaries) byId[s.id] = s
-  return { ids: summaries.map(s => s.id), byId }
+  return { ids: summaries.map(s => s.id), byId, current: undefined }
 }
 
 const view = (partial: Partial<TreeView> = {}): TreeView => ({
-  expandedProjects: partial.expandedProjects ?? new Set(),
-  expandedSessions: partial.expandedSessions ?? new Set(),
+  expandedProjects: partial.expandedProjects ?? [],
+  expandedSessions: partial.expandedSessions ?? [],
   query: partial.query ?? '',
 })
 
@@ -94,7 +96,7 @@ describe('deriveRows grouping', () => {
       summary({ id: 'b', cwd: '/p', updatedAt: 2 }),
     )
     expect(deriveRows(list, view()).filter(r => r.type === 'session')).toHaveLength(0)
-    const rows = deriveRows(list, view({ expandedProjects: new Set(['/p']) }))
+    const rows = deriveRows(list, view({ expandedProjects: ['/p'] }))
     expect(rows.slice(1)).toEqual([
       expect.objectContaining({ type: 'session', id: 'b', depth: 0 }),
       expect.objectContaining({ type: 'session', id: 'a', depth: 0 }),
@@ -112,8 +114,8 @@ describe('deriveRows session tree', () => {
 
   it('nests children under expanded parents with increasing depth', () => {
     const rows = deriveRows(treeList, view({
-      expandedProjects: new Set(['/p']),
-      expandedSessions: new Set(['root', 'kid']),
+      expandedProjects: ['/p'],
+      expandedSessions: ['root', 'kid'],
     }))
     expect(rows.slice(1)).toEqual([
       expect.objectContaining({ id: 'other', depth: 0, hasChildren: false }),
@@ -124,7 +126,7 @@ describe('deriveRows session tree', () => {
   })
 
   it('collapses subtrees at unexpanded sessions', () => {
-    const rows = deriveRows(treeList, view({ expandedProjects: new Set(['/p']) }))
+    const rows = deriveRows(treeList, view({ expandedProjects: ['/p'] }))
     const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
     expect(ids).toEqual(['other', 'root'])
   })
@@ -133,7 +135,7 @@ describe('deriveRows session tree', () => {
     const rows = deriveRows(listOf(
       summary({ id: 'p1', cwd: '/a', updatedAt: 2 }),
       summary({ id: 'stray', cwd: '/b', parentId: sid('p1'), updatedAt: 1 }),
-    ), view({ expandedProjects: new Set(['/a', '/b']) }))
+    ), view({ expandedProjects: ['/a', '/b'] }))
     expect(rows).toEqual([
       expect.objectContaining({ type: 'project', key: '/a' }),
       expect.objectContaining({ id: 'p1', depth: 0 }),
@@ -147,7 +149,7 @@ describe('deriveRows session tree', () => {
       summary({ id: 'x', cwd: '/p', parentId: sid('y'), updatedAt: 2 }),
       summary({ id: 'y', cwd: '/p', parentId: sid('x'), updatedAt: 1 }),
       summary({ id: 'self', cwd: '/p', parentId: sid('self'), updatedAt: 3 }),
-    ), view({ expandedProjects: new Set(['/p']), expandedSessions: new Set(['x', 'y', 'self']) }))
+    ), view({ expandedProjects: ['/p'], expandedSessions: ['x', 'y', 'self'] }))
     const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
     expect(ids).toContain('self')
     expect(ids).toContain('x')
@@ -160,7 +162,7 @@ describe('deriveRows session tree', () => {
       summary({ id: 'b', cwd: '/p', updatedAt: 7 }),
       summary({ id: 'a', cwd: '/p', updatedAt: 7 }),
       summary({ id: 'c', cwd: '/p', updatedAt: 7 }),
-    ), view({ expandedProjects: new Set(['/p']) }))
+    ), view({ expandedProjects: ['/p'] }))
     const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
     expect(ids).toEqual(['a', 'b', 'c'])
   })
@@ -170,7 +172,7 @@ describe('deriveRows session tree', () => {
       summary({ id: 'p', cwd: '/p', updatedAt: 9 }),
       summary({ id: 'old', cwd: '/p', parentId: sid('p'), updatedAt: 1 }),
       summary({ id: 'new', cwd: '/p', parentId: sid('p'), updatedAt: 5 }),
-    ), view({ expandedProjects: new Set(['/p']), expandedSessions: new Set(['p']) }))
+    ), view({ expandedProjects: ['/p'], expandedSessions: ['p'] }))
     const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
     expect(ids).toEqual(['p', 'new', 'old'])
   })
@@ -178,7 +180,7 @@ describe('deriveRows session tree', () => {
   it('carries the running flag onto rows', () => {
     const rows = deriveRows(
       listOf(summary({ id: 'a', cwd: '/p', running: true })),
-      view({ expandedProjects: new Set(['/p']) }))
+      view({ expandedProjects: ['/p'] }))
     expect(rows[1]).toEqual(expect.objectContaining({ id: 'a', running: true }))
   })
 })
@@ -210,6 +212,15 @@ describe('deriveRows search', () => {
   it('blank query means normal mode', () => {
     const rows = deriveRows(list, view({ query: '   ' }))
     expect(rows.every(r => r.type === 'project')).toBe(true)
+  })
+
+  it('matches the effective display title when no durable title is available', () => {
+    const fallback = listOf(summary({ id: 'raw-id', displayTitle: 'project fallback', cwd: '/elsewhere' }))
+    const rows = deriveRows(fallback, view({ query: 'fallback' }))
+    expect(rows).toEqual([
+      expect.objectContaining({ type: 'project', key: '/elsewhere' }),
+      expect.objectContaining({ type: 'session', id: 'raw-id', title: 'project fallback' }),
+    ])
   })
 })
 

@@ -16,6 +16,7 @@ export interface ProcessInspector {
   isStdinWaiting(pgid: number): boolean
   /** Return the root and its current transitive descendants, children first. */
   processTree(rootPid: number): ProcessIdentity[]
+  /** Return whether the exact identity remains a non-quiescent process. */
   isAlive(identity: ProcessIdentity): boolean
   signalGroup(pgid: number, signal: PtySignal): void
   signalProcess(identity: ProcessIdentity, signal: 'SIGTERM' | 'SIGKILL'): void
@@ -49,6 +50,7 @@ interface ProcStat {
   parentPid: number
   pgrp: number
   session: number
+  state: string
   tpgid: number
   started: string
 }
@@ -64,13 +66,15 @@ export function parseProcStat(text: string): ProcStat | undefined {
   if (open <= 0 || close <= open) return undefined
   const pid = Number(text.slice(0, open).trim())
   const rest = text.slice(close + 2).trim().split(/\s+/)
+  const state = rest[0] || ''
   const parentPid = Number(rest[1])
   const pgrp = Number(rest[2])
   const session = Number(rest[3])
   const tpgid = Number(rest[5])
   const started = rest[19]
-  if (![pid, parentPid, pgrp, session, tpgid].every(Number.isSafeInteger) || started === undefined) return undefined
-  return { pid, parentPid, pgrp, session, tpgid, started }
+  if (![pid, parentPid, pgrp, session, tpgid].every(Number.isSafeInteger)
+    || state.length !== 1 || started === undefined) return undefined
+  return { pid, parentPid, pgrp, session, state, tpgid, started }
 }
 
 function readLinuxStat(internals: ProcessInspectorInternals, pid: number): ProcStat | undefined {
@@ -269,7 +273,8 @@ class LinuxProcessInspector extends PosixProcessInspector {
   }
 
   isAlive(identity: ProcessIdentity): boolean {
-    return readLinuxStat(this.internals, identity.pid)?.started === identity.started
+    const stat = readLinuxStat(this.internals, identity.pid)
+    return stat?.started === identity.started && !/^[ZXx]$/.test(stat.state)
   }
 
 }

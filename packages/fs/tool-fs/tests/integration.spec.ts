@@ -70,7 +70,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'original')
       const result = await call('write', { file_path: 'a.txt', content: 'clobber' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('original')
     })
 
@@ -88,7 +88,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'changed-externally') // out-of-band change
       const result = await call('write', { file_path: 'a.txt', content: 'replaced' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
     })
   })
 
@@ -105,7 +105,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'bin'), Buffer.from([0x00, 0x01, 0x02]))
       const result = await call('read', { file_path: 'bin' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_TEXT' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_TEXT' } })
     })
 
     it('paginates a multi-line file with offset/limit', async () => {
@@ -130,7 +130,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'hello world')
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello world')
     })
 
@@ -154,7 +154,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'goodbye') // out-of-band change removes 'world'
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
     })
 
     it('rejects an ambiguous match without replace_all', async () => {
@@ -162,7 +162,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await call('read', { file_path: 'a.txt' })
       const result = await call('edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_AMBIGUOUS_EDIT' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_AMBIGUOUS_EDIT' } })
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('a a a')
     })
 
@@ -190,7 +190,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       // The model-facing edit still rejects: the read did not emit fs/observed.
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
     })
   })
 
@@ -263,14 +263,14 @@ describe('bare provider (no dsh-fs-policy)', () => {
   it('edit of a MISSING target reports FS_STALE_VERSION even on the unguarded path', async () => {
     const result = await call('edit', { file_path: 'missing.txt', old_string: 'a', new_string: 'b' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
   })
 
   it('edit still enforces literal-match codes (FS_EDIT_NOT_FOUND), unrelated to freshness', async () => {
     await writeFile(join(dir, 'a.txt'), 'hello world')
     const result = await call('edit', { file_path: 'a.txt', old_string: 'absent', new_string: 'x' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_EDIT_NOT_FOUND' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_EDIT_NOT_FOUND' } })
   })
 
   it('neither write nor edit stats in the tool on the bare path', async () => {
@@ -354,11 +354,11 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     await writeFile(join(dir, 'a.txt'), 'hello')
     const read = await callSig(AbortSignal.abort(), 'read', { file_path: 'a.txt' })
     expect(read.isError).toBe(true)
-    expect(read.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(read.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
 
     const write = await callSig(AbortSignal.abort(), 'write', { file_path: 'new.txt', content: 'x' })
     expect(write.isError).toBe(true)
-    expect(write.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(write.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
     await expect(readFile(join(dir, 'new.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
 
     // Read first (un-aborted, SAME session owner) so the edit clears the
@@ -366,7 +366,7 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
     const edit = await callSig(AbortSignal.abort(), 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' })
     expect(edit.isError).toBe(true)
-    expect(edit.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(edit.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello') // unchanged
   })
 
@@ -381,7 +381,7 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     ])
     const errors = [one, two].filter(r => r.isError)
     expect(errors).toHaveLength(1)
-    expect(errors[0]?.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(errors[0]?.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
     // The world is consistent: exactly one edit landed.
     const onDisk = await readFile(join(dir, 'a.txt'), 'utf8')
     expect(onDisk === 'ONE value here' || onDisk === 'base TWO here').toBe(true)
@@ -410,7 +410,7 @@ describe('signal, concurrency, and the fs/observed contract', () => {
       new_string: 'edited',
     })
     expect(edit.isError).toBe(true)
-    expect(edit.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(edit.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('newer current content\n')
   })
 

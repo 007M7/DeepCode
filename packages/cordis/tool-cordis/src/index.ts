@@ -13,7 +13,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { STATE_LABELS } from './fiber-state.ts'
 import { isPlugin, pluginName } from './guard.ts'
 import { EVENT_API, INHERITED_CTX_API, SERVICE_API, TYPE_API } from './api-catalog.ts'
-import { describeApi, describeDynamic, describeEvents, describePlugins, describeServices, describeTools } from './inspect.ts'
+import { describeApi, describeDynamic, describeEvents, describePlugins, describeServices, describeTools, providedServices } from './inspect.ts'
 import { missingServices, mountDynamic, type DynamicMount } from './mount.ts'
 import { presentInspectCall, presentMountCall, presentUnmountCall } from './present.ts'
 import { createSandbox, evaluateMountCode } from './sandbox.ts'
@@ -76,7 +76,11 @@ export function apply(ctx: Context, config: Config): void {
         description: 'Exact service key or event name whose original JSDoc to include; valid only with what:"api" or what:"events".',
       },
     },
-    execute(args, exec): Promise<{ type: 'text'; text: string }[]> {
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    execute(args, exec): Promise<string> {
       if (args.name !== undefined && args.what !== 'api' && args.what !== 'events') {
         throw new Error('name is valid only with what:"api" or what:"events"')
       }
@@ -94,7 +98,7 @@ export function apply(ctx: Context, config: Config): void {
       const text = selected
         .map(([heading, body]) => `## ${heading}\n${body().join('\n')}`)
         .join('\n\n')
-      return Promise.resolve([{ type: 'text', text }])
+      return Promise.resolve(text)
     },
     presentCall: presentInspectCall,
   }))
@@ -119,13 +123,14 @@ export function apply(ctx: Context, config: Config): void {
       + 'Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe '
       + 'events (see cordis_inspect what:"events"), or call '
       + '`harness.registerTool(ctx, harness.defineTool({ name, description, parameters: '
-      + '{ text: { type: \'string\', required: true } }, async execute(args) { … } }))` '
+      + '{ text: { type: \'string\', required: true } }, output: { schema: { type: \'string\' }, '
+      + 'render(_args, value) { return [{ type: \'text\', text: value }] } }, async execute(args) { return args.text } }))` '
       + 'to give yourself a new tool — it becomes callable on your NEXT step. '
-      + 'Tool parameters: each key IS a property — { type: \'string\'|\'number\'|\'boolean\'|\'object\'|\'array\', '
-      + 'required?: true, description?, enum?, items?, properties? }; a JSON-Schema-style '
-      + '{ type: \'object\', properties, required: […] } wrapper and type \'integer\' are also accepted and normalized. A '
-      + 'tool\'s `execute` MUST return an ARRAY of content blocks, e.g. `return '
-      + '[{ type: \'text\', text: someString }]` — never a bare string. '
+      + 'Tool parameters: each key IS a property — { type: \'string\'|\'number\'|\'integer\'|\'boolean\'|\'null\'|\'object\'|\'array\'|\'json\', '
+      + 'required?: true, description?, enum?, const?, items?, properties? }; every direct DSL object declares additionalProperties: true|false, and '
+      + 'oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: \'object\', properties, required?: […] } wrapper is also accepted with open-by-default objects. A '
+      + 'tool\'s `execute` MUST return the lossless JSON value declared by `output.schema`; '
+      + '`output.render(args, value)` separately returns Native/model content blocks. '
       + 'Mounts can COMPOSE: one plugin may `ctx.provide(\'name\', value)` a service and '
       + 'another may declare `inject: [\'name\']` to consume it — the consumer stays pending '
       + 'until the provider exists and returns to pending when the provider is unmounted. '
@@ -157,6 +162,32 @@ export function apply(ctx: Context, config: Config): void {
         description: 'Body of an async JS function; must `return` the plugin to mount.',
       },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          pluginName: { type: 'string', required: true },
+          state: {
+            type: 'string',
+            required: true,
+            enum: ['pending', 'loading', 'active', 'failed', 'disposed', 'unloading'],
+          },
+          provides: { type: 'array', required: true, items: { type: 'string' } },
+          waitingFor: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+      render: (_args, value) => {
+        const note = value.waitingFor.length > 0
+          ? ` — waiting for service(s): ${value.waitingFor.join(', ')} (activates when provided)`
+          : ''
+        return [{
+          type: 'text',
+          text: `mounted ${value.id} (plugin "${value.pluginName}", state: ${value.state}${note})`,
+        }]
+      },
+    },
     async execute(args) {
       const id = `dyn-${nextId++}`
       const sandbox = createSandbox(id)
@@ -180,10 +211,13 @@ export function apply(ctx: Context, config: Config): void {
       // it mounted but tell the model what it is waiting for.
       const missing = missingServices(ctx, fiber)
       const state = STATE_LABELS[fiber.state]
-      const note = missing.length > 0
-        ? ` — waiting for service(s): ${missing.join(', ')} (activates when provided)`
-        : ''
-      return [{ type: 'text', text: `mounted ${id} (plugin "${pluginName(evaluated)}", state: ${state}${note})` }]
+      return {
+        id,
+        pluginName: pluginName(evaluated),
+        state,
+        provides: providedServices(ctx, fiber),
+        waitingFor: missing,
+      }
     },
     presentCall: presentMountCall,
   }))
@@ -202,6 +236,17 @@ export function apply(ctx: Context, config: Config): void {
         description: 'The dynamic mount id returned by cordis_mount (e.g. "dyn-1").',
       },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          pluginName: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `unmounted ${value.id} (plugin "${value.pluginName}")` }],
+    },
     async execute(args) {
       const mount = mounts.get(args.id)
       if (!mount) {
@@ -209,7 +254,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       await mount.fiber.dispose()
       mounts.delete(args.id)
-      return [{ type: 'text', text: `unmounted ${args.id} (plugin "${mount.pluginName}")` }]
+      return { id: args.id, pluginName: mount.pluginName }
     },
     presentCall: presentUnmountCall,
   }))

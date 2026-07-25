@@ -1,20 +1,29 @@
 // @vitest-environment jsdom
 // Skeleton branch tails for the coverage gate (complements skeleton.spec.tsx
-// acceptance flows): breadcrumb ancestry rendering + error strip in
-// ConversationRoot, DetailsPanel non-JSON args / non-text result blocks /
-// error-only results, EmptyState failure surface and custom-directory swap.
+// acceptance flows), four-share props form: breadcrumb ancestry derivation +
+// error strip in ConversationRoot, DetailsPanel non-JSON args / non-text
+// result blocks / error-only results over the shared store, EmptyState
+// failure surface and path-modal confirm with in-component cwd derivation.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { ConversationSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationRoot, DetailsPanel, EmptyState } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { hookOf } from './hook.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SelectionTarget, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Export discipline: packages/client/AGENTS.md.
+import { createChatStore } from '../src/client/stores.ts'
+import { ConversationRoot, type ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
+import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
+import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
+/** Fallback-only chain stub (no takeover registered in these benches). */
+const fallbackRenderSlotChain: ConversationRootProps['renderSlotChain'] =
+  (_key, _owner, opts) => opts?.fallback ?? null
 
 function snapshotBase(): ConversationSnapshot {
   return {
@@ -32,37 +41,55 @@ function sessionSource(over?: Partial<ConversationSnapshot>) {
   }
 }
 
-const summary = (id: string, title: string): SessionSummary =>
-  ({ id: id as SessionId, title, running: false, updatedAt: 1 })
+/** Sessions-list stub over a snapshot store (the standard useSessions hook shape). */
+function listHook(rows: { id: string; title: string; cwd?: string; parentId?: string }[]) {
+  const store = createSnapshotStore<SessionListState>({
+    ids: rows.map(r => r.id as SessionId),
+    byId: Object.fromEntries(rows.map(r => [r.id, {
+      id: r.id as SessionId, title: `durable ${r.title}`, displayTitle: r.title, running: false, updatedAt: 1,
+      ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
+      ...(r.parentId !== undefined ? { parentId: r.parentId as SessionId } : {}),
+    }])),
+    current: undefined,
+  } as SessionListState)
+  return hookOf(store)
+}
 
 describe('ConversationRoot branches', () => {
-  const chatEntry: ViewEntry = {
-    id: 'chat', label: 'Chat', component: () => null,
-  } as unknown as ViewEntry
+  const chatTab: ViewTab = { id: 'chat', label: 'Chat' }
+  /** renderSlot stub in the outlet's baked shape (ring key + only filter marker). */
+  const stubRenderSlot = (() => <div data-testid="view-body" />) as unknown as ConversationRootProps['renderSlot']
+  /** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
+  const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
 
   function rootProps(over?: {
-    ancestry?: readonly SessionSummary[]
+    rows?: { id: string; title: string; parentId?: string }[]
     snapshot?: Partial<ConversationSnapshot>
   }) {
     const open = vi.fn()
+    const chat = createChatStore().create()
     const view = render(
       <ConversationRoot
         sessionId={SID}
-        useSession={bindSnapshotSelector(sessionSource(over?.snapshot)) as unknown as UseSession}
-        useAncestry={() => over?.ancestry ?? []}
-        views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
-        useActiveView={() => undefined}
-        composer={{ useDraft: () => '', setDraft: vi.fn(), send: vi.fn(), stop: vi.fn() }}
-        actions={{ openView: vi.fn(), open }}
-        renderView={() => <div data-testid="view-body" />}
+        useSession={hookOf(sessionSource(over?.snapshot)) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={listHook(over?.rows ?? [])}
+        useStore={hookOf(chat)}
+        actions={chat.actions}
+        renderSlot={stubRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
+        SessionProvider={SessionProviderStub}
+        views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
+        send={vi.fn()}
+        stop={vi.fn()}
+        open={open}
       />,
     )
-    return { view, open }
+    return { view, open, chat }
   }
 
-  it('renders the ancestry breadcrumb with separators and navigates on ancestor click', () => {
+  it('derives the ancestry breadcrumb from the sessions list and navigates on ancestor click', () => {
     const { view, open } = rootProps({
-      ancestry: [summary('root-1', 'Workspace'), summary('s1', 'Current')],
+      rows: [{ id: 'root-1', title: 'Workspace' }, { id: 's1', title: 'Current', parentId: 'root-1' }],
     })
     expect(view.getByText('Workspace')).toBeTruthy()
     expect(view.getByText('/')).toBeTruthy()
@@ -71,6 +98,14 @@ describe('ConversationRoot branches', () => {
     // The last crumb is the current session: disabled, no navigation.
     fireEvent.click(view.getByText('Current'))
     expect(open).toHaveBeenCalledTimes(1)
+  })
+
+  it('a broken parent link stops the ancestry walk at the known chain', () => {
+    const { view } = rootProps({
+      rows: [{ id: 's1', title: 'Orphan', parentId: 'vanished' }],
+    })
+    // The walk keeps s1 itself and stops where the parent is unknown.
+    expect(view.getByText('Orphan')).toBeTruthy()
   })
 
   it('falls back to the raw session id without ancestry and counts user turns', () => {
@@ -88,38 +123,49 @@ describe('ConversationRoot branches', () => {
     expect(view.getByText(/停止失败：halt（internal）/)).toBeTruthy()
   })
 
-  it('an unknown active view id falls back to the first registered view', () => {
+  it('an unknown stored view id falls back to the first registered view', () => {
+    const { chat } = rootProps({})
+    cleanup()
+    chat.actions.setView('gone')
     const view = render(
       <ConversationRoot
         sessionId={SID}
-        useSession={bindSnapshotSelector(sessionSource()) as unknown as UseSession}
-        useAncestry={() => []}
-        views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
-        useActiveView={() => 'gone' as never}
-        composer={{ useDraft: () => '', setDraft: vi.fn(), send: vi.fn(), stop: vi.fn() }}
-        actions={{ openView: vi.fn(), open: vi.fn() }}
-        renderView={(entry) => <div data-testid={`body-${entry.id}`} />}
+        useSession={hookOf(sessionSource()) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={listHook([])}
+        useStore={hookOf(chat)}
+        actions={chat.actions}
+        renderSlot={stubRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
+        SessionProvider={SessionProviderStub}
+        views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
+        send={vi.fn()}
+        stop={vi.fn()}
+        open={vi.fn()}
       />,
     )
-    expect(view.getByTestId('body-chat')).toBeTruthy()
+    expect(view.getByTestId('view-body')).toBeTruthy()
   })
 })
 
 describe('DetailsPanel branches', () => {
   function panel(selection: SelectionTarget | null, snapshot?: Partial<ConversationSnapshot>) {
+    const chat = createChatStore().create()
+    if (selection !== null) chat.actions.select(selection)
     return render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector(sessionSource(snapshot)) as unknown as UseSession}
-        useSelection={bindSnapshotSelector({ getSnapshot: () => selection, subscribe: () => () => {} })}
-        actions={{ closeDetails: vi.fn() }}
+        useSession={hookOf(sessionSource(snapshot)) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={listHook([])}
+        useStore={hookOf(chat)}
+        actions={chat.actions}
+        closeDetails={vi.fn()}
       />,
     )
   }
 
   it('shows non-JSON args verbatim (streaming fragment path)', () => {
     const view = panel({ turnSeq: 1, callId: 'c1', toolName: 'bash' }, {
-      runningCalls: [{ callId: 'c1', name: 'bash', argsRaw: '{"cmd": tru', turn: 1, step: 1, callView: null }],
+      runningCalls: [{ callId: 'c1', name: 'bash', argsRaw: '{"cmd": tru', turn: 1, step: 1, time: 1_000, callView: null }],
     })
     expect(view.getByText('{"cmd": tru')).toBeTruthy()
   })
@@ -130,7 +176,7 @@ describe('DetailsPanel branches', () => {
   })
 
   it('snapshot updates re-run the material selector through the shallow equality arm', () => {
-    let snap = { ...snapshotBase(), runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{"a":1}', turn: 1, step: 1, callView: null }] } as ConversationSnapshot
+    let snap = { ...snapshotBase(), runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{"a":1}', turn: 1, step: 1, time: 1_000, callView: null }] } as ConversationSnapshot
     const subs = new Set<() => void>()
     const source = {
       getSnapshot: () => snap,
@@ -139,13 +185,16 @@ describe('DetailsPanel branches', () => {
         return () => subs.delete(fn)
       },
     }
-    const SEL: SelectionTarget = { turnSeq: 1, callId: 'c9' }
+    const chat = createChatStore().create()
+    chat.actions.select({ turnSeq: 1, callId: 'c9' })
     const view = render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector(source) as unknown as UseSession}
-        useSelection={bindSnapshotSelector({ getSnapshot: () => SEL, subscribe: () => () => {} })}
-        actions={{ closeDetails: vi.fn() }}
+        useSession={hookOf(source) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={listHook([])}
+        useStore={hookOf(chat)}
+        actions={chat.actions}
+        closeDetails={vi.fn()}
       />,
     )
     expect(view.getByText(/"a": 1/)).toBeTruthy()
@@ -189,17 +238,15 @@ describe('DetailsPanel branches', () => {
 })
 
 describe('EmptyState branches', () => {
-  // getSnapshot must return a stable reference (uSES contract) — a fresh
-  // array per call loops the selector forever.
-  const CWDS: readonly string[] = ['/proj']
-  const NO_CWDS: readonly string[] = []
+  const noopCreate = () => Promise.resolve()
 
   it('keeps the draft and surfaces a local error strip when startSession rejects', async () => {
     const startSession = vi.fn(() => Promise.reject(new Error('create down')))
     const view = render(
       <EmptyState
-        useCwds={bindSnapshotSelector({ getSnapshot: () => CWDS, subscribe: () => () => {} })}
-        actions={{ startSession }}
+        useSessions={listHook([{ id: 'a', title: 'a', cwd: '/proj' }])}
+        startSession={startSession}
+        createWorkspaceSession={noopCreate}
       />,
     )
     const textarea = view.container.querySelector('textarea')!
@@ -213,8 +260,9 @@ describe('EmptyState branches', () => {
     const startSession = vi.fn(() => Promise.reject('plain-string'))
     const view = render(
       <EmptyState
-        useCwds={bindSnapshotSelector({ getSnapshot: () => NO_CWDS, subscribe: () => () => {} })}
-        actions={{ startSession }}
+        useSessions={listHook([])}
+        startSession={startSession}
+        createWorkspaceSession={noopCreate}
       />,
     )
     const textarea = view.container.querySelector('textarea')!
@@ -223,23 +271,48 @@ describe('EmptyState branches', () => {
     await waitFor(() => expect(view.getByText(/发送失败：plain-string/)).toBeTruthy())
   })
 
-  it('cwd select picks an option, swaps to free-form on 新目录, and submits the typed path', async () => {
+  it('cwd derivation skips blank cwds; menu picks, path modal confirms, submits the typed path', async () => {
     const startSession = vi.fn(() => Promise.resolve())
     const view = render(
       <EmptyState
-        useCwds={bindSnapshotSelector({ getSnapshot: () => CWDS, subscribe: () => () => {} })}
-        actions={{ startSession }}
+        useSessions={listHook([
+          { id: 'a', title: 'a', cwd: '/proj' },
+          { id: 'b', title: 'b' }, // no cwd: filtered from the option set
+        ])}
+        startSession={startSession}
+        createWorkspaceSession={noopCreate}
       />,
     )
-    const select = view.container.querySelector('select')!
-    fireEvent.change(select, { target: { value: '/proj' } })
-    expect((select as HTMLSelectElement).value).toBe('/proj')
-    fireEvent.change(select, { target: { value: '::new-directory' } })
-    const custom = view.container.querySelector('input')!
+    fireEvent.click(view.getByRole('button', { name: '项目目录' }))
+    expect([...view.getByRole('menu').querySelectorAll('[role="menuitem"]')].map(el => el.textContent))
+      .toEqual(['proj', 'New Workspace'])
+    fireEvent.click(view.getByRole('menuitem', { name: 'proj' }))
+    expect(view.getByRole('button', { name: '项目目录' }).textContent).toContain('proj')
+    fireEvent.click(view.getByRole('button', { name: '项目目录' }))
+    fireEvent.mouseEnter(view.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(view.getByRole('menuitem', { name: 'Use a existing folder' }))
+    const custom = view.getByLabelText('Folder path')
     fireEvent.change(custom, { target: { value: '/typed/dir' } })
+    fireEvent.click(view.getByRole('button', { name: 'Open Folder' }))
     const textarea = view.container.querySelector('textarea')!
     fireEvent.change(textarea, { target: { value: 'task' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
     await waitFor(() => expect(startSession).toHaveBeenCalledWith({ text: 'task', mode: 'queue', cwd: '/typed/dir' }))
+  })
+
+  it('Create modal surfaces inject failures inline', async () => {
+    const createWorkspaceSession = vi.fn(() => Promise.reject(new Error('mkdir blocked')))
+    const view = render(
+      <EmptyState
+        useSessions={listHook([])}
+        startSession={() => Promise.resolve()}
+        createWorkspaceSession={createWorkspaceSession}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: '项目目录' }))
+    fireEvent.mouseEnter(view.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
+    fireEvent.click(view.getByRole('menuitem', { name: 'Create new' }))
+    fireEvent.click(view.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(view.getByRole('alert').textContent).toContain('mkdir blocked'))
   })
 })

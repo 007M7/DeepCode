@@ -22,10 +22,14 @@ export function apply(ctx: Context) {
       path: { type: 'string', required: true, description: 'Absolute path' },
       limit: { type: 'number' },                     // optional by default
     },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     async execute(args, exec) {
       // args is TYPED from the schema: { path: string; limit?: number }
       // exec carries immutable identity + token; signal is the operational field
-      return [{ type: 'text', text: await readFile(args.path, { encoding: 'utf8', signal: exec.signal }) }]
+      return readFile(args.path, { encoding: 'utf8', signal: exec.signal })
     },
   }))
 }
@@ -35,31 +39,34 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 ## Rules of the execute() contract
 
-- **Args are validated for you.** `defineTool` validates the model-generated `arguments` against the `SchemaSpec` before `execute` runs (type, required keys, enum membership, nested objects/arrays — [runtime arg validation](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)), so inside `execute` the args already match `InferArgs`. You still hand-check value constraints the DSL can't express (non-empty strings, positive numbers, cross-field rules); throw a descriptive Error for those. Raw JSON-Schema tools registered directly (MCP) are NOT validated by the harness — they validate their own input.
+- **Args are validated for you.** `defineTool` validates model-generated `arguments` against the unified `ParameterSchemaSpec` before `execute` runs (types, required keys, literal constraints, exact-one unions, and nested values — [runtime arg validation](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)), so inside `execute` the args match `InferArgs`. Explicit object nodes declare `additionalProperties: true | false`; the implicit parameter root stays open. You still hand-check constraints the DSL does not express, such as non-empty strings, positive numbers, or cross-field rules. Raw JSON-Schema tools registered directly own their input validation.
 - **Registration borrows your readonly definition.** A typed same-process contribution is not a serialization boundary; do not mutate its schema or replace callbacks after registration. `schemas()` materializes only the explicit model-facing projection. To hot-swap a tool, dispose its owning effect and register the replacement; mutable state inside the callback's closure remains ordinary plugin state.
 - **Execution identity is protected.** The registry materializes `arguments` as detached lossless JSON in one recursive pass, freezes that value before policy starts, and assigns an opaque `exec.token`; `callId`, `name`, `arguments`, `agent`, `token`, the required caller-owned `signal`, and an optional enclosing-transport `parent` token stay immutable through dispatch. `parent` is identity-only and exposes no live outer execution. Treat `args` as readonly input. Only an around-dispatch wrapper receives a mutable view, and it may replace and restore the required `exec.signal` to impose a deadline but cannot remove it.
-- **Throwing or returning non-JSON data means `isError`.** The registry catches throws and materializes the final result before observers run. A malformed or non-JSON result becomes `{ isError: true }`, preventing a live success that cannot be logged. Throw for infrastructure failures; report domain failures in result text when the model must interpret them.
+- **Declare and return one canonical JSON value.** `output.schema` uses `ValueSchemaSpec` and may have an object, array, scalar, or null root. `execute` returns only the inferred value; the registry snapshots it as lossless JSON, validates it, freezes it, and passes it to `output.render(args, value)`. Do not return content blocks from the body or make callers parse prose for ids and fields.
+- **Throwing or returning an invalid value means `isError`.** The registry catches throws and contains schema, renderer, metadata-projector, and lossless-JSON failures before observers run. Throw for infrastructure failures. Represent a successful domain outcome in the canonical value even when its Native renderer explains a non-ideal state, such as a non-zero process exit.
 - **Honor `exec.signal`.** Cancel in-flight work when it fires.
-- **Attach durable card data with `meta` (optional).** `execute` may return `{ content, meta }` instead of a bare `ContentBlock[]` — `meta` is a JSON-serializable payload the core treats as opaque, persisted on the `tool/result` event and handed back to your `presentResult` (so a card that needs more than `args`, like `write`/`edit`'s applied-hunk diff, survives a session replay). Keep UI-only data here, never in the model-facing `content`.
+- **Project durable card data with `presentationMeta` (optional).** `output.presentationMeta(args, value)` derives replayable JSON from the same canonical value. The core persists it on `tool/result` and hands it to `presentResult`, so a card that needs result-time facts—such as `write`/`edit` applied hunks—survives replay without persisting the canonical value. The projector is skipped for nested Code dispatches because they have no cards.
 - **Use `exec.agent` for async notifications.** `agent.inject(content, {source: {kind: 'plugin', plugin: '<name>'}})` appends durable context the NEXT model request sees — it is not a wake-up (an idle agent stays idle). Guard against disposed agents (try/catch).
 
 ## Long-running work
 
-Gate `run_in_background` with producer config, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The registry skips a pre-aborted invocation before the producer body; the runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup.
+Gate `run_in_background` with producer config, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The registry rejects a pre-aborted invocation before the producer body; the runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup. A successful background branch returns a typed canonical handle such as `{ kind: 'background', taskId }`; its Native renderer may keep human prose such as `started background task bash-1`, but Code Mode must never parse that prose to recover the id.
 
-The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. Once the id is returned, use a task-owned cancellation signal rather than `exec.signal`. See the [background task runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
+The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. A pre-aborted call is a failure because no task exists whose id could satisfy the successful output schema. Once `ctx.tasks.start()` publishes the id, use a task-owned cancellation signal rather than `exec.signal`: later outer-call cancellation stops waiting for the call but does not kill published work; `task_kill`, owner disposal, and service teardown own that lifetime. Foreground work remains coupled to `exec.signal`. See the [background task runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
 
 ## Execution policy and observation
 
-Prefer not to build deployment policy into the tool. Use `tools/pre-execute` for extensible allow/deny/ask policy (the [permission-gate example](extension-cookbook.md#a-hook-plugin-permission-gate-example)), `ctx.tools.guard()` for a final monotonic deny that later listeners cannot undo, `tools/execute` to wrap core dispatch with a deadline/retry/metrics scope, `tools/post-execute` to transform or attach model-facing context, and `tools/result` to observe the immutable normalized outcome without changing it. A sandboxing implementation can also sit behind the tool's executor capability seam; the exact contracts are in the [`dsh-tools` README](../../packages/core/tools/README.md#extension-points).
+Prefer not to build deployment policy into the tool. Use `tools/pre-execute` for extensible allow/deny/ask policy (the [permission-gate example](extension-cookbook.md#a-hook-plugin-permission-gate-example)), `ctx.tools.guard()` for a final monotonic deny that later listeners cannot undo, `tools/execute` to wrap canonical dispatch with a deadline/retry/metrics scope, `tools/post-execute` to replace either presentation content or the canonical value, block, or attach model-facing context, and `tools/result` to observe the immutable normalized outcome. A content replacement leaves programmatic access to `value` intact; confidentiality policy blocks or replaces the value. A sandboxing implementation can also sit behind the tool's executor capability seam; the exact contracts are in the [`dsh-tools` README](../../packages/core/tools/README.md#extension-points).
 
 ## Code Mode reaches your tool for free
 
-In [Code Mode](../../packages/core/tools/README.md), every visible registered tool is available as `await tools.<name>(args)` without extra integration. The SDK derives parameters from the same JSON Schema, and calls re-enter the normal execution pipeline. Write descriptions as model-facing API docs; non-text result blocks become placeholders in programs.
+In [Code Mode](../../packages/core/tools/README.md), every visible registered tool is available as `await tools.<name>(args)` without extra integration. The generated `ToolArgsMap` and `ToolOutputMap` derive exact argument and canonical-return types from the same schemas, and calls re-enter the normal execution pipeline. A successful call resolves to the final canonical JSON value after policy, not to rendered Native content. A failed call rejects with the real `ToolCallError`; programs can inspect only its `name`, `toolName`, and human-readable `message`, not internal error codes or a failure union.
+
+Design `output.schema` as a useful programmatic API: return handles and fields directly, allow scalar/array/null roots when they are the honest value, and keep human explanation in `output.render`. Intermediate values are execution-local, are not persisted or prompt-truncated, and have no byte cap, so the producer's truthful acquisition bounds and process memory still matter. Only the outer `run_code` logs/result cross the configurable output cap and model-facing spill pipeline.
 
 ## How your tool renders in an editor (ACP presentation)
 
-Your tool's `execute` returns model-facing content; its **editor card** is a separate, optional concern you declare with two pure display methods on the `defineTool` options. Design this alongside `execute`, not after — an editor (Zed, over the ACP bridge) shows the card, and a tool with no presentation falls back to a bland generic card (title = tool name, raw args as input).
+Your tool's `output.render` returns model-facing content; its **editor card** is a separate concern declared through pure presentation projections and optional `presentCall` / `presentResult` methods. Design these alongside the canonical value—an editor (Zed, over the ACP bridge) shows the card, and a tool with no UI presentation falls back to a generic card (title = tool name, raw args as input).
 
 Both methods return a **`card`-tagged render intent** — pick the card kind that matches what your tool does:
 
@@ -70,16 +77,16 @@ Both methods return a **`card`-tagged render intent** — pick the card kind tha
 - `presentResult(args, { content, isError, meta? })` returns the completed card:
   - `generic` supplies an optional title and content.
   - `terminal` supplies raw output and optional exit metadata; the bridge renders the capability-specific or fenced fallback view.
-  - `diff` supplies applied hunks, often carried in persisted `result.meta` so replay reproduces them. Mutation tools keep a diff result because an ACP update replaces the pending card's content.
+  - `diff` supplies applied hunks, often derived by `output.presentationMeta` and carried in persisted `result.meta` so replay reproduces them. Mutation tools keep a diff result because an ACP update replaces the pending card's content.
 
 Hard rules (they bite if broken):
 
 - **Purity.** These run on live streaming AND on session-log REPLAY, so they must be pure functions of `args` (+ the result) — NO I/O, NO reading session state, NO clock/random. A diff is derived from the args (`write` uses `oldText: null` because a call-time presenter has no prior file content); the BRIDGE, not the tool, fills the session cwd and relativizes a display-path title. If you find yourself wanting the file's old content or the working directory inside `presentCall`, stop — that belongs on the bridge or a future result-event shape, not the presenter.
-- **UI-only formatting stays out of the model result.** A fenced ` ```console ` block, a diff, a relativized path — none of these may appear in what `execute` returns to the model; they live only in the presentation. (A `terminal` result view carries RAW `output`; the bridge adds the fences.)
+- **UI-only formatting stays out of the model result.** A fenced ` ```console ` block, a diff, a relativized path—none of these belongs in the canonical value or Native content merely to serve an editor. `output.render` owns model-facing prose; `presentationMeta` plus the card presenters own replayable UI state. A `terminal` result view carries raw output and the bridge adds fences.
 - **`defineTool` soft-validates the display path.** A malformed/older logged arg shape makes the wrapper return `undefined` (a generic fallback) rather than throw — display must never crash a replay.
 
 The neutral vocabulary lives in `dsh-tools` (never import an ACP type into a tool); the ACP bridge maps each `card` to the wire. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
 
 ## Tests every tool needs
 
-Cover argument rejection, every result shape, and HMR disposal. For a side-effecting tool, drive the real tool through the agent loop with a scripted `MockAdapter` and assert its `tool/call` and `tool/result` session events. For an editor card, assert the exact `presentCall` and `presentResult` views and add an [ACP snapshot](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) through the real bridge; a terminal card's scenario sets `terminalOutput: true` to exercise the capable-client path.
+Cover argument rejection, every canonical value and Native rendering shape, output-schema rejection, and HMR disposal. For a side-effecting tool, drive the real tool through the agent loop with a scripted `MockAdapter` and assert its `tool/call` and projected `tool/result` session events; prove the canonical value itself is not persisted. For an editor card, assert the exact `presentCall` and `presentResult` views and add an [ACP snapshot](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) through the real bridge; a terminal card's scenario sets `terminalOutput: true` to exercise the capable-client path.

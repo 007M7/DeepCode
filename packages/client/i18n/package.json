@@ -27,13 +27,9 @@
     "platform": "web",
     "immediately": true
   },
-  "scripts": {
-    "bundle": "tsdown",
-    "watch": "tsdown --watch"
-  },
   "license": "BSD-3-Clause",
   "dependencies": {
-    "@deepseek-ai/dsh-client-web-react": "workspace:^"
+    "@deepseek-ai/dsh-client-runtime": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.0.1",

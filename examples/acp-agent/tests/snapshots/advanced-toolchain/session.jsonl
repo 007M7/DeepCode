@@ -22,7 +22,7 @@
 {"type":"assistant/message","seq":20,"time":1783957884490,"data":{"turn":1,"step":2,"content":[{"type":"tool-call","id":"advanced-code","name":"run_code","arguments":"{\"code\":\"return await tools.cordis_inspect({ what: 'dynamic' })\"}"}],"provenance":{"provider":"deepseek","model":"deepseek-v4-flash"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[15,16,17,18,19],"surfaceOp":"append"}
 {"type":"tool/call","seq":21,"time":1783957884490,"data":{"turn":1,"step":2,"callId":"advanced-code","name":"run_code","arguments":"{\"code\":\"return await tools.cordis_inspect({ what: 'dynamic' })\"}"}}
 {"type":"tool/code-dispatch","seq":22,"time":1783957884560,"data":{"parentCallId":"advanced-code","subCallId":"advanced-code:code:1","name":"cordis_inspect","arguments":{"what":"dynamic"},"isError":false,"resultSummary":"## dynamic\n- dyn-1: snapshot-marker [active]"}}
-{"type":"tool/result","seq":23,"time":1783957884561,"data":{"turn":1,"step":2,"callId":"advanced-code","content":[{"type":"text","text":"## dynamic\n- dyn-1: snapshot-marker [active]"}],"isError":false,"meta":{"logs":[]}},"sourceEventSeqs":[21],"surfaceOp":"append"}
+{"type":"tool/result","seq":23,"time":1783957884561,"data":{"turn":1,"step":2,"callId":"advanced-code","content":[{"type":"text","text":"## dynamic\n- dyn-1: snapshot-marker [active]"}],"isError":false},"sourceEventSeqs":[21],"surfaceOp":"append"}
 {"type":"step/end","seq":24,"time":1783957884561,"data":{"turn":1,"step":2}}
 {"type":"step/start","seq":25,"time":1783957884562,"data":{"turn":1,"step":3}}
 {"type":"assistant/chunk","seq":26,"time":1783950000026,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}

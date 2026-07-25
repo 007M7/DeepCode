@@ -29,6 +29,8 @@
     # The smoke's log inspection reads plain `.jsonl`; keep the scripted
     # fixture uncompressed like the other snapshot-facing configs.
     persistenceCompression: none
+    resumeSessionId: !!js process.env.RESUME_SESSION_ID
+    resumeCommand: 'dsh --resume {session}'
     workspaceContext:
       maxBytes: 65536
     welcome: 'scripted TUI ready.'

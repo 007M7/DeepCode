@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -19,6 +19,15 @@ const execFileAsync = promisify(execFile)
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const builtScripts = join(repoRoot, 'packages/sdk/scripts/lib/bin.js')
 const temporary: string[] = []
+
+function resolveCorepackHome(): string {
+  return process.env.COREPACK_HOME ?? join(
+    process.env.XDG_CACHE_HOME
+      ?? process.env.LOCALAPPDATA
+      ?? join(homedir(), process.platform === 'win32' ? 'AppData/Local' : '.cache'),
+    'node/corepack',
+  )
+}
 
 afterEach(async () => {
   await Promise.all(temporary.splice(0).map(path => rm(path, { recursive: true, force: true })))
@@ -71,13 +80,16 @@ describe.skipIf(!existsSync(builtScripts))('live-linked generated projects', () 
         }
       `)
       const cacheRoot = join(tmpdir(), 'dsh-sdk-link-cache', name)
+      const pnpmStore = name === 'pnpm'
+        ? (await execFileAsync(name, ['store', 'path', '--silent'], { encoding: 'utf8' })).stdout.trim()
+        : undefined
       const commandEnvironment = {
         ...scrubEnvironment(),
-        COREPACK_HOME: join(cacheRoot, 'corepack'),
-        XDG_CACHE_HOME: join(cacheRoot, 'cache'),
+        COREPACK_HOME: resolveCorepackHome(),
+        ...name === 'pnpm' ? {} : { XDG_CACHE_HOME: join(cacheRoot, 'cache') },
         XDG_DATA_HOME: join(cacheRoot, 'data'),
         npm_config_cache: join(cacheRoot, 'npm'),
-        pnpm_config_store_dir: join(cacheRoot, 'pnpm-store'),
+        ...pnpmStore === undefined ? {} : { pnpm_config_store_dir: pnpmStore },
       }
       await execFileAsync(name, manager.installCommand(), {
         cwd: root,

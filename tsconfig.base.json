@@ -1,4 +1,7 @@
 {
+  // Doubles as the resolution facade for vite-tsconfig-paths (vitest configs
+  // point here). NEVER add include/files to this file: it would leak into
+  // every extending package project and narrow the facade's match-all scope.
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -87,8 +90,9 @@
       // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is
       // unambiguous; adding a package under an existing group needs no edit
-      // here. The build graph's project references (tsconfig.build.json) stay
-      // explicit — TS project references have no wildcard form.
+      // here. The aggregates' project references (tsconfig.host.json /
+      // tsconfig.client.json) stay explicit — TS project references have no
+      // wildcard form.
       "@deepseek-ai/dsh-host-apiproxy": ["./packages/host/apiproxy/src"],
       "@deepseek-ai/dsh-host-apiproxy/client": ["./packages/host/apiproxy/src/fetch/client.ts"],
       "@deepseek-ai/dsh-host-apiproxy/*": ["./packages/host/apiproxy/src/*"],
@@ -97,13 +101,15 @@
       "@deepseek-ai/dsh-client-ui-slots": ["./packages/client/ui-slots/src"],
       "@deepseek-ai/dsh-client-ui-primitives": ["./packages/client/ui-primitives/src"],
       "@deepseek-ai/dsh-client-web-react": ["./packages/client/web-react/src"],
-      "@deepseek-ai/dsh-client-web-react/store": ["./packages/client/web-react/src/store"],
       "@deepseek-ai/dsh-client-connection": ["./packages/client/connection/src"],
+      "@deepseek-ai/dsh-client-hmr": ["./packages/client/hmr/src"],
+      "@deepseek-ai/dsh-client-modules": ["./packages/client/modules/src"],
       "@deepseek-ai/dsh-client-runtime": ["./packages/client/runtime/src"],
-      "@deepseek-ai/dsh-client-runtime/loader": ["./packages/client/runtime/src/client/loader"],
+      "@deepseek-ai/dsh-client-runtime/client": ["./packages/client/runtime/src/client"],
       "@deepseek-ai/dsh-client-ui-layout": ["./packages/client/ui-layout/src"],
       "@deepseek-ai/dsh-client-ui-sidebar": ["./packages/client/ui-sidebar/src"],
       "@deepseek-ai/dsh-client-ui-conversation": ["./packages/client/ui-conversation/src"],
+      "@deepseek-ai/dsh-client-ui-question": ["./packages/client/ui-question/src"],
       "@deepseek-ai/dsh-client-ui-trajectory": ["./packages/client/ui-trajectory/src"],
       "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
       "@deepseek-ai/dsh-client-i18n": ["./packages/client/i18n/src"],

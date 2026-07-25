@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-20-extract-example-app-packages.zh.md)
+
 ## Problem
 
 An example folder is supposed to be *thin* — the variable wiring of a demo, not the demo's machinery. Before this change it was thick. Each example carried a hand-rolled `start.ts` boot bootstrap, an infra preamble (`timer`, and — for the stdio demos — `logger` + `hmr`), nested includes of three shared YAML fragments (`base.yml` / `base-core.yml` / `acp-agent/acp-tail.yml`), and per-example `agent-loop`/persistence/system-prompt config. The actual app — the spine of services every agent needs — was spread across the leaf and those includes.
@@ -24,7 +26,7 @@ Each example is now **mostly an invocation of an app package**, splitting the wi
 
 The proposal listed `hmr` among the interactive app's baked-in front-door cluster. Validating against the code, baking `hmr` into the app package fights Cordis in two ways, so it ships as a **leaf `cordis.yml` entry** instead:
 
-1. `@cordisjs/plugin-hmr` is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader` service, so it can only run in the real `demo:*`/bin subprocess, never in the in-process unit/coverage tier.
+1. `@cordisjs/plugin-hmr` is a Loader-only, subprocess-only dev plugin — it requires the live `loader` service and its internal module access, so it can only run in the real `demo:*`/bin subprocess, never in the in-process unit/coverage tier.
 2. The in-process test tier (vitest) cannot even *import* the vendored `hmr` module (its class-decorator `@Inject` form fails under Vite's transform), so a package whose `apply` statically imported it could never satisfy the per-file 100% coverage gate on its headline function.
 
 Crucially, `hmr` is not a stdout-purity footgun: a stray entry in the ACP config does not corrupt JSON-RPC frames. Every shipped app omits a stdout console logger; the app or protocol driver alone owns stdout.

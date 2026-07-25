@@ -219,7 +219,10 @@ function appendSkippedToolCall(session: Session, turn: number, step: number, blo
   appendToolResult(session, turn, step, block, {
     content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
     isError: true,
-    error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    error: {
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    },
   }, callSeq)
 }
 
@@ -245,7 +248,7 @@ function appendToolResult(
     callId: block.id,
     content: result.content,
     isError: result.isError,
-    ...result.error ? { error: result.error } : {},
+    ...result.error?.info ? { error: result.error.info } : {},
     // The tool's private presentation payload (e.g. a result-time diff),
     // persisted so a UI bridge reproduces the card on replay.
     ...result.meta !== undefined ? { meta: result.meta } : {},

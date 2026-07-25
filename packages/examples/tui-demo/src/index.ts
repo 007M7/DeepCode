@@ -10,6 +10,7 @@
 
 import type { Context } from 'cordis'
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
@@ -23,7 +24,7 @@ import SessionPersistenceJsonl, {
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiTui from '@deepseek-ai/dsh-tui'
@@ -52,7 +53,7 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
@@ -119,14 +120,15 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   const goals = config.goals ?? {}
+  const persistenceRoot = config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT
   ctx.plugin(CommandService)
   if (goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(SessionPersistenceJsonl, {
-    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+    root: persistenceRoot,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
   ctx.plugin(sessionCheckpointPolicy)
-  ctx.plugin(SessionQueryService)
+  ctx.plugin(SessionQuerySqlite, { path: join(persistenceRoot, 'session-query.db') })
   ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
   ctx.plugin(UserInteractionService)
   ctx.plugin(uiTui, {

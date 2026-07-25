@@ -2,8 +2,8 @@
 // RpcRequest<P> and returns RpcResponse<T> (echoing the rpcId); streams yield RpcRequest<frame>
 // (the fixture IS the fake server, so it mints frame rpcIds); root respond takes ClientResponse
 // and returns RpcReceipt. fx-alpha carries a hand-built history script (60 turns, pageable);
-// prompt triggers a chunked streaming replay; cancel stops the replay; one resident pending
-// approval (placeholder-card material, subscribed-baseline-replay semantics: stable rpcId reuse).
+// prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
+// approval/question requests exercise replay and composer takeover with stable rpcIds.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
@@ -24,6 +24,28 @@ function text(t: string): ContentBlock[] {
   return [{ type: 'text', text: t }]
 }
 
+const MARKDOWN_FIXTURE = [
+  '# Markdown fixture',
+  '',
+  'Assistant output renders **strong text**, *emphasis*, and `inline code`.',
+  '',
+  '- first item',
+  '  - nested item',
+  '',
+  '| Surface | State |',
+  '| --- | --- |',
+  '| history | rendered |',
+  '| streaming | stable |',
+  '',
+  '[DeepSeek](https://www.deepseek.com)',
+  '',
+  '```ts',
+  'const markdown = true',
+  '```',
+].join('\n')
+
+const USER_MARKDOWN_LITERAL = '用户字面量：# 不渲染 `code` [link](https://example.com)'
+
 function sid(id: string): SessionId {
   return id as SessionId
 }
@@ -40,16 +62,28 @@ function buildAlphaLog(): SessionEvent[] {
   }
   for (let turn = 0; turn < 60; turn++) {
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`), source: { kind: 'user' } } })
+    const userSeq = push({
+      type: 'user/message', surfaceOp: 'append',
+      data: {
+        content: text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`),
+        source: { kind: 'user' },
+      },
+    })
+    if (turn === 0) {
+      push({
+        type: 'session/title',
+        data: { title: 'Fixture 历史会话', messageSeqs: [userSeq], source: { kind: 'fallback' } },
+      })
+    }
     if (turn % 9 === 4) {
-      push({ type: 'context/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
+      push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
     }
     push({ type: 'step/start', data: { turn, step: 0 } })
     const withTool = turn % 5 === 2
     const withReasoning = turn % 3 === 1
     const blocks: ContentBlock[] = []
     if (withReasoning) blocks.push({ type: 'reasoning', text: `思考过程 ${turn}：这是一段可折叠的 reasoning 内容。` })
-    blocks.push({ type: 'text', text: `回答 ${turn}：这是 fixture 生成的历史回复正文。` })
+    blocks.push({ type: 'text', text: turn === 59 ? MARKDOWN_FIXTURE : `回答 ${turn}：这是 fixture 生成的历史回复正文。` })
     if (withTool) {
       const callId = `fx-call-${turn}`
       blocks.push({ type: 'tool-call', id: callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } as ContentBlock)
@@ -69,8 +103,9 @@ function buildAlphaLog(): SessionEvent[] {
     }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Three view-sample turns (60-62) for the tool-card wire acceptance: one per built-in card
-  // type. `echo` above stays presenter-less on purpose — it is the no-view fallback sample.
+  // Three view-sample turns (60-62) cover the built-in card types. The real filesystem names in
+  // turns 62-63 also exercise their dedicated generic-row icon/title/path summaries. `echo` above
+  // stays presenter-less as the unknown fallback.
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
@@ -87,7 +122,8 @@ function buildAlphaLog(): SessionEvent[] {
   }
   toolTurn(60, 'fx-bash', '{"command":"ls -la","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
-  toolTurn(62, 'fx-note', '{"note":"三型卡验收样本"}', '已记录')
+  toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
+  toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
   return events as unknown as SessionEvent[]
 }
 
@@ -112,8 +148,10 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         card: 'diff', title: `Write ${str(args.path)}`,
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
-    case 'fx-note':
-      return { card: 'generic', title: '记录笔记', kind: 'edit', rawInput: args }
+    case 'edit':
+      return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+    case 'write':
+      return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
     default:
       return undefined // echo et al: the documented no-view fallback path
   }
@@ -153,6 +191,20 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
     return undefined // cross-page unpaired: documented default
   }
   return undefined
+}
+
+/** Fold the latest fixture title into the host's control-frame projection. */
+function titleFrameOf(id: SessionId, log: readonly SessionEvent[]): Extract<MuxFrame, { type: 'session/title' }> | undefined {
+  const event = log.findLast(item => (item as { type: string }).type === 'session/title')
+  if (event === undefined) return undefined
+  const titleEvent = event as unknown as { seq: number; time: number; data: { title: string } }
+  return {
+    type: 'session/title',
+    sessionId: id,
+    title: titleEvent.data.title,
+    eventSeq: titleEvent.seq,
+    updatedAt: titleEvent.time,
+  }
 }
 
 /**
@@ -249,6 +301,41 @@ export function createFixtureApi(): ApiProxy {
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
   /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
+  const pendingQuestionRpcId = mint()
+  let questionPending = true
+  const fixtureQuestions: Extract<MuxFrame, { type: 'question/requested' }>['questions'] = [
+    {
+      id: 'harness-profile',
+      header: '偏好',
+      question: '你现在更想招哪类 Agent/Harness 候选人？',
+      options: [
+        { label: '工程落地型 (Recommended)', description: '更看重能直接做 runtime、tool executor、sandbox、trace 和线上问题排查。' },
+        { label: '研究潜力型', description: '更看重 Agent 理解、训练评测思路和长期成长空间。' },
+        { label: '均衡型', description: '同时要求工程能力和 Agent 认知，但可能筛选门槛更高。' },
+      ],
+    },
+    {
+      id: 'work-mode',
+      header: '方式',
+      question: '你希望候选人优先展示哪种工作方式？',
+      options: [
+        { label: '先做小型原型 (Recommended)', description: '用可运行结果尽快验证关键假设。' },
+        { label: '先写完整设计', description: '先收敛边界、协议和风险，再开始实现。' },
+      ],
+    },
+    {
+      id: 'signals',
+      header: '信号',
+      question: '哪些面试信号最重要？',
+      detail: '按当前招聘目标选择；跳过则视为不设偏好。',
+      multiSelect: true,
+      options: [
+        { label: '系统设计' },
+        { label: '代码质量' },
+        { label: 'Agent 产品判断' },
+      ],
+    },
+  ]
 
   const muxConns = new Set<StreamConn<MuxFrame>>()
   const hostConns = new Set<StreamConn<HostFrame>>()
@@ -294,6 +381,10 @@ export function createFixtureApi(): ApiProxy {
     emitMux(view === undefined
       ? { type: 'session/event', sessionId: id, event }
       : { type: 'session/event', sessionId: id, event, view })
+    if ((event as { type: string }).type === 'session/title') {
+      // The raw title is already in this log, so the latest-title fold must find it.
+      emitMux(titleFrameOf(id, log) as Extract<MuxFrame, { type: 'session/title' }>)
+    }
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -322,6 +413,12 @@ export function createFixtureApi(): ApiProxy {
     appendUser(id: string, msg: string): void {
       append(sid(id), { type: 'user/message', surfaceOp: 'append', data: { content: text(msg), source: { kind: 'user' } } })
     },
+    /** Append a later durable title revision through the normal raw-event + control-frame path. */
+    appendTitle(id: string, title: string): void {
+      const log = logOf(sid(id))
+      const messageSeqs = log.filter(event => event.type === 'user/message').map(event => event.seq)
+      append(sid(id), { type: 'session/title', data: { title, messageSeqs, source: { kind: 'provider', provider: 'fixture' } } })
+    },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
       const log = logOf(sid(id))
@@ -339,8 +436,8 @@ export function createFixtureApi(): ApiProxy {
     const step = 0
     append(id, { type: 'step/start', data: { turn, step } })
     append(id, { type: 'assistant/chunk', data: { turn, step, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
-    /* v8 ignore next -- the ?? arm needs a null match, but replyText is never empty (prompt always prefixes 回声). */
-    const pieces = replyText.match(/.{1,6}/gu) ?? [replyText]
+    /* v8 ignore next -- the ?? arm needs a null match, but every fixture reply is non-empty. */
+    const pieces = replyText.match(/[\s\S]{1,6}/gu) ?? [replyText]
     let i = 0
     const finish = (aborted: boolean): void => {
       replays.delete(id)
@@ -406,7 +503,13 @@ export function createFixtureApi(): ApiProxy {
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
         append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
-        startReply(id, turn, `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`)
+        startReply(
+          id,
+          turn,
+          userText === 'render markdown'
+            ? MARKDOWN_FIXTURE
+            : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
+        )
         return ok(request, { accepted: true as const })
       },
       cancel: (request) => {
@@ -429,10 +532,12 @@ export function createFixtureApi(): ApiProxy {
         muxConns.add(conn)
         const breakNow = (): void => { conn.breakNow() }
         streamBreakers.add(breakNow)
-        // Open baseline: subscribed for attached (running) sessions + pending approval replay (stable rpcId).
+        // Open baseline: subscribed sessions + pending interactions replayed with stable rpcIds.
         for (const s of sessions) {
           if (!s.running) continue
           conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: (logs.get(s.sessionId)?.length ?? 0) - 1 } })
+          const title = titleFrameOf(s.sessionId, logs.get(s.sessionId) ?? [])
+          if (title !== undefined) conn.push({ rpcId: mint(), payload: title })
         }
         conn.push({
           rpcId: pendingApprovalRpcId,
@@ -442,6 +547,14 @@ export function createFixtureApi(): ApiProxy {
             toolName: 'dangerous_tool', reason: 'fixture 常驻占位审批（可见不可答）',
           },
         })
+        if (questionPending) {
+          conn.push({
+            rpcId: pendingQuestionRpcId,
+            payload: {
+              type: 'question/requested', sessionId: sid('fx-alpha'), questions: fixtureQuestions,
+            },
+          })
+        }
         try {
           yield* conn.drain(signal)
         } finally {
@@ -471,9 +584,16 @@ export function createFixtureApi(): ApiProxy {
       },
     },
     respond(message: ClientResponse): Promise<RpcReceipt> {
-      // The v1 UI never answers (PendingCard is visible but not answerable); implemented for type completeness, always not-pending.
-      void message
-      return Promise.resolve({ accepted: false, reason: 'not-pending' })
+      if (!questionPending || message.rpcId !== pendingQuestionRpcId) {
+        return Promise.resolve({ accepted: false, reason: 'not-pending' })
+      }
+      questionPending = false
+      emitMux({
+        type: 'question/resolved', sessionId: sid('fx-alpha'),
+        questionRpcId: pendingQuestionRpcId,
+        outcome: message.result.ok ? 'answered' : 'cancelled',
+      })
+      return Promise.resolve({ accepted: true })
     },
   }
 }

@@ -104,7 +104,13 @@ describe('dsh-cli-demo app composition', () => {
     })
     ctx.skills.register({ name: 'cli-skill', description: 'CLI skill', source: 'runtime', content: 'body' })
     for (const name of ['alpha', 'zulu']) {
-      ctx.tools.register({ name, description: name, parameters: {}, execute: async () => [] })
+      ctx.tools.register({
+        name,
+        description: name,
+        parameters: {},
+        output: { schema: { type: 'null' }, render: () => [] },
+        execute: async () => null,
+      })
     }
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `cli-skill`: CLI...')
     expect((await ctx.systemPrompt.assemble()).tools.map(tool => tool.name)).toEqual([

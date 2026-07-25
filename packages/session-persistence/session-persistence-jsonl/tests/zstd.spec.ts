@@ -460,7 +460,7 @@ describe('SessionPersistenceJsonl: encoding selection', () => {
       '',
     ].join('\n'))
     await expect(ctx.sessionPersistence.load(loadHeader.id)).rejects.toThrow(/uses \.jsonl/)
-    await expect((ctx.sessionPersistence as SessionPersistenceJsonl).loadLive(loadHeader.id, loadHeader.cwd))
+    await expect((ctx.sessionPersistence as SessionPersistenceJsonl).loadStored(loadHeader.id))
       .rejects.toThrow(/uses \.jsonl/)
     await expect(ctx.sessionPersistence.list()).rejects.toThrow(/uses \.jsonl/)
   })

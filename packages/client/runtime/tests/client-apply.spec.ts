@@ -37,6 +37,9 @@ describe('runtime client apply', () => {
   it('mounts ctx.slots + ctx.sessions and wires the stream sinks into the manager', async () => {
     const bench = await mount()
     expect(bench.ctx.get('slots') !== undefined).toBe(true)
+    // The built-in 'root' declaration ships with this package's SlotsService
+    // (the SlotMap 'root' merge lives here since the slot-parity rework).
+    expect(bench.ctx.slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
     const sessions = bench.ctx.get('sessions')
     expect(sessions !== undefined).toBe(true)
     expect(bench.sinks).toBeDefined()

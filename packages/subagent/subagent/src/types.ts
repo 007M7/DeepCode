@@ -10,7 +10,7 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { StructuredOutputSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 
 /** Identifies one accepted subagent run across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -73,11 +73,11 @@ export interface SubagentStartRequest {
   /** Per-child agent options (model and plugin-defined extension fields). */
   readonly agentOptions?: AgentOptions
   /**
-   * Object-rooted JSON Schema within `assertSupportedOutputSchema`'s enforced subset. Start rejects
+   * Object-rooted JSON Schema within `assertObjectJsonSchema`'s enforced subset. Start rejects
    * unsupported schemas or providers without the capability. Data must be plain host-realm JSON;
    * a successful child returns the matching value as {@link SubagentResult.structured}.
    */
-  readonly outputSchema?: StructuredOutputSchema
+  readonly outputSchema?: ObjectJsonSchema
   /**
    * Optional absolute delegation-depth cap for the child being started: its
    * computed depth must be less than or equal to this non-negative safe

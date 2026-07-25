@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
@@ -23,9 +23,11 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     session: new Session(id),
     status: 'idle' as const,
     ctx: scopeFiber.ctx,
-    send() {},
-    steer() {},
-    inject() {},
+    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }
@@ -44,13 +46,19 @@ function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
   let settle!: (outcome: TaskOutcome) => void
   let reject!: (error: unknown) => void
   const cancels: (string | undefined)[] = []
-  const { kind = 'bash', label = 'sleep 60', owner, ...hookOverrides } = overrides
+  const { kind = 'bash', label = 'sleep 60', owner, outputLimitBytes, ...hookOverrides } = overrides
   const hooks: TaskHooks = {
     cancel(reason) { cancels.push(reason) },
     done: new Promise<TaskOutcome>((res, rej) => { settle = res; reject = rej }),
     ...hookOverrides,
   }
-  const spec: TaskStart = { kind, label, ...owner !== undefined ? { owner } : {}, run: () => hooks }
+  const spec: TaskStart = {
+    kind,
+    label,
+    ...owner !== undefined ? { owner } : {},
+    ...outputLimitBytes !== undefined ? { outputLimitBytes } : {},
+    run: () => hooks,
+  }
   return { spec, settle, reject, cancels }
 }
 
@@ -85,10 +93,11 @@ describe('TaskService.start', () => {
       .toThrow('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
   })
 
-  it('rejects an empty kind and an empty label', async () => {
+  it('rejects an empty kind, empty label, and invalid output limit', async () => {
     const ctx = await harness()
     expect(() => ctx.tasks.start(producer({ kind: '' as TaskKind }).spec)).toThrow('invalid task kind')
     expect(() => ctx.tasks.start(producer({ label: '' }).spec)).toThrow('invalid task label')
+    expect(() => ctx.tasks.start(producer({ outputLimitBytes: 0 }).spec)).toThrow('outputLimitBytes')
   })
 
   it('issues kind-prefixed ids from per-kind counters', async () => {
@@ -116,6 +125,16 @@ describe('TaskService reads and settlement', () => {
     expect(read.text).toBe('rest')
     expect(read.snapshot).toMatchObject({ status: 'completed', detail: 'exit code: 0', reported: true })
     expect(read.snapshot.finishedAt).toBeTypeOf('number')
+  })
+
+  it('projects a producer-owned model output limit into reads and snapshots', async () => {
+    const ctx = await harness()
+    const p = producer({ outputLimitBytes: 64, readOutput: () => 'delta' })
+    const id = ctx.tasks.start(p.spec)
+    expect(ctx.tasks.read(id)).toMatchObject({
+      text: 'delta', snapshot: { outputLimitBytes: 64 },
+    })
+    expect(ctx.tasks.get(id)).toMatchObject({ outputLimitBytes: 64 })
   })
 
   it('final-output kinds read empty while live, the outcome output idempotently once settled', async () => {

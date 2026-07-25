@@ -20,7 +20,7 @@ These are authoritative; read them at the source so this skill never drifts out 
 - **[docs/i18n/README.md](../../../docs/i18n/README.md)** — the pairing contract: the three-file pair (`foo.md`, `foo.zh.md`, `foo.i18n.yaml`), the consistency record's both-side blob hashes, the language-switcher lines, scope/exclusions, and the rollout manifest.
 - **[docs/i18n/translation-rules.md](../../../docs/i18n/translation-rules.md)** — how to translate: faithfulness, structure preservation, terminology discipline, typography (MUST/SHOULD levels).
 - **[docs/i18n/terminology.md](../../../docs/i18n/terminology.md)** — the terminology table, binding in both directions. Load it BEFORE translating, not when a term feels uncertain; the terms you don't notice are the ones that drift.
-- **[docs/i18n/translation-prompt.md](../../../docs/i18n/translation-prompt.md)** — the automated pipeline's machine-consumed template. Agents using this skill do not render it; the renderer injects `translation-rules.md` so rules have only one home.
+- **[docs/i18n/translation-prompt.md](../../../docs/i18n/translation-prompt.md)** — the automated pipeline's calibrated machine-consumed template. Agents using this skill do not render it; the terminology table is the only repository file the automated renderer injects, while this skill and `translation-rules.md` remain binding for agent-authored translations.
 - **[dsh-prose-standard](../dsh-prose-standard/SKILL.md)** — required prose coverage and editorial judgment. Apply it to both sides without adding or dropping source propositions.
 
 ## Find the work

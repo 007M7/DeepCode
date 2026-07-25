@@ -15,7 +15,8 @@
 // and theme after, reload recovery last. Tests run sequentially in-file.
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -57,6 +58,74 @@ function waitForReadyLine(child: ChildProcess): Promise<string> {
   })
 }
 
+async function rpc<T>(baseUrl: string, method: string, payload: unknown): Promise<T> {
+  const response = await fetch(`${baseUrl}/api/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId: `smoke-${method}`,
+      method,
+      payload,
+    }),
+  })
+  if (!response.ok) throw new Error(`${method} failed over HTTP ${response.status}: ${await response.text()}`)
+  const body = await response.json() as {
+    result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
+  }
+  if (!body.result.ok) throw new Error(`${method} failed: ${body.result.error.code}: ${body.result.error.message}`)
+  return body.result.value
+}
+
+interface HistoryPage {
+  events: { event: { type: string; data: unknown } }[]
+  hasMore: boolean
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function providerTitle(page: HistoryPage): string | undefined {
+  for (let index = page.events.length - 1; index >= 0; index--) {
+    const event = page.events[index]!.event
+    if (event.type !== 'session/title' || !isRecord(event.data)) continue
+    const source = event.data.source
+    if (typeof event.data.title === 'string' && isRecord(source) && source.kind === 'provider') {
+      return event.data.title
+    }
+  }
+  return undefined
+}
+
+function hasAssistantMarker(page: HistoryPage, marker: string): boolean {
+  return page.events.some(({ event }) => {
+    if (event.type !== 'assistant/message' || !isRecord(event.data) || !Array.isArray(event.data.content)) return false
+    return event.data.content.some(block =>
+      isRecord(block) && block.type === 'text' && typeof block.text === 'string' && block.text.includes(marker))
+  })
+}
+
+async function history(baseUrl: string, sessionId: string): Promise<HistoryPage> {
+  return rpc<HistoryPage>(baseUrl, 'session.history', { sessionId, maxMessages: 10 })
+}
+
+async function waitForProviderTitle(baseUrl: string, sessionId: string): Promise<string> {
+  let observed: string | undefined
+  await expect.poll(async () => {
+    observed = providerTitle(await history(baseUrl, sessionId))
+    return observed
+  }, { timeout: 90_000 }).toEqual(expect.any(String))
+  if (observed === undefined) throw new Error('provider-backed session title was not observed')
+  return observed
+}
+
+async function waitForAssistantMarker(baseUrl: string, sessionId: string, marker: string): Promise<void> {
+  await expect.poll(async () => hasAssistantMarker(await history(baseUrl, sessionId), marker), {
+    timeout: 120_000,
+  }).toBe(true)
+}
+
 /** W5 screenshot: evidence for the figma comparison, not a failure artifact. */
 async function screen(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(REPO_ROOT, '.artifacts', `w5-${name}.png`) })
@@ -75,10 +144,11 @@ async function detailsTrack(page: Page): Promise<number> {
   return Number(cols.split(' ').pop()!.replace('px', ''))
 }
 
-// Readiness gate: `dsh web` serves ALL eight manifest plugins; until every UI
+// Readiness gate: `dsh web` serves ALL nine manifest plugins; until every UI
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
-const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-trajectory']
+const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-question', 'ui-trajectory']
+const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')
   return !existsSync(bundle) || !readFileSync(bundle, 'utf8').includes('exports.apply')
@@ -114,6 +184,91 @@ describe('dsh web keyless CLI smoke', () => {
       if (child.exitCode === null) child.kill('SIGTERM')
       await closed
       rmSync(sessionsDir, { recursive: true, force: true })
+    }
+  })
+
+  it('injects the invoking workspace AGENTS.md into the provider request', async () => {
+    requireDist()
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-workspace-'))
+    mkdirSync(join(workspace, '.git'))
+    writeFileSync(join(workspace, 'AGENTS.md'), 'web-workspace-context-probe\n')
+
+    let resolveProviderRequest!: (request: { messages?: { role?: string; content?: string }[] }) => void
+    const providerRequest = new Promise<{ messages?: { role?: string; content?: string }[] }>((resolve) => {
+      resolveProviderRequest = resolve
+    })
+    const provider = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        resolveProviderRequest(JSON.parse(body) as { messages?: { role?: string; content?: string }[] })
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        response.end([
+          'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
+          'data: {"choices":[{"delta":{"content":"done"}}]}',
+          'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'))
+      })
+    })
+    await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (address === null || typeof address === 'string') throw new Error('mock provider did not bind a TCP port')
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      {
+        cwd: workspace,
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: 'keyless-web-workspace',
+          DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+          DSH_HOME: join(workspace, '.dsh'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const baseUrl = await waitForReadyLine(child)
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
+      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+        sessionId: created.sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: 'go' }],
+      })
+      const captured = await Promise.race([
+        providerRequest,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
+        }),
+      ])
+      const workspaceMessage = captured.messages?.find(message =>
+        message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
+      expect(workspaceMessage).toMatchInlineSnapshot(`
+        {
+          "content": "<system-reminder>
+        The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.
+
+        Instructions from: AGENTS.md
+
+        web-workspace-context-probe
+
+        </system-reminder>",
+          "role": "user",
+        }
+      `)
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
+      rmSync(workspace, { recursive: true, force: true })
     }
   })
 })
@@ -175,7 +330,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     await screen(page, '02-empty-state')
-    await input.fill('请简单介绍事件溯源，两句话即可，最后以「介绍完毕」结尾')
+    const prompt = `Please answer this request carefully: explain event sourcing in two sentences, ending with exactly ${ROUND_DONE_MARKER}.`
+    await input.fill(prompt)
     await input.press('Enter')
     // startSession chain: session mounts, composer moves to the bottom.
     // Regression pin (P0, 585671106): this send used to white-screen the tree
@@ -183,7 +339,32 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     // near-empty here means that class of bug is back.
     await page.waitForFunction(() => document.body.innerText.length > 50, undefined, { timeout: 15_000 })
     expect(pageErrors).toEqual([])
-    await page.waitForFunction(() => document.body.innerText.includes('介绍完毕'), undefined, { timeout: 120_000 })
+    await page.waitForFunction(
+      () => document.title !== 'DeepSeek Harness' && document.title.endsWith(' — DeepSeek Harness'),
+      undefined,
+      { timeout: 15_000 },
+    )
+    await expect.poll(async () => (await rpc<{ items: { sessionId: string }[] }>(baseUrl, 'session.list', {})).items.length, {
+      timeout: 15_000,
+    }).toBe(1)
+    const sessions = await rpc<{ items: { sessionId: string }[] }>(baseUrl, 'session.list', {})
+    const sessionId = sessions.items[0]?.sessionId
+    if (sessionId === undefined) throw new Error('created Web session was not listed')
+    const durableTitle = await waitForProviderTitle(baseUrl, sessionId)
+    await page.waitForFunction(
+      expected => document.title === `${expected} — DeepSeek Harness`,
+      durableTitle,
+      { timeout: 15_000 },
+    )
+    const sessionTree = page.getByRole('tree', { name: 'Sessions' })
+    const projectRow = sessionTree.getByRole('treeitem').first()
+    if (await projectRow.getAttribute('aria-expanded') === 'false') await projectRow.click()
+    await Promise.all([
+      sessionTree.getByText(durableTitle, { exact: true }).waitFor({ timeout: 10_000 }),
+      page.getByRole('navigation').getByText(durableTitle, { exact: true }).waitFor({ timeout: 10_000 }),
+    ])
+    await waitForAssistantMarker(baseUrl, sessionId, ROUND_DONE_MARKER)
+    await page.locator('p').filter({ hasText: ROUND_DONE_MARKER }).waitFor({ timeout: 10_000 })
     await screen(page, '04-round-complete')
   }, 150_000)
 
@@ -203,10 +384,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
     await input.press('Enter')
     // Wait for the tool ROW, not response text (the reply echoes any marker).
-    // bash renders through the third-party sample registration (data-sample) —
-    // that IS the differential-rendering acceptance; the generic path renders
-    // data-variant rows with the handler on the data-clickable inner row.
-    const toolRow = page.locator('[data-sample], [data-variant] [data-clickable]').first()
+    // Bash renders through the third-party sample registration. Match that
+    // exact row: other clickable variants (for example Think disclosure)
+    // may precede the tool call in document order.
+    const toolRow = page.locator('[data-sample="bash-global"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
     expect(await detailsTrack(page)).toBe(0)
@@ -258,7 +439,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     onTestFailed(() => saveFailureShot(page, 'w5-reload'))
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await page.waitForFunction(() => document.body.innerText.includes('介绍完毕'), undefined, { timeout: 30_000 })
+    await page.locator('p').filter({ hasText: ROUND_DONE_MARKER }).waitFor({ timeout: 30_000 })
     await screen(page, '12-reload-recovery')
   })
 

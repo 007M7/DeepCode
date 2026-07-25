@@ -1,5 +1,7 @@
 # Subagent
 
+English | [中文](subagent.zh.md)
+
 The subagent seam — an agent delegating work to a child agent. Like [bash](bash.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). But it differs from every other seam on one axis: **multiple provider implementations coexist** in one context, registered by name (`ctx.subagents`), where bash allows only one executor. The registry shape mirrors the [LLM adapter registry](llm-streaming.md), not the single-service bash executor.
 
 Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumer is [dsh-tool-subagent](../../packages/subagent/tool-subagent). The proposal and rationale: [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md).
@@ -66,11 +68,11 @@ interface SubagentStartRequest {
   /** Per-child agent options (model and plugin-defined extension fields). */
   readonly agentOptions?: AgentOptions
   /**
-   * Object-rooted JSON Schema within `assertSupportedOutputSchema`'s enforced subset. Start rejects
+   * Object-rooted JSON Schema within `assertObjectJsonSchema`'s enforced subset. Start rejects
    * unsupported schemas or providers without the capability. Data must be plain host-realm JSON;
    * a successful child returns the matching value as {@link SubagentResult.structured}.
    */
-  readonly outputSchema?: StructuredOutputSchema
+  readonly outputSchema?: ObjectJsonSchema
   /**
    * Optional absolute delegation-depth cap for the child being started: its
    * computed depth must be less than or equal to this non-negative safe
