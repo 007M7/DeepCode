@@ -52,6 +52,7 @@
 | loader | loader | | | |
 | manifest | manifest | manifest（元数据清单） | | |
 | monorepo | monorepo | | | |
+| Round | Round | | 回合、目标回合、Ralph 回合 | 外层策略使用 Round 时，领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Round 是可选的外层策略迭代，并非每个会话轮次都具有的通用层级。Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
 | seam | seam | | | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
@@ -103,10 +104,12 @@
 | durability | 持久性 | | | |
 | feature requirement | 功能依赖 | | | 功能或功能选项通过 `requires` 声明的关系 |
 | enforcement frontier | 执行红线 | | 强制边界 | i18n 配对机制用语：manifest `required` 清单所划的门禁生效范围；与金标样例（style-samples ⑦）一致 |
+| ergonomics | 易用性 / 开发体验 | | 人体工学 | API 或面向模型的接口用「易用性」；工具链或开发者工作流用「开发体验」 |
 | event | 事件 | | | |
 | event log | 事件日志 | | | |
 | event stream | 事件流 | | | |
 | event-sourced | 事件溯源 | | | 沿用 DDD 社区通行译法 |
+| Executive summary | 摘要 | | | 事故复盘标题用语 |
 | executor | 执行器 | | | |
 | expected output | 预期输出 | | 金标 | 指 snapshot 比较产物；翻译语料的人工校准样例不在此列 |
 | extension | 扩展 | | | |
@@ -131,11 +134,14 @@
 | mod | 模组 | | | |
 | model provider | 模型提供方 | | | |
 | module | 模块 | | | |
+| non-escalation | 非升权 | | 非升级、不可升级 | 仅用于安全与权限语境，指主体不得获得超出既有授权的权限；普通升级不适用此行 |
 | npm dependency | NPM 依赖 | | | `package.json` 中的包关系；`dependencies`、`devDependencies` 等字段保持原样 |
+| opt-out ratio | opt-out 比例 | | 退出检查比例 | |
 | orphan | 遗留 | | 孤儿、孤立 | 指英文源已不存在的 `.zh.md`（如「遗留译文」）；进程语境按 OS 惯用语译「孤儿进程」 |
 | orphan branch | 孤立分支 | | 孤儿分支 | 沿用 git 官方中文翻译 |
 | package | 包 | 包（package） | | 指 npm 包（`@deepseek-ai/dsh-*`）；`package.json` 等代码标识保持原样 |
 | pairing | 配对 | | | |
+| parent-subset grants | 父级子集授权 | | 父集合授权 | 指授权范围仅限于父级所持授权的子集 |
 | peer dependency | 对等依赖 | 对等依赖（peer dependency） | | |
 | permission | 权限 | | | |
 | persistence | 持久化 | | | |
@@ -145,12 +151,14 @@
 | provider | 提供方 | | | |
 | provider-neutral | 提供方无关 | | | |
 | quality gate | 质量门禁 | | | |
+| quiescence | 完全停稳 | | 静默、静止状态 | 指生命周期工作全部结算后的状态 |
 | reasoning | 推理 | 推理（reasoning） | | 需要和 `inference` 区分时保留英文括注 |
 | reasoning_content | 思考内容 | | | |
 | registry | 注册表 | | | |
 | replay | 回放 | | | |
 | resume | 恢复 | | | |
 | runtime | 运行时 | | | |
+| same-world subprocess | 与宿主共享文件系统和内核的子进程 | | 同世界子进程 | |
 | sandbox | 沙箱 | | | |
 | service | 服务 | | | |
 | serving surface | 对外服务接口 | | | |
@@ -167,6 +175,7 @@
 | stream | 流 | | | |
 | streaming | 流式输出 | | | |
 | structural signature | 结构签名 | | | i18n 配对机制用语：门禁比对两侧文件时提取的有序结构序列（标题层级、代码块、列表等） |
+| Summary | 概述 | | | 事故复盘标题用语 |
 | system prompt | 系统提示词 | | | |
 | taxonomy | 分类体系 | | | |
 | token usage | token 用量 | | | |

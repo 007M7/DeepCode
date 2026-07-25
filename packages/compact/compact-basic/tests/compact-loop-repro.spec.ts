@@ -206,7 +206,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
         provider: 'unconfigured-agent-fallback',
         model: 'unconfigured-agent-fallback',
       })
-      agent.send([{ type: 'text', text: 'do a routed multi-step task' }])
+      agent.followup([{ type: 'text', text: 'do a routed multi-step task' }])
       await waitForIdle(ctx, agent)
 
       expect(agent.session.requestHeader()?.config.model).toBe('mock')
@@ -224,7 +224,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'do tool work' }])
+      agent.followup([{ type: 'text', text: 'do tool work' }])
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -250,7 +250,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('repro'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'do a long multi-step task' }])
+      agent.followup([{ type: 'text', text: 'do a long multi-step task' }])
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -306,7 +306,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
         })
         seedOverflowHistory(agent)
 
-        agent.send([{ type: 'text', text: 'continue from history' }])
+        agent.followup([{ type: 'text', text: 'continue from history' }])
         await agent.whenIdle()
 
         expect(adapter.conversationRequests).toHaveLength(2)
@@ -364,7 +364,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
     try {
       const agent = ctx.agentLoop.create(SessionId('alternating-recovery'), { provider: 'mock', model: 'mock' })
       seedOverflowHistory(agent)
-      agent.send([{ type: 'text', text: 'continue from history' }])
+      agent.followup([{ type: 'text', text: 'continue from history' }])
       await agent.whenIdle()
 
       expect(adapter.conversationRequests).toHaveLength(3)

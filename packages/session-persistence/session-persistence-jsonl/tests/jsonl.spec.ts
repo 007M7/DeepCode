@@ -251,17 +251,15 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
   })
 
   it('surfaces non-ENOENT snapshot stat failures after discovery', async () => {
-    const blocker = join(root, 'snapshot-not-a-directory')
-    await writeFile(blocker, 'x')
     const persistence = ctx.sessionPersistence as unknown as {
       listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>>
     }
     const discovery = vi.spyOn(persistence, 'listArtifacts').mockResolvedValue([{
       header: meta('snapshot-stat-failure'),
-      path: join(blocker, 'session.jsonl'),
+      path: `${root}\0snapshot-stat-failure`,
     }])
 
-    await expect(ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/ENOTDIR/)
+    await expect(ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/null bytes/)
     discovery.mockRestore()
   })
 
@@ -557,6 +555,26 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('rejects a non-session first line', () => {
     expect(() => scanLog(Buffer.from('{"type":"event"}\n'))).toThrow(/session header/)
+  })
+
+  it.each([
+    ['fractional', 1.5],
+    ['negative', -1],
+    ['unsafe', Number.MAX_SAFE_INTEGER + 1],
+  ])('rejects a session header with a %s createdAt', (_label, createdAt) => {
+    const log = JSON.stringify({
+      type: 'session',
+      version: 0,
+      id: 'invalid-created-at',
+      createdAt,
+      delegationDepth: 0,
+    }) + '\n'
+    expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
+  })
+
+  it('rejects a session header with negative-zero createdAt', () => {
+    const log = '{"type":"session","version":0,"id":"invalid-created-at","createdAt":-0,"delegationDepth":0}\n'
+    expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
   })
 
   it.each([

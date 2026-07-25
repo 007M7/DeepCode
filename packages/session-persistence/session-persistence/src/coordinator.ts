@@ -178,6 +178,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (snapshot === undefined) {
       return Promise.reject(new TypeError('session metadata must be losslessly JSON-serializable'))
     }
+    if (!Number.isSafeInteger(snapshot.createdAt) || snapshot.createdAt < 0) {
+      return Promise.reject(new TypeError('session metadata createdAt must be a non-negative safe integer'))
+    }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
 

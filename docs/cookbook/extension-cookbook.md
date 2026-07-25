@@ -36,7 +36,7 @@ This waterfall is the reorderable policy layer. Use `ctx.tools.guard()` when an 
 
 ## A UI plugin
 
-A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.send()` / `agent.steer()`.
+A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.followup()` / `agent.steer()`.
 
 ```ts
 import type { Context } from 'cordis'
@@ -54,13 +54,13 @@ export function apply(ctx: Context) {
       render(event.data.chunk.text)
     }
   })
-  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.send([{ type: 'text', text }]))
+  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.followup([{ type: 'text', text }]))
 }
 ```
 
 ## A client-driver plugin (external protocol bridge)
 
-A *client driver* is a UI plugin for a wire-protocol peer. It owns stdio, so stdout logging must be disabled, creates or resumes agents through the factory, maps harness events to protocol messages, and maps requests to `send()` or `cancel()`. Settle each request exactly once from durable `turn/end`, even if rendering fails, and tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
+A *client driver* is a UI plugin for a wire-protocol peer. It owns stdio, so stdout logging must be disabled, creates or resumes agents through the factory, maps harness events to protocol messages, and maps requests to `followup()` or `cancel()`. Settle each request exactly once from durable `turn/end`, even if rendering fails, and tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
 
 `packages/ui/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the permission-prompt answerer it registers on the approval seam.
 
@@ -99,9 +99,9 @@ Every product feature maps to a listener on a documented extension seam — the 
 |---|---|
 | Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` — each interception waterfall returns a typed Decision; the `dsh-hooks-claude` / `dsh-hooks-codex` bridges map hook config files onto these seams |
 | `/goal` | `ctx.goals` owns durable state, `dsh-goal-session` schedules same-session rounds through the public `Agent`, and separate command/tool producers expose human/model control |
-| `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
+| `/loop` | on the `turn/end` session event, `followup()` the next iteration; or force-continue |
 | Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt/tool registrations, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and terminal `agent/turn-stop` |
-| Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
+| Queued + steering messages | core `Agent.followup()` / `Agent.steer()` |
 | Context compaction (auto + manual) | the `ctx.compact` seam + `dsh-compact-basic`; automatic pressure runs on serial `agent/post-step`, canonical overflow recovery runs on `agent/request-error`, and manual callers use the same compact service ([compaction Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) — the model-facing `/compact` consumer tool is deferred) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering and scope-local shadowing |
 | AGENTS.md (root) | a section provider reading the file |
@@ -118,8 +118,8 @@ Every product feature maps to a listener on a documented extension seam — the 
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
 | Skills | section + tool registration; `inject()` skill content on invocation |
 | Memory | section provider + tool |
-| Scheduled tasks (cron) | a plugin registers model-callable scheduling tools; timer fires → `send(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
-| UI (GUI; CLI emits JSONL) | listen `session/event` (assistant chunks, boundaries, tool activity); input → `send()` |
+| Scheduled tasks (cron) | a plugin registers model-callable scheduling tools; timer fires → `followup(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
+| UI (GUI; CLI emits JSONL) | listen `session/event` (assistant chunks, boundaries, tool activity); input → `followup()` |
 | Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
 | Model adapters | `LlmAdapter` subclass via `registerAdapter` (`dsh-llm-deepseek`, `dsh-llm-pi-ai`) |
 | Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |

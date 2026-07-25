@@ -14,7 +14,6 @@ export function extractSessionEventText(event: SessionEvent): string {
   switch (event.type) {
     case 'user/message':
     case 'assistant/message':
-    case 'context/message':
     case 'steering/message':
       return contentText(event.data.content)
     case 'prompt/blocked':

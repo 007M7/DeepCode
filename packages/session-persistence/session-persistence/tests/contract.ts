@@ -84,6 +84,22 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('rejects a fractional creation timestamp without reserving its session id', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = { ...meta('fractional-created-at'), createdAt: 1.5 }
+        await expect(persistence.create(m))
+          .rejects.toThrow('session metadata createdAt must be a non-negative safe integer')
+
+        const valid = meta('fractional-created-at')
+        await persistence.create(valid)
+        await persistence.append(valid.id, oneTurnLog())
+        expect((await persistence.load(valid.id)).meta.createdAt).toBe(valid.createdAt)
+      } finally {
+        await dispose()
+      }
+    })
+
     it('crash recovery: load preserves an interrupted (unclosed) turn and closes it with turn/end {interrupted}', async () => {
       const { persistence, dispose } = await make()
       try {

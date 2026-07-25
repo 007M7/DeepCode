@@ -56,7 +56,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('coding task: fix a failing test 
     ctx = await codingHarness(workdir, { persona: SYSTEM_PROMPT })
     const agent = ctx.agentLoop.create(SessionId('e2e-task'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.send([{
+    agent.followup([{
       type: 'text',
       text: 'In the current directory, `node add.test.js` fails because add.js has a bug. '
         + 'Fix add.js so the test passes, run `node add.test.js` to verify, and report the result. '

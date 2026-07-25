@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -48,7 +49,7 @@ function seedWorkspace(
 
 /** Seed one real plaintext JSONL session for the `/resume` selector and host handoff smoke. */
 async function seedResumeSession(cwd: string): Promise<void> {
-  const sessionCwd = await realpath(cwd)
+  const sessionCwd = realpathSync.native(cwd)
   const id = SessionId('resume-target')
   const meta: SessionHeader = { version: 0, id, createdAt: 1_700_000_000_000, cwd: sessionCwd }
   const events: SessionEvent[] = [
