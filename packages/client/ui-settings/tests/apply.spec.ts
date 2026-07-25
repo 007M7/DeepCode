@@ -82,10 +82,12 @@ describe('ui-settings apply', () => {
     // empty once apply settles.
     expect(injected.sections()).toEqual([{ id: 'general', order: 0, label: '通用设置' }])
     b.slots.register({ name: 'settings.section', id: 'z', order: 20, label: 'Z' } as never, () => null)
-    b.slots.register({ name: 'settings.section', id: 'a', order: 5 } as never, () => null)
+    // No order and no label: both projection defaults apply (order 0 ties
+    // keep registration sequence, so 'a' lands after the General entry).
+    b.slots.register({ name: 'settings.section', id: 'a' } as never, () => null)
     expect(injected.sections()).toEqual([
       { id: 'general', order: 0, label: '通用设置' },
-      { id: 'a', order: 5, label: '' },
+      { id: 'a', order: 0, label: '' },
       { id: 'z', order: 20, label: 'Z' },
     ])
     expect(injected.sectionsVersion()).toBe(b.slots.getVersion('settings.section'))

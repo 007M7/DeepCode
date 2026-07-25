@@ -11,7 +11,11 @@ function mount() {
   const renderSlot = vi.fn(
     ((key: string) => <div data-testid={`slot-${key}`} />) as GeneralSectionComponentProps['renderSlot'],
   )
+  // Global standard kit stubs: the section consumes neither hook.
+  const unusedHook = (() => { throw new Error('unused by GeneralSection') }) as never
   const props: GeneralSectionComponentProps = {
+    useSessions: unusedHook,
+    useWorkspaces: unusedHook,
     t: (key) => en[key] ?? key,
     renderSlot,
   }
