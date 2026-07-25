@@ -39,7 +39,9 @@
 
 每个非平凡变更都必须在同一 PR（Pull Request）中新增或更新至少一份 Agent Note。如果变更修改了行为、架构、跨文件或跨包契约、流程或工具、测试策略、磁盘、协议或配置格式，或者其他维护者可能合理重新审视的决策，就属于非平凡变更。对未来重大工作的提案从 `proposed/` 开始；已经做出的决策从 `implemented/` 开始。选择与决策匹配的类别文件夹（见[分类](#classification)）。
 
-更新已经拥有该决策的 Agent Note 即可满足规则；不要创建重复记录。只有不涉及行为、契约、结构、流程或理由变化的纯机械性或局部编辑才可豁免。Agent Note 永远不会被编辑为一个*不同的决策*：用新 Agent Note 取代旧的，并互相链接。编辑 `implemented/` Agent Note 以跟踪其现有决策的所在位置是必需的，而非禁止的；见 [implemented/AGENTS.md](implemented/AGENTS.md)。
+更新已经拥有该决策的 Agent Note 即可满足规则；不要创建重复记录。只有不涉及行为、契约、结构、流程或理由变化的纯机械性或局部编辑才可豁免。Agent Note 永远不会被编辑为一个*不同的决策*：用新 Agent Note 取代旧记录，并让两个记录保持互相链接，除非后续依据下方规则完全合并旧记录。编辑 `implemented/` Agent Note 以跟踪其现有决策的所在位置是必需的，而非禁止的；见 [implemented/AGENTS.md](implemented/AGENTS.md)。
+
+被完全取代的 implemented Agent Note 可以合并到当前持有该决策的记录中，并删除原文件。删除前，当前记录必须保存所有独有的决策依据、备选方案、影响、验证契约和明确指出的覆盖缺口；修复所有入站链接；并在同一变更中删除中文对侧文件、一致性记录，以及[翻译配对 manifest（元数据清单）](../../scripts/translation-pairing.manifest.json)中对应的 `required` 条目。仅部分被取代的记录不符合此条件：保留两个记录并让它们互相链接，同时更新所有仍然适用的事实。合并不得将旧文件改写成与其相反的决策，也不得让 git 历史成为决策依据的唯一副本。
 
 <a id="the-file-format"></a>
 

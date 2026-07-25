@@ -14,6 +14,8 @@ Every non-trivial change adds or updates at least one Agent Note in the same PR.
 
 Updating the note that already owns a decision satisfies the rule; a new note is required only when no note owns it. Purely mechanical or local edits with no behavioral, contractual, structural, process, or rationale change are exempt. The [Agent Notes README](../../README.md#when-to-write-one) owns this boundary, while root `AGENTS.md` carries the standing order.
 
+A fully superseded implemented note may be consolidated into the current owning note and deleted only after that owner preserves every unique rationale, alternative, consequence, verification contract, and named coverage gap. The same change repairs inbound links and removes any Chinese counterpart, consistency record, and `required` entry in `scripts/translation-pairing.manifest.json`. Partial supersession keeps both notes cross-linked and current; consolidation neither rewrites an old decision into its opposite nor leaves git history as the only copy of rationale.
+
 Review enforces the semantic boundary. No automated gate attempts to classify a diff as trivial or non-trivial, so this policy adds no gate stage or runtime.
 
 ## Alternatives considered
@@ -22,10 +24,18 @@ Review enforces the semantic boundary. No automated gate attempts to classify a 
 
 **Require a new note for every change.** This duplicates an existing note when it already owns the decision and adds empty ceremony to purely mechanical edits.
 
+**Keep every fully superseded note indefinitely.** A cross-linked record is necessary while part of its decision remains current, but a wholly obsolete implemented note contradicts the current-state contract and duplicates rationale that can have one owner.
+
+**Add a `superseded/` lifecycle.** Another lifecycle would retain the obsolete record and expand the tree, format gate, and maintenance rules without reducing duplication.
+
+**Rewrite the old note into the replacement decision.** This erases the decision boundary and its rejected alternatives. Consolidation instead preserves those facts in the current owner before deleting the obsolete file.
+
 **Add a CI diff-classification gate.** A mechanical check cannot reliably determine whether a semantic change is trivial, while another gate adds runtime and invites false positives or superficial compliance.
 
 ## Consequences
 
 - Every substantial change preserves its rationale and rejected alternatives beside the implementation.
 - Contributors maintain an existing owning note instead of creating duplicate records.
+- Fully superseded records can collapse into one current owner without losing their unique rationale or verification contract.
+- Partial supersession remains explicit and cross-linked, while deletion requires link, bilingual-pair, and required-manifest cleanup in the same change.
 - Mechanical edits remain lightweight, and the gate topology and runtime remain unchanged.

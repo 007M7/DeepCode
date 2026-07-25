@@ -6,7 +6,7 @@ Status: rejected — Zed 是当前目标客户端，terminal `_meta` 约定是�
 
 ## 问题
 
-ACP 桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。已实现的[富 ACP bash 渲染 Agent Note（agent 决策记录）](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md)刻意回避了 ACP 客户端侧的 `terminal/create`（因为 bash 执行属于 harness 职责），但仍采用了参考 agent（智能体）的纯展示 `_meta` 约定。这在 Zed 中带来了更好的卡片效果，代价是桥接状态、能力协商、终端 id、特殊的 update 映射、文本回退测试，以及 `dsh-tool-bash` 中的 exit-pill 解析。
+原 ACP 编辑器桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。当前的 [render-intent 决策](../../implemented/architecture/2026-07-02-tool-render-intent-union.md)保留了底层规则：bash 执行属于 harness，terminal 卡片只用于展示。后续的[仅面向自动化 ACP 决策](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)从 ACP 中移除了 `_meta` 投影、桥接状态、能力协商、终端 id、特殊 update 映射、文本回退测试和 exit-pill 解析。
 
 回退路径已经存在：将工具调用和完成输出渲染为普通 ACP 内容块。非 Zed 客户端本来就依赖这条路径，但 Zed 终端卡片是当前目标客户端的功能特性，而非推测性装饰。
 
@@ -22,7 +22,7 @@ ACP 桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.t
 - `TerminalRendering`、终端 id、终端 cwd 解析与 `_meta.terminal_*` update 映射从 `@deepseek-ai/dsh-acp` 中消失。
 - `ToolTerminal` 从 `@deepseek-ai/dsh-tools` 中消失，或在展示清理中因未使用而删除。
 - Bash 结果展示不再为终端 pill 解析退出状态。
-- 已实现的[富 ACP bash 渲染 Agent Note](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) 作为已交付历史保留在 `implemented/` 中；如被本提案取代，则加上交叉链接。
+- [仅面向自动化 ACP 决策](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)后来移除了 ACP 终端卡片，并吸收了其中有关执行归属的决策依据。
 
 ## 放弃的内容
 

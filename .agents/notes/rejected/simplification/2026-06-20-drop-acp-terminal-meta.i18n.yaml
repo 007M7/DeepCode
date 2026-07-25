@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-20-drop-acp-terminal-meta.md: 79da387ac1a7a0e6767e3bf24baa6039e39ef90d
-2026-06-20-drop-acp-terminal-meta.zh.md: d29fd54618611f56fd071a0ee4a63bc207895d89
+2026-06-20-drop-acp-terminal-meta.md: d957ba1173af28cb526c92f959a8552f77360a57
+2026-06-20-drop-acp-terminal-meta.zh.md: 3a748c8fdf2ef37d35a14519fee5284af417dd78

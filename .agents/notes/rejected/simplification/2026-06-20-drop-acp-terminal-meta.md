@@ -6,7 +6,7 @@ English | [中文](2026-06-20-drop-acp-terminal-meta.zh.md)
 
 ## Problem
 
-The ACP bridge implements a Zed-specific terminal-card convention through `_meta.terminal_info`, `_meta.terminal_output`, and `_meta.terminal_exit`. The implemented [rich ACP bash rendering Agent Note](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) deliberately avoided ACP's client-side `terminal/create` because bash execution belongs in the harness, but still adopted the reference agents' display-only `_meta` convention. That gives a nicer Zed card at the cost of bridge state, capability negotiation, terminal ids, special update mapping, text fallback tests, and exit-pill parsing in `dsh-tool-bash`.
+The former ACP editor bridge implemented a Zed-specific terminal-card convention through `_meta.terminal_info`, `_meta.terminal_output`, and `_meta.terminal_exit`. The current [render-intent decision](../../implemented/architecture/2026-07-02-tool-render-intent-union.md) preserves the underlying rule that bash execution belongs in the harness and terminal cards are display-only. The later [automation-only ACP decision](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md) removes the `_meta` projection, bridge state, capability negotiation, terminal ids, special update mapping, text fallback tests, and exit-pill parsing from ACP.
 
 The fallback path already exists: render the tool call and completed output as normal ACP content blocks. Non-Zed clients rely on that path anyway, but the Zed terminal card is a current target-client feature rather than speculative decoration.
 
@@ -22,7 +22,7 @@ This proposal is narrower than [collapsing tool-owned UI presentation](2026-06-2
 - `TerminalRendering`, terminal ids, terminal cwd resolution, and `_meta.terminal_*` update mapping disappear from `@deepseek-ai/dsh-acp`.
 - `ToolTerminal` disappears from `@deepseek-ai/dsh-tools`, or is unused and deleted with the presentation cleanup.
 - Bash result presentation no longer parses exit status for terminal pills.
-- The implemented [rich ACP bash rendering Agent Note](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) stays in `implemented/` as shipped history and is cross-linked from this proposal if superseded.
+- The [automation-only ACP decision](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md) later removes ACP terminal cards and absorbs their execution-ownership rationale.
 
 ## What we give up
 
