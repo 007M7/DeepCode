@@ -26,7 +26,7 @@ Pipes remain the default test medium. PTY-driven subprocess tests are sanctioned
 
 - `examples/echo-agent/tests/echo.e2e.ts` proves the Loader boot + mock-model tool round-trip through `stream-json` records instead of readline transcript lines.
 - The CI demo-smoke gate (`scripts/run-gates.ts`, AGENTS.md) runs `demo:echo --output-format stream-json -p "echo ci smoke"` and parses the records structurally.
-- `packages/examples/tui-demo/tests/built-bin.e2e.ts` proves the built bin's piped-launch refusal (nonzero exit + pointer at `dsh-cli-demo`); the echo-round-trip-under-plain-Node and missing-config fail-loud proofs live in `cli-demo`'s built-bin suite.
+- The TUI's piped-launch refusal (nonzero exit + pointer at the one-shot CLI) is covered by `apps/cli/tests/built-bin.e2e.ts` (the `dsh` TTY guard under plain Node); the echo-round-trip-under-plain-Node and missing-config fail-loud proofs live in `cli-demo`'s built-bin suite.
 - `packages/context/time-context/tests/time-context.e2e.ts` runs one one-shot turn; multi-turn elapsed rendering stays unit-covered in its spec.
 
 ## Accepted losses
