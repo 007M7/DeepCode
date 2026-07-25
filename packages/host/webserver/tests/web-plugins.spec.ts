@@ -258,7 +258,6 @@ describe('createHostWebPluginRegistry', () => {
     expect(errors).toHaveLength(1)
     expect(registry.graph().entries.map(row => row.id)).toEqual(['late-loader'])
 
-    // After dispose, further fiber events no longer rescan.
     registry.dispose()
     entries.pop()
     ctx.emit('internal/plugin', ctx.fiber)

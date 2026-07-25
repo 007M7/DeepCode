@@ -338,7 +338,7 @@ describe('acp bridge — session config options', () => {
   it('a knob drifted outside the table derives a visible-but-untargetable custom current', async () => {
     h = await presetStack()
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    // Simulate a plugin calling the public knob setter inside a valid turn.
+    // A plugin may write a valid state not represented by a named preset.
     const agent = h.ctx.agents.list()[0]
     if (agent === undefined) throw new Error('expected an agent')
     agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })

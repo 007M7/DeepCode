@@ -1,15 +1,10 @@
 /**
- * i18n plugin, browser half: namespace x locale dictionary registry with a
- * bound translate function whose reference is stable (safe for inject
- * surfaces). Mounts ctx.i18n and seeds the zh/en base dictionaries.
- * Contract: api-contracts v3 section 8.
+ * Browser-side locale registry. Bound translation functions retain stable
+ * identity for injected consumers.
  */
 import type { Context } from 'cordis'
-// The snapshot-store engine lives in runtime (store relocation): framework
-// data stores like this locale cell use it directly. The store carries no
-// hook — a React consumer binds a selector hook via web-react's
-// bindSnapshotSelector at its own seam (none exists today; the current
-// consumers are translate() reads and test-side subscribe/set).
+// Snapshot stores are framework-neutral; React consumers bind hooks at their
+// rendering boundary.
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { en } from '../locales/en.ts'

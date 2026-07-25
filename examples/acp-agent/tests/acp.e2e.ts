@@ -114,11 +114,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
 
-    // Verify the WORLD, not the agent's self-report: read the file from disk.
+    // Assert the filesystem effect independently of the model response.
     const proof = await readFile(join(workdir, 'proof.txt'), 'utf8')
     expect(proof).toContain('ACP_OK')
 
-    // And the client saw tool-call activity stream through.
     const toolCalls = updates.filter(u => u.sessionUpdate === 'tool_call')
     expect(toolCalls.length).toBeGreaterThan(0)
 

@@ -1,10 +1,6 @@
 /**
- * Theme plugin, browser half: ThemeService over the --dsw-* token base
- * stylesheets in src/styles/ (the sole token source; components must not
- * hardcode colors). apply(id) toggles body[data-ds-dark-theme] — theming is
- * CSS cascade, zero React renders. Contract: api-contracts v3 section 8.
- * The base stylesheets ship separately (the web shell imports them as base
- * CSS); this plugin only owns the registry and the body-attribute switch.
+ * Browser theme registry over the `--dsw-*` token stylesheets. Theme changes
+ * update CSS variables and `body[data-ds-dark-theme]` without React renders.
  */
 import type { Context } from 'cordis'
 

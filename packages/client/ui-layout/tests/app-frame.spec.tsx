@@ -42,7 +42,7 @@ class ResizeObserverStub {
 
 let frameWidth = 1920
 
-/** Minimal selector hook over an engine instance (the engine carries no hook since the store migration; the renderer binds in production, the spec binds here). */
+/** Test-local selector hook over a framework-neutral store instance. */
 function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapshot: () => T }) {
   return <S,>(sel: (s: T) => S): S => sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot))
 }

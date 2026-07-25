@@ -1,12 +1,5 @@
-// InputBar: the one composer input (figma Input_Bottom). The same component
-// serves the empty state (variant='hero': centered launch card) and the
-// resident composer (variant='composer') — the empty→content transition is a
-// position move of this component, never a swap (layout ruling). Running
-// LOCKS the input: textarea disabled with the draft visible, stop is the only
-// action; the turn ending re-enables and refocuses.
-//
-// Bottom chrome (attach / Plan / Read-only / model) is visual-only for now —
-// local native <select> state, no host wiring.
+// Shared empty-state and resident composer. Running retains the draft, locks
+// the textarea, and exposes only Stop. Bottom controls are local visual state.
 
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
@@ -25,10 +18,8 @@ export interface InputBarProps {
   running: boolean
   disabled: boolean
   error: InputBarError | null
-  /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
   placeholder?: string
-  /** Optional leading accessory row above the textarea (kept for callers; empty state no longer uses it). */
   accessory?: ReactNode
   onDraftChange: (text: string) => void
   onSend: (mode: 'queue' | 'steer') => void

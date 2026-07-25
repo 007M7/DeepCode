@@ -69,7 +69,7 @@ const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
   callId, name, argsRaw: `{"command":"cmd-${callId}"}`, turn: 2, step: 1, time: 1_000, callView: null,
 })
 
-/** Empty sessions-list hook stub (the global standard-kit seat; engines carry no hook since the store migration — bind here). */
+/** Empty sessions-list hook for the global standard-kit seat. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
     { ids: [], byId: {}, current: undefined } as SessionListState)

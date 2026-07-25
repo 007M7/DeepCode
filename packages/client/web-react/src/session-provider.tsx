@@ -1,11 +1,4 @@
-/**
- * SessionProvider (framework-wired render prop, slot terminal design §7) plus
- * the two internal channels the render machinery shares: the renderer host
- * context (written once by createSlotRenderer's root) and the per-session
- * binding context (written here, read by session-scope outlets). Both
- * contexts are in-package machinery — they are NOT exported from the package
- * index; business components see zero React contexts.
- */
+/** Internal React bindings for the renderer host and active session cell. */
 import { createContext, useContext, type ReactNode } from 'react'
 import type {
   HostObservable, SessionCell, SlotRendererHost, SnapshotSelectorHook,
@@ -20,7 +13,7 @@ import { bindSnapshotSelector } from './bind.ts'
  */
 export class SlotAssemblyError extends Error {}
 
-/** Renderer host channel: written by createSlotRenderer's root element (in-package machinery only). */
+/** In-package renderer host context. */
 export const HostContext = createContext<SlotRendererHost | null>(null)
 
 /**
@@ -34,7 +27,6 @@ export function useHost(): SlotRendererHost {
   return host
 }
 
-/** Per-session binding channel for the subtree under SessionProvider (in-package machinery only). */
 const BindingContext = createContext<SessionCell | null>(null)
 
 /**
@@ -75,11 +67,10 @@ export interface SessionProviderProps {
 
 /**
  * Framework-wired session area: subscribes to the host's current-session
- * source (design fiat ① — selection authority lives with runtime sessions),
- * resolves the session cell, and remounts the body under key={sessionId} so
- * a session switch rebuilds the whole session subtree. Ids speak plain
- * string at this dependency-inverted layer; branding lands on the component
- * props seam (PropsRuntime).
+ * source, resolves the session cell, and remounts the body under
+ * `key={sessionId}` so a session switch rebuilds the session subtree. This
+ * dependency-inverted layer uses plain string ids; `PropsRuntime` applies the
+ * branded type at the component boundary.
  */
 export function SessionProvider({ empty, children }: SessionProviderProps) {
   const host = useHost()

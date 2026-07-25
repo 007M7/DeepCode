@@ -1,11 +1,4 @@
-/**
- * Pure sidebar tree derivation: session list snapshot -> flat render rows.
- * Groups sessions by project directory (cwd), builds the per-group session
- * tree from parentId links, sorts by recency, and applies search filtering
- * with forced ancestor visibility. Derived data is a pure function (slot
- * design section 6): the component feeds the useSessions snapshot plus its
- * local viewing state through useMemo — no materializing store.
- */
+/** Pure derivation of flat sidebar rows from sessions and local view state. */
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for sessions without a project directory. */

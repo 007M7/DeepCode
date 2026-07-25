@@ -61,26 +61,16 @@ import {
 import type {} from '@deepseek-ai/dsh-commands'
 import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
 import { displayPromptContent, SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
-// Side-effect type import: resolves `ctx.get('permission')` to the service.
+// Empty type imports activate the service and event declaration merges used
+// through ctx.get() and ctx.on().
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
-// Side-effect type import: adds the log-only session/title event translated below.
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
-// Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
-// Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
-// Side-effect type import: declaration-merges the exact-read service used by
-// session/list for live-preferred title folding.
 import type {} from '@deepseek-ai/dsh-session-query'
-// Type-only edge: resolves `ctx.get('planMode')` when dsh-plan-mode is composed;
-// the runtime read stays opportunistic.
 import type {} from '@deepseek-ai/dsh-plan-mode'
-// Side-effect type import: declaration-merges prompt assembly onto Context and
-// the scoped waterfall used to keep persona variables aligned with requests.
 import type {} from '@deepseek-ai/dsh-system-prompt'
-// Side-effect type import: declaration-merges the `approval/request` waterfall
-// the bridge answers for its own agents (see the approval answerer below).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   UserInteractionError,
@@ -871,18 +861,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // slot is released in `finally` so a rejected load never wedges the id.
         loadingIds.add(sessionId)
         try {
-          // Validate the PERSISTED cwd BEFORE resuming — `list()` is a
-          // metadata-only read (no full-log parse), so this rejects a session we
-          // can't honor WITHOUT ever constructing/registering an agent (a
-          // post-resume reject would leak the registered agent — cancel() does not
-          // unregister it — and wedge the id against re-load). The session's bash
-          // workdir is derived from its persisted `header.cwd` and the request
-          // `cwd` does NOT override it (resume takes no cwd), so a session with no
-          // absolute persisted cwd would silently run bash in the SERVER's launch
-          // dir, not the client's workspace. A session created by this bridge
-          // always has a cwd (session/new requires it); reject the rest loudly.
-          // (An id unknown to `list()` falls through to resume, which rejects with
-          // the backend's not-found error.)
+          // Validate metadata before resume so rejection cannot leave a
+          // registered agent. Persisted cwd is authoritative for resumed work.
           const meta = (await sessionPersistence.list()).find(m => m.id === sessionId)
           if (meta !== undefined) {
             const persistedCwd = meta.cwd
@@ -903,12 +883,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
             agentOptions: agentOptions(config),
             setup: (agentCtx) => { installTarget(agentCtx, target) },
           })
-          // The bridge may have torn down (disposal / client disconnect) while
-          // resume() was pending. Its listeners are gone, so installing a record
-          // now would resurrect a live agent the bridge can no longer drive. Bail —
-          // and tear down the just-resumed agent (unregister + stop + remove its
-          // session) before throwing, so it does not leak: it has no SessionRecord,
-          // so quiesce() would never see it.
+          // Closure can race resume. Dispose the unpublished agent before
+          // rejecting because quiesce() tracks only installed records.
           /* v8 ignore next 4 -- the in-memory test transport rejects the in-flight
              session/load request the instant it closes (before this post-await
              code runs), so the guard can't be hit in tests; it protects the real
@@ -937,19 +913,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
             pendingSwitches: {},
           }
           sessions.set(sessionId, record)
-          // Replay the persisted event log to the client as session/update. Use
-          // the raw event log (NOT deriveMessages, which drops assistant/chunk
-          // and trace events): RFC 010's load contract reconstructs the streamed
-          // turns — user prompts (user/message → user_message_chunk), assistant
-          // text and reasoning (assistant/chunk), and tool calls/results.
-          //
-          // Replay through a THROWAWAY presenter, NOT `record.presenter`: a
-          // historical turn that was interrupted mid-tool (a `tool/call` with no
-          // matching `tool/result` in the persisted log) would otherwise leave a
-          // stale in-flight entry on the live presenter, which then serves all
-          // future live events for this session. The throwaway pairs call→result
-          // as the log replays in order (same as live) and is discarded after,
-          // so the record's presenter starts clean for the post-load live stream.
+          // Replay the raw log because deriveMessages omits update-bearing
+          // chunks and trace events. A disposable presenter prevents an
+          // incomplete historical tool call from polluting live presentation.
           const replayPresenter = makePresenter(agent)
           const replayTerminal: TerminalRendering = {
             enabled: terminalEnabled,
@@ -1081,11 +1047,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
           }
           assertOpen()
         }
-        // Install the in-flight slot BEFORE followup() (followup does not synchronously
-        // flip status to running; the session/event listener records the turn
-        // number and settle/rejects it). Capture the log length now as the
-        // A turn that ends in error rejects this promise (the codec never
-        // produces an error stop reason).
+        // Install before followup(), which does not synchronously enter running;
+        // the session listener associates and settles the message-triggered turn.
+        // Error turns reject because ACP has no error stop reason.
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
           rec.agent.followup(preparedContent, { contexts: preparedContexts })
@@ -1096,18 +1060,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
       cancel(params: CancelNotification): Promise<void> {
         const rec = sessions.get(SessionId(params.sessionId))
         if (rec === undefined) return Promise.resolve()
-        // session/cancel maps to the queue-aware agent.cancel({ kind: 'user' }): it aborts
-        // a RUNNING step, clears the queued + steering FIFOs, and drops a
-        // turn that is about to start (the pre-step window) — so a queued-but-
-        // not-yet-started prompt never runs, while a prompt accepted afterward
-        // remains a separate queued turn. Scoped to THIS session's
-        // agent — a cancel in one session never touches another's stream or
-        // pending prompt (multi-session isolation).
-        // We ALSO settle the in-flight prompt
-        // as cancelled directly here: do NOT rely on the resulting turn/end to
-        // settle it, because cancel() may drop the turn before any turn/end is
-        // emitted, and removing this direct settle would move the RPC's
-        // resolution onto a later observer path, changing its timing.
+        // Agent cancellation may drop a pre-step turn without emitting
+        // turn/end, so the bridge settles its prompt directly.
         if (rec.promptPreparation !== undefined) {
           rec.promptPreparation.abort(new Error('session/cancel'))
         } else if (rec.commandAbort !== undefined) {
@@ -1266,7 +1220,6 @@ export function apply(ctx: Context, config: AcpConfig): void {
 /**
  * Build per-agent options from the plugin config, omitting absent fields
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
- * Exported for unit coverage of both the present and absent branches.
  * @param config - the plugin config carrying the optional provider/model target.
  * @returns the per-agent options, with each configured target field present.
  */
@@ -1278,22 +1231,10 @@ export function agentOptions(config: AcpConfig): { provider?: string; model?: st
 }
 
 /**
- * Validate the `cwd`/`additionalDirectories` contract shared by `session/new`
- * and `session/load`: `cwd` must be absolute (a relative path would be ambiguous
- * as a workspace root). The persisted-cwd equality check for `session/load`
- * happens after the metadata lookup; this validator only enforces request shape:
- *  - `session/new`: the validated `cwd` becomes the session's `SessionHeader.cwd`
- *    (via `agents.create({meta:{cwd}})`) and thus the default bash workdir.
- *  - `session/load`: the request `cwd` must be absolute AND must match the
- *    PERSISTED `header.cwd`, which stays authoritative for the bash workdir —
- *    the request cwd does not override it.
- * Any absolute path is accepted (the per-session cwd flows to the bash executor
- * — see `dsh-tool-bash`), so the server no longer has to launch in the
- * workspace. `additionalDirectories` must still be empty: widening the
- * tool/filesystem scope beyond the single cwd is a separate, unimplemented
- * concern (a sandbox seam), and silently ignoring extra roots would desync the
- * client's filesystem-scope UI. Both request shapes carry `cwd: string` and
- * `additionalDirectories?: string[]`, so one validator covers both.
+ * Validate the workspace shape shared by `session/new` and `session/load`.
+ * `cwd` is an absolute per-session workspace; load separately requires it to
+ * match persisted metadata. Additional roots are rejected because ignoring
+ * them would desynchronize the client's displayed filesystem scope.
  */
 function validateWorkspaceParams(params: { cwd: string; additionalDirectories?: string[] }): void {
   if (!isAbsolute(params.cwd)) {

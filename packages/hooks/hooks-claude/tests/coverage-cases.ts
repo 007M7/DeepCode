@@ -150,7 +150,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, new MockAdapter([]))
       let ran = false
       ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
-      // Call execute() directly with NO agent — the bridge's no-agent/no-turn path.
       const { CallId } = await import('@deepseek-ai/dsh-llm')
       const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: {} })
       expect(ran).toBe(false)
@@ -159,7 +158,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
 
     it('a long stderr is truncated in the hook/result summary', async () => {
       const d = dir()
-      // Emit >500 chars of stderr then exit 2.
       const s = sh(d, 'long.sh', '#!/usr/bin/env bash\nprintf "x%.0s" {1..600} >&2\nexit 2\n')
       const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
@@ -236,7 +234,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const s = sh(d, 'sa.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"child guidance"}}\'\n')
       const path = hooks(d, { SubagentStart: [{ hooks: [{ type: 'command', command: s }] }] })
       const ctx = await harness(path, new MockAdapter([]))
-      // Register a fake child agent under the id the event carries.
       const injected: string[] = []
       const child = { id: SessionId('child-x'), inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: { id: SessionId('child-x'), header: { id: 'child-x' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
       ctx.agents.register(child)
@@ -693,7 +690,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
       await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
       ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
 
-      // Register a live child on its own session cwd; emit subagent/end with its id.
       const { SessionId } = await import('@deepseek-ai/dsh-session')
       const childHandle = await ctx.agents.create({ sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { provider: 'mock', model: 'mock' } })
       ctx.emit(subagentCarrier(ctx), 'subagent/end', { runId: SubagentRunId('run-stop'), provider: 'inproc', id: childHandle.agent.id, local: true, stopReason: 'completed' })
@@ -735,7 +731,6 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      // Send immediately — do NOT wait for the session-start inject.
       agent.followup([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(1) // the turn ran regardless of hook timing
