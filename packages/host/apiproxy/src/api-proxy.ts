@@ -11,12 +11,14 @@ import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+// Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
+import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
-import { questionResponsePayloadSchema } from '@deepseek-ai/dsh-host-apiproxy/api/questions.schema'
-import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+} from './api/index.ts'
+import { questionResponsePayloadSchema } from './api/questions.schema.ts'
+import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
+import { RpcId } from './api/rpc.ts'
 import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
@@ -170,7 +172,7 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
   }
 }
 
-/** Host-level default agent routing (same shape as bootHost's HostDefaults; avoids an impl→index reverse import). */
+/** Host-level default agent routing (same shape as dsh-host-runtime's HostDefaults, kept structural to avoid a reverse dependency). */
 export interface ApiProxyDefaults {
   provider: string
   model: string
@@ -272,8 +274,8 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
 class SessionNotFound extends Error {}
 
 /**
- * Implement ApiProxy over the ctx composed by bootHost.
- * @param ctx - the root context returned by bootHost (sessions/agents services mounted).
+ * Implement ApiProxy over a composed host context.
+ * @param ctx - a context with the host spine mounted (sessions/agents/tools/userInteraction services).
  * @param defaults - host-level default provider/model: injected as
  * agentOptions on create/resume, reported by describe from the same source.
  * @returns the ApiProxy implementation.
