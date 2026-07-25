@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 
 // Each UI's node invocation matches its base demo script plus the overlay config.
 const UIS = new Map([
-  ['tui', ['--import', 'tsx', 'packages/examples/tui-demo/src/bin.ts', 'examples/tui-agent/code-mode.cordis.yml']],
+  ['tui', ['--import', 'tsx', 'apps/cli/src/bin.ts', '--config', 'examples/tui-agent/code-mode.cordis.yml']],
   ['acp', ['--import', 'tsx', 'packages/examples/acp-demo/src/bin.ts', '--config', 'examples/acp-agent/code-mode.cordis.yml']],
 ])
 

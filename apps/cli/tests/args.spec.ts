@@ -1,0 +1,61 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { parseDshArgs } from '../src/args.ts'
+
+const parse = (argv: string[]) => parseDshArgs(argv, '1.2.3')
+
+/**
+ * `parseDshArgs` calls `process.exit` for `--help`/`--version`/errors and lets
+ * Commander print to the real streams; capture the exit code and mute output.
+ */
+function exitCode(argv: string[]): number {
+  const exit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit') })
+  vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+  try {
+    parse(argv)
+    throw new Error(`expected ${JSON.stringify(argv)} to exit`)
+  } catch {
+    return exit.mock.calls.at(-1)?.[0] as number
+  } finally {
+    vi.restoreAllMocks()
+  }
+}
+
+afterEach(() => { vi.restoreAllMocks() })
+
+describe('parseDshArgs', () => {
+  it('routes each mode by its shape: default TUI, -p headless, web subcommand', () => {
+    expect(parse([])).toEqual({ mode: 'tui' })
+    expect(parse(['--config', 'custom.yml'])).toEqual({ mode: 'tui', config: 'custom.yml' })
+    expect(parse(['--resume', 'sess', '--config', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
+    expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
+    // Bare `web` carries no host/port: the shipped cordis.yml owns the default.
+    expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
+    // Host/port are unvalidated pass-throughs (the webserver schema gates them
+    // at boot); the adapter only coerces the port string to a number.
+    expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
+      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, workspaceRoot: '/w' })
+  })
+
+  it('exits nonzero instead of silently starting fresh or dropping inputs', () => {
+    // Empty resume/prompt would be swallowed downstream; --prompt mixed with
+    // TUI inputs must not lose them. (Bad host/port are gated by the webserver
+    // schema at boot, not here.)
+    expect(exitCode(['--resume='])).toBe(1)
+    expect(exitCode(['-p', ''])).toBe(1)
+    expect(exitCode(['-p', 'x', '--config', 'c.yml'])).toBe(1)
+    expect(exitCode(['-p', 'x', '--resume', 's'])).toBe(1)
+    expect(exitCode(['--bogus'])).toBe(1)
+    expect(exitCode(['bogus-positional'])).toBe(1)
+    // A default-surface flag on either side of `web` leaks into program.opts()
+    // but the web subcommand shares none of them: reject rather than serve.
+    expect(exitCode(['web', '-p', 'task'])).toBe(1)
+    expect(exitCode(['web', '--resume', 's'])).toBe(1)
+    expect(exitCode(['--config', 'c.yml', 'web'])).toBe(1)
+  })
+
+  it('exits 0 for --help (disclosing web) and --version', () => {
+    expect(exitCode(['--help'])).toBe(0)
+    expect(exitCode(['--version'])).toBe(0)
+  })
+})

@@ -650,7 +650,7 @@ describe('TUI terminal-state snapshots', () => {
     const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-23T08:00:00.000Z'))
     const earlier = { version: 0, id: SessionId('earlier-session'), createdAt: Date.parse('2024-01-01T00:00:00Z'), cwd: '/workspace/project' }
     const harness = await setupSnapshot({
-      config: { resumeCommand: 'RESUME_SESSION_ID={session} dsh' },
+      config: { resumeCommand: 'dsh --resume {session}' },
       sessionPersistence: {
         list: async () => [earlier],
         load: async () => ({
