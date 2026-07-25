@@ -285,7 +285,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/client/hmr/src/index.ts:30`](../packages/client/hmr/src/index.ts)
+Source: [`packages/client/hmr/src/index.ts:29`](../packages/client/hmr/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
