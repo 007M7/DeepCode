@@ -19,6 +19,7 @@ import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import LocalProcessManager from '@deepseek-ai/dsh-process-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import PlanModeService from '@deepseek-ai/dsh-plan-mode'
@@ -197,6 +198,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.bash', 'ctx.tasks at call time for run_in_background'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
+      await ctx.plugin(LocalProcessManager)
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },

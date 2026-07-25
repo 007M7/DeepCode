@@ -184,6 +184,10 @@ flowchart TD
   subgraph group_mcp["packages/mcp"]
     pkg_mcp_client["mcp-client"]
   end
+  subgraph group_process["packages/process"]
+    pkg_process["process"]
+    pkg_process_local["process-local"]
+  end
   subgraph group_pty["packages/pty"]
     pkg_pty["pty"]
     pkg_pty_local["pty-local"]
@@ -243,6 +247,7 @@ flowchart TD
   pkg_jsonrpc_demo --> pkg_invariants
   pkg_host_apiproxy --> pkg_invariants
   pkg_host_webserver --> pkg_invariants
+  pkg_process --> pkg_invariants
   pkg_storage --> pkg_invariants
   pkg_llm --> pkg_brand
   pkg_llm --> pkg_invariants
@@ -266,6 +271,8 @@ flowchart TD
   pkg_client_ui_workspace --> pkg_client_ui_primitives
   pkg_client_ui_workspace --> pkg_client_ui_slots
   pkg_client_ui_workspace --> pkg_invariants
+  pkg_process_local --> pkg_invariants
+  pkg_process_local --> pkg_process
   pkg_helper --> pkg_brand
   pkg_helper --> pkg_invariants
   pkg_telemetry --> pkg_brand
@@ -307,6 +314,7 @@ flowchart TD
   pkg_agent --> pkg_session
   pkg_agent --> pkg_system_prompt
   pkg_bash --> pkg_invariants
+  pkg_bash --> pkg_process
   pkg_bash --> pkg_sandbox
   pkg_fs --> pkg_brand
   pkg_fs --> pkg_invariants
@@ -371,6 +379,7 @@ flowchart TD
   pkg_goal --> pkg_session
   pkg_bash_local --> pkg_bash
   pkg_bash_local --> pkg_invariants
+  pkg_bash_local --> pkg_process
   pkg_bash_local --> pkg_timeout
   pkg_fs_local --> pkg_fs
   pkg_fs_local --> pkg_invariants
@@ -828,6 +837,7 @@ flowchart TD
 | [`jsonrpc-demo`](../packages/examples/jsonrpc-demo) | `examples` | [`invariants`](../packages/support/invariants) |
 | [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`invariants`](../packages/support/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/support/invariants) |
+| [`process`](../packages/process/process) | `process` | [`invariants`](../packages/support/invariants) |
 | [`storage`](../packages/storage/storage) | `storage` | [`invariants`](../packages/support/invariants) |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`client-connection`](../packages/client/connection) | `client` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
@@ -836,6 +846,7 @@ flowchart TD
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`process-local`](../packages/process/process-local) | `process` | [`invariants`](../packages/support/invariants), [`process`](../packages/process/process) |
 | [`helper`](../packages/sdk/helper) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`telemetry`](../packages/sdk/telemetry) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |
 | [`storage-domain`](../packages/storage/storage-domain) | `storage` | [`invariants`](../packages/support/invariants), [`storage`](../packages/storage/storage) |
@@ -850,7 +861,7 @@ flowchart TD
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
-| [`bash`](../packages/bash/bash) | `bash` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox) |
+| [`bash`](../packages/bash/bash) | `bash` | [`invariants`](../packages/support/invariants), [`process`](../packages/process/process), [`sandbox`](../packages/sandbox/sandbox) |
 | [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`compact`](../packages/compact/compact) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
@@ -869,7 +880,7 @@ flowchart TD
 | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
 | [`llm-retry`](../packages/llm/llm-retry) | `llm` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`goal`](../packages/goal/goal) | `goal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session) |
-| [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`timeout`](../packages/util/timeout) |
+| [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`process`](../packages/process/process), [`timeout`](../packages/util/timeout) |
 | [`fs-local`](../packages/fs/fs-local) | `fs` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants) |
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants) |
 | [`skill-local`](../packages/skill/skill-local) | `skill` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`skill`](../packages/skill/skill) |

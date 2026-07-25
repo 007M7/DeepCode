@@ -315,7 +315,7 @@ collect(execution: ToolExecution): DshEnvironment
 list(): BashEnvVariableInfo[]
 ```
 
-Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
+Types: [DshEnvironment](../core-data-structures/process.md) · [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
@@ -828,6 +828,31 @@ set(agent: Agent, active: boolean): void
 Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
+
+## `ctx.processes` — `ProcessManager` (abstract seam)
+
+Abstract process manager. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.processes` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- spawn returns immediately with a live handle; `done` resolves at process close and rejects only for spawn-level failures.
+- Output readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists.
+- ProcessHandle.kill and the spec's abort signal escalate SIGTERM→grace→SIGKILL across the whole process group.
+- Disposal kills all still-running managed processes and awaits their exit.
+
+```ts cordis-catalog
+/**
+ * Start one managed child process from a fully-specified spec; this seam
+ * applies no defaults.
+ * @param spec - argv, directory, limits, grace, cancellation, and environment.
+ * @returns the live process handle (readers, kill, outcome promise).
+ */
+abstract spawn(spec: ProcessSpawnSpec): ProcessHandle
+```
+
+Types: [ProcessHandle](../core-data-structures/process.md) · [ProcessSpawnSpec](../core-data-structures/process.md)
+
+Source: [`packages/process/process/src/index.ts:48`](../../packages/process/process/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 

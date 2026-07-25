@@ -81,6 +81,8 @@
     { "path": "./packages/llm/llm-retry" },
     { "path": "./packages/examples/agent-spine-demo" },
     { "path": "./packages/examples/cli-demo" },
+    { "path": "./packages/process/process" },
+    { "path": "./packages/process/process-local" },
     { "path": "./packages/bash/bash" },
     { "path": "./packages/pty/pty" },
     { "path": "./packages/pty/pty-local" },

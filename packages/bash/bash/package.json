@@ -28,11 +28,13 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.0.1",
+    "@deepseek-ai/dsh-process": "^0.0.1",
     "@deepseek-ai/dsh-sandbox": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-process": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   }

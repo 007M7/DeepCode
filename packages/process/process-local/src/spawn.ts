@@ -1,8 +1,9 @@
 /**
- * Process plumbing for the local bash executor: detached process-group spawn,
- * tail-keep output with spill files, and SIGTERM→SIGKILL escalation. This layer
- * reacts to an abort signal; the executor owns deadlines and classifies causes.
- * @module dsh-bash-local/run
+ * Process plumbing for the local process manager: detached process-group
+ * spawn, tail-keep output with spill files, and SIGTERM→SIGKILL escalation.
+ * This layer reacts to an abort signal; callers own deadlines and classify
+ * causes.
+ * @module dsh-process-local/spawn
  */
 
 import { type ChildProcessByStdio, spawn } from 'node:child_process'
@@ -11,23 +12,11 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
-import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-bash'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-process'
+import type { CollectedOutput, DshEnvironment, ProcessHandle, ProcessOutcome, ProcessSpawnSpec } from '@deepseek-ai/dsh-process'
 
 /**
- * Model-friendly environment overrides: disable colors, pagers, and
- * interactive terminal features that would garble tool output (the same set
- * Codex hardcodes; Claude Code achieves it via TERM=dumb).
- */
-export const ENV_OVERRIDES = {
-  NO_COLOR: '1',
-  TERM: 'dumb',
-  PAGER: 'cat',
-  GIT_PAGER: 'cat',
-} as const
-
-/**
- * Credential-shaped env vars are NOT forwarded to commands (the harness's
+ * Credential-shaped env vars are NOT forwarded to children (the harness's
  * own DEEPSEEK_API_KEY must not leak into `env` output, tool results, or
  * spill files). Same default pattern as Codex's env policy; a future config
  * can whitelist specific vars when a workflow genuinely needs one.
@@ -35,10 +24,10 @@ export const ENV_OVERRIDES = {
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
- * Build a child environment from scrubbed ambient values, terminal overrides,
- * ordinary caller entries, and a managed `DSH_*` snapshot. Ambient managed
- * names are removed; ordinary and managed entries reject the other channel's
- * namespace before `dshEnv` merges last.
+ * Build a child environment from scrubbed ambient values, ordinary caller
+ * entries, and a managed `DSH_*` snapshot. Ambient managed names are removed;
+ * ordinary and managed entries reject the other channel's namespace before
+ * `dshEnv` merges last.
  * @param extra - caller entries; `DSH_*` names are rejected.
  * @param dshEnv - managed entries; non-`DSH_*` names are rejected.
  * @returns the environment to hand to `spawn` for the child process.
@@ -53,76 +42,22 @@ export function childEnv(
   }
   for (const key of Object.keys(extra ?? {})) {
     if (key.startsWith(DSH_ENV_PREFIX)) {
-      throw new Error(`ordinary bash env cannot set reserved variable "${key}"; use dshEnv`)
+      throw new Error(`ordinary child env cannot set reserved variable "${key}"; use dshEnv`)
     }
   }
   for (const key of Object.keys(dshEnv ?? {})) {
     if (!key.startsWith(DSH_ENV_PREFIX)) {
-      throw new Error(`managed bash env cannot set ordinary variable "${key}"; use env`)
+      throw new Error(`managed child env cannot set ordinary variable "${key}"; use env`)
     }
   }
-  return { ...env, ...ENV_OVERRIDES, ...extra, ...dshEnv }
-}
-
-/** What to run and under which limits (resolved — no defaults in here). */
-export interface SpawnSpec {
-  command: string
-  cwd: string
-  /** Stdout in-memory cap; overflow spills to disk (tail kept in memory). */
-  stdoutMaxBytes: number
-  /** Stderr in-memory cap; overflow spills to disk (tail kept in memory). */
-  stderrMaxBytes: number
-  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
-  maxSpillBytes: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
-  graceMs: number
-  /**
-   * Abort signal — kills the process group when it fires. The executor owns
-   * timing: `run()` passes a fused timeout/cancel deadline signal (see
-   * `@deepseek-ai/dsh-timeout`), `start()` passes the bare upstream signal.
-   * runBash only listens and kills; it does NOT classify why (the executor
-   * reads the signal's reason afterward).
-   */
-  signal?: AbortSignal | undefined
-  /**
-   * Bytes to write to the child's stdin, then close it. Absent (or empty)
-   * leaves stdin closed/empty. Set by in-process plugins (the hooks bridges);
-   * the model-facing `dsh-tool-bash` tool does not thread model input here.
-   */
-  stdin?: string | undefined
-  /**
-   * Ordinary environment entries merged after the credential scrub and
-   * terminal overrides. `DSH_*` names are rejected and belong in `dshEnv`.
-   */
-  env?: Record<string, string> | undefined
-  /** Harness-owned entries; non-`DSH_*` names are rejected before spawn. */
-  dshEnv?: DshEnvironment | undefined
-}
-
-/**
- * Raw outcome of one closed process (before result shaping). Deliberately
- * carries NO timeout/cancel classification: runBash kills on abort but does not
- * decide why — the executor's `run()`/`start()` reads the deadline signal it
- * owns to classify `timedOut`/`aborted` (see the package README).
- */
-export interface SpawnOutcome {
-  exitCode: number | null
-  signal: NodeJS.Signals | null
-  stdout: CollectedOutput
-  stderr: CollectedOutput
+  return { ...env, ...extra, ...dshEnv }
 }
 
 /** Injectable knobs so tests can exercise spill behavior without the OS tmpdir. */
-export interface RunInternals {
+export interface SpawnInternals {
   /** Directory for spill files (defaults to the OS temp dir). */
   spillDir?: string
 }
-
-/** Default SIGTERM→SIGKILL grace period (the `graceMs` config; matches OpenCode's 3s). */
-export const DEFAULT_GRACE_MS = 3_000
-
-/** Default per-stream spill cap (the `maxSpillBytes` config). */
-export const DEFAULT_MAX_SPILL_BYTES = 64 * 1024 * 1024
 
 let spillCounter = 0
 let defaultSpillDir: string | undefined
@@ -133,7 +68,7 @@ let defaultSpillDir: string | undefined
  * other local users read command output or pre-create symlinks.
  */
 function privateSpillDir(): string {
-  defaultSpillDir ??= mkdtempSync(join(tmpdir(), 'dsh-bash-'))
+  defaultSpillDir ??= mkdtempSync(join(tmpdir(), 'dsh-proc-'))
   return defaultSpillDir
 }
 
@@ -205,7 +140,7 @@ export class OutputCollector {
       // prediction and symlink planting in shared tmp dirs.
       this.spillFile = join(
         this.spillDir,
-        `dsh-bash-${process.pid}-${++spillCounter}-${randomBytes(6).toString('hex')}-${this.label}.log`,
+        `dsh-proc-${process.pid}-${++spillCounter}-${randomBytes(6).toString('hex')}-${this.label}.log`,
       )
       this.spillFd = openSync(this.spillFile, 'wx', 0o600)
       for (const prior of this.chunks) writeSync(this.spillFd, prior)
@@ -300,41 +235,28 @@ export function killGroup(pid: number, sig: NodeJS.Signals): void {
 }
 
 /**
- * A live bash child process: the promise resolves when the process closes;
- * `kill()` starts the SIGTERM→grace→SIGKILL escalation on its group.
- */
-export interface RunningBash {
-  /** Process id (group leader); -1 when the spawn itself failed. */
-  readonly pid: number
-  /** stdout/stderr collectors (live — background polling reads incrementally). */
-  readonly stdout: OutputCollector
-  readonly stderr: OutputCollector
-  /** Resolves when the process closes; rejects only for spawn-level failures. */
-  readonly done: Promise<SpawnOutcome>
-  /** Begin SIGTERM→grace→SIGKILL on the process group. Idempotent. */
-  kill(): void
-}
-
-/**
- * Spawn one isolated `bash -c` process group and collect its output.
- * Runtime exits resolve as {@link SpawnOutcome}; only spawn failures reject.
- * @param spec - fully resolved command, cwd, limits, and cancellation.
- * @param internals - test-only process and spill-directory overrides.
+ * Spawn one isolated detached process group and collect its output.
+ * Runtime exits resolve as {@link ProcessOutcome}; only spawn failures reject.
+ * @param spec - fully resolved argv, cwd, limits, and cancellation.
+ * @param internals - test-only spill-directory override.
  * @returns live process handle and outcome promise.
  */
-// XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
-export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningBash {
+export function spawnProcess(spec: ProcessSpawnSpec, internals: SpawnInternals = {}): ProcessHandle {
   const spillDir = internals.spillDir ?? privateSpillDir()
 
   if (spec.signal?.aborted) {
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
+  const [program, ...args] = spec.argv
+  if (program === undefined || program.length === 0) {
+    throw new Error('invalid argv: expected a non-empty program name at argv[0]')
+  }
 
   // Keep absent stdin as /dev/null; literal tuples preserve non-null output types.
   const env = childEnv(spec.env, spec.dshEnv)
   const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
-    ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
-    : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+    ? spawn(program, args, { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
+    : spawn(program, args, { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 
   const stdout = new OutputCollector(spec.stdoutMaxBytes, spec.maxSpillBytes, 'stdout', spillDir)
   const stderr = new OutputCollector(spec.stderrMaxBytes, spec.maxSpillBytes, 'stderr', spillDir)
@@ -352,7 +274,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
   }
 
-  // The executor owns timeout classification; this layer only reacts to abort.
+  // The caller owns timeout classification; this layer only reacts to abort.
   const onAbort = (): void => { kill() }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
 
@@ -362,7 +284,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     child.stdin.end(spec.stdin)
   }
 
-  const done = new Promise<SpawnOutcome>((resolve, reject) => {
+  const done = new Promise<ProcessOutcome>((resolve, reject) => {
     let settled = false
     let pipeDrainTimer: NodeJS.Timeout | undefined
     const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {

@@ -2,23 +2,13 @@
 
 English | [中文](bash.zh.md)
 
-The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle.
+The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle. Raw process-group mechanics live behind the [process-manager seam](process.md).
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
 ## Managed shell environment namespace
 
-`DSH_*` variables are Harness-owned child-process facts. The model-facing bash tool collects them through `ctx.bashEnv` and passes them through `BashExecRequest.dshEnv`; executors remove inherited `DSH_*` names before merging the current snapshot.
-
-```ts type-equiv
-/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
-type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
-```
-
-```ts type-equiv
-/** Trusted DeepSeek Harness variables for one bash execution. */
-type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
-```
+`DSH_*` variables are Harness-owned child-process facts. The model-facing bash tool collects them through `ctx.bashEnv` and passes them through `BashExecRequest.dshEnv`; the process manager removes inherited `DSH_*` names before merging the current snapshot. The `DshEnvironmentKey`/`DshEnvironment` vocabulary is owned by the [process-manager seam](process.md) and re-exported by `dsh-bash`.
 
 ## Request vs. spec: the `resolve()` split
 
@@ -145,19 +135,7 @@ interface BashRunResult {
 }
 ```
 
-Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info. When truncated, `text` is the **tail** and the complete stream spills to a private file:
-
-```ts type-equiv
-/** One captured stream: the (possibly truncated) text plus recovery info. */
-interface CollectedOutput {
-  /** Collected text — the TAIL of the stream when truncated. */
-  text: string
-  /** True when bytes were dropped from `text`. */
-  truncated: boolean
-  /** Path to a file holding the COMPLETE stream, when truncated and available. */
-  spillPath?: string
-}
-```
+Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info; when truncated, `text` is the **tail** and the complete stream spills to a private file. The shape is owned by the [process-manager seam](process.md) and re-exported by `dsh-bash`.
 
 ## File sandbox: `BashSandboxInfo`
 

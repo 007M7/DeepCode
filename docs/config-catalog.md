@@ -192,6 +192,8 @@ Source: [`packages/examples/agent-spine-demo/src/index.ts:87`](../packages/examp
 
 ## `@deepseek-ai/dsh-bash-local`
 
+Requires: `processes`
+
 ```ts config-catalog
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
@@ -210,11 +212,11 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:17`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:39`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
-Requires: `sandbox` · `sandboxPolicy`
+Requires: `processes` · `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
 /**
@@ -2053,6 +2055,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-goal-session` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-session/src/index.ts`](../packages/goal/goal-session/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
+- `@deepseek-ai/dsh-process-local` ([`packages/process/process-local/src/index.ts`](../packages/process/process-local/src/index.ts))
 - `@deepseek-ai/dsh-pty` ([`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
@@ -2073,6 +2076,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compact` — abstract `CompactService` ([`packages/compact/compact/src/index.ts`](../packages/compact/compact/src/index.ts))
 - `@deepseek-ai/dsh-fs` — abstract `FileSystem` ([`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts))
+- `@deepseek-ai/dsh-process` — abstract `ProcessManager` ([`packages/process/process/src/index.ts`](../packages/process/process/src/index.ts))
 - `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-session-query` — abstract `SessionQueryService` ([`packages/session-query/session-query/src/index.ts`](../packages/session-query/session-query/src/index.ts))

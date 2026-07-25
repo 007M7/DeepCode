@@ -94,6 +94,8 @@ async function makeConsumer(): Promise<string> {
   await writeFile(join(dir, 'cordis.yml'), [
     '- id: mock-llm',
     '  name: \'./mock-llm.mjs\'',
+    '- id: processes',
+    '  name: \'@deepseek-ai/dsh-process-local\'',
     '- id: bash',
     '  name: \'@deepseek-ai/dsh-bash-local\'',
     '- id: acp-agent',

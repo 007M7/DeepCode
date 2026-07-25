@@ -427,6 +427,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'processes',
+    summary: 'Abstract process manager.',
+    methods: [
+      {
+        signature: 'abstract spawn(spec: ProcessSpawnSpec): ProcessHandle',
+        jsDoc: '/**\n * Start one managed child process from a fully-specified spec; this seam\n * applies no defaults.\n * @param spec - argv, directory, limits, grace, cancellation, and environment.\n * @returns the live process handle (readers, kill, outcome promise).\n */',
+      },
+    ],
+  },
+  {
     key: 'pty',
     summary: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',
     methods: [
@@ -1759,6 +1769,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PresetSpec',
     declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'ProcessHandle',
+    declaration: 'export interface ProcessHandle {\n    readonly pid: number;\n    readonly stdout: ProcessOutputReader;\n    readonly stderr: ProcessOutputReader;\n    readonly done: Promise<ProcessOutcome>;\n    kill(): void;\n}',
+  },
+  {
+    name: 'ProcessOutcome',
+    declaration: 'export interface ProcessOutcome {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    stdout: CollectedOutput;\n    stderr: CollectedOutput;\n}',
+  },
+  {
+    name: 'ProcessOutputRead',
+    declaration: 'export interface ProcessOutputRead {\n    text: string;\n    nextOffset: number;\n    lossy: boolean;\n    spillPath?: string;\n}',
+  },
+  {
+    name: 'ProcessOutputReader',
+    declaration: 'export interface ProcessOutputReader {\n    readFrom(fromByte: number): ProcessOutputRead;\n}',
+  },
+  {
+    name: 'ProcessSpawnSpec',
+    declaration: 'export interface ProcessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdoutMaxBytes: number;\n    stderrMaxBytes: number;\n    maxSpillBytes: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n}',
   },
   {
     name: 'PromptAssembly',

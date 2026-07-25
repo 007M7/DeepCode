@@ -27,6 +27,9 @@
       "path": "../../bash/bash"
     },
     {
+      "path": "../../process/process"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

@@ -35,6 +35,8 @@ const CORDIS_YML = `
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
+- id: processes
+  name: '@deepseek-ai/dsh-process-local'
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 - id: acp-agent

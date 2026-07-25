@@ -59,6 +59,7 @@ const GROUP_ORDER = [
   'llm',
   'core',
   'goal',
+  'process',
   'bash',
   'pty',
   'sandbox',
@@ -263,6 +264,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Same-session goal domain',
     mode: 'core',
     note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
+  },
+  {
+    key: 'processes',
+    pkg: 'process',
+    title: 'Process manager seam',
+    mode: 'seam',
+    implementations: ['process-local'],
+    consumers: ['bash-local', 'bash-sandbox'],
+    note: 'The bash executors spawn their process groups through ctx.processes; the manager owns group lifetime, bounded spill-backed output, and kill escalation.',
   },
   {
     key: 'bash',

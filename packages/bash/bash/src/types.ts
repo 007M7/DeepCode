@@ -1,19 +1,17 @@
 /**
  * Execution types for the bash executor seam. Background task semantics belong
- * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles.
+ * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles. The
+ * managed-environment and captured-output vocabulary is owned by the
+ * process-manager seam and re-exported here so bash consumers keep one import
+ * root.
  * @module dsh-bash/types
  */
 
 import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-process'
 
-/** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
-export const DSH_ENV_PREFIX = 'DSH_' as const
-
-/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
-export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
-
-/** Trusted DeepSeek Harness variables for one bash execution. */
-export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-process'
+export type { CollectedOutput, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-process'
 
 /**
  * Sandbox facts for one run, present iff a sandboxing executor handled it.
@@ -108,16 +106,6 @@ export interface BashExecSpec {
   dshEnv?: DshEnvironment | undefined
   /** Resolved sandbox policy; ignored by executors that do not confine. */
   sandboxPolicy: SandboxExecutionPolicy | undefined
-}
-
-/** One captured stream: the (possibly truncated) text plus recovery info. */
-export interface CollectedOutput {
-  /** Collected text — the TAIL of the stream when truncated. */
-  text: string
-  /** True when bytes were dropped from `text`. */
-  truncated: boolean
-  /** Path to a file holding the COMPLETE stream, when truncated and available. */
-  spillPath?: string
 }
 
 /** The outcome of one completed (or killed) foreground run. */

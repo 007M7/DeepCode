@@ -40,7 +40,7 @@ const testIncludes = [
 // that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
 const processBoundTests = [
-  'packages/bash/bash-local/tests/run.spec.ts',
+  'packages/process/process-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
   'packages/ui/app-boot/tests/app-boot.spec.ts',
