@@ -43,13 +43,23 @@ export function apply(ctx: ClientContext): void {
     sectionsVersion: () => ctx.slots.getVersion('settings.section'),
     subscribeSections: (listener) => ctx.slots.subscribe('settings.section', listener),
     sections: () => ctx.slots.entries('settings.section')
-      .map(e => ({ id: e.options.id ?? '', order: e.options.order ?? 0, label: e.options.label ?? '' }))
+      .map(e => ({
+        /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
+        id: e.options.id ?? '',
+        order: e.options.order ?? 0,
+        label: e.options.label ?? '',
+      }))
       .sort((a, b) => a.order - b.order),
   })
+  // Declaration-aware registration; the LEDGER is the has-registered judge
+  // (not a local flag): after an HMR collapse re-declares the slot, the
+  // cascade already removed our entry, and a stale disposer must not block
+  // the re-registration.
   ctx.effect(() => {
     let dispose: (() => void) | undefined
     const tryRegister = (): void => {
-      if (ctx.slots.spec('sidebar.settings') === undefined || dispose !== undefined) return
+      if (ctx.slots.spec('sidebar.settings') === undefined) return
+      if (ctx.slots.entries('sidebar.settings').some(e => e.component === SettingsRoot)) return
       dispose = ctx.slots.register({
         name: 'sidebar.settings',
         children: { 'settings.section': { kind: 'list', scope: 'root' } },

@@ -31,9 +31,15 @@ export function apply(ctx: ClientContext): void {
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-settings-models: nav copy dictionaries')
+  // Declaration-aware registration; the LEDGER is the has-registered judge
+  // (not a local flag): after an HMR collapse re-declares the slot, the
+  // cascade already removed our entry, and a stale disposer must not block
+  // the re-registration.
   ctx.effect(() => {
     let dispose: (() => void) | undefined
-    const register = (): void => {
+    const tryRegister = (): void => {
+      if (ctx.slots.spec('settings.section') === undefined) return
+      if (ctx.slots.entries('settings.section').some(e => e.component === ModelsSection)) return
       dispose = ctx.slots.register({
         name: 'settings.section',
         id: 'models',
@@ -41,16 +47,14 @@ export function apply(ctx: ClientContext): void {
         label: ctx.locale.bind('settings.models')('nav'),
       }, ModelsSection)
     }
-    const tryRegister = (): void => {
-      if (ctx.slots.spec('settings.section') === undefined || dispose !== undefined) return
-      register()
-    }
     // Nav labels are registrant-localized: re-register on locale change so
     // the ledger carries fresh text (the version bump re-renders the shell).
+    // Dispose-then-requery: after an HMR collapse the disposer is stale and
+    // the ledger/spec re-check keeps this path an idempotent no-op.
     const offLocale = ctx.on('locale/change', () => {
-      if (dispose === undefined) return
-      dispose()
-      register()
+      dispose?.()
+      dispose = undefined
+      tryRegister()
     })
     const unsubscribe = ctx.slots.subscribe('settings.section', () => { tryRegister() })
     tryRegister()

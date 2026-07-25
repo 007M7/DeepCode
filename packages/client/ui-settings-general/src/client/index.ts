@@ -98,9 +98,11 @@ export function apply(ctx: ClientContext): void {
     }
     // Nav labels are registrant-localized: re-register on locale change so
     // the ledger carries fresh text (the version bump re-renders the shell).
+    // The ledger check mirrors tryRegister: after an HMR collapse `dispose`
+    // stays set while the entry is gone — relabeling then must stay quiet.
     const offLocale = ctx.on('locale/change', () => {
-      if (!registered()) return
-      dispose?.()
+      if (dispose === undefined || !registered()) return
+      dispose()
       dispose = undefined
       tryRegister()
     })
