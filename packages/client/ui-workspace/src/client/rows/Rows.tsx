@@ -108,14 +108,13 @@ export function ProjectRowItem({ group, onToggle, onCreate, onRename }: {
 /**
  * The selected "New session" row for a frontend Session Intent targeted to a
  * real Workspace. The row disappears when the Intent is replaced or connects.
- * @param props.flat - flat-list variant: no twist slot (figma flat cell), so
- * only the status slot indents the title.
+ * One status-slot indent in both grouped and flat lists (session rows carry
+ * no twist slot either, so titles align).
  * @returns the placeholder row element.
  */
-export function IntentRowItem({ flat = false }: { flat?: boolean } = {}) {
+export function IntentRowItem() {
   return (
     <div className={clsx(css.sessionRow, css.selected)} role="treeitem" aria-selected style={{ paddingLeft: 8 }}>
-      {!flat && <span className={css.slot} />}
       <span className={css.slot} />
       <span className={css.title}>New session</span>
     </div>

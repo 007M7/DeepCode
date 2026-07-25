@@ -209,7 +209,7 @@ function FlatList({ useSessions, open, query }: Pick<SessionTreeProps, 'useSessi
         {rows.length === 0 && !intentRow && (
           <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
         )}
-        {intentRow && <IntentRowItem flat />}
+        {intentRow && <IntentRowItem />}
         {rows.map(node => (
           <SessionNodeItem
             key={node.id}
