@@ -20,7 +20,7 @@ ACP 声明 `loadSession: true` 并实现 `session/load`：向 bridge 注入持�
 - `initialize` 不再声明 load 支持。
 - `session/load` handler、loading-id 追踪、已加载会话的 cwd 预检以及 load 回放测试均被移除。
 - 快照 fixture（测试前置数据）不再依赖 load 回放展示。
-- [ACP 文档](../../../../packages/ui/acp/README.md)仅描述全新会话的支持。
+- [ACP 文档](../../../../packages/acp/acp/README.md)仅描述全新会话的支持。
 
 ## 放弃的能力
 

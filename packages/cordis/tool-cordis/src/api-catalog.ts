@@ -189,6 +189,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'clientModuleHost',
+    summary: 'The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap.',
+    methods: [
+      {
+        signature: 'graph(): WebBootGraph',
+        jsDoc: '/**\n * Current composed entry graph (stable object between changes).\n * @returns the graph served as `window.__DSH_BOOT__`.\n */',
+      },
+      {
+        signature: 'clientPath(id: string): string | undefined',
+        jsDoc: '/**\n * Absolute path of an entry\'s client bundle.\n * @param id - entry id (package name).\n * @returns the path, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'rebuilt(id: string): string | undefined',
+        jsDoc: '/**\n * Re-hash one bundle (the HMR watch\'s registration hook — the only entry\n * point through which bundle content changes reach the graph).\n * @param id - entry id (package name).\n * @returns the new rev, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'onRebuilt(listener: (id: string, rev: string) => void): () => void',
+        jsDoc: '/**\n * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.\n * @param listener - receives the entry id and its new bundle rev.\n * @returns the unsubscriber.\n */',
+      },
+      {
+        signature: 'onGraphChanged(listener: () => void): () => void',
+        jsDoc: '/**\n * Fires after any flush that recomposed the graph (row added/removed, or a\n * rebuilt rev change). Pull model: listeners re-read {@link graph}.\n * @param listener - notified with no payload.\n * @returns the unsubscriber.\n */',
+      },
+    ],
+  },
+  {
     key: 'codeRuntime',
     summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
@@ -311,6 +337,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
         jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
+      },
+    ],
+  },
+  {
+    key: 'httpServer',
+    summary: 'The web-shape HTTP carrier service.',
+    methods: [
+      {
+        signature: 'register(route: WebRoute): () => void',
+        jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
+      },
+      {
+        signature: 'tapIndex(transform: (html: string) => string): () => void',
+        jsDoc: '/**\n * Register an index.html transform, applied to every index response in\n * registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
       },
     ],
   },
@@ -647,6 +687,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'storage',
+    summary: 'The storage hub service.',
+    methods: [
+      {
+        signature: 'mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void',
+        jsDoc: '/**\n * Mount a data-form facility on the hub. Mounting is an effect: the\n * returned disposer unmounts the form.\n * @param form - Form key declared in {@link StorageForms}.\n * @param facility - The facility instance to expose.\n * @returns the disposer that unmounts the form.\n */',
+      },
+      {
+        signature: 'form<K extends keyof StorageForms>(form: K): StorageForms[K]',
+        jsDoc: '/**\n * Resolve a mounted data form.\n * @param form - Form key declared in {@link StorageForms}.\n * @returns the mounted facility.\n */',
+      },
+    ],
+  },
+  {
     key: 'subagents',
     summary: 'Named provider registry and capability-checked start surface.',
     methods: [
@@ -850,6 +904,28 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
     ],
   },
+  {
+    key: 'workspace',
+    summary: 'The workspace registry service.',
+    methods: [
+      {
+        signature: 'async create(path: string, title?: string): Promise<Workspace>',
+        jsDoc: '/**\n * Create a workspace over an existing directory. The path is canonicalized\n * through `fs.realpath` first — a nonexistent path rejects with the\n * original `ENOENT`, a path resolving to anything but a directory rejects,\n * and a canonical path already owned by another workspace (including a\n * symlink resolving to it) rejects.\n * @param path - Directory the workspace points at; canonicalized before storing.\n * @param title - Display title; defaults to `basename` of the canonical path.\n * @returns the created workspace after durability.\n */',
+      },
+      {
+        signature: 'get(id: WorkspaceId): Workspace | undefined',
+        jsDoc: '/**\n * Look up a workspace by id.\n * @param id - The workspace id.\n * @returns the workspace, or `undefined` when unknown.\n */',
+      },
+      {
+        signature: 'list(): Workspace[]',
+        jsDoc: '/**\n * Snapshot of all workspaces, in load-then-creation order.\n * @returns a fresh array of the cached entities.\n */',
+      },
+      {
+        signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
+        jsDoc: '/**\n * Resolve a workspace by directory path, through the same `fs.realpath`\n * canon as {@link create} (hence async). A path that does not exist rejects\n * with the original error — a missing directory has no canonical form to\n * compare (a workspace whose recorded directory vanished is only reachable\n * by id; see `Workspace.status`).\n * @param path - Directory path in any spelling (symlinks, `..`, trailing slash).\n * @returns the owning workspace, or `undefined` when none matches.\n */',
+      },
+    ],
+  },
 ]
 
 /** Every harness event, sorted by name. */
@@ -942,7 +1018,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/request-error',
     mode: 'waterfall',
     signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>',
-    jsDoc: '/**\n * Recover a model-request failure after its failed step has closed. `retry`\n * opens a new numbered step; `fail` preserves the original request error.\n * Call `next()` to delegate to the next recovery listener or the default.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.\n * @param retryPolicy - immutable policy of the adapter registration that served the failed request, or `undefined` if no final adapter served it.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Recover a model-request failure after its failed step has closed. `retry`\n * opens a new numbered step; `fail` preserves the original request error.\n * Call `next()` to delegate to the next recovery listener or the default.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.\n * @param retryPolicy - immutable policy of the adapter registration that served\n * the failed request, or `undefined` if no final adapter served it.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Recover a model-request failure after its failed step has closed.',
   },
   {
@@ -1000,6 +1076,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'commands/change\'(): void',
     jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'A command was registered or unregistered.',
+  },
+  {
+    name: 'domain/changed',
+    mode: 'emit',
+    signature: '\'domain/changed\'(change: DomainChanged): void',
+    jsDoc: '/**\n * A domain record or the global singleton changed, emitted once per write\n * strictly after the backend acknowledged durability. Events of one\n * domain arrive in its write-chain order.\n * @param change - domain, table (`\'\'` for global), key (`\'\'` for global),\n * operation discriminant, and on `put` the new snapshot.\n * @mode emit\n */',
+    summary: 'A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability.',
   },
   {
     name: 'fs/edit-intent',
@@ -2020,6 +2103,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
+    name: 'StorageForms',
+    declaration: 'export interface StorageForms {\n}',
+  },
+  {
     name: 'StreamChunk',
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
@@ -2312,6 +2399,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'WebRoute',
+    declaration: 'export interface WebRoute {\n    kind: WebRouteKind;\n    path: string;\n    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;\n}',
+  },
+  {
+    name: 'WebRouteKind',
+    declaration: 'export type WebRouteKind = \'exact\' | \'prefix\';',
+  },
+  {
     name: 'WebSearchProvider',
     declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
@@ -2354,6 +2449,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'Workspace',
+    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
   },
 ]
 

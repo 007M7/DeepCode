@@ -167,7 +167,7 @@ forever:
 
 ### 组合包与应用
 
-`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 TUI、单次运行的 CLI（命令行界面）以及 ACP/JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 仅在没有显式配置时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
+`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 TUI、CLI（命令行界面）、ACP 自动化入口和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 仅在没有显式配置时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
 
 ### 新行为的归属位置
 

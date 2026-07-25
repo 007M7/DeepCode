@@ -71,8 +71,8 @@ describe('plan mode through the agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-seed'), { provider: 'mock', model: 'mock' })
-    // Selected while idle (the ACP picker shape): the pending intent flushes at
-    // the first prompt-submit, BEFORE the first assembly.
+    // Selected while idle: the pending intent flushes at the first
+    // prompt-submit, BEFORE the first assembly.
     ctx.planMode.set(agent, true)
 
     agent.followup([{ type: 'text', text: 'explore the repo' }])

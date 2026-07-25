@@ -319,6 +319,50 @@ Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../c
 
 Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
+## `ctx.clientModuleHost` — `ClientModuleHostService`
+
+The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot sweep reports it).
+
+```ts cordis-catalog
+/**
+ * Current composed entry graph (stable object between changes).
+ * @returns the graph served as `window.__DSH_BOOT__`.
+ */
+graph(): WebBootGraph
+
+/**
+ * Absolute path of an entry's client bundle.
+ * @param id - entry id (package name).
+ * @returns the path, or undefined for an unknown id.
+ */
+clientPath(id: string): string | undefined
+
+/**
+ * Re-hash one bundle (the HMR watch's registration hook — the only entry
+ * point through which bundle content changes reach the graph).
+ * @param id - entry id (package name).
+ * @returns the new rev, or undefined for an unknown id.
+ */
+rebuilt(id: string): string | undefined
+
+/**
+ * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.
+ * @param listener - receives the entry id and its new bundle rev.
+ * @returns the unsubscriber.
+ */
+onRebuilt(listener: (id: string, rev: string) => void): () => void
+
+/**
+ * Fires after any flush that recomposed the graph (row added/removed, or a
+ * rebuilt rev change). Pull model: listeners re-read {@link graph}.
+ * @param listener - notified with no payload.
+ * @returns the unsubscriber.
+ */
+onGraphChanged(listener: () => void): () => void
+```
+
+Source: [`packages/client/modules/src/index.ts:143`](../../packages/client/modules/src/index.ts)
+
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
 Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings, materialize each declared namespace rejection class, treat programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
@@ -613,6 +657,30 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
 Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+
+## `ctx.httpServer` — `HttpServerService`
+
+The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the static dist fallback answers anything not yet claimed during the boot window). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
+
+```ts cordis-catalog
+/**
+ * Register a named route. Duplicate (kind, path) throws — route patterns are
+ * a composition-level contract, so a collision is a misconfiguration.
+ * @param route - kind, path, and the owning handler.
+ * @returns the disposer removing the route.
+ */
+register(route: WebRoute): () => void
+
+/**
+ * Register an index.html transform, applied to every index response in
+ * registration order.
+ * @param transform - pure html-to-html function.
+ * @returns the disposer removing the transform.
+ */
+tapIndex(transform: (html: string) => string): () => void
+```
+
+Source: [`packages/host/webserver/src/index.ts:55`](../../packages/host/webserver/src/index.ts)
 
 ## `ctx.invariants` — `InvariantService`
 
@@ -1360,6 +1428,30 @@ Types: [SaveTextSpill](../core-data-structures/spill.md) · [SpillRef](../core-d
 
 Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
 
+## `ctx.storage` — `Storage`
+
+The storage hub service. Backends register under `backend`; data forms mount under their `StorageForms` key and are reached as `ctx.storage.<form>`.
+
+```ts cordis-catalog
+/**
+ * Mount a data-form facility on the hub. Mounting is an effect: the
+ * returned disposer unmounts the form.
+ * @param form - Form key declared in {@link StorageForms}.
+ * @param facility - The facility instance to expose.
+ * @returns the disposer that unmounts the form.
+ */
+mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void
+
+/**
+ * Resolve a mounted data form.
+ * @param form - Form key declared in {@link StorageForms}.
+ * @returns the mounted facility.
+ */
+form<K extends keyof StorageForms>(form: K): StorageForms[K]
+```
+
+Source: [`packages/storage/storage/src/index.ts:35`](../../packages/storage/storage/src/index.ts)
+
 ## `ctx.subagents` — `SubagentService`
 
 Named provider registry and capability-checked start surface.
@@ -1819,6 +1911,52 @@ abstract start(request: WorkflowStartRequest): WorkflowRun
 Types: [WorkflowRun](../core-data-structures/workflow.md) · [WorkflowStartRequest](../core-data-structures/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/workflow/src/index.ts)
+
+## `ctx.workspace` — `WorkspaceRegistry`
+
+The workspace registry service. Opens the `workspace` domain at startup, rebuilds one entity per stored record, and serves entities from an in-memory cache keyed by id. Session persistence is an OPTIONAL peer (resolved via `ctx.get`, never injected): while it is absent, session attachment rejects (what cannot be validated is not recorded) and `sessionIds` projections serve the account unfiltered.
+
+There is deliberately no delete entry point in this phase: workspace deletion ships as one complete semantic together with the session-cascade primitives (future work in the owning Agent Note).
+
+```ts cordis-catalog
+/**
+ * Create a workspace over an existing directory. The path is canonicalized
+ * through `fs.realpath` first — a nonexistent path rejects with the
+ * original `ENOENT`, a path resolving to anything but a directory rejects,
+ * and a canonical path already owned by another workspace (including a
+ * symlink resolving to it) rejects.
+ * @param path - Directory the workspace points at; canonicalized before storing.
+ * @param title - Display title; defaults to `basename` of the canonical path.
+ * @returns the created workspace after durability.
+ */
+async create(path: string, title?: string): Promise<Workspace>
+
+/**
+ * Look up a workspace by id.
+ * @param id - The workspace id.
+ * @returns the workspace, or `undefined` when unknown.
+ */
+get(id: WorkspaceId): Workspace | undefined
+
+/**
+ * Snapshot of all workspaces, in load-then-creation order.
+ * @returns a fresh array of the cached entities.
+ */
+list(): Workspace[]
+
+/**
+ * Resolve a workspace by directory path, through the same `fs.realpath`
+ * canon as {@link create} (hence async). A path that does not exist rejects
+ * with the original error — a missing directory has no canonical form to
+ * compare (a workspace whose recorded directory vanished is only reachable
+ * by id; see `Workspace.status`).
+ * @param path - Directory path in any spelling (symlinks, `..`, trailing slash).
+ * @returns the owning workspace, or `undefined` when none matches.
+ */
+async resolveByPath(path: string): Promise<Workspace | undefined>
+```
+
+Source: [`packages/workspace/workspace/src/index.ts:60`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

@@ -6,7 +6,7 @@ English | [中文](2026-07-20-code-mode-result-card-completeness.zh.md)
 
 ## Problem
 
-The outer `run_code` tool persisted complete rendered content, but its editor presenter ignored that content and rebuilt the card body from a logs-only `presentationMeta` projection. A result-only run appeared correct because an empty presenter body let ACP and TUI fall back to `tool/result.content`. Once the program emitted a log, the presenter supplied non-empty content, that fallback stopped, and the returned value disappeared from the completed card. A spill policy's final head/tail preview was vulnerable to the same split ownership whenever captured logs made the stale projection non-empty.
+The outer `run_code` tool persisted complete rendered content, but its UI presenter ignored that content and rebuilt the card body from a logs-only `presentationMeta` projection. A result-only run appeared correct because an empty presenter body let consumers fall back to `tool/result.content`. Once the program emitted a log, the presenter supplied non-empty content, that fallback stopped, and the returned value disappeared from the completed card. A spill policy's final head/tail preview was vulnerable to the same split ownership whenever captured logs made the stale projection non-empty.
 
 Nested Code calls never owned cards, so producing metadata for the outer call solely to reconstruct one incomplete card also obscured the intended one-card boundary.
 
@@ -22,7 +22,7 @@ Nested dispatch remains unchanged. Calls marked by `exec.parent` emit bounded `t
 
 Tool unit coverage drives logs-only, result-only, logs-plus-result, no-output, spilled-result, and failure outcomes through the canonical registry, then pins the durable content and absence of a result presenter. A host-mux regression uses a call-only presenter to prove the result frame carries raw content exactly once and no view. These cases prove stale metadata cannot replace final content without making the host duplicate that content.
 
-The keyless ACP and TUI Code Mode snapshots execute one outer program that performs two nested bash calls, logs `captured output`, and returns `CODE_ONE+CODE_TWO`. Both surfaces show one completed outer card containing both lines and no nested cards.
+The keyless ACP backend and TUI Code Mode snapshots execute one outer program that performs two nested bash calls, logs `captured output`, and returns `CODE_ONE+CODE_TWO`. The persisted ACP log pins the complete result; the TUI surface shows one completed outer card containing both lines and no nested cards.
 
 ## Alternatives considered
 
@@ -30,10 +30,10 @@ The keyless ACP and TUI Code Mode snapshots execute one outer program that perfo
 
 **Merge presenter metadata with `result.content`.** Rejected because the rendered content already contains the logs; merging would duplicate them and require brittle deduplication.
 
-**Forward `result.content` through a generic result presenter.** Rejected because the durable event already carries that content and ACP/TUI already have a generic raw-content fallback. The host mux serializes a tool-owned result view beside the event, so forwarding would duplicate the rendered content in one frame merely to recreate the fallback; the default worker alone admits a 64 MiB variable-payload budget before rendering.
+**Forward `result.content` through a generic result presenter.** Rejected because the durable event already carries that content and UI consumers already have a generic raw-content fallback. The host mux serializes a tool-owned result view beside the event, so forwarding would duplicate the rendered content in one frame merely to recreate the fallback; the default worker alone admits a 64 MiB variable-payload budget before rendering.
 
 **Create one card per nested dispatch.** Rejected because intermediate values are intentionally execution-local and never model-facing. Multiple cards would expose an implementation trace instead of the single Code Mode operation the model and user invoked.
 
 ## Consequences
 
-ACP and TUI display the same complete content the model receives and replay persists, including post-policy spill previews, through their generic result fallback. The host API retains the pending program title without duplicating the raw result in a separate view payload. New `run_code` results no longer carry the optional logs metadata, but this requires no session-format bump: existing records remain valid because presentation reads their durable rendered content.
+TUI and JSON-RPC/Web display the same complete content the model receives and replay persists, including post-policy spill previews, through their generic result fallback. The host API retains the pending program title without duplicating the raw result in a separate view payload. New `run_code` results no longer carry the optional logs metadata, but this requires no session-format bump: existing records remain valid because presentation reads their durable rendered content.

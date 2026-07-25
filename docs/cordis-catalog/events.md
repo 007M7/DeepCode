@@ -96,7 +96,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:499`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:500`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -281,7 +281,8 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
  * @param error - the original model-request failure.
  * @param failure - serializable facts normalized at the final adapter boundary.
  * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.
- * @param retryPolicy - immutable policy of the adapter registration that served the failed request, or `undefined` if no final adapter served it.
+ * @param retryPolicy - immutable policy of the adapter registration that served
+ * the failed request, or `undefined` if no final adapter served it.
  * @param signal - the turn abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
@@ -291,7 +292,7 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorDecision](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:464`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:465`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -404,7 +405,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:475`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:476`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -426,7 +427,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationStop](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:486`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:487`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -489,6 +490,26 @@ A command was registered or unregistered. This is an unfiltered registry notific
 ```
 
 Source: [`packages/ui/commands/src/index.ts:103`](../../packages/ui/commands/src/index.ts)
+
+## `domain/*`
+
+### `domain/changed` — emit
+
+A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability. Events of one domain arrive in its write-chain order.
+
+```ts cordis-catalog
+/**
+ * A domain record or the global singleton changed, emitted once per write
+ * strictly after the backend acknowledged durability. Events of one
+ * domain arrive in its write-chain order.
+ * @param change - domain, table (`''` for global), key (`''` for global),
+ * operation discriminant, and on `put` the new snapshot.
+ * @mode emit
+ */
+'domain/changed'(change: DomainChanged): void
+```
+
+Source: [`packages/storage/storage-domain/src/events.ts:46`](../../packages/storage/storage-domain/src/events.ts)
 
 ## `fs/*`
 
