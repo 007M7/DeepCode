@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 import type { Config } from '@deepseek-ai/dsh-code-runtime-worker'
-import type { CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import type { CodeBindingFunction, CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 
 /**
  * Integration suite over REAL worker threads (no mocks — workers are cheap
@@ -17,8 +17,12 @@ async function setup(config: Config = {}) {
 }
 
 /** Convenience: one namespace `tools` with the given functions. */
-function tools(functions: Record<string, (args: unknown) => Promise<unknown>>) {
-  return [{ global: 'tools', functions }]
+function tools(functions: Record<string, (args: unknown) => Promise<unknown>>): CodeBindingNamespace[] {
+  return [{
+    global: 'tools',
+    functions: functions as Record<string, CodeBindingFunction>,
+    errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
+  }]
 }
 
 describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
@@ -52,10 +56,10 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
     const result = await runtime.run({
       program: `
         const first = await tools.echo({ n: 1 });
-        let caught = '';
-        try { await tools.fail({}) } catch (error) { caught = error.message }
-        let caughtRaw = '';
-        try { await tools.failRaw({}) } catch (error) { caughtRaw = error.message }
+        let caught = {};
+        try { await tools.fail({}) } catch (error) { caught = { isTyped: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message } }
+        let caughtRaw = {};
+        try { await tools.failRaw({}) } catch (error) { caughtRaw = { name: error.name, toolName: error.toolName, message: error.message } }
         return { first, caught, caughtRaw };
       `,
       bindings: tools({
@@ -66,9 +70,60 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
       }),
     })
     expect(result.error).toBeUndefined()
-    expect(result.value).toEqual({ first: { echoed: { n: 1 } }, caught: 'nope', caughtRaw: 'raw-nope' })
+    expect(result.value).toEqual({
+      first: { echoed: { n: 1 } },
+      caught: { isTyped: true, name: 'ToolCallError', toolName: 'fail', message: 'nope' },
+      caughtRaw: { name: 'ToolCallError', toolName: 'failRaw', message: 'raw-nope' },
+    })
     expect(calls).toEqual([{ n: 1 }])
   })
+
+  it('materializes a typed rejection from a generic namespace descriptor', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        try { await helpers.fail({}) } catch (error) {
+          return {
+            isTyped: error instanceof HelperCallError,
+            name: error.name,
+            helperName: error.helperName,
+            message: error.message,
+          };
+        }
+      `,
+      bindings: [{
+        global: 'helpers',
+        functions: { fail: async () => { throw new Error('nope') } },
+        errorClass: { name: 'HelperCallError', memberNameProperty: 'helperName' },
+      }],
+    })
+    expect(result.value).toEqual({
+      isTyped: true,
+      name: 'HelperCallError',
+      helperName: 'fail',
+      message: 'nope',
+    })
+  })
+
+  it('bridges a deeply nested lossless JSON argument, resolution, and completion', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        let value = 'leaf';
+        for (let depth = 0; depth < 3_000; depth++) value = [value];
+        return await tools.echo(value);
+      `,
+      bindings: tools({ echo: async args => args }),
+    })
+
+    expect(result.error).toBeUndefined()
+    let cursor = result.value
+    for (let depth = 0; depth < 3_000; depth++) {
+      expect(Array.isArray(cursor)).toBe(true)
+      cursor = Array.isArray(cursor) ? cursor[0] : undefined
+    }
+    expect(cursor).toBe('leaf')
+  }, 15_000)
 
   it('reports non-erasable syntax as an exception without spawning a worker', async () => {
     const { runtime } = await setup()
@@ -90,10 +145,11 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
     expect(result.value).toBe('{}')
   })
 
-  it('replaces a non-cloneable return value with a string rendering', async () => {
+  it('rejects a non-lossless completion instead of replacing it with rendered text', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({ program: 'return { f: () => 1 }', bindings: [] })
-    expect(typeof result.value).toBe('string')
+    expect(result.value).toBeUndefined()
+    expect(result.error).toEqual({ kind: 'invalid-output', message: 'program completion must be lossless JSON' })
   })
 
   it('completes a program that returns nothing with no value at all', async () => {
@@ -166,6 +222,19 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(result.error).toEqual({ kind: 'abort', message: 'too-late' })
   })
 
+  it('applies the outer-output cap to failures before worker startup', async () => {
+    const capped = await setup({ maxOutputBytes: 64 })
+    const controller = new AbortController()
+    controller.abort('A'.repeat(1_000))
+    const aborted = await capped.runtime.run({ program: 'return 1', bindings: [], signal: controller.signal })
+    expect(aborted).toEqual({ logs: [], error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' } })
+
+    const minimal = await setup({ maxOutputBytes: 4 })
+    const invalid = await minimal.runtime.run({ program: 'enum E { A }\nreturn 1', bindings: [] })
+    expect(invalid.error?.kind).toBe('output-limit')
+    expect(Buffer.byteLength(JSON.stringify(invalid.logs), 'utf8') + Buffer.byteLength(JSON.stringify(invalid.error?.message), 'utf8')).toBeLessThanOrEqual(4)
+  })
+
   it('drops a binding resolution that lands after the run settled', async () => {
     const { runtime } = await setup()
     const controller = new AbortController()
@@ -201,30 +270,94 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(after.value).toBe('alive')
   }, 30_000)
 
-  it('truncates runaway log output at the byte budget with an in-band marker', async () => {
-    const { runtime } = await setup({ maxLogBytes: 300 })
+  it('reports a worker that exits before publishing a completion', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ program: 'process.exit(7)', bindings: [] })
+    expect(result).toEqual({
+      logs: [],
+      error: { kind: 'worker-exit', message: 'worker exited with code 7 before completing' },
+    })
+  })
+
+  it('fails runaway log output explicitly while retaining a bounded prefix', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 300 })
     const result = await runtime.run({
       program: 'for (let i = 0; i < 1000; i++) console.log("spam line", i); return 1',
       bindings: [],
     })
-    expect(result.logs.at(-1)).toContain('truncated at 300 bytes')
-    const total = result.logs.reduce((sum, text) => sum + Buffer.byteLength(text, 'utf8'), 0)
-    expect(total).toBeLessThan(1_000)
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 300 bytes' })
+    expect(result.value).toBeUndefined()
+    expect(result.logs.length).toBeGreaterThan(0)
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')).toBeLessThan(300)
   })
 
-  it('caps an oversized return value with a truncation marker', async () => {
-    const { runtime } = await setup({ maxValueBytes: 64 })
+  it('retains a fitting prefix when one oversized log is the first output', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 96 })
+    const result = await runtime.run({
+      program: 'console.log(`start-${`😀"\\\\\\n`.repeat(100)}`); return null',
+      bindings: [],
+    })
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 96 bytes' })
+    expect(result.logs).toHaveLength(1)
+    expect(result.logs[0]?.startsWith('start-')).toBe(true)
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')
+      + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(96)
+  })
+
+  it('fails an oversized return value without substituting a string', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 64 })
     const result = await runtime.run({ program: 'return "y".repeat(10_000)', bindings: [] })
-    expect(result.value).toBe(`${'y'.repeat(64)}… [truncated]`)
+    expect(result.value).toBeUndefined()
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 64 bytes' })
   })
 
-  it('caps a multibyte return value by UTF-8 bytes, not string length', async () => {
-    // 4 code units, 12 UTF-8 bytes: a length-counting cap would let the full
-    // string cross. The worker's byte-exact capped rendering then passes the
-    // host re-cap unchanged (cap + marker is exactly the granted slack).
-    const { runtime } = await setup({ maxValueBytes: 4 })
-    const result = await runtime.run({ program: 'return "€€€€"', bindings: [] })
-    expect(result.value).toBe('€… [truncated]')
+  it('uses UTF-8 serialized bytes at the exact completion boundary', async () => {
+    const exact = await setup({ maxOutputBytes: 7 })
+    const exactResult = await exact.runtime.run({ program: 'return "€"', bindings: [] })
+    // [] costs two bytes and JSON serialization of "€" costs five.
+    expect(exactResult).toEqual({ logs: [], value: '€' })
+
+    const over = await setup({ maxOutputBytes: 6 })
+    const overResult = await over.runtime.run({ program: 'return "€"', bindings: [] })
+    expect(overResult.error?.kind).toBe('output-limit')
+  })
+
+  it('accounts logs and completion in one exact combined ledger', async () => {
+    // JSON(["abc"]) is seven bytes and JSON("xy") is four.
+    const exact = await setup({ maxOutputBytes: 11 })
+    expect(await exact.runtime.run({ program: 'console.log("abc"); return "xy"', bindings: [] }))
+      .toEqual({ logs: ['abc'], value: 'xy' })
+
+    const over = await setup({ maxOutputBytes: 10 })
+    const result = await over.runtime.run({ program: 'console.log("abc"); return "xy"', bindings: [] })
+    expect(result.value).toBeUndefined()
+    expect(result.error?.kind).toBe('output-limit')
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8') + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(10)
+  })
+
+  it('accounts logs and exception diagnostics before the worker port boundary', async () => {
+    // JSON(["abc"]) is seven bytes and JSON("xy") is four.
+    const exact = await setup({ maxOutputBytes: 11 })
+    expect(await exact.runtime.run({ program: 'console.log("abc"); throw "xy"', bindings: [] }))
+      .toEqual({ logs: ['abc'], error: { kind: 'exception', message: 'xy' } })
+
+    const over = await setup({ maxOutputBytes: 10 })
+    const result = await over.runtime.run({ program: 'console.log("abc"); throw "xy"', bindings: [] })
+    expect(result.error?.kind).toBe('output-limit')
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')
+      + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(10)
+  })
+
+  it('does not send a giant Error stack across the worker port', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 64 })
+    const result = await runtime.run({
+      program: 'throw new Error("x".repeat(1_000_000))',
+      bindings: [],
+    })
+    expect(result).toEqual({
+      logs: [],
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
   })
 
   it('completes a program that awaits its write callback, capturing the chunk', async () => {
@@ -241,32 +374,67 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(result.logs).toContain('flushed')
   })
 
-  it('caps a huge container whose bounded rendering is small (wire size, not rendering, is what counts)', async () => {
+  it('returns a large JSON container exactly when the outer cap permits it', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({ program: 'return new Array(50_000).fill(7)', bindings: [] })
     expect(result.error).toBeUndefined()
-    expect(typeof result.value).toBe('string')
-    expect(result.value).toContain('more items')
+    expect(result.value).toEqual(new Array(50_000).fill(7))
   })
 
-  it('captures pipe writes that bypass the patched write slot as stray logs, capped by the same budget', async () => {
-    const { runtime } = await setup({ maxLogBytes: 4 })
+  it('returns an exact completion at the default 64 MiB combined boundary', async () => {
+    const { runtime } = await setup()
+    // [] costs two bytes and the JSON string contributes two quotes, leaving
+    // exactly this many payload bytes under the 67_108_864-byte default.
+    const result = await runtime.run({ program: 'return "x".repeat(67_108_860)', bindings: [] })
+    expect(result.error).toBeUndefined()
+    expect(result.logs).toEqual([])
+    expect(result.value).toHaveLength(67_108_860)
+  }, 60_000)
+
+  it('fails one byte over the default 64 MiB combined boundary', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ program: 'return "x".repeat(67_108_861)', bindings: [] })
+    expect(result.value).toBeUndefined()
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 67108864 bytes' })
+  }, 60_000)
+
+  it('accounts pipe writes that bypass the patched write slot in the same outer ledger', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 80 })
     const result = await runtime.run({
       // The prototype write bypasses the patched instance and reaches the real pipe. Pauses keep
       // writes in separate chunks and let both reach the host before settlement.
       program: `
         const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
-        write('abcd');
+        write('a'.repeat(20));
         await new Promise(resolve => setTimeout(resolve, 150));
-        write('ef');
+        write('b'.repeat(100));
         await new Promise(resolve => setTimeout(resolve, 100));
         return 1;
       `,
       bindings: [],
     })
+    expect(result.error?.kind).toBe('output-limit')
+    expect(result.logs).toContain('a'.repeat(20))
+    expect(result.logs[1]?.length).toBeGreaterThan(0)
+    expect('b'.repeat(100).startsWith(result.logs[1] ?? '')).toBe(true)
+  }, 15_000)
+
+  it('drains pipe output queued before terminal worker teardown completes', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 200_000 })
+    const payload = `late-pipe-${'x'.repeat(100_000)}`
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
+        write('late-pipe-' + 'x'.repeat(100_000));
+        parentPort.postMessage({ type: 'done', value: ['done'] });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
     expect(result.error).toBeUndefined()
-    expect(result.logs).toContain('abcd')
-    expect(result.logs).not.toContain('ef')
+    expect(result.value).toBe('done')
+    expect(result.logs.join('') === payload).toBe(true)
   }, 15_000)
 })
 
@@ -305,7 +473,8 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
           { type: 'log', text: 7 },
           { type: 'log', text: {} },
           { type: 'done', error: 5 },
-          { type: 'done', error: { message: 5 } },
+          { type: 'done', error: { kind: 'exception', message: 5 } },
+          { type: 'done', error: { kind: 'invented', message: 'bad kind' } },
         ]) parentPort.postMessage(junk);
         return await tools.real({});
       `,
@@ -316,67 +485,288 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     expect(result.logs).toEqual([])
   })
 
-  it('caps forged log floods and forged done values at the configured budgets, dropping forged extra fields', async () => {
-    const { runtime } = await setup({ maxLogBytes: 200, maxValueBytes: 64 })
+  it('fails forged log floods and forged done values through the same outer cap', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 200 })
     const result = await runtime.run({
-      // Forged messages bypass the worker-side LogBuffer and prepareValue
+      // Forged messages bypass the worker-side LogBuffer and completion check
       // entirely — only the host-side ledger and re-cap stand between model
       // code and an unbounded result.
       program: `
         const { parentPort } = await import('node:worker_threads');
         for (let i = 0; i < 50; i++) parentPort.postMessage({ type: 'log', text: 'F'.repeat(100), forged: true });
-        parentPort.postMessage({ type: 'done', value: 'V'.repeat(100000) });
+        parentPort.postMessage({ type: 'done', value: ['V'.repeat(100000)] });
         for (;;) {}
       `,
       bindings: [],
     })
-    expect(typeof result.value).toBe('string')
-    const value = result.value as string
-    expect(value.startsWith('V'.repeat(64))).toBe(true)
-    expect(value.endsWith('… [truncated]')).toBe(true)
-    expect(value.length).toBeLessThan(120)
-    const marker = '[dsh-code-runtime-worker] log capture truncated at 200 bytes'
-    const total = result.logs.reduce((sum, text) => sum + Buffer.byteLength(text, 'utf8'), 0)
-    expect(total).toBeLessThanOrEqual(200 + Buffer.byteLength(marker, 'utf8'))
-    expect(result.logs.at(-1)).toBe(marker)
+    expect(result.value).toBeUndefined()
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 200 bytes' })
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')).toBeLessThan(200)
   })
 
-  it('accepts a forged done carrying both value and error (self-sabotage, contained)', async () => {
+  it('re-caps an oversized forged done value at the host boundary', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 64 })
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'done', value: ['V'.repeat(100_000)] });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result).toEqual({
+      logs: [],
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
+  })
+
+  it('bounds one oversized forged log while retaining its fitting escaped prefix', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 96 })
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'log', text: '"'.repeat(1_000_000) });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 96 bytes' })
+    expect(result.logs).toHaveLength(1)
+    expect(result.logs[0]).toMatch(/^"+$/)
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8') + Buffer.byteLength(JSON.stringify('outer output exceeded 96 bytes'), 'utf8')).toBeLessThanOrEqual(96)
+  })
+
+  it('drops a malformed forged done carrying both value and error', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
       program: `
         const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'done', value: 'lied', error: { message: 'fake failure' } });
-        for (;;) {}
+        parentPort.postMessage({ type: 'done', value: 'lied', error: { kind: 'exception', message: 'fake failure' } });
+        return 'honest';
       `,
       bindings: [],
     })
-    expect(result.value).toBe('lied')
-    expect(result.error).toEqual({ kind: 'exception', message: 'fake failure' })
+    expect(result).toEqual({ logs: [], error: { kind: 'exception', message: 'fake failure' } })
   })
 
-  it('byte-bounds forged multibyte error text at the host', async () => {
-    // Forged error text bypasses the worker entirely; the host bound is a
-    // BYTE bound (two € = 6 bytes fit an 8-byte cap, a third would not).
-    const { runtime } = await setup({ maxValueBytes: 8 })
+  it('contains a deeply nested forged completion without overflowing the host meter', async () => {
+    const { runtime } = await setup()
     const result = await runtime.run({
       program: `
         const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'done', error: { message: '€'.repeat(1000) } });
+        const value = [];
+        for (let depth = 0; depth < 3_000; depth++) value.push({ kind: 'array', length: 1 });
+        value.push(null);
+        setTimeout(() => { parentPort.postMessage({ type: 'done', value }) }, 25);
+        // Prevent bootstrap's normal undefined completion from racing the forged terminal.
+        await new Promise(() => {});
+      `,
+      bindings: [],
+    })
+    expect(result.error).toBeUndefined()
+    let value = result.value
+    let depth = 0
+    while (Array.isArray(value)) {
+      expect(value).toHaveLength(1)
+      value = value[0]
+      depth += 1
+    }
+    expect(depth).toBe(3_000)
+    expect(value).toBeNull()
+  }, 15_000)
+
+  it('turns forged over-limit error text into output-limit at the host', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 64 })
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'done', error: { kind: 'exception', message: '€'.repeat(1000) } });
         for (;;) {}
       `,
       bindings: [],
     })
-    expect(result.error).toEqual({ kind: 'exception', message: '€€' })
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 64 bytes' })
   })
 
-  it('answers a binding whose resolution cannot be cloned with a failure reply', async () => {
+  it('answers a binding whose resolution is not lossless JSON with a typed failure reply', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
-      program: 'try { await tools.bad({}) } catch (error) { return error.message }',
+      program: 'try { await tools.bad({}) } catch (error) { return { name: error.name, toolName: error.toolName, message: error.message } }',
       bindings: tools({ bad: async () => (() => 1) }),
     })
-    expect(result.value).toContain('not structured-cloneable')
+    expect(result.value).toEqual({ name: 'ToolCallError', toolName: 'bad', message: 'binding resolution must be lossless JSON' })
+  })
+
+  it('rejects lossy binding arguments in the worker before invoking the host binding', async () => {
+    const { runtime } = await setup()
+    let calls = 0
+    const result = await runtime.run({
+      program: `
+        const decorated = [1]; Object.defineProperty(decorated, 'extra', { value: true });
+        const values = [new Date(), decorated, () => 1];
+        const failures = [];
+        for (const value of values) {
+          try { await tools.never(value) } catch (error) {
+            failures.push({ typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message });
+          }
+        }
+        return failures;
+      `,
+      bindings: tools({ never: async () => { calls += 1; return null } }),
+    })
+    expect(calls).toBe(0)
+    expect(result.value).toEqual(new Array(3).fill({
+      typed: true,
+      name: 'ToolCallError',
+      toolName: 'never',
+      message: 'binding arguments must be lossless JSON',
+    }))
+  })
+
+  it('rejects intrinsic-looking exotic objects as arguments and completions', async () => {
+    const { runtime } = await setup()
+    let calls = 0
+    const forgeObject = `
+      const prototype = Object.create(null);
+      const SpoofedObject = function Object() {};
+      SpoofedObject.prototype = prototype;
+      Object.defineProperty(prototype, 'constructor', { value: SpoofedObject });
+      const forged = Object.assign(Object.create(prototype), { value: 1 });
+      Function.prototype.toString = () => 'function Object() { [native code] }';
+    `
+    const argument = await runtime.run({
+      program: `${forgeObject}
+        try { await tools.never(forged) } catch (error) {
+          return { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message };
+        }
+      `,
+      bindings: tools({ never: async () => { calls += 1; return null } }),
+    })
+    expect(calls).toBe(0)
+    expect(argument.value).toEqual({
+      typed: true,
+      name: 'ToolCallError',
+      toolName: 'never',
+      message: 'binding arguments must be lossless JSON',
+    })
+
+    const completion = await runtime.run({ program: `${forgeObject}\nreturn forged`, bindings: [] })
+    expect(completion).toEqual({
+      logs: [],
+      error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' },
+    })
+  })
+
+  it('preserves binding and completion JSON after model code mutates boundary globals', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        const arrayPrototype = Array.prototype;
+        const objectPrototype = Object.prototype;
+        const setPrototype = Set.prototype;
+        const stringPrototype = String.prototype;
+        Array.isArray = () => false;
+        arrayPrototype.at = arrayPrototype.includes = arrayPrototype.pop = arrayPrototype.push = () => { throw new Error('mutated array method') };
+        Object.defineProperty = Object.getOwnPropertyDescriptor = Object.getPrototypeOf = Object.keys = () => { throw new Error('mutated object method') };
+        Object.hasOwn = () => false;
+        Object.is = () => true;
+        objectPrototype.propertyIsEnumerable = () => false;
+        Number.isFinite = Number.isSafeInteger = () => false;
+        Reflect.apply = Reflect.ownKeys = () => { throw new Error('mutated reflect method') };
+        setPrototype.add = setPrototype.delete = setPrototype.has = () => { throw new Error('mutated set method') };
+        stringPrototype.charCodeAt = stringPrototype.codePointAt = stringPrototype.slice = () => { throw new Error('mutated string method') };
+        Buffer.byteLength = () => 0;
+        Function.prototype.toString = () => 'mutated';
+        objectPrototype.get = () => undefined;
+        objectPrototype.constructor = arrayPrototype.constructor = null;
+        globalThis.Array = globalThis.Buffer = globalThis.Error = globalThis.Function = globalThis.Number = globalThis.Object = globalThis.Reflect = globalThis.Set = globalThis.String = undefined;
+        const echoed = await tools.echo({ request: ['€', 1] });
+        let failure;
+        try { await tools.fail({}) } catch (error) {
+          failure = { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message };
+        }
+        return { echoed, failure, completion: { ok: true, amount: 42 } };
+      `,
+      bindings: tools({ echo: async args => args, fail: async () => { throw new Error('nope') } }),
+    })
+    expect(result).toEqual({
+      logs: [],
+      value: {
+        echoed: { request: ['€', 1] },
+        failure: { typed: true, name: 'ToolCallError', toolName: 'fail', message: 'nope' },
+        completion: { ok: true, amount: 42 },
+      },
+    })
+  })
+
+  it('rejects forged lossy binding arguments again at the host boundary', async () => {
+    const { runtime } = await setup()
+    let calls = 0
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        const forged = (id, args) => new Promise((resolve) => {
+          const receive = (message) => {
+            if (message?.type !== 'reply' || message.id !== id) return;
+            parentPort.off('message', receive);
+            resolve(message);
+          };
+          parentPort.on('message', receive);
+          parentPort.postMessage({ type: 'call', id, global: 'tools', name: 'never', args });
+        });
+        const sparse = []; sparse.length = 1;
+        const cycle = {}; cycle.self = cycle;
+        return await Promise.all([
+          forged(8001, new Date()),
+          forged(8002, -0),
+          forged(8003, sparse),
+          forged(8004, cycle),
+        ]);
+      `,
+      bindings: tools({ never: async () => { calls += 1; return null } }),
+    })
+    expect(calls).toBe(0)
+    expect(result.value).toEqual([8001, 8002, 8003, 8004].map(id => ({
+      type: 'reply',
+      id,
+      ok: false,
+      message: 'binding arguments must be lossless JSON',
+    })))
+  })
+
+  it('contains throwing getters while snapshotting binding resolutions', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: 'try { await tools.bad({}) } catch (error) { return { name: error.name, toolName: error.toolName, message: error.message } }',
+      bindings: tools({ bad: async () => Object.defineProperty({}, 'bad', { enumerable: true, get() { throw new Error('getter exploded') } }) }),
+    })
+    expect(result.value).toEqual({ name: 'ToolCallError', toolName: 'bad', message: 'binding resolution must be lossless JSON' })
+  })
+
+  it('revalidates a forged lossy completion at the host boundary', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'done', value: -0 });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result).toEqual({ logs: [], error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' } })
+  })
+
+  it('honors a forged worker-side output-limit signal', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'output-limit' });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result).toEqual({ logs: [], error: { kind: 'output-limit', message: 'outer output exceeded 67108864 bytes' } })
   })
 
   it('exposes binding names that collide with Object.prototype as ordinary functions', async () => {
@@ -392,7 +782,7 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
 })
 
 describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
-  it('rejects invalid binding globals loudly (identifier, reserved word, duplicate, console)', async () => {
+  it('rejects invalid and duplicate binding globals loudly', async () => {
     const { runtime } = await setup()
     const cases: [string, RegExp][] = [
       ['not valid!', /not a usable identifier/],
@@ -406,11 +796,43 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
       program: 'return 1',
       bindings: [{ global: 'tools', functions: {} }, { global: 'tools', functions: {} }],
     })).rejects.toThrow(/duplicate binding global/)
+
+    await expect(runtime.run({
+      program: 'return typeof ToolCallError',
+      bindings: [{ global: 'ToolCallError', functions: {} }],
+    })).resolves.toMatchObject({ value: 'object' })
+  })
+
+  it('rejects malformed or colliding binding error-class declarations', async () => {
+    const { runtime } = await setup()
+    const run = async (bindings: CodeBindingNamespace[]) => await runtime.run({ program: 'return 1', bindings })
+    const namespace = (global: string, name: string, memberNameProperty = 'memberName'): CodeBindingNamespace => ({
+      global,
+      functions: {},
+      errorClass: { name, memberNameProperty },
+    })
+
+    await expect(run([namespace('tools', 'not valid!')])).rejects.toThrow(/error class.*not a usable identifier/)
+    await expect(run([namespace('tools', 'await')])).rejects.toThrow(/error class.*not a usable identifier/)
+    await expect(run([namespace('tools', 'console')])).rejects.toThrow(/duplicate injected global/)
+    await expect(run([namespace('tools', 'tools')])).rejects.toThrow(/duplicate injected global/)
+    await expect(run([
+      namespace('tools', 'CallError'),
+      namespace('helpers', 'CallError'),
+    ])).rejects.toThrow(/duplicate injected global/)
+    await expect(run([namespace('tools', 'CallError', '')])).rejects.toThrow(/member property.*not usable/)
+    await expect(run([namespace('tools', 'CallError', 'message')])).rejects.toThrow(/member property.*not usable/)
   })
 
   it('rejects config values that are not positive numbers', async () => {
     const ctx = new Context()
     await expect(ctx.plugin(WorkerCodeRuntime, { computeMs: -1 })).rejects.toThrow(/positive number/)
+  })
+
+  it('requires maxOutputBytes to fit the smallest counted outer payloads', async () => {
+    const ctx = new Context()
+    await expect(ctx.plugin(WorkerCodeRuntime, { maxOutputBytes: 3 })).rejects.toThrow(/safe integer of at least 4/)
+    await expect(ctx.plugin(WorkerCodeRuntime, { maxOutputBytes: 4.5 })).rejects.toThrow(/safe integer of at least 4/)
   })
 
   it('keeps runs isolated: no state survives from one run to the next', async () => {

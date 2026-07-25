@@ -171,6 +171,19 @@ describe('boot', () => {
     }
   })
 
+  it('runs host preparation before the Loader tree mounts', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'noop.mjs'), 'export const name = "noop"\nexport function apply() {}\n')
+    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
+    const prepared: Context[] = []
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, (hostCtx) => { prepared.push(hostCtx) })
+    try {
+      expect(prepared).toEqual([ctx])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('rejects (never exits 0 half-empty) when a config names a plugin that cannot be imported', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')

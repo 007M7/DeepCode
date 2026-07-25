@@ -157,6 +157,18 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
 }
 
 /**
+/**
+ * Context key a bin sets through {@link boot}'s `prepare` hook to hand a resume
+ * session id to the booted config: `ctx.provide(RESUME_SESSION_ID_KEY, id)`
+ * makes `id` readable as the bare identifier `resumeSessionId` in a config
+ * `!!js` expression. The value is the bin's already-parsed id (or `undefined`),
+ * so resuming a session needs no environment variable. A bin that never
+ * provides it leaves the identifier undeclared, so configs read it defensively
+ * (`typeof resumeSessionId === 'string' ? resumeSessionId : undefined`).
+ */
+export const RESUME_SESSION_ID_KEY = 'resumeSessionId'
+
+/**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
  * tree settles. Entry names load through the Loader's internal module loader
  * against `baseUrl` (the config directory), which may live outside
@@ -165,20 +177,24 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
  * `cordis:include` builtin, loading through the ambient module pipeline
  * (vite/tsx/plain ESM) while the included tree's own specifiers stay
  * config-relative. A missing fiber rejects here; a later init rejection is
- * handled by {@link installFailLoud}. Built bins need `--expose-internals` or
- * the Loader's native fallback for bare plugin specifiers; relative specifiers
- * do not.
+ * handled by {@link installFailLoud}. Built bins need the Loader's native
+ * helper for bare plugin specifiers; relative specifiers do not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).
  * @param patches - optional overlay patches applied over the included tree
  * (see {@link loadPersonalPatches}); an empty list mounts none.
+ * @param prepare - optional host setup run against the root context before any Loader entry mounts.
  * @returns the root context once every entry has started.
  */
 export async function boot(
-  binName: string, absoluteConfigPath: string, patches?: PatchOptions[],
+  binName: string,
+  absoluteConfigPath: string,
+  patches?: PatchOptions[],
+  prepare?: (ctx: Context) => Promise<void> | void,
 ): Promise<Context> {
   const ctx = new Context()
+  await prepare?.(ctx)
   ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include

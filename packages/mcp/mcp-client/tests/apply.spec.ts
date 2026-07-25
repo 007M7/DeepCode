@@ -15,14 +15,26 @@ import type { Config } from '@deepseek-ai/dsh-mcp-client'
 const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient } = vi.hoisted(() => {
   const mockConnect = vi.fn<() => Promise<void>>()
   const mockClose = vi.fn<() => Promise<void>>()
-  const mockListTools = vi.fn()
-  const mockCallTool = vi.fn()
+  const mockListTools = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
+  const mockCallTool = vi.fn<(
+    _params?: Record<string, unknown>, _compatibilitySchema?: unknown, _options?: unknown,
+  ) => Promise<unknown>>()
   const mockSetNotificationHandler = vi.fn()
+  const mockRequest = vi.fn(async (
+    request: { method: string; params?: Record<string, unknown> },
+    _schema: unknown,
+    options?: unknown,
+  ): Promise<unknown> => {
+    if (request.method === 'tools/list') return await mockListTools(request.params)
+    if (request.method === 'tools/call') return await mockCallTool(request.params, undefined, options)
+    throw new Error(`unexpected MCP request: ${request.method}`)
+  })
   class MockClient {
     connect = mockConnect
     close = mockClose
     listTools = mockListTools
     callTool = mockCallTool
+    request = mockRequest
     setNotificationHandler = mockSetNotificationHandler
   }
   return { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient }

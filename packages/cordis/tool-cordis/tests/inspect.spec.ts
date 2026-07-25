@@ -16,6 +16,8 @@ describe('cordis_inspect', () => {
     const result = await call(ctx, 'cordis_inspect', {})
     expect(result.isError).toBe(false)
     const report = text(result)
+    if (result.isError) throw new Error('expected cordis_inspect success')
+    expect(result.value).toBe(report)
     for (const heading of ['services', 'plugins', 'tools', 'dynamic', 'api', 'events']) {
       expect(report).toContain(`## ${heading}`)
     }
@@ -59,6 +61,8 @@ describe('cordis_inspect', () => {
     // generated TYPE_API — a consumer can see field types, not just names).
     expect(report).toContain('type shapes (referenced by the signatures above')
     expect(report).toContain('export interface ToolExecution')
+    expect(report).toContain('export class Session')
+    expect(report).toContain('export interface SessionSurface')
     // A type only reachable through a NOT-live service (e.g. bash) is scoped out.
     expect(report).not.toContain('export interface BashRunResult')
     // The inherited ctx surface closes the section.
@@ -76,7 +80,7 @@ describe('cordis_inspect', () => {
     expect(report).toContain('- tools — Tool registry and execution pipeline.')
     expect(report).toContain('/**')
     expect(report).toContain('Register globally or in the calling agent scope.')
-    expect(report).toContain('@param definition - the tool schema')
+    expect(report).toContain('@param definition - tool schema, execution, and optional finalization/presentation callbacks')
     expect(report).toContain('@returns the exact disposer')
     expect(report).toContain('register(definition: ToolDefinition)')
     expect(report).toContain('type shapes (referenced by the signatures above')

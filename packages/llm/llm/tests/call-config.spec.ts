@@ -56,6 +56,26 @@ describe('deepFreeze', () => {
     deepFreeze(cyclic)
     expect(Object.isFrozen(cyclic)).toBe(true)
   })
+
+  it('freezes nesting deeper than the JavaScript call stack', () => {
+    const depth = 5_000
+    const root: unknown[] = []
+    let cursor = root
+    for (let index = 0; index < depth; index++) {
+      const child: unknown[] = []
+      cursor.push(child)
+      cursor = child
+    }
+
+    deepFreeze(root)
+
+    cursor = root
+    for (let index = 0; index < depth; index++) {
+      expect(Object.isFrozen(cursor)).toBe(true)
+      cursor = cursor[0] as unknown[]
+    }
+    expect(Object.isFrozen(cursor)).toBe(true)
+  })
 })
 
 describe('agent-loop request identity', () => {

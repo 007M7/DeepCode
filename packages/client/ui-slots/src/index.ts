@@ -22,8 +22,8 @@ export * from './renderer.ts'
 /** Slot contract table. Owners extend via declaration merging; entries are {@link SlotEntryDef}. */
 export interface SlotMap {}
 
-/** Slot cardinality: single occupant, ordered list, or key-dispatched. */
-export type SlotKind = 'single' | 'list' | 'keyed'
+/** Slot cardinality: single occupant, ordered list, key-dispatched, or selector-routed chain. */
+export type SlotKind = 'single' | 'list' | 'keyed' | 'chain'
 
 /** Slot data context: root (no session) or session-bound. */
 export type SlotScope = 'root' | 'session'
@@ -98,6 +98,34 @@ export type PropsRuntime<K extends keyof SlotMap & string> =
 /** renderSlot dispatch options: keyed dispatch key, list filtering, empty fallback. */
 export interface RenderOpts { entryKey?: string; only?: string; fallback?: ReactNode }
 
+/** renderSlotChain dispatch options: the owner's fallback body, rendered when every entry's selector declines. */
+export interface ChainRenderOpts { fallback?: ReactNode }
+
+/**
+ * Chain-entry selector: the routing decision of one chain contribution.
+ * Runs at render time in chain order (ascending `priority`, default 0, lower
+ * tries first; ties keep registration = assembly order); the first non-null
+ * return elects its entry
+ * and becomes the component's `matched` prop; `null` passes to the next
+ * entry; all-null falls to the owner's {@link ChainRenderOpts} fallback.
+ * MUST be pure — a function of the owner props only, no external mutable
+ * reads, no side effects (the decline decision lives here, never in a
+ * mounted component probing its own props).
+ */
+export type ChainSelect<O extends object, M> = (owner: O) => M | null
+
+/** Keys of a slot-key union whose SlotMap entry is chain-kind (renderSlotChain's dispatch domain). */
+export type ChainKeysOf<S extends keyof SlotMap & string> =
+  S extends unknown ? (SlotMap[S]['kind'] extends 'chain' ? S : never) : never
+
+/**
+ * Chain matched share: a chain-slot component receives its selector's
+ * non-null result as the framework-injected `matched` prop; other kinds add
+ * nothing to the composed constraint.
+ */
+export type MatchedShare<E extends SlotEntryDef, M> =
+  E['kind'] extends 'chain' ? { matched: M } : object
+
 /**
  * Conversation-session selector hook alias for props contracts. Wide by
  * default at this dependency-inverted layer; the runtime narrows at its
@@ -135,15 +163,27 @@ export type SessionProviderComponent = (props: SessionAreaProps) => ReactNode
  */
 export type PropsRenderSlots<S extends keyof SlotMap & string> = {
   /**
-   * Render a declared child slot.
+   * Render a declared non-chain child slot (chain keys dispatch through
+   * `renderSlotChain` — their routing lives in entry selectors).
    * @param key - declared child key.
    * @param owner - owner props share for that key (decided at the render site).
    * @param opts - kind dispatch options.
    * @returns rendered node(s).
    */
-  renderSlot: <K extends S>(key: K, owner: OwnerOf<K>, opts?: RenderOpts) => ReactNode
+  renderSlot: <K extends Exclude<S, ChainKeysOf<S>>>(key: K, owner: OwnerOf<K>, opts?: RenderOpts) => ReactNode
   readonly __renders?: ((key: S) => void) | undefined
-} & ('session' extends ScopeOf<S>
+} & ([ChainKeysOf<S>] extends [never] ? object : {
+  /**
+   * Render a declared chain child slot: entry selectors run in chain order
+   * over `owner`; the first non-null match renders its component with the
+   * selector result injected as `matched`; all-null renders `opts.fallback`.
+   * @param key - declared chain child key.
+   * @param owner - owner props share (the selectors' routing input).
+   * @param opts - fallback body for the all-null case.
+   * @returns rendered node(s).
+   */
+  renderSlotChain: <K extends ChainKeysOf<S>>(key: K, owner: OwnerOf<K>, opts?: ChainRenderOpts) => ReactNode
+}) & ('session' extends ScopeOf<S>
   // The SessionProvider seat rides the same source as renderSlot: declaring
   // a session-scope child is what makes a session area exist, so the seat
   // derives from the children key set's scopes (renderer injects the value).
@@ -168,7 +208,8 @@ export type ComposedProps<
   S extends keyof SlotMap & string,
   H,
   I extends object,
-> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & I
+  M = never,
+> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & I & MatchedShare<SlotMap[K], M>
 
 /**
  * Inject factory parameter list, derived from the registration's declaration:
@@ -182,27 +223,35 @@ export type InjectParams<K extends keyof SlotMap & string, H> =
     ? ([H] extends [StoreDecl] ? [sessionId: SessionIdOf, actions: BoundActions<HandleOf<H>>] : [sessionId: SessionIdOf])
     : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
 
-/** Kind shape fields carried in register options (keyed dispatch key; list id/order/label). */
-export type KindOptions<E extends SlotEntryDef> =
+/** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */
+export type KindOptions<E extends SlotEntryDef, M = never> =
   E['kind'] extends 'keyed' ? { key: string }
     : E['kind'] extends 'list' ? { id: string; order?: number; label?: string }
-      : object
+      : E['kind'] extends 'chain' ? {
+        /** Routing selector, mandatory on chain entries; `M` (the component's `matched` prop) infers from its return. */
+        select: ChainSelect<E extends { owner: infer O extends object } ? O : object, M>
+        /** Explicit chain position (ascending, default 0, lower tries first); ties keep registration = assembly order. */
+        priority?: number
+      }
+        : object
 
 /**
  * Compile-time presence check: an entry declaring children MUST consume
- * `renderSlot` (declaring is claiming — an entry that does not render its
- * children should not declare them). Evaluates to an unsatisfiable
- * intersection member naming the declared keys when violated.
+ * `renderSlot` (or `renderSlotChain` when its only children are chain slots)
+ * — declaring is claiming; an entry that does not render its children should
+ * not declare them. Evaluates to an unsatisfiable intersection member naming
+ * the declared keys when violated.
  */
 type RendersCheck<C, D> =
   [keyof D & keyof SlotMap & string] extends [never] ? unknown
     : C extends (props: infer P) => ReactNode
       ? ('renderSlot' extends keyof P ? unknown
-        : { 'children declared but the component consumes no renderSlot': keyof D & keyof SlotMap & string })
+        : 'renderSlotChain' extends keyof P ? unknown
+          : { 'children declared but the component consumes no renderSlot': keyof D & keyof SlotMap & string })
       : unknown
 
 /** Common register options share (see {@link SlotCore.register} for semantics). */
-type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H> = {
+type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M = never> = {
   /** Target slot key (the entry contributes INTO this slot). */
   name: K
   /** Child-slot declaration + render authorization + runtime spec, in one table. */
@@ -211,7 +260,7 @@ type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H> = 
   store?: H
   /** Registrant identity label for diagnostics (the runtime Service wrapper stamps the caller's fiber name). */
   registrant?: string
-} & KindOptions<SlotMap[K]>
+} & KindOptions<SlotMap[K], M>
 
 /**
  * One stored registration, as recorded by the core and read by the render
@@ -220,7 +269,9 @@ type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H> = 
  */
 export interface StoredEntry {
   component: unknown
-  options: { key?: string; id?: string; order?: number; label?: string }
+  options: { key?: string; id?: string; order?: number; label?: string; priority?: number }
+  /** Chain routing selector (type-erased like `inject`; present exactly on chain-slot entries). */
+  select?: ((owner: never) => unknown) | undefined
   /** Registrant business face; positional params derive from the declaration (sessionId?, actions?). */
   inject?: ((...args: never[]) => Record<string, unknown>) | undefined
   /** Child-slot declaration table (declaration + authorization + runtime spec in one). */
@@ -243,6 +294,8 @@ interface ErasedOptions {
   id?: string | undefined
   order?: number | undefined
   label?: string | undefined
+  select?: ((owner: never) => unknown) | undefined
+  priority?: number | undefined
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
   store?: StoreDecl | undefined
   /* eslint-disable-next-line @typescript-eslint/no-explicit-any --
@@ -308,7 +361,8 @@ export class SlotCore {
    * names the first declarer); mounting one shared store handle under slots
    * of different scopes throws. Kind constraints: single — duplicate
    * registration throws; keyed — missing/duplicate `key` throws; list —
-   * missing/duplicate `id` throws.
+   * missing/duplicate `id` throws; chain — missing `select` throws (the
+   * selector is the entry's routing seat, see {@link ChainSelect}).
    *
    * Lifecycle: the disposer removes the contribution AND collapses every
    * declared child slot (child entries clear recursively; their stale
@@ -326,11 +380,12 @@ export class SlotCore {
     K extends keyof SlotMap & string,
     const D extends ChildrenDecl = Record<never, never>,
     H extends StoreDecl | undefined = undefined,
+    M = never,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, D, H> & { inject?: undefined },
+    options: BaseOptions<K, D, H, M> & { inject?: undefined },
     component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object>>
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object, NoInfer<M>>>
       & RendersCheck<C, D>,
   ): () => void
   /**
@@ -348,11 +403,12 @@ export class SlotCore {
     I extends object,
     const D extends ChildrenDecl = Record<never, never>,
     H extends StoreDecl | undefined = undefined,
+    M = never,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, D, H> & { inject: (...args: InjectParams<K, H>) => I },
+    options: BaseOptions<K, D, H, M> & { inject: (...args: InjectParams<K, H>) => I },
     component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I>>
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I, NoInfer<M>>>
       & RendersCheck<C, D>,
   ): () => void
   register(options: ErasedOptions, component: unknown): () => void {
@@ -378,6 +434,9 @@ export class SlotCore {
         if (rec.entries.some(e => e.options.id === options.id)) {
           throw new Error(`list slot "${options.name}" already has an entry with id "${options.id}"`)
         }
+        break
+      case 'chain':
+        if (options.select === undefined) throw new Error(`chain slot "${options.name}" requires options.select`)
         break
     }
     if (options.children) {
@@ -407,15 +466,19 @@ export class SlotCore {
         ...(options.id !== undefined ? { id: options.id } : {}),
         ...(options.order !== undefined ? { order: options.order } : {}),
         ...(options.label !== undefined ? { label: options.label } : {}),
+        ...(options.priority !== undefined ? { priority: options.priority } : {}),
       },
+      ...(options.select !== undefined ? { select: options.select } : {}),
       ...(options.inject !== undefined ? { inject: options.inject } : {}),
       ...(options.children !== undefined ? { children: options.children } : {}),
       ...(options.store !== undefined ? { store: options.store } : {}),
       ...(options.registrant !== undefined ? { registrant: options.registrant } : {}),
     }
     const next = [...rec.entries, entry]
-    // Stable sort: order ascending, ties keep registration sequence.
+    // Stable sorts: ascending, ties keep registration sequence (list rides
+    // `order`, chain rides `priority` — lower priority tries first).
     if (spec.kind === 'list') next.sort((a, b) => (a.options.order ?? 0) - (b.options.order ?? 0))
+    if (spec.kind === 'chain') next.sort((a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0))
     rec.entries = next
     this.markDirty(options.name, rec)
     if (options.children) {

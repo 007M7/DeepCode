@@ -1,0 +1,38 @@
+/* Visual spec mirrors deepsuite @deepseek/ui Tooltip.css (size m, no arrow),
+   except padding tightened 6/12 -> 4/8 and radius 10 -> 8 by product ruling:
+   tooltip-bg plate,
+   one text color across both themes (the plate stays dark in light and dark
+   mode). Behavior (fixed positioning off the anchor rect) is local — the
+   upstream Floating stack is intentionally not vendored. */
+
+.bubble {
+  position: fixed;
+  z-index: 100;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-tooltip-bg);
+  color: var(--dsw-static-neutral-bluish-00);
+  font-size: 14px;
+  line-height: 22px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: tooltip-in 150ms var(--ds-ease-in-out);
+}
+
+.bubble[data-side='right'] {
+  transform: translateY(-50%);
+}
+
+.bubble[data-side='bottom'] {
+  transform: translateX(-50%);
+}
+
+@keyframes tooltip-in {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble {
+    animation: none;
+  }
+}

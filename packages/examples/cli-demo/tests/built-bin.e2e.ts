@@ -116,7 +116,7 @@ interface BinResult {
 
 function runBuiltBin(cwd: string, args: readonly string[], interrupt?: NodeJS.Signals): Promise<BinResult> {
   return new Promise((resolveResult, reject) => {
-    const child = spawn(process.execPath, ['--expose-internals', cliBin, ...args], {
+    const child = spawn(process.execPath, [cliBin, ...args], {
       cwd,
       env: { ...process.env, DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents') },
       stdio: ['ignore', 'pipe', 'pipe'],

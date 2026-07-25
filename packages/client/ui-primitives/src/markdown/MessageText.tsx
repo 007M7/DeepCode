@@ -1,4 +1,4 @@
-// MessageText: the single text-block rendering point (Markdown support later = swap this component's internals, zero card-structure changes).
+// MessageText is the literal-text primitive for user and steering content; assistant output uses MarkdownText.
 
 import css from './MessageText.module.css'
 

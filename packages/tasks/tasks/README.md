@@ -4,7 +4,7 @@ The process-local background task registry (`ctx.tasks`). It gives long-running 
 
 ## Service API
 
-- `start(spec): TaskId` validates the control surface, spec, and exact live owner before calling the producer's `run()` once. A starter throw leaves nothing registered; successful return commits without another failable step.
+- `start(spec): TaskId` validates the control surface, spec, exact live owner, and optional positive `outputLimitBytes` before calling the producer's `run()` once. A starter throw leaves nothing registered; successful return commits without another failable step.
 - `get(id, caller?)` and `list(caller?)` return non-consuming snapshots. Listing includes only caller-owned and unowned tasks.
 - `read(id, caller?)` consumes the single cursor for stream tasks and reads terminal output idempotently for final-output tasks.
 - `kill(id, caller?, reason?)` invokes producer cancellation before changing status. A cancellation throw leaves the task running; success changes it to `stopping` and marks terminal delivery reported.
@@ -13,6 +13,8 @@ The process-local background task registry (`ctx.tasks`). It gives long-running 
 - `attachSurface(name)` declares a control surface for its effect lifetime. `start()` fails before producer execution when none is attached.
 
 Owned access compares the task's `SessionId` with the caller's. Ids such as `bash-1` are predictable, so this fence is the boundary. Unowned tasks are open to callers and last until service disposal.
+
+`outputLimitBytes` is producer-owned model-presentation policy carried unchanged into snapshots. A control surface applies it after adding status or notice metadata; the registry does not rewrite producer output or invent a default for producers that omit it.
 
 ## Lifecycle
 

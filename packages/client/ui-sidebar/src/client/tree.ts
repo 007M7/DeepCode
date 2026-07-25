@@ -154,7 +154,7 @@ function sessionRow(g: Group, s: SessionSummary, depth: number, hasChildren: boo
     type: 'session',
     id: s.id,
     groupKey: g.key,
-    title: s.title,
+    title: s.displayTitle,
     depth,
     hasChildren,
     expanded,
@@ -183,7 +183,7 @@ function flattenVisible(g: Group, expandedSessions: ReadonlySet<string>, rows: S
 function searchVisible(g: Group, q: string): Set<SessionId> {
   const visible = new Set<SessionId>()
   for (const m of g.summaries.values()) {
-    if (!m.title.toLowerCase().includes(q)) continue
+    if (!m.displayTitle.toLowerCase().includes(q)) continue
     let cur: SessionSummary | undefined = m
     while (cur !== undefined && !visible.has(cur.id)) {
       visible.add(cur.id)
@@ -213,9 +213,9 @@ function flattenSearch(g: Group, visible: ReadonlySet<SessionId>, rows: SidebarR
  *
  * Normal mode: every project row shows; sessions show under expanded
  * projects, descending only into expanded sessions. Search mode (non-blank
- * query, case-insensitive title substring): expansion state is ignored —
+ * query, case-insensitive display-title substring): expansion state is ignored —
  * matched sessions and their ancestor chains are forced visible, groups
- * without a title or label hit are dropped, and a label-only hit keeps the
+ * without a display-title or label hit are dropped, and a label-only hit keeps the
  * bare project row.
  * @param list - sessions list snapshot.
  * @param view - local expansion arrays and search query.

@@ -16,15 +16,21 @@
  * - Plain-text results only: a result carrying any non-text block is left
  *   untouched (the policy knows only the final formatted text, not tool
  *   internals).
+ * - Nested composite calls are skipped; only their outer surface result may
+ *   become model-facing and spillable.
+ * - Accepted value replacements pass through for registry revalidation and
+ *   rendering; this presentation policy cannot also replace content in the
+ *   same mutually exclusive decision.
  * - `read` is skipped to avoid a `read → spill → read again` loop.
  * - Best-effort: no session owner, no `ctx.spillStore` backend, or a save
  *   failure ⇒ log and return the original result. A spill failure must NEVER
  *   turn a successful tool call into an `isError` or hide the inline result.
  *
- * It COMPOSES with other post-execute listeners: it delegates via `next()` and
- * bounds the resulting `accept` content, so a hook that replaced the content
- * still has its replacement bounded, and a `block` decision passes through
- * unchanged.
+ * It COMPOSES with other post-execute listeners: its prepended listener
+ * delegates via `next()` and bounds the resulting content projection, so
+ * tool-owned asynchronous projection runs before generic bounding, a hook that
+ * replaced content still has its replacement bounded, and value replacements
+ * and `block` decisions pass through unchanged.
  *
  * @module @deepseek-ai/dsh-spill-policy
  */
@@ -109,7 +115,8 @@ export function apply(ctx: Context, config: Config): void {
     // accepted plain-text results, never corrective feedback.
     const decision = await next()
     // Skip `read` to avoid a read → spill → read again loop.
-    if (decision.kind !== 'accept' || exec.name === 'read') return decision
+    if (decision.kind !== 'accept' || Object.hasOwn(decision, 'value')
+      || exec.parent !== undefined || exec.name === 'read') return decision
 
     const content = decision.content ?? result.content
     const text = flattenPlainText(content)
@@ -170,5 +177,5 @@ export function apply(ctx: Context, config: Config): void {
     }
     const replaced: ContentBlock[] = [{ type: 'text', text: replacedText }]
     return { kind: 'accept', content: replaced, ...decision.additionalContexts ? { additionalContexts: decision.additionalContexts } : {} }
-  })
+  }, { prepend: true })
 }

@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -45,7 +45,7 @@ async function loopHarness(): Promise<Context> {
   await created.plugin(AgentRegistry)
   await created.plugin(AgentLoop, { agents: [] })
   await created.plugin(LlmDeepSeek)
-  created.tools.register(defineTool({
+  created.tools.register(defineContentToolFixture({
     name: 'lookup',
     description: 'Look up the stored value for a key.',
     parameters: { key: { type: 'string', description: 'The key to look up.' } },
@@ -73,10 +73,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('log-derived request cache hits (
     const agent = ctx.agentLoop.create(SessionId('cache-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     // Turn 1: forces a tool call → at least two steps (two model requests).
-    agent.send([{ type: 'text', text: 'Look up the key "deploy-color" with the lookup tool and tell me the value.' }])
+    agent.followup([{ type: 'text', text: 'Look up the key "deploy-color" with the lookup tool and tell me the value.' }])
     await waitForIdle(ctx, agent)
     // Turn 2: a follow-up over the same (longer) prefix.
-    agent.send([{ type: 'text', text: 'Thanks. Repeat that value one more time.' }])
+    agent.followup([{ type: 'text', text: 'Thanks. Repeat that value one more time.' }])
     await waitForIdle(ctx, agent)
 
     const usages = [...agent.session.events]

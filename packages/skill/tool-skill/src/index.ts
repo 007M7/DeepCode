@@ -42,6 +42,46 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       name: { type: 'string', required: true, description: 'The exact skill name from the available skills list.' },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', required: true },
+          provider: { type: 'string', required: true },
+          resourceBase: {
+            oneOf: [
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'directory' },
+                  path: { type: 'string', required: true },
+                },
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'url' },
+                  url: { type: 'string', required: true },
+                },
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'opaque' },
+                  description: { type: 'string', required: true },
+                },
+              },
+            ],
+          },
+          content: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderSkillContent(value) }],
+    },
     async execute(args, exec) {
       if (!isSkillName(args.name)) {
         throw new Error(`invalid skill name "${args.name}"`)
@@ -53,7 +93,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (skill.disableModelInvocation === true) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
-      return [{ type: 'text', text: renderSkillContent(skill) }]
+      return {
+        name: skill.name,
+        provider: skill.provider,
+        ...skill.resourceBase !== undefined ? {
+          resourceBase: { ...skill.resourceBase },
+        } : {},
+        content: skill.content,
+      }
     },
     presentCall(args) {
       return { card: 'generic', title: `Load skill ${args.name}`, kind: 'read', rawInput: args.name }
@@ -77,7 +124,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 }
 
-function renderSkillContent(skill: SkillDefinition): string {
+function renderSkillContent(skill: Pick<SkillDefinition, 'name' | 'provider' | 'resourceBase' | 'content'>): string {
   const resourceHint = renderResourceHint(skill)
   return [
     `<skill_content name="${escapeAttr(skill.name)}">`,
@@ -92,7 +139,7 @@ function renderSkillContent(skill: SkillDefinition): string {
   ].join('\n')
 }
 
-function renderResourceHint(skill: SkillDefinition): string[] {
+function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceBase'>): string[] {
   const base = skill.resourceBase
   if (base === undefined) {
     return [
@@ -116,8 +163,10 @@ function renderResourceHint(skill: SkillDefinition): string[] {
         `Resources for this skill: ${escapeText(base.description)}`,
         'Load referenced resources only as needed.',
       ]
+    /* v8 ignore start -- SkillResourceBase is a closed union; a future kind must fail compilation here. */
     default:
       return assertNever(base, 'SkillResourceBase.kind')
+    /* v8 ignore stop */
   }
 }
 

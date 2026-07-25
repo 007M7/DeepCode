@@ -34,8 +34,8 @@ function DetailsColumn(props: { children?: ReactNode }) {
   return <div className={css.detailsCol}>{props.children}</div>
 }
 
-/** One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin. */
-function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: number) => void; onEnd: () => void }) {
+/** One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin. `side` keys the hover-reveal CSS to the owning column. */
+function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart: () => void; onDrag: (dx: number) => void; onEnd: () => void }) {
   const [dragging, setDragging] = useState(false)
   const origin = useRef(0)
   const latest = useRef(0)
@@ -72,6 +72,7 @@ function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: num
     <div
       className={css.handle}
       style={{ left: props.left }}
+      data-side={props.side}
       data-dragging={dragging || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -161,8 +162,8 @@ export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: App
         )}
       </SessionProvider>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {panels.sidebar > 0 && <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {cols.details > 0 && <DragHandle left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
+      {panels.sidebar > 0 && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

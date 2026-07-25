@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/m
 推荐在本地使用 Web UI。安装完成后以及每次更新后，请先构建前端，再启动 Web UI：
 
 ```sh
-pnpm --dir ~/.dsh/source run build:web
+pnpm --dir ~/.dsh/source run build && pnpm --dir ~/.dsh/source run build:web
 dsh web
 ```
 

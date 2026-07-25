@@ -1,16 +1,18 @@
 // ConversationRoot: the conversation slot's skeleton (figma Header 39:27730 +
 // Tab_Group + view area + composer). Pure component — everything arrives via
 // props: the framework standard kit (useSession/sessionId/useSessions), the
-// declared chat store's useStore/actions, and the injected business face.
+// declared chat store's useStore/actions, the injected business face, and the
+// renderSlot share for the declared 'conversation.view' child slot (views are
+// slot entries; the active one renders via the list `only` filter) plus the
+// renderSlotChain share for the 'conversation.composer' takeover chain.
 // Breadcrumbs derive from useSessions with a pure parentId walk; the active
 // view id lives in the chat store's `view` field (per-session by store scope).
 
-import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
+import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps } from '../contract/slots.ts'
-import type { ConvViewProps, ViewEntry } from '../contract/views.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
 import css from './ConversationRoot.module.css'
@@ -35,15 +37,15 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 }
 
 export function ConversationRoot({
-  sessionId, useSession, useSessions, useStore, actions,
-  views, send, stop, openDetails, loadOlder, open,
+  sessionId, useSession, useSessions, useStore, actions, renderSlot, renderSlotChain,
+  views, send, stop, open,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
-  const list = views.list()
+  const tabs = views.list()
   // The store's persisted view id may be stale (view plugin unloaded); the
-  // registry is the runtime validator — unknown ids fall to the first view.
+  // slot ledger is the runtime validator — unknown ids fall to the first view.
   const activeId = useStore(s => s.view) ?? 'chat'
-  const active = list.find(v => v.id === activeId) ?? list[0]
+  const active = tabs.find(v => v.id === activeId) ?? tabs[0]
 
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
   const draft = useStore(s => s.draft)
@@ -51,31 +53,26 @@ export function ConversationRoot({
   const removed = useSession(s => s.removed)
   const promptError = useSession(s => s.promptError)
   const turns = useSession(s => countTurns(s))
+  const pending = useSession(s => s.pending)
 
   const error: InputBarError | null = promptError === null
     ? null
     : { op: promptError.op, message: `${promptError.error.message}（${promptError.error.code}）` }
 
-  // Views receive the shares this component already holds (hook transfer is
-  // plain props passing); the callback slice is referentially stable per
-  // injected identity so memoized view rows hold.
-  const viewProps = useMemo<ConvViewProps>(() => ({
-    sessionId, useSession, useStore,
-    actions: { openDetails, loadOlder },
-  }), [sessionId, useSession, useStore, openDetails, loadOlder])
-
-  const renderView = (entry: ViewEntry): ReactNode => {
-    const Header = entry.chrome?.header
-    const Footer = entry.chrome?.footer
-    const View = entry.component
-    return (
-      <>
-        {Header !== undefined && <Header sessionId={sessionId} useSession={useSession} />}
-        <View {...viewProps} />
-        {Footer !== undefined && <Footer sessionId={sessionId} useSession={useSession} />}
-      </>
-    )
-  }
+  // The default composer doubles as the chain's all-decline fallback: a
+  // pending wait with no registered takeover must still leave the input usable.
+  const composerBar = (
+    <InputBar
+      draft={draft}
+      running={running}
+      disabled={removed}
+      error={error}
+      variant="composer"
+      onDraftChange={actions.setDraft}
+      onSend={(mode) => { send(draft, mode) }}
+      onStop={stop}
+    />
+  )
 
   return (
     <div className={css.root}>
@@ -93,7 +90,7 @@ export function ConversationRoot({
                     disabled={last}
                     onClick={() => { open(s.id) }}
                   >
-                    {s.title}
+                    {s.displayTitle}
                   </button>
                 </span>
               )
@@ -104,9 +101,9 @@ export function ConversationRoot({
           {/* Header button row (Fork / Session log / I/O Details): a P-I visual
               placeholder registry slot is deferred — buttons land with their features. */}
         </div>
-        {list.length > 1 && (
+        {tabs.length > 1 && (
           <div className={css.tabs} role="tablist">
-            {list.map(v => (
+            {tabs.map(v => (
               <button
                 key={v.id}
                 type="button"
@@ -123,19 +120,10 @@ export function ConversationRoot({
       </header>
 
       <div className={css.viewArea}>
-        {active !== undefined && renderView(active)}
+        {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
       </div>
 
-      <InputBar
-        draft={draft}
-        running={running}
-        disabled={removed}
-        error={error}
-        variant="composer"
-        onDraftChange={actions.setDraft}
-        onSend={(mode) => { send(draft, mode) }}
-        onStop={stop}
-      />
+      {renderSlotChain('conversation.composer', { interactions: pending }, { fallback: composerBar })}
     </div>
   )
 }

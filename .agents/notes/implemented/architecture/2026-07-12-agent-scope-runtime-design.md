@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-12-agent-scope-runtime-design.zh.md)
+
 ## Problem
 
 The [agent-scope contract](2026-07-08-agent-scope-contexts.md) is simple for contributors: register through `agent.ctx`, resolve one global-plus-agent view, publish only after setup, and retain the scope until work stops. The runtime must preserve that contract across a cooperative plugin framework, asynchronous creation, reentrant listeners, durable session commits, and worker or process failure.
@@ -218,7 +220,7 @@ A fresh registry-assigned Symbol provides collision-free execution identity with
 
 Arguments are materialized once where model/tool JSON enters the pipeline. Pre-, around-, and post-execute listeners operate on the typed execution and decisions. Call ID correlation, approval, monotonic guards, and Code Mode nesting remain explicit relational checks.
 
-After the last post-execute listener, the registry materializes and freezes the accepted final result once. Every synchronous `tools/result` observer receives that exact committed object, and observer failures are contained individually. An outer pipeline failure is normalized into a committed error result, so observers can discard staged work against the same authoritative boundary.
+After post-execute or outer pipeline normalization, the registry losslessly snapshots the candidate result, converting a snapshot failure into an ordinary error, invokes the call's snapshotted optional `ToolDefinition.finalizeContent` callback, then materializes and freezes the accepted final result once. The callback may replace only content, so structured error identity, contexts, and metadata remain registry-owned even when a tool enforces a last-mile result bound. Every synchronous `tools/result` observer receives that exact committed object, and observer failures are contained individually. An outer pipeline or candidate-snapshot failure is normalized before final content, so observers can discard staged work against the same authoritative boundary.
 
 ### The assembly waterfall owns the final model-visible composition
 

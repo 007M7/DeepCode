@@ -23,9 +23,10 @@ Status: implemented
 目录按照如下分层:
 - `packages/host/*`: 包只提供 Host 侧能力（代表了以现在 Harness 实体插件系统为主体的 Node.js 代码核心工程），除此之外，还包含
     - 统一后端协议（fetch、HTTP、流式接口等）定义和支持，见本篇「消息协议」起各节
-- `packages/client/*`：包只提供 Client 侧能力，每包单边不混。这里住两类包：
-    - **纯库**（`ui-slots`、`web-react`、`ui-primitives`）：普通根入口包，静态打包进壳，并播种进浏览器插件 loader 的模块表。
-    - **dshClient 插件包**（`connection`、`runtime`、`ui-theme`、`i18n`、`ui-layout`、`ui-sidebar`、`ui-conversation`、`ui-trajectory`）：双入口——根入口是 node 半边（空 `apply`，其存在是为了让 host Loader 管辖生命周期、让 web 插件注册表发现 package.json 的 `dshClient` 声明）；实现与类型全部住在 `src/client/` 下，经 `./client` 子路径发布（tsdown 闭包工厂 bundle），跨包消费一律 import `/client` 形式。`runtime` 额外导出 `./loader`（壳持有的浏览器 bundle loader——loader 加载不了自己）。
+- `packages/client/*`：包只提供 Client 侧能力，每包单边不混。这里住三类包（两条轴归 [client 插件装载 RFC](2026-07-23-client-plugin-loading-model.md) 所有）：
+    - **纯库**（`ui-slots`、`web-react`、`ui-primitives`，外加内核包 `loader`）：普通根入口包，静态打包进壳；前三者播种进模块表。
+    - **静态到达 entry 包**（`connection`、`runtime`、`ui-theme`、`i18n`、`hmr`）：无 `dshClient` 键、无浏览器 bundle——壳把它们的 `src/client/` 半边打进自己的 bundle 并向 `ctx.modules` 登记；它们与其余单元一样，作为 host 独家撰写的图里的 entry 受治理。
+    - **fetch 到达插件包**（`ui-layout`、`ui-sidebar`、`ui-conversation`、`ui-trajectory`）：双入口——根入口是 node 半边（空 `apply`，其存在是为了让 host Loader 管辖生命周期、让 web 插件注册表发现 package.json 的 `dshClient` 声明）；实现住在 `src/client/` 下，经 `./client` 子路径发布（tsdown 闭包工厂 bundle）。跨插件消费 `/client` 只限类型；值层面的协作走 cordis 服务。
 - `apps/` 作为对外导出的应用形态入口，可以由 Client / Host 混合组装。
     - `apps/web`（`dsh-frontend`）是 vite 应用：`dsh-client-web` 导出的壳表面之上的一层薄 `main.ts`。
     - `apps/cli`（`@deepseek-ai/dsh`）做形态分发：`dsh web` = startHost + webserver + 构建出的 `dsh-frontend` dist；`dsh -p` = headless 进程内直调，零 HTTP。
@@ -49,7 +50,7 @@ harness core packages ──────────────────┘ 
 - `runtime → apiproxy` 单向；apiproxy 仅依赖类型定义。
 - client 侧包**永不 import** host 侧包的运行时（只吃 `/api`、`/client` 两个浏览器安全子路径）。
 - `webserver` 不依赖 `runtime`：它提供 `{ fetch }` 特定实现 ——「webserver ← runtime」只是运行时注入关系，不是包依赖。
-- client 侧跨包 import 插件包一律走 `/client` 子路径（裸包名会把第二份运行时实例内联进浏览器 bundle；tsdown 纯度门禁会改写或拒收）。
+- client 侧跨包 import 插件包一律走 `/client` 子路径，且插件包之间只限类型 import——跨插件值 import 在 tsdown 纯度门禁处即构建错误（值层面的协作走 cordis 服务；边规则归 [client 插件装载 RFC](2026-07-23-client-plugin-loading-model.md) 所有）。
 
 TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.json` = solution；`tsconfig.host.json` = host 侧 + 测试，排除 `packages/client`；`tsconfig.client.json` = client 各包及其测试）：两侧在相同键（`sessions`、`loader`）下以不同服务合并 cordis `Context` 接口，单一 program 会同时看到两份声明合并而报冲突。共享叶子包（session/llm/tools/apiproxy 等）只构建一次，由两个 program 共同引用（[拓扑](../process/2026-07-22-tsconfig-solution-root-two-aggregates.md)）。
 
@@ -68,7 +69,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 
 #### 命名规则
 
-`packages/host/*` 与 `packages/client/*` 下的包名**必须含目录组前缀**：host/runtime → `dsh-host-runtime`、client/runtime → `dsh-client-runtime`。目录名不重复组前缀（host/ 已表达）。因此包名尾段 ≠ 目录名，tsconfig.base.json 的 `dsh-*` 通配（按目录名解析）命不中——**这两组的每包需显式 paths 条目**，且插件包的 `/client`（以及 runtime 的 `/loader`）子路径要单列条目，使源码级解析与 exports map 一致。
+`packages/host/*` 与 `packages/client/*` 下的包名**必须含目录组前缀**：host/runtime → `dsh-host-runtime`、client/runtime → `dsh-client-runtime`。目录名不重复组前缀（host/ 已表达）。因此包名尾段 ≠ 目录名，tsconfig.base.json 的 `dsh-*` 通配（按目录名解析）命不中——**这两组的每包需显式 paths 条目**，且 client 各包的 `/client` 子路径要单列条目，使源码级解析与 exports map 一致。
 
 #### 怎么接入一个新形态（操作清单）
 

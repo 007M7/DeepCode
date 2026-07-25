@@ -18,6 +18,7 @@ interface TimingHooks {
   setHistoryDelay(ms: number): void
   failNextHistory(): void
   appendUser(id: string, msg: string): void
+  appendTitle(id: string, title: string): void
   appendSilent(id: string, msg: string): void
   breakStreams(): void
 }
@@ -113,7 +114,7 @@ describe('createFixtureApi', () => {
     const missing = await api.sessions.prompt(req({ sessionId: sid('ghost'), mode: 'queue' as const, content: [{ type: 'text' as const, text: 'x' }] }))
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found', details: { sessionId: 'ghost' } } })
     // Real prompt: replay starts (running flips true), cancel freezes it.
-    const accepted = await api.sessions.prompt(req({ sessionId: id, mode: 'queue' as const, content: [{ type: 'text' as const, text: '取消我' }] }))
+    const accepted = await api.sessions.prompt(req({ sessionId: id, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'render markdown' }] }))
     expect(accepted.result).toMatchObject({ ok: true, value: { accepted: true } })
     await new Promise(resolve => setTimeout(resolve, 120)) // a couple of typewriter ticks
     await api.sessions.cancel(req({ sessionId: id }))
@@ -148,14 +149,14 @@ describe('createFixtureApi', () => {
     expect(types.at(-1)).toBe('turn/end') // steer did not restart the turn
   })
 
-  it('mux open replays the baseline: subscribed for running sessions + the resident approval with a stable rpcId', async () => {
+  it('mux open replays subscribed sessions and resident interactions with stable rpcIds', async () => {
     const api = createFixtureApi()
     const openOnce = async (): Promise<RpcRequest<MuxFrame>[]> => {
       const abort = new AbortController()
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 2) abort.abort()
+        if (envelopes.length >= 4) abort.abort()
       }
       return envelopes
     }
@@ -163,8 +164,11 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    expect(first[1]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[1]?.rpcId).toBe(first[1]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[1]?.payload).toMatchObject({ type: 'session/title', sessionId: 'fx-alpha', title: 'Fixture 历史会话' })
+    expect(first[2]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[2]?.rpcId).toBe(first[2]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[3]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[3]?.rpcId).toBe(first[3]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
@@ -217,9 +221,38 @@ describe('createFixtureApi', () => {
     }
   })
 
-  it('respond is a typed stub: always not-pending', async () => {
+  it('respond resolves the resident question once and rejects duplicate or unrelated ids', async () => {
     const api = createFixtureApi()
     expect(await api.respond({ type: 'client-response', rpcId: RpcId('x'), result: { ok: true, value: {} } })).toEqual({ accepted: false, reason: 'not-pending' })
+    const abort = new AbortController()
+    let question: RpcRequest<MuxFrame> | undefined
+    for await (const envelope of api.events.mux(req({}), abort.signal)) {
+      if (envelope.payload.type !== 'question/requested') continue
+      question = envelope
+      abort.abort()
+    }
+    if (question === undefined) throw new Error('fixture question missing')
+    const response = { type: 'client-response' as const, rpcId: question.rpcId, result: { ok: true as const, value: {} } }
+    expect(await api.respond(response)).toEqual({ accepted: true })
+    expect(await api.respond(response)).toEqual({ accepted: false, reason: 'not-pending' })
+
+    const replayAbort = new AbortController()
+    const replayed = await collect(api.events.mux(req({}), replayAbort.signal), replayAbort, frames => frames.length === 2)
+    expect(replayed.every(frame => frame.type !== 'question/requested')).toBe(true)
+
+    const cancelledApi = createFixtureApi()
+    const cancelAbort = new AbortController()
+    let cancelQuestion: RpcRequest<MuxFrame> | undefined
+    for await (const envelope of cancelledApi.events.mux(req({}), cancelAbort.signal)) {
+      if (envelope.payload.type !== 'question/requested') continue
+      cancelQuestion = envelope
+      cancelAbort.abort()
+    }
+    if (cancelQuestion === undefined) throw new Error('fixture cancellation question missing')
+    expect(await cancelledApi.respond({
+      type: 'client-response', rpcId: cancelQuestion.rpcId,
+      result: { ok: false, error: { code: 'cancelled', message: 'skip', details: {} } },
+    })).toEqual({ accepted: true })
   })
 
   it('describe answers the fixture identity', async () => {
@@ -248,10 +281,15 @@ describe('createFixtureApi', () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     hooks.appendSilent('fx-alpha', '静默丢帧')
     hooks.appendUser('fx-alpha', '正常直播')
+    hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
     await vi.waitFor(() => {
       expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('正常直播'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/title' && f.title === 'Fixture 修订标题')).toBe(true)
     })
     expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('静默丢帧'))).toBe(false)
+    const rawTitleIndex = seen.findIndex(f => f.type === 'session/event' && (f.event as { type: string }).type === 'session/title')
+    const titleControlIndex = seen.findIndex(f => f.type === 'session/title' && f.title === 'Fixture 修订标题')
+    expect(titleControlIndex).toBe(rawTitleIndex + 1)
     // But history serves the silent event (the client's repull finds it).
     const repull = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 5 }))
     if (!repull.result.ok) throw new Error('repull failed')

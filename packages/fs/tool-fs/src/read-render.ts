@@ -37,9 +37,9 @@ export interface FileTextLine {
 export interface WindowResult {
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
-  /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
+  /** Exact total line count in the file. */
   totalLines: number
-  /** Whether selected output hit the byte cap before EOF or the requested limit. */
+  /** Whether selected output hit the byte cap. */
   truncatedByBytes: boolean
 }
 
@@ -49,9 +49,9 @@ export interface FileReadOutcome {
   offset: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
-  /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
+  /** Exact total line count in the file. */
   totalLines: number
-  /** Whether selected output hit the byte cap before EOF or the requested limit. */
+  /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
 }
 
@@ -60,11 +60,10 @@ interface WindowAccumulator {
   totalLines: number
   outputBytes: number
   truncatedByBytes: boolean
-  done: boolean
 }
 
 function newAccumulator(): WindowAccumulator {
-  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false, done: false }
+  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false }
 }
 
 function truncateLine(line: string, maxLineLength: number): string {
@@ -77,13 +76,12 @@ function lineByteSize(line: string, currentLineCount: number): number {
 
 function consumeLine(acc: WindowAccumulator, rawLine: string, request: ReadWindow): void {
   acc.totalLines += 1
-  if (acc.totalLines < request.offset || acc.lines.length >= request.limit) return
+  if (acc.truncatedByBytes || acc.totalLines < request.offset || acc.lines.length >= request.limit) return
 
   const text = truncateLine(rawLine, request.maxLineLength)
   const bytes = lineByteSize(text, acc.lines.length)
   if (acc.outputBytes + bytes > request.maxBytes) {
     acc.truncatedByBytes = true
-    acc.done = true
     return
   }
   acc.outputBytes += bytes
@@ -102,8 +100,9 @@ function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string
 }
 
 /**
- * Build one window from streamed or whole-file chunks, enforcing line and byte caps and throwing
- * `FS_NOT_FOUND` when the requested offset is past EOF.
+ * Build one window from streamed or whole-file chunks, enforcing line and byte caps while still
+ * scanning to an exact total line count, and throwing `FS_NOT_FOUND` when the requested offset is
+ * past EOF.
  * @param chunks - decoded text chunks in file order; chunk boundaries carry no meaning.
  * @param request - the resolved window; the caller has already applied its defaults and caps.
  * @param displayPath - the caller-facing path used in the offset-out-of-range error.
@@ -137,7 +136,6 @@ export async function buildWindow(
       appendToLineBuffer(chunk.slice(startPos, newlinePos))
       flushLine()
       startPos = newlinePos + 1
-      if (acc.done) return finish(acc, request, displayPath)
     }
     appendToLineBuffer(chunk.slice(startPos))
   }

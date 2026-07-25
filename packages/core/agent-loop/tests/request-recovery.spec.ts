@@ -11,7 +11,7 @@ import LlmService, {
 import type { GenerateOptions, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -114,7 +114,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent): void {
-  agent.send([{ type: 'text', text: 'go' }])
+  agent.followup([{ type: 'text', text: 'go' }])
 }
 
 function contextError(message = 'context too large'): LlmError {
@@ -133,7 +133,7 @@ describe('agent post-step and request-error lifecycle', () => {
     ]
     const adapter = new FailureScriptAdapter([twoCalls, textResponse('done')])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'work',
       description: 'do work',
       parameters: {},
@@ -154,12 +154,15 @@ describe('agent post-step and request-error lifecycle', () => {
     const agent = ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
     const order: string[] = []
     ctx.on('session/event', (_session, event) => {
+      // Injected context is a plugin-sourced user/message; the direct human
+      // prompt (user source) stays untracked as before.
+      const isInjected = event.type === 'user/message' && event.data.source.kind !== 'user'
       if (
         event.type === 'assistant/message' || event.type === 'tool/call'
-        || event.type === 'tool/result' || event.type === 'context/message'
+        || event.type === 'tool/result' || isInjected
         || event.type === 'steering/message' || event.type === 'step/end'
       ) {
-        if (!('step' in event.data) || event.data.step === 1) order.push(event.type)
+        if (!('step' in event.data) || event.data.step === 1) order.push(isInjected ? 'context/message' : event.type)
       }
     })
     ctx.on('agent/post-step', (subject, turn, step, signal) => {
@@ -222,7 +225,7 @@ describe('agent post-step and request-error lifecycle', () => {
       textResponse('must not continue'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'work',
       description: 'do work',
       parameters: {},
@@ -271,7 +274,7 @@ describe('agent post-step and request-error lifecycle', () => {
       expect({ turn, step, code: error.code }).toEqual({ turn: 1, step: 1, code: CONTEXT_WINDOW_EXCEEDED_CODE })
       expect(facts.code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
       attempts.push(history.length)
-      subject.session.append('context/message', {
+      subject.session.append('user/message', {
         content: [{ type: 'text', text: 'RECOVERY SURFACE MUTATION' }],
         source: { kind: 'plugin', plugin: 'test-recovery' },
       }, { surfaceOp: 'append' })
@@ -288,7 +291,7 @@ describe('agent post-step and request-error lifecycle', () => {
     const ends = agent.session.events.filter(event => event.type === 'step/end')
     expect(starts.map(event => event.data.step)).toEqual([1, 2])
     expect(ends.map(event => event.data.step)).toEqual([1, 2])
-    const recovery = agent.session.events.find(event => event.type === 'context/message')!
+    const recovery = agent.session.events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')!
     expect(ends[0]!.seq).toBeLessThan(recovery.seq)
     expect(recovery.seq).toBeLessThan(starts[1]!.seq)
   })
@@ -535,7 +538,7 @@ describe('agent post-step and request-error lifecycle', () => {
       contextError('later overflow'),
     ])
     const resetCtx = await harness(reset)
-    resetCtx.tools.register(defineTool({
+    resetCtx.tools.register(defineContentToolFixture({
       name: 'work',
       description: 'continue',
       parameters: {},

@@ -111,6 +111,27 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx.fiber.dispose()
   })
 
+  it('resume cannot crash-repair a turn owned by a live agent', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([textResponse('unused')]))
+    const sessionId = SessionId('live-resume-race')
+    const first = (await ctx.agents.create({ sessionId })).agent
+    first.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await ctx.sessions.flush(first.session)
+
+    await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
+      .rejects.toThrow(/live turn is open/)
+
+    first.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.sessions.flush(first.session)
+    const loaded = await ctx.sessionPersistence.load(sessionId)
+    expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+    expect(loaded.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'completed' } },
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('createAgent works without meta (no cwd)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
@@ -125,7 +146,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('nocwd-sess') })).agent
-    a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -153,7 +174,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     ctx1.on('agent/session-start', (_agent, source) => void sources1.push(source))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('start-sess') })).agent
     expect(sources1).toEqual(['startup'])
-    a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -459,7 +480,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
-    a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
     // Let inject()'s fire-and-forget flush settle (NO explicit flush/dispose).
@@ -482,7 +503,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
-    a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
     await ctx1.sessions.flush(a1.session)
@@ -510,7 +531,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sess-resume'), meta: { cwd: '/w' } })).agent
-    a1.send([{ type: 'text', text: 'first question' }], { source: { kind: 'user' } })
+    a1.followup([{ type: 'text', text: 'first question' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     const events1 = [...a1.session.events]
     const seqs1 = events1.map(e => e.seq)
@@ -537,7 +558,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     expect(a2.session.deriveMessages()).toEqual(replay.deriveMessages())
 
     // …and a new turn continues numbering (turn 2) with contiguous seqs.
-    a2.send([{ type: 'text', text: 'second question' }], { source: { kind: 'user' } })
+    a2.followup([{ type: 'text', text: 'second question' }], { source: { kind: 'user' } })
     await waitForIdle(ctx2, a2)
     const allSeqs = a2.session.events.map(e => e.seq)
     expect(allSeqs).toEqual(allSeqs.map((_, i) => i)) // 0..N contiguous, no duplicates

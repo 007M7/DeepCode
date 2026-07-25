@@ -1,111 +1,122 @@
-// View-ring type-chain samples (design §9 item 5, views half): the
-// register→inject→render chain composed through ConversationViewMap's
-// per-view extension shapes, plus expect-error duals for each stage.
-// Follows the slots-ring exemplar (ui-slots/tests/type-chain.spec.tsx):
-// negatives live in a never-executed function body; the positive dual runs
-// the real ConversationService view registry.
+// View-ring + toolview-hole type-chain samples, slot form: both are declared
+// slots, so the register→inject→render chain and its compile-time locks are
+// the slot system's (ui-slots/tests/type-chain.spec.tsx owns the generic
+// duals). This spec pins the package-specific surface: the SlotMap rows
+// (kind/scope/owner), list- and keyed-kind registration shapes, the ChatView
+// and tool-row composed-props contracts, and the runtime dual — a real
+// SlotsService ledger driving registration/order/disposal the way
+// ConversationRoot's tab projection consumes it.
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
-import type { FC, ReactNode } from 'react'
-import type {
-  ChromePropsOf, ConvViewProps, ConvViewPropsOf, ViewEntry,
-} from '../src/client/contract/views.ts'
-import { ConversationService } from '../src/client/service.ts'
+import type { ReactNode } from 'react'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ChatViewSlotProps, ConvViewProps, ToolRowProps } from '../src/client/contract/slots.ts'
 
-// Test-only view keys with distinct extension shapes (merged like
-// ui-trajectory does; extension fields are optional per ViewEntryDef).
-declare module '../src/client/contract/views.ts' {
-  interface ConversationViewMap {
-    'vt-extended': { chromeProps: { statLabel: string }; extraProps: { density: 'compact' | 'wide' } }
-    'vt-plain': object
-  }
-}
-
-const ExtendedView: FC<ConvViewPropsOf<'vt-extended'>> = ({ density }) => (density === 'compact' ? null : null)
-const ExtendedChrome: FC<ChromePropsOf<'vt-extended'>> = ({ statLabel }) => (statLabel === '' ? null : null)
-const PlainView: FC<ConvViewPropsOf<'vt-plain'>> = () => null
-
-describe('view-ring type-chain negatives (compile-time; body never runs)', () => {
+describe('view-ring type negatives (compile-time; body never runs)', () => {
   it('holds the negative samples as expect-error sites', () => {
-    const negatives = (service: ConversationService) => {
-      // 1. Registration: a component missing the entry's declared extraProps
-      //    cannot register under that id (props flow from the map entry).
-      const NarrowComp: FC<ConvViewProps & { density: number }> = () => null
-      service.registerView({
-        id: 'vt-extended',
-        label: 'x',
-        // @ts-expect-error density has the wrong value type vs the map entry's extraProps
-        component: NarrowComp,
-      })
-      // 2. Registration: chrome typed for another view's chromeProps drifts.
-      service.registerView({
-        id: 'vt-plain',
-        label: 'x',
-        component: PlainView,
-        // @ts-expect-error vt-plain declares no statLabel chromeProps
-        chrome: { footer: ExtendedChrome },
-      })
-      // 3. Registration: id outside the map is rejected at the entry.
-      service.registerView({
-        // @ts-expect-error unregistered view id
-        id: 'vt-ghost',
-        label: 'x',
-        component: PlainView,
-      })
-      // 4. Render side: per-view props narrow — the extended view's density
-      //    is not accessible under another id's props type.
-      const renderPlain = (props: ConvViewPropsOf<'vt-plain'>): ReactNode => {
-        // @ts-expect-error density belongs to vt-extended's extension, not vt-plain
-        return props.density === 'compact' ? null : null
-      }
-      void renderPlain
-      // 5. Entry-shape drift: ViewEntry<Id> ties chrome and component to the
-      //    SAME id — mixing ids inside one entry fails.
-      const mixed: ViewEntry<'vt-extended'> = {
-        id: 'vt-extended',
-        label: 'x',
-        component: ExtendedView,
-        // @ts-expect-error chrome for vt-plain cannot ride a vt-extended entry
-        chrome: { header: (props: ChromePropsOf<'vt-plain'> & { onlyPlain: true }) => null },
-      }
-      void mixed
-      // 6. Zero-renderSlot inference: the view ring declares no children, so
-      //    view props carry no delegation face (the old hand-written
-      //    ScopedSlots<never> empty surface is retired, not replaced).
-      const renderless = (props: ConvViewPropsOf<'vt-plain'>): ReactNode => {
+    const negatives = (slots: SlotsService) => {
+      // 1. List-kind registration requires the id shape field.
+      // @ts-expect-error missing `id` on a list-slot registration
+      slots.register({ name: 'conversation.view', order: 1 }, (_p: ConvViewProps) => null)
+      // 2. A keyed-kind shape field is rejected on the list slot.
+      slots.register(
+        // @ts-expect-error `key` belongs to keyed slots, not the list ring
+        { name: 'conversation.view', id: 'x', key: 'k' },
+        (_p: ConvViewProps) => null)
+      // 3. Component props must stay within the composed contract: an
+      //    undeclared member cannot be required.
+      // @ts-expect-error component demands a prop no share supplies
+      slots.register(
+        { name: 'conversation.view', id: 'y' },
+        (_p: ConvViewProps & { phantom: number }) => null)
+      // 4. Views receive no renderSlot — the ring's entries declare no children.
+      const renderless = (props: ConvViewProps): ReactNode => {
         // @ts-expect-error views receive no renderSlot — no sub-slot delegation
         void props.renderSlot
-        // @ts-expect-error the legacy slots face is gone from view props
-        void props.slots
         return null
       }
       void renderless
+      // 5. The chat entry's face is its own: openDetails does not exist on the
+      //    base view props (store-less riders never see it).
+      const baseOnly = (props: ConvViewProps): ReactNode => {
+        // @ts-expect-error openDetails lives on ChatViewSlotProps, not the base
+        void props.openDetails
+        return null
+      }
+      void baseOnly
+      // 6. ChatViewSlotProps carries the full composition (standard kit +
+      //    store + inject face) — a handler with a wrong signature is red.
+      const chatProps = (props: ChatViewSlotProps): ReactNode => {
+        // @ts-expect-error openDetails takes a SelectionTarget, not a string
+        props.openDetails('nope')
+        return null
+      }
+      void chatProps
+      // 7. Keyed hole registration requires the key shape field.
+      // @ts-expect-error missing `key` on a keyed-slot registration
+      slots.register({ name: 'conversation.chat.toolview' }, (_p: ToolRowProps) => null)
+      // 8. A list-kind shape field is rejected on the keyed hole.
+      slots.register(
+        // @ts-expect-error `id`/`order` belong to list slots, not the keyed hole
+        { name: 'conversation.chat.toolview', key: 'k', order: 1 },
+        (_p: ToolRowProps) => null)
+      // 9. Tool-row components stay within their composed contract: the
+      //    owner share + standard kit supply no chat-view members.
+      const overreaching = (props: ToolRowProps): ReactNode => {
+        // @ts-expect-error loadOlder lives on ChatViewSlotProps, not the row contract
+        void props.loadOlder
+        return null
+      }
+      void overreaching
+      // 10. Owner-share drift is red at the row component seam: block is the
+      //     call union, not arbitrary payload.
+      const drifted = (props: ToolRowProps): ReactNode => {
+        // @ts-expect-error the block union has no `argsParsed` member
+        void props.block.argsParsed
+        return null
+      }
+      void drifted
       return null as ReactNode
     }
     expect(negatives).toBeTypeOf('function')
   })
 })
 
-describe('view-ring full chain (positive dual)', () => {
-  it('registers, lists, and renders through the per-view extension shapes', () => {
+describe('view-ring runtime dual (real ledger)', () => {
+  function bench() {
     const ctx = new Context()
-    const service = new ConversationService(ctx)
-    // Registration: extension-typed component + same-id chrome compose cleanly.
-    const dispose = service.registerView({
-      id: 'vt-extended',
-      label: '扩展视图',
-      order: 7,
-      component: ExtendedView,
-      chrome: { footer: ExtendedChrome },
-    })
-    const entry = service.views().find(v => v.id === 'vt-extended')
-    expect(entry?.label).toBe('扩展视图')
-    // Render surface: the listed entry's component accepts the composed props
-    // (base ConvViewProps + the map extension), spelled here as the same type
-    // the runtime hands over.
-    expect(typeof entry?.component).toBe('function')
-    expect(typeof entry?.chrome?.footer).toBe('function')
-    dispose()
-    expect(service.views().some(v => v.id === 'vt-extended')).toBe(false)
+    const slots = new SlotsService(ctx)
+    // The conversation entry's role: declare the ring (declaring is claiming).
+    slots.register({
+      name: 'root',
+      children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    }, (_p: { renderSlot?: unknown }) => null)
+    return { slots }
+  }
+
+  it('registers, orders, projects tabs, and disposes through the slot ledger', () => {
+    const { slots } = bench()
+    const offLate = slots.register(
+      { name: 'conversation.view', id: 'z-late', order: 20, label: '晚' }, () => null)
+    const offEarly = slots.register(
+      { name: 'conversation.view', id: 'early', order: 0, label: '早' }, () => null)
+    // Order-sorted ledger, label fallback for a labelless rider.
+    const offBare = slots.register(
+      { name: 'conversation.view', id: 'bare', order: 10 }, () => null)
+    const tabs = slots.entries('conversation.view')
+      .map(e => ({ id: e.options.id, label: e.options.label ?? e.options.id }))
+    expect(tabs).toEqual([
+      { id: 'early', label: '早' },
+      { id: 'bare', label: 'bare' },
+      { id: 'z-late', label: '晚' },
+    ])
+    // Duplicate ids fail loud at load (the ring's uniqueness contract).
+    expect(() => slots.register({ name: 'conversation.view', id: 'early' }, () => null))
+      .toThrow(/already has an entry with id "early"/)
+    offEarly()
+    expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['bare', 'z-late'])
+    offBare()
+    offLate()
+    expect(slots.entries('conversation.view')).toHaveLength(0)
   })
 })

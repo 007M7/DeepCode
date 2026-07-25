@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import { CallId, type Message } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
@@ -187,7 +187,7 @@ describe('dsh-tool-skill', () => {
     const ctx = await setup(home)
     ctx.skills.register({ name: 'listed-skill', description: 'Listed', source: 'runtime', content: 'body' })
     const { agent, scope } = await mintAgentScope(ctx, '/workspace')
-    scope.ctx.tools.register(defineTool({
+    scope.ctx.tools.register(defineContentToolFixture({
       name: 'skill',
       description: 'A scoped tool with unrelated semantics.',
       parameters: {},
@@ -229,6 +229,13 @@ describe('dsh-tool-skill', () => {
     })
 
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected skill success')
+    expect(result.value).toEqual({
+      name: 'project-skill',
+      provider: 'local',
+      resourceBase: { kind: 'directory', path: join(project, '.dsh/skills/project-skill') },
+      content: 'Project instructions.',
+    })
     const block = result.content[0]
     expect(block?.type).toBe('text')
     if (block?.type !== 'text') throw new Error('expected text skill result')
@@ -286,7 +293,7 @@ describe('dsh-tool-skill', () => {
     expect(provider.content[0].text).toContain('<skill_resources>\nResources for this skill are managed by provider "runtime".\nLoad referenced resources only as needed.\n</skill_resources>')
   })
 
-  it('fails loud on an unknown resource base kind', async () => {
+  it('rejects an unknown resource-base kind at the canonical output boundary', async () => {
     const home = await tempDir('tool-resource-assert-never')
     const ctx = await setup(home)
     ctx.skills.register({
@@ -301,9 +308,10 @@ describe('dsh-tool-skill', () => {
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c5'), name: 'skill', arguments: { name: 'rogue-resource-skill' } })
 
     expect(result.isError).toBe(true)
+    expect(result.error?.info?.code).toBe('INVALID_TOOL_OUTPUT')
     const block = result.content[0]
     if (block?.type !== 'text') throw new Error('expected text tool result')
-    expect(block.text).toContain('unreachable variant')
+    expect(block.text).toContain('value.resourceBase')
   })
 
   it('returns isError for unknown, invalid, and model-disabled skills', async () => {

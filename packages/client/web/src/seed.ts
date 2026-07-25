@@ -1,10 +1,10 @@
 /**
- * Pure-library module-table seed. These are the ONLY entities statically
- * built into the shell bundle besides the loader machinery — every plugin
- * (including the infrastructure four) arrives as a dynamic bundle and
- * resolves its externals against this table through the loader's require.
- * Keys must match the tsdown client preset's external specifiers
- * (packages/client/tsdown.client.ts CLIENT_EXTERNALS ∩ pure libraries).
+ * Platform-singleton module-table. These are the ONLY entities the shell
+ * shares into the frozen module table — fetch bundles resolve their externals
+ * against exactly this set through the loader's require. Keys come from the
+ * platform constant module ({@link ./platform.ts}, contract C1: single source
+ * of truth with the tsdown client externals); values stay shell-static
+ * imports so every bundle sees the same instance.
  */
 import * as React from 'react'
 import * as ReactJsxRuntime from 'react/jsx-runtime'
@@ -14,12 +14,16 @@ import * as Cordis from 'cordis'
 import * as UiSlots from '@deepseek-ai/dsh-client-ui-slots'
 import * as WebReact from '@deepseek-ai/dsh-client-web-react'
 import * as UiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PlatformModule } from './platform.ts'
 
 /**
- * Build the seed table handed to the loader machinery at boot.
- * @returns module specifier → export-surface entity.
+ * Build the static table handed to the module loader at boot.
+ * @returns module specifier → export-surface entity (one entry per platform word).
  */
-export function seedModules(): Record<string, unknown> {
+export function getStaticModules(): Record<string, unknown> {
+  // The satisfies pin is the projection contract: a word added to
+  // PLATFORM_MODULES without a static import here (or vice versa) fails to
+  // compile instead of drifting into a runtime require miss.
   return {
     'react': React,
     'react/jsx-runtime': ReactJsxRuntime,
@@ -29,5 +33,5 @@ export function seedModules(): Record<string, unknown> {
     '@deepseek-ai/dsh-client-ui-slots': UiSlots,
     '@deepseek-ai/dsh-client-web-react': WebReact,
     '@deepseek-ai/dsh-client-ui-primitives': UiPrimitives,
-  }
+  } satisfies Record<PlatformModule, unknown>
 }

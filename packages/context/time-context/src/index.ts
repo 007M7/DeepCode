@@ -64,7 +64,6 @@ function precedingMessageTime(agent: Agent): number | undefined {
       case 'user/message':
       case 'assistant/message':
       case 'tool/result':
-      case 'context/message':
       case 'steering/message':
         return event.time
       default:
@@ -79,7 +78,7 @@ function precedingMessageTime(agent: Agent): number | undefined {
 function precedingStepContextTime(agent: Agent, turn: number): number | undefined {
   for (const event of [...agent.session.events].reverse()) {
     if (event.type === 'turn/start' && event.data.turn === turn) return undefined
-    if (event.type === 'context/message'
+    if (event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === name) {
       return event.time
@@ -91,7 +90,7 @@ function precedingStepContextTime(agent: Agent, turn: number): number | undefine
 /** Find this plugin's latest durable injection, including a shadowed surface event. */
 function latestInjectionTime(agent: Agent): number | undefined {
   for (const event of [...agent.session.events].reverse()) {
-    if (event.type === 'context/message'
+    if (event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === name) {
       return event.time

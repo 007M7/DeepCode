@@ -34,7 +34,7 @@ ctx.slots.register({
 
 There is no separate slot-definition API. The `children` object both **declares the child slots into existence** and **authorizes this component to render them** — a slot is a hole in the render tree that exists because someone will render it, so its lifecycle is the declaring entry's lifecycle (entry disposed → slots gone, contributions cleared). The values are the runtime spec (`kind`/`scope` drive outlet iteration and binding selection; `SlotMap` is types-only and erased at runtime, which is why an array of keys could not work), statically checked against the `SlotMap` entry so type and value are declared at one point and cross-validated.
 
-Parity rule: **the declaring entry holds the exclusive right to render its child slots**, settled entirely at register time (misconfiguration fails loud at load; the render hot path carries no checks). Loud-at-load cases: a second entry declaring an already-declared slot; registering into an undeclared slot; one store handle mounted under two scopes.
+Parity rule: **the declaring entry holds the exclusive right to render its child slots**, settled entirely at register time (misconfiguration fails loud at load; the render hot path carries no checks). Loud-at-load cases: a second entry declaring an already-declared slot; registering into an undeclared slot; one store handle mounted under two scopes; a chain registration missing its `select`.
 
 `SlotMap` declaration merging remains the type authority, and an entry declares only its own axes plus the **owner share** — the registrant's injected props never enter the global table ("whoever injects it, owns its type").
 
@@ -43,11 +43,19 @@ Parity rule: **the declaring entry holds the exclusive right to render its child
 | Share | Type | Source of truth | Contents |
 |---|---|---|---|
 | runtime | `PropsRuntime<K>` | SlotMap entry for K | `OwnerOf<K>` (render-site params) + session-scope standard `useSession`/`sessionId` + global `useSessions` |
-| child render | `PropsRenderSlots<S>` | register's `children` keys | `renderSlot(key, owner)`, key statically narrowed to S |
+| child render | `PropsRenderSlots<S>` | register's `children` keys | `renderSlot(key, owner)`, key statically narrowed to S; chain keys add `renderSlotChain` |
 | store | `PropsStore<H>` | store factory return type | `useStore` selector hook + `actions.*` (draft-param stripped) |
 | business | `I` | inject return type | plain data + callbacks (hooks banned) |
 
 `sessionId` is framework-supplied wherever `scope: 'session'` is declared — owner params do not carry it. The register call site is the double-lock choke point: a component whose renderSlot keys exceed the `children` declaration, or that misses a declared face, or whose store/inject shapes drift, is a compile error on that line. Delegation is ordinary props passing (hand the `renderSlot` function down, optionally behind a narrower signature) — there is no whitelist face object and no minting API.
+
+### The chain kind: entries self-nominate, first match renders
+
+The fourth `SlotKind`, `'chain'`, inverts routing authority relative to `keyed`: a keyed dispatch site picks its occupant by `entryKey`, while a chain entry nominates itself — the owner dispatches one common currency of owner props and never learns who takes over, so a new takeover package registers with zero owner edits. A chain registration carries a `select` pure selector (`ChainSelect<O, M>`: `(owner) => matched | null`) and an optional `priority` (ascending; ties keep registration = assembly order — the deployment-controllable inject topology — under the same stable sort as list `order`); registering without `select` is one of the loud-at-load cases above. At render, the outlet runs the selectors in chain order: the first non-null return elects its entry and the returned value joins the component's props as `matched` (the component never re-derives its own match), `null` passes the turn to the next entry, and all-null renders the owner's fallback body (`ChainRenderOpts`).
+
+The decline decision lives in `select`, never in a mounted component probing its own props: a component that mounts only to render null still runs its hooks and effects for nothing, and the resulting mount/unmount churn breaks memoization and React key semantics, whereas a selector is a pure function — unit-testable, zero mount side effects — the same discipline as "presentation methods are pure functions of `args`". Purity is the selector's contract: it reads no external mutable state and produces no side effects, so the routing decision is entirely a function of the owner props and safe to run on every dispatch. Selectors route; they never mint — per-dispatch object construction would churn identity every render, so wrapping a matched value in a richer face happens inside the elected component (`useMemo` keyed on `matched`).
+
+In the type chain, a chain entry's SlotMap shape is `{ kind: 'chain'; scope; owner }` with `owner` as the chain's currency; `M` — the `matched` prop's type — is inferred from the select return (a selector narrowing a union member types `matched` automatically), and the component position stays out of `M` inference, the same NoInfer ruling that pins the inject share (rulings below). On the owner side, `renderSlotChain(key, owner, { fallback })` joins `renderSlot` in the `PropsRenderSlots` share, its key domain statically narrowed to the chain-kind keys of the entry's children declaration (`ChainKeysOf`); the dispatch site is one line and holds no derivation or routing logic of its own.
 
 ### The store seat: framework engine, registrant schema
 
@@ -93,7 +101,7 @@ Two hardening decisions in the register signature exist because the obvious alte
 
 ## Consequences
 
-Render authority is enforceable rather than conventional: who renders what is a load-time fact, and auditing the UI structure = reading the register calls. Every props surface is statically derived from one source (SlotMap entry, children keys, store factory, inject return), so a schema change propagates by compiler rather than by grep. Plugins carry no subscription machinery of their own — store lifecycle (per-session instances, disposal, persistence) is framework semantics keyed to the entry axis. Costs: registration options are dense (children spec objects); the framework carries real inference machinery (`defineStore`'s init/actions same-round inference may need a curried fallback); and the compile-time double locks mean prototype-stage drift is a hard error, not a warning.
+Render authority is enforceable rather than conventional: who renders what is a load-time fact, and auditing the UI structure = reading the register calls; for chain slots, WHO renders is additionally a render-time fact, but the deciding selectors are register-site declarations, so the audit surface stays the register calls. Every props surface is statically derived from one source (SlotMap entry, children keys, store factory, inject return), so a schema change propagates by compiler rather than by grep. Plugins carry no subscription machinery of their own — store lifecycle (per-session instances, disposal, persistence) is framework semantics keyed to the entry axis. Costs: registration options are dense (children spec objects); the framework carries real inference machinery (`defineStore`'s init/actions same-round inference may need a curried fallback); and the compile-time double locks mean prototype-stage drift is a hard error, not a warning.
 
 ## Alternatives considered
 
@@ -107,3 +115,5 @@ Render authority is enforceable rather than conventional: who renders what is a 
 | Module-level store handles | A module-scope handle is a singleton across plugin reloads and test cases; the factory form scopes identity to apply/test invocation |
 | Components receiving the store instance | `update`/`set` in render code makes the mutation surface unauditable; declared actions keep "what can change" a register-site fact |
 | `FC` at the register position / inferring `I` from the component | FC statics generate covariant noise that rejects valid components; component-side inference absorbs props drift silently (see rulings above) |
+| Keyed dispatch with owner-side routing for takeover slots | The owner accumulates per-entry contracts and a hardcoded routing table (`find` + `entryKey` per takeover); the chain currency keeps new takeover registrations at zero owner edits |
+| Components declining by rendering null | Declining requires mounting first — hooks and effects run for nothing, and mount/unmount churn breaks memoization and key semantics; a pure selector decides without a component instance |

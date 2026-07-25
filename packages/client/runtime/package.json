@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-runtime",
-  "description": "Client cordis boot and core services: SlotsService, SessionsService (scope tree + object layer), ClientLoader",
+  "description": "Client core services: SlotsService, SessionsService (scope tree + object layer)",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -14,10 +14,6 @@
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
-    },
-    "./loader": {
-      "types": "./lib/types/client/loader/index.d.ts",
-      "default": "./lib/loader.js"
     },
     "./client": {
       "types": "./lib/types/client/index.d.ts",
@@ -37,6 +33,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+    "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "immer": "^10.1.1",
@@ -56,7 +53,6 @@
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/loader.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "src"

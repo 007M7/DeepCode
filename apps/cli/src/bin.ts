@@ -32,7 +32,7 @@ const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 switch (invocation.mode) {
   case 'web': {
     const { runWeb } = await import('./web.ts')
-    await runWeb(invocation.host, invocation.port)
+    await runWeb(invocation.host, invocation.port, invocation.dev)
     break
   }
   case 'headless': {

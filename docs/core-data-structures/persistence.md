@@ -1,16 +1,22 @@
 # Session Persistence
 
+English | [中文](persistence.zh.md)
+
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log. The event vocabulary the log carries is enumerated, member by member, in the generated [persistence log event catalog](../persistence-catalog.md).
 
-The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append/load/list over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
+The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, crash-repairing load, non-mutating inspect, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
 
 ## The flush checkpoint
 
-`session/event` is a *synchronous* notification; persistence plugins buffer it (write-behind) until `session/flush`. The loop awaits an ordinary turn's checkpoint before claiming the next queue item; synchronous idle `inject()` schedules its checkpoint without blocking `send()`, and disposal still drains it. A successful flush durably commits the closed turn as one unit; a rejecting flush is reported through `agent/error` and the logger — never as a session event past the closed turn — while the backend keeps its buffered events for the next flush.
+`session/event` is a *synchronous* notification; persistence plugins copy the event into a per-session controller and start an eager write without blocking the producer. Concurrent events share the current batch, and events admitted during that write trigger a follow-up batch. `session/flush` waits until no current or pending batch remains, so the loop still uses it as the ordering and error-observation checkpoint before claiming the next ordinary turn. A rejected eager write retains its events; an explicit flush retries them and reports failure through `agent/error` and the logger, never as a session event past the closed turn. Disposal performs the same final drain.
 
 ## Crash recovery preserves an interrupted turn
 
 A backend that reloads a log crashed mid-turn finds an open `turn/start` with no `turn/end`. It does **not** truncate — a single turn can be huge in a long-horizon task (many steps, large tool output), and those events were durably appended before the crash. Instead it closes the orphaned turn with a synthetic `turn/end { reason: { kind: 'interrupted' } }`, keeping the log balanced and the turn-enclosure invariant intact. `interrupted` is the one `TurnEndReason` no loop emits (see [session.md](session.md#why-a-turn-ended-turnendreasonmap)).
+
+Repair applies only to cold sessions. For a live id, `SessionPersistence.load(id)` snapshots the in-memory log, waits until that snapshot is durable, and returns it with the stored header only when balanced; an open live turn rejects rather than receiving synthetic interruption boundaries. A coordinator-backed cold load reserves the id across backend reads and repair writes, so concurrent publication of a same-id live session rejects and rolls back. HMR also adopts a live prefix without closing its active turn.
+
+`SessionPersistence.inspect(id)` is the observer counterpart to recovery: it returns a detached valid stored prefix without truncating a torn record, adding interruption closers, or publishing write state. Same-id serialization keeps it coherent with backend writes. Derived read models use `inspect`, never `load`, so observing a checkpointed open turn cannot mutate the log if live ownership begins concurrently.
 
 ## `SessionLocation` — optional per-session artifact target
 
@@ -49,7 +55,7 @@ interface SessionHeader {
   readonly version: number
   /** The session's id (mirrors the {@link Session}'s id). */
   readonly id: SessionId
-  /** Unix epoch milliseconds when the session was created. */
+  /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
   /** Absolute working directory the session was created in (if any). */
   readonly cwd?: string
@@ -98,11 +104,31 @@ interface CreateSessionOptions {
 
 Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resuming a *persisted* session into a live agent is `ctx.agents.resume({ resumeSessionId })`.
 
+## Lightweight source revisions
+
+Consumers of derived state compare a cheap opaque revision before loading a full event log. The persistence backend owns its representation and changes it transactionally with append or mutating load repair; callers compare it only for equality.
+
+```ts type-equiv
+/**
+ * Backend-owned token that identifies both one storage source and one revision
+ * of a persisted session log.
+ */
+type SessionPersistenceRevision = Branded<'SessionPersistenceRevision'>
+```
+
+```ts type-equiv
+/** Lightweight immutable source identity returned without loading a full log. */
+interface SessionPersistenceSnapshot {
+  /** Detached metadata for one materialized session. */
+  header: SessionHeader
+  /** Opaque source-qualified token that changes whenever this stored log changes. */
+  revision: SessionPersistenceRevision
+}
+```
+
 ## The backends
 
-Both implement the same abstract `SessionPersistence` (locate/create/append/load/list over `SessionEvent`) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
+Both implement the same abstract `SessionPersistence` (locate/create/append/load/inspect/list/listSnapshots over `SessionEvent`) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
 
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)** — an append-only logical JSONL log per session, stored as checksummed concatenated Zstandard frames by default or raw lines by configuration, with crash-safe atomic writes, interrupted-turn recovery, and a read/replay path.
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data, source_event_seqs, surface_op)` maps 1:1 onto the event, including optional surface metadata, so there is no parallel persisted schema to keep in sync.
-
-Multiple backends sharing one on-disk session coordinate writes through the [shared persistence write-coordinator](../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).

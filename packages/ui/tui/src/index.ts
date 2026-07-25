@@ -31,13 +31,12 @@ import {
   type EditorTheme,
   type Focusable,
   type MarkdownTheme,
-  type OverlayHandle,
   type SelectListTheme,
   type SlashCommand,
   type Terminal,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import type { Context } from 'cordis'
+import { Service, type Context, type Fiber } from 'cordis'
 import z from 'schemastery'
 import {
   installAgentLlmTarget,
@@ -61,18 +60,24 @@ import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   displayPromptContent,
   SessionId,
+  type JsonValue,
   type Session,
   type SessionEvent,
   type SessionHeader,
   type TodoItem,
 } from '@deepseek-ai/dsh-session'
+import { foldGoal, type GoalPhase } from '@deepseek-ai/dsh-goal'
 import {
   formatSessionReferenceMention,
   parseSessionReferenceText,
   type SessionReferenceService,
 } from '@deepseek-ai/dsh-session-reference'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
-// Side-effect type import: declaration-merges the optional `sessionPersistence`
+import type {
+  SessionLogSnapshot,
+  SessionRecord,
+} from '@deepseek-ai/dsh-session-query'
+// Type import also declaration-merges the optional `sessionPersistence`
 // service onto `Context` so `ctx.get('sessionPersistence')` is typed.
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SkillDefinition, SkillResourceBase, SkillService } from '@deepseek-ai/dsh-skill'
@@ -90,11 +95,97 @@ import {
   type AskUserQuestionItem,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
+import {
+  TuiExtensionServiceImpl,
+  TuiOverlayManager,
+} from './overlay-manager.ts'
+import type {
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiTheme,
+} from './extension.ts'
+
+export type {
+  TuiComponent,
+  TuiFocusable,
+  TuiOverlayAnchor,
+  TuiOverlayCloseReason,
+  TuiOverlayHost,
+  TuiOverlayMargin,
+  TuiOverlayOptions,
+  TuiOverlayOutcome,
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiOverlayState,
+  TuiTheme,
+  TuiViewport,
+} from './extension.ts'
+
+declare module 'cordis' {
+  interface Context {
+    /** Terminal-only interaction service, available only while a TUI is mounted. */
+    tui: TuiExtensionService
+    /** Optional process host that can replace this TUI with a resumed session. */
+    tuiResumeHost: TuiResumeHost
+  }
+}
+
+/** Process-lifecycle owner used by the shipped CLI for an atomic resume handoff. */
+export interface TuiResumeHost {
+  /**
+   * Dispose the current app and replace it with a runtime for `sessionId`.
+   * Success does not return. A host may reject before it commits teardown;
+   * after commit it owns fatal reporting and process exit.
+   * @param sessionId - validated persisted session selected by the user.
+   */
+  handoff(sessionId: SessionId): Promise<never>
+}
+
+/**
+ * Optional terminal-local interaction service provided by one mounted TUI.
+ *
+ * The concrete provider retains pi-tui, focus, and terminal lifecycle state.
+ * Plugins receive only effect-owned overlay sessions.
+ */
+export abstract class TuiExtensionService extends Service {
+  /** Exact agent driven by this terminal instance. */
+  abstract readonly agent: Agent
+
+  /**
+   * Queue an interactive overlay owned by the calling plugin fiber.
+   *
+   * The TUI displays one overlay at a time in FIFO order. Disposing the caller
+   * removes a queued overlay or closes an active one before plugin teardown
+   * settles. This live presentation is neither logged nor replayed.
+   *
+   * @param request - component factory, layout constraints, and cancellation.
+   * @returns the effect-owned overlay session.
+   * @throws when the TUI has begun shutting down.
+   */
+  abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
+}
+import {
+  activeAtToken,
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+  formatFileMention,
+  WorkspaceFileSearch,
+} from './file-autocomplete.ts'
+
+export {
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+} from './file-autocomplete.ts'
 
 export const name = 'ui-tui'
-export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
+export const inject = ['agents', 'sessions', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
 
-/** Presentation settings for the pi-tui terminal mode. */
+/** Model guidance for path-only file references selected through the TUI. */
+export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.'
+
+/** Interaction and presentation settings for the pi-tui terminal mode. */
 export interface TuiConfig {
   /** Render model reasoning blocks. */
   showReasoning?: boolean
@@ -104,6 +195,8 @@ export interface TuiConfig {
   maxQuestionOptions?: number
   /** Maximum models visible at once in the model selector. */
   maxModelOptions?: number
+  /** Maximum sessions visible at once in the resume selector. */
+  maxResumeOptions?: number
   /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
   /** User-question panel maximum height in terminal rows. */
@@ -112,6 +205,12 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Maximum fuzzy file candidates displayed for one `@` query. */
+  fileSearchMaxResults?: number
+  /** Maximum paths retained in one `@` workspace index. */
+  fileSearchMaxEntries?: number
+  /** Directory basenames excluded from `@` traversal and completion. */
+  fileSearchExcludedDirectories?: string[]
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
@@ -131,31 +230,41 @@ const showReasoningSchema = z.boolean().default(true)
 const maxToolOutputLinesSchema = z.number().step(1).min(1).default(6)
 const maxQuestionOptionsSchema = z.number().step(1).min(1).default(8)
 const maxModelOptionsSchema = z.number().step(1).min(1).default(8)
+const maxResumeOptionsSchema = z.number().step(1).min(1).default(8)
 const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
+const fileSearchMaxResultsSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_RESULTS)
+const fileSearchMaxEntriesSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_ENTRIES)
+const fileSearchExcludedDirectoriesSchema = z.array(z.string()).default([...DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES])
 const showHardwareCursorSchema = z.boolean().default(false)
 const colorSchema = z.boolean().default(true)
 // No default: an unset value auto-detects truecolor from COLORTERM in `apply`.
 const truecolorSchema = z.boolean()
 const titleSchema = z.string().default('DeepSeek Harness')
 
-/** Schemastery schema for presentation settings embedded by app bundles. */
-export const TuiConfigSchema: z<TuiConfig> = z.object({
+const tuiConfigSchemaFields = {
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
   maxModelOptions: maxModelOptionsSchema,
+  maxResumeOptions: maxResumeOptionsSchema,
   questionDialogWidth: questionDialogWidthSchema,
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
   modelDialogWidth: modelDialogWidthSchema,
   modelDialogMaxHeight: modelDialogMaxHeightSchema,
+  fileSearchMaxResults: fileSearchMaxResultsSchema,
+  fileSearchMaxEntries: fileSearchMaxEntriesSchema,
+  fileSearchExcludedDirectories: fileSearchExcludedDirectoriesSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
   truecolor: truecolorSchema,
   title: titleSchema,
-})
+}
+
+/** Schemastery schema for presentation settings embedded by app bundles. */
+export const TuiConfigSchema: z<TuiConfig> = z.object(tuiConfigSchemaFields)
 
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
@@ -164,11 +273,10 @@ export interface Config extends TuiConfig {
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
   /**
-   * Shell command template shown for resuming this session: printed on exit and
-   * listed by `/resume`, with every `{session}` occurrence replaced by the live
-   * session id. Absent disables both surfaces. Deployments set it only when a
-   * persistence backend makes the session resumable (e.g.
-   * `RESUME_SESSION_ID={session} dsh`).
+   * Shell command fallback printed on exit or after selecting a session when
+   * the host cannot hand off in place. Every `{session}` becomes the selected
+   * id; the TUI never executes this text. Absent disables only the fallback,
+   * not the interactive selector.
    */
   resumeCommand?: string
 }
@@ -177,18 +285,22 @@ export const Config: z<Config> = z.object({
   welcome: z.string(),
   sessionId: z.string().default('main'),
   resumeCommand: z.string(),
-  showReasoning: showReasoningSchema,
-  maxToolOutputLines: maxToolOutputLinesSchema,
-  maxQuestionOptions: maxQuestionOptionsSchema,
-  maxModelOptions: maxModelOptionsSchema,
-  questionDialogWidth: questionDialogWidthSchema,
-  questionDialogMaxHeight: questionDialogMaxHeightSchema,
-  modelDialogWidth: modelDialogWidthSchema,
-  modelDialogMaxHeight: modelDialogMaxHeightSchema,
-  showHardwareCursor: showHardwareCursorSchema,
-  color: colorSchema,
-  truecolor: truecolorSchema,
-  title: titleSchema,
+  showReasoning: tuiConfigSchemaFields.showReasoning,
+  maxToolOutputLines: tuiConfigSchemaFields.maxToolOutputLines,
+  maxQuestionOptions: tuiConfigSchemaFields.maxQuestionOptions,
+  maxModelOptions: tuiConfigSchemaFields.maxModelOptions,
+  maxResumeOptions: tuiConfigSchemaFields.maxResumeOptions,
+  questionDialogWidth: tuiConfigSchemaFields.questionDialogWidth,
+  questionDialogMaxHeight: tuiConfigSchemaFields.questionDialogMaxHeight,
+  modelDialogWidth: tuiConfigSchemaFields.modelDialogWidth,
+  modelDialogMaxHeight: tuiConfigSchemaFields.modelDialogMaxHeight,
+  fileSearchMaxResults: tuiConfigSchemaFields.fileSearchMaxResults,
+  fileSearchMaxEntries: tuiConfigSchemaFields.fileSearchMaxEntries,
+  fileSearchExcludedDirectories: tuiConfigSchemaFields.fileSearchExcludedDirectories,
+  showHardwareCursor: tuiConfigSchemaFields.showHardwareCursor,
+  color: tuiConfigSchemaFields.color,
+  truecolor: tuiConfigSchemaFields.truecolor,
+  title: tuiConfigSchemaFields.title,
 })
 
 /** Fully defaulted TUI presentation settings. */
@@ -197,10 +309,14 @@ export interface ResolvedTuiConfig {
   maxToolOutputLines: number
   maxQuestionOptions: number
   maxModelOptions: number
+  maxResumeOptions: number
   questionDialogWidth: number
   questionDialogMaxHeight: number
   modelDialogWidth: number
   modelDialogMaxHeight: number
+  fileSearchMaxResults: number
+  fileSearchMaxEntries: number
+  fileSearchExcludedDirectories: string[]
   showHardwareCursor: boolean
   color: boolean
   truecolor: boolean
@@ -221,6 +337,8 @@ export interface TuiRuntime {
   formatCwd?: (cwd: string | undefined) => string
   /** Monotonic-enough wall clock for elapsed status rendering. Defaults to `Date.now`. */
   now?(): number
+  /** Host-owned process handoff; absent leaves `resumeCommand` as the fallback. */
+  handoffResume?: TuiResumeHost['handoff']
 }
 
 /**
@@ -235,10 +353,14 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     maxToolOutputLines: config?.maxToolOutputLines ?? 6,
     maxQuestionOptions: config?.maxQuestionOptions ?? 8,
     maxModelOptions: config?.maxModelOptions ?? 8,
+    maxResumeOptions: config?.maxResumeOptions ?? 8,
     questionDialogWidth: config?.questionDialogWidth ?? 200,
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
     modelDialogWidth: config?.modelDialogWidth ?? 72,
     modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
+    fileSearchMaxResults: config?.fileSearchMaxResults ?? DEFAULT_FILE_SEARCH_MAX_RESULTS,
+    fileSearchMaxEntries: config?.fileSearchMaxEntries ?? DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+    fileSearchExcludedDirectories: [...(config?.fileSearchExcludedDirectories ?? DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES)],
     showHardwareCursor: config?.showHardwareCursor ?? false,
     color: config?.color ?? true,
     truecolor: config?.truecolor ?? false,
@@ -271,6 +393,11 @@ function ansi(open: string, close: string, enabled: boolean): (text: string) => 
 }
 
 const TERMINAL_CONTROL_PATTERN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu
+const TERMINAL_OSC_PATTERN = /(?:\u001B\]|\u009D)(?:(?!\u0007|\u001B\\)[\s\S])*(?:\u0007|\u001B\\|$)/gu
+const TERMINAL_CSI_PATTERN = /(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/gu
+const TERMINAL_ESCAPE_PATTERN = /\u001B[@-_]/gu
+const BRACKETED_PASTE_START = '\u001B[200~'
+const BRACKETED_PASTE_END = '\u001B[201~'
 
 /**
  * Escape external C0/C1 controls before pi-tui adds application-owned ANSI.
@@ -284,6 +411,15 @@ function displayText(text: string): string {
 /** Escape external controls for terminal fields that must remain on one line. */
 function displayInlineText(text: string): string {
   return displayText(text).replaceAll('\n', '\\x0a')
+}
+
+/** Remove terminal controls from clipboard text before an editable field stores it. */
+function sanitizePastedText(text: string): string {
+  return text
+    .replace(TERMINAL_OSC_PATTERN, '')
+    .replace(TERMINAL_CSI_PATTERN, '')
+    .replace(TERMINAL_ESCAPE_PATTERN, '')
+    .replace(TERMINAL_CONTROL_PATTERN, '')
 }
 
 /**
@@ -745,7 +881,7 @@ function diffLines(diff: FileDiff, palette: Palette): string[] {
 }
 
 class ToolCardComponent implements Component {
-  private result: { content: ContentBlock[]; isError: boolean; meta?: unknown } | undefined
+  private result: { content: ContentBlock[]; isError: boolean; meta?: JsonValue } | undefined
   private expanded = false
   private callView: ToolCallView
   private resultView: ToolResultView | undefined
@@ -1140,6 +1276,248 @@ class ModelDialog implements Component {
   }
 }
 
+interface ResumeRoute {
+  provider: string
+  model: string
+}
+
+interface ResumeCandidate {
+  record: SessionRecord
+  title: string
+  lastActivityAt: number
+  lastTurn: string
+  route?: ResumeRoute
+  goalPhase?: GoalPhase
+  disabledReason?: string
+}
+
+function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
+  const event = snapshot.events.findLast(item => item.type === 'turn/end')
+  if (event === undefined) return 'no completed turn'
+  const reason = event.data.reason
+  switch (reason.kind) {
+    case 'completed': return `turn ${event.data.turn}: completed`
+    case 'aborted': return `turn ${event.data.turn}: cancelled`
+    case 'error': return `turn ${event.data.turn}: error`
+    case 'disposed': return `turn ${event.data.turn}: disposed`
+    case 'max-tokens': return `turn ${event.data.turn}: max tokens`
+    case 'rejected': return `turn ${event.data.turn}: rejected`
+    case 'interrupted': return `turn ${event.data.turn}: interrupted`
+    default: return `turn ${event.data.turn}: unknown result`
+  }
+}
+
+function resumeRoute(snapshot: SessionLogSnapshot): ResumeRoute | undefined {
+  const header = snapshot.events.findLast(item => item.type === 'request/header')
+  if (header?.type === 'request/header') {
+    return { provider: header.data.header.config.provider, model: header.data.header.config.model }
+  }
+  const assistant = snapshot.events.findLast(item => item.type === 'assistant/message')
+  return assistant?.type === 'assistant/message'
+    ? { provider: assistant.data.provenance.provider, model: assistant.data.provenance.model }
+    : undefined
+}
+
+function summarizeResumeCandidate(
+  record: SessionRecord,
+  snapshot: SessionLogSnapshot,
+  currentId: SessionId,
+  cwd: string | undefined,
+  availableProviders: ReadonlySet<string>,
+): ResumeCandidate {
+  const title = foldSessionTitle(snapshot.events)?.title ?? 'Untitled session'
+  const route = resumeRoute(snapshot)
+  const foldedGoal = foldGoal(snapshot.events).goal
+  let disabledReason: string | undefined
+  if (record.header.id === currentId) disabledReason = 'current session'
+  else if (record.live) disabledReason = 'session is already live in this runtime'
+  else if (record.header.cwd !== cwd) disabledReason = 'different workspace'
+  else if (route !== undefined && !availableProviders.has(route.provider)) {
+    disabledReason = `session is complete, but route is currently unavailable (${route.provider}/${route.model})`
+  }
+  return {
+    record,
+    title,
+    lastActivityAt: snapshot.events.at(-1)?.time ?? snapshot.session.createdAt,
+    lastTurn: resumeTurnLabel(snapshot),
+    ...route === undefined ? {} : { route },
+    ...foldedGoal === undefined ? {} : { goalPhase: foldedGoal.phase },
+    ...disabledReason === undefined ? {} : { disabledReason },
+  }
+}
+
+/** Full-viewport keyboard selector over detached, preflighted resume summaries. */
+class ResumePicker implements Component, Focusable {
+  private readonly search = new Input()
+  private pasteBuffer: string | undefined
+  private selectedIndex = 0
+  private error = ''
+  focused = false
+
+  constructor(
+    private readonly candidates: readonly ResumeCandidate[],
+    private readonly maxVisible: number,
+    private readonly workspaceLabel: string,
+    private readonly viewportRows: () => number,
+    private readonly palette: Palette,
+    private readonly done: (candidate: ResumeCandidate) => void,
+    private readonly cancel: () => void,
+  ) {}
+
+  invalidate(): void {
+    this.search.invalidate()
+  }
+
+  private filtered(): ResumeCandidate[] {
+    const query = this.search.getValue().trim().toLocaleLowerCase()
+    if (query === '') return [...this.candidates]
+    return this.candidates.filter(candidate => candidate.title.toLocaleLowerCase().includes(query)
+      || candidate.record.header.id.toLocaleLowerCase().includes(query))
+  }
+
+  private visibleCandidateCount(): number {
+    const candidateBudget = Math.max(1, Math.floor((Math.max(1, this.viewportRows()) - 13) / 4))
+    return Math.min(this.maxVisible, candidateBudget)
+  }
+
+  private handleBracketedPaste(data: string): boolean {
+    const start = data.indexOf(BRACKETED_PASTE_START)
+    if (this.pasteBuffer === undefined && start < 0) return false
+    if (this.pasteBuffer === undefined) {
+      const prefix = data.slice(0, start)
+      if (prefix !== '') this.handleInput(prefix)
+      this.pasteBuffer = data.slice(start + BRACKETED_PASTE_START.length)
+    } else {
+      this.pasteBuffer += data
+    }
+    const end = this.pasteBuffer.indexOf(BRACKETED_PASTE_END)
+    if (end < 0) return true
+    const pasted = sanitizePastedText(this.pasteBuffer.slice(0, end))
+    const remaining = this.pasteBuffer.slice(end + BRACKETED_PASTE_END.length)
+    this.pasteBuffer = undefined
+    const previous = this.search.getValue()
+    this.search.handleInput(`${BRACKETED_PASTE_START}${pasted}${BRACKETED_PASTE_END}`)
+    if (this.search.getValue() !== previous) {
+      this.selectedIndex = 0
+      this.error = ''
+    }
+    if (remaining !== '') this.handleInput(remaining)
+    this.invalidate()
+    return true
+  }
+
+  handleInput(data: string): void {
+    if (this.handleBracketedPaste(data)) return
+    const filtered = this.filtered()
+    if (matchesKey(data, Key.ctrl('c'))) {
+      this.cancel()
+      return
+    }
+    if (matchesKey(data, Key.escape)) {
+      if (this.search.getValue() === '') this.cancel()
+      else {
+        this.search.setValue('')
+        this.selectedIndex = 0
+        this.error = ''
+      }
+    } else if (matchesKey(data, Key.up)) {
+      this.selectedIndex = filtered.length === 0
+        ? 0
+        : (this.selectedIndex + filtered.length - 1) % filtered.length
+    } else if (matchesKey(data, Key.down)) {
+      this.selectedIndex = filtered.length === 0 ? 0 : (this.selectedIndex + 1) % filtered.length
+    } else if (matchesKey(data, Key.pageUp)) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - this.visibleCandidateCount())
+    } else if (matchesKey(data, Key.pageDown)) {
+      this.selectedIndex = Math.min(
+        Math.max(0, filtered.length - 1),
+        this.selectedIndex + this.visibleCandidateCount(),
+      )
+    } else if (matchesKey(data, Key.enter)) {
+      const selected = filtered[this.selectedIndex]
+      if (selected === undefined) this.error = 'No session matches this search.'
+      else if (selected.disabledReason !== undefined) this.error = selected.disabledReason
+      else this.done(selected)
+    } else {
+      const previous = this.search.getValue()
+      this.search.focused = this.focused
+      this.search.handleInput(data)
+      if (this.search.getValue() !== previous) {
+        this.selectedIndex = 0
+        this.error = ''
+      }
+    }
+    this.invalidate()
+  }
+
+  render(width: number): string[] {
+    this.search.focused = this.focused
+    const height = Math.max(1, this.viewportRows())
+    const horizontalPadding = width >= 12 ? 2 : 0
+    const contentWidth = Math.max(1, width - horizontalPadding * 2)
+    const indent = ' '.repeat(horizontalPadding)
+    const filtered = this.filtered()
+    if (this.selectedIndex >= filtered.length) this.selectedIndex = Math.max(0, filtered.length - 1)
+    const selected = filtered[this.selectedIndex]
+    const position = selected === undefined ? 0 : this.selectedIndex + 1
+    const lines: string[] = [
+      '',
+      `${indent}${this.palette.bold(this.palette.accent(`Resume session (${position} of ${filtered.length})`))}`,
+      '',
+    ]
+
+    const searchInnerWidth = Math.max(1, contentWidth - 4)
+    lines.push(`${indent}${this.palette.dim(`╭${'─'.repeat(Math.max(0, contentWidth - 2))}╮`)}`)
+    const searchContent = this.search.render(searchInnerWidth).join('').replace(/^> /u, '⌕ ')
+    const clippedSearch = truncateToWidth(searchContent, searchInnerWidth, '')
+    lines.push(
+      `${indent}${this.palette.dim('│')} ${clippedSearch}${' '.repeat(Math.max(0, searchInnerWidth - visibleWidth(clippedSearch)))} ${this.palette.dim('│')}`,
+      `${indent}${this.palette.dim(`╰${'─'.repeat(Math.max(0, contentWidth - 2))}╯`)}`,
+      '',
+      `${indent}${this.palette.muted(displayText(this.workspaceLabel))}`,
+      '',
+    )
+
+    const visibleCount = this.visibleCandidateCount()
+    const start = Math.max(0, Math.min(
+      this.selectedIndex - Math.floor(visibleCount / 2),
+      filtered.length - visibleCount,
+    ))
+    const end = Math.min(filtered.length, start + visibleCount)
+    const push = (line: string): void => {
+      lines.push(`${indent}${truncateToWidth(line, contentWidth, '…')}`)
+    }
+    for (let index = start; index < end; index += 1) {
+      const candidate = filtered[index] as ResumeCandidate
+      const active = index === this.selectedIndex
+      const status = [
+        candidate.disabledReason === 'current session' ? 'current' : undefined,
+        candidate.record.live ? 'live' : undefined,
+        candidate.record.persisted ? 'persisted' : undefined,
+      ].filter((value): value is string => value !== undefined).join(' · ')
+      const lead = `${active ? '❯' : ' '} ${displayText(candidate.title)}`
+      push(active ? this.palette.bold(this.palette.accent(lead)) : lead)
+      const route = candidate.route === undefined ? 'route unavailable' : `${candidate.route.provider}/${candidate.route.model}`
+      const goal = candidate.goalPhase === undefined ? '' : ` · goal ${candidate.goalPhase}`
+      push(this.palette.muted(`  ${new Date(candidate.lastActivityAt).toISOString()} · ${candidate.lastTurn} · ${route}${goal}`))
+      push(this.palette.dim(`  ${status} · ${displayText(candidate.record.header.id)}`))
+      if (candidate.disabledReason !== undefined) {
+        push(this.palette.warning(`  unavailable: ${displayText(candidate.disabledReason)}`))
+      }
+    }
+    if (filtered.length === 0) push(this.palette.warning('No matching sessions.'))
+    if (this.error !== '') {
+      lines.push('')
+      push(this.palette.error(displayText(this.error)))
+    }
+
+    const footer = `${indent}${this.palette.dim('Type to search  •  ↑/↓ navigate  •  Enter resume  •  Esc clear/cancel')}`
+    while (lines.length < height - 2) lines.push('')
+    lines.push(footer, '')
+    return lines.slice(0, height)
+  }
+}
+
 class QuestionDialog implements Component, Focusable {
   private selectedIndex = 0
   private selected = new Set<number>()
@@ -1290,14 +1668,15 @@ interface PendingQuestion {
   resolve(answer: AskUserQuestionAnswer): void
   reject(error: unknown): void
   onAbort: () => void
-  overlay: OverlayHandle | undefined
+  overlay: TuiOverlaySession | undefined
 }
 
-/** Add session candidates to pi-tui's existing command/file provider. */
-class SessionAutocompleteProvider implements AutocompleteProvider {
+/** Merge path-only file candidates and optional session snapshots with commands. */
+class ReferenceAutocompleteProvider implements AutocompleteProvider {
   constructor(
     private readonly base: CombinedAutocompleteProvider,
-    private readonly sessions: SessionReferenceService,
+    private readonly files: WorkspaceFileSearch,
+    private readonly sessions: SessionReferenceService | undefined,
     private readonly agent: Agent,
   ) {}
 
@@ -1311,17 +1690,33 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
     const currentLine = lines[cursorLine]
     /* v8 ignore next -- Editor always supplies its current state line. */
     if (currentLine === undefined) return basePromise
-    const token = /(?:^|\s)(@[^\s]*)$/u.exec(currentLine.slice(0, cursorCol))?.[1]
-    if (token === undefined) return basePromise
-    let candidates
-    try {
-      candidates = await this.sessions.listCandidates(this.agent, token.slice(1), undefined, options.signal)
-    } catch {
+    const token = activeAtToken(currentLine, cursorCol)
+    if (token === undefined) {
+      this.files.invalidate()
       return basePromise
     }
-    const base = await basePromise
+    const filePromise = this.files.list(token.query, options.signal).catch(() => [])
+    const sessionPromise = this.sessions === undefined || token.quoted
+      ? Promise.resolve([])
+      : this.sessions.listCandidates(this.agent, token.query, undefined, options.signal).catch(() => [])
+    const [base, fileCandidates, sessionCandidates] = await Promise.all([
+      basePromise,
+      filePromise,
+      sessionPromise,
+    ])
     if (options.signal.aborted) return base
-    const items: AutocompleteItem[] = candidates.map((candidate) => {
+    const fileItems: AutocompleteItem[] = fileCandidates.flatMap((candidate) => {
+      const value = formatFileMention(candidate, token.quoted)
+      if (value === undefined) return []
+      const name = candidate.path.slice(candidate.path.lastIndexOf('/') + 1)
+      const directory = candidate.kind === 'directory'
+      return [{
+        value,
+        label: `${directory ? 'Folder' : 'File'} · ${displayInlineText(name)}${directory ? '/' : ''}`,
+        description: displayInlineText(candidate.path),
+      }]
+    })
+    const sessionItems: AutocompleteItem[] = sessionCandidates.map((candidate) => {
       const mentionLabel = displayInlineText(candidate.label)
       const sessionId = displayInlineText(candidate.sessionId)
       const location = candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)
@@ -1332,8 +1727,9 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
         description,
       }
     })
+    const items = [...fileItems, ...sessionItems]
     if (items.length === 0) return base
-    return { items: [...items, ...(base?.items ?? [])], prefix: token }
+    return { items: [...items, ...(base?.items ?? [])], prefix: token.prefix }
   }
 
   applyCompletion(
@@ -1471,6 +1867,7 @@ export function createTuiChat(
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
   const persistence = ctx.get('sessionPersistence')
+  const sessionQuery = ctx.get('sessionQuery')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.color)
   const mdTheme = markdownTheme(palette)
@@ -1487,14 +1884,15 @@ export function createTuiChat(
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
-  // Steering messages queued during the running turn (`agent/queued`) that the
-  // loop has not yet drained, shown as a badge on the status line. Each entry is
-  // the queued message's serialized source: a drain (`steering/message`) removes
-  // one MATCHING entry, so loop-authored steering — continuation reasons enter
-  // the inbox without an `agent/queued` event — cannot consume a pending user
-  // message's slot. Cleared on leaving `running`, which also absorbs a
-  // cancellation that discards the queue without logging drains; the status
-  // line exists only while running, so idle carries no badge to keep current.
+  // Steering messages queued during the running turn (`agent/inbox/enqueue`
+  // with `info.steering`) that the loop has not yet drained, shown as a badge on
+  // the status line. Each entry is the queued message's serialized source: a
+  // drain (`steering/message`) removes one MATCHING entry, so a loop-authored
+  // continuation reason (which enqueues and drains under its own source) pushes
+  // and pops its own slot and cannot consume a pending user message's slot.
+  // Cleared on leaving `running`, which also absorbs a cancellation that
+  // discards the queue without logging drains; the status line exists only
+  // while running, so idle carries no badge to keep current.
   const pendingSteering: string[] = []
   let disposed = false
   let shuttingDown: Promise<void> | undefined
@@ -1502,6 +1900,11 @@ export function createTuiChat(
   // rather than declaring an injection that would make the TUI require them.
   const skills = ctx.get('skills')
   const cwd = agent.session.header.cwd ?? process.cwd()
+  const fileSearch = new WorkspaceFileSearch(cwd, {
+    maxResults: resolved.fileSearchMaxResults,
+    maxEntries: resolved.fileSearchMaxEntries,
+    excludedDirectories: resolved.fileSearchExcludedDirectories,
+  })
   const skillAbort = new AbortController()
   const tokens = sessionTokens(agent.session)
   const toolCards = new Map<string, ToolCardComponent>()
@@ -1511,7 +1914,11 @@ export function createTuiChat(
   const commandControllers = new Set<AbortController>()
   const referenceControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
-  let modelOverlay: OverlayHandle | undefined
+  let modelOverlay: TuiOverlaySession | undefined
+  let resumeOverlay: TuiOverlaySession | undefined
+  let resumeInFlight = false
+  let resumeScan = 0
+  let tuiServiceFiber: Fiber | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
   let contextWindow: number | undefined
   let contextResolution: Promise<
@@ -1520,6 +1927,8 @@ export function createTuiChat(
   > | undefined
   let modelCommands = Promise.resolve()
   const now = (): number => runtime.now?.() ?? Date.now()
+  const agentStatus = (): AgentStatus => agent.status
+  const isDisposed = (): boolean => disposed
 
   // A configured subtitle renders as a banner line; when absent, the banner has
   // no subtitle. The banner itself sweeps in on start (see startBannerReveal).
@@ -1569,6 +1978,41 @@ export function createTuiChat(
     requestRender()
   }
 
+  const extensionTheme: TuiTheme = Object.freeze({
+    text: (value: string) => palette.text(value),
+    muted: (value: string) => palette.muted(value),
+    dim: (value: string) => palette.dim(value),
+    accent: (value: string) => palette.accent(value),
+    success: (value: string) => palette.success(value),
+    warning: (value: string) => palette.warning(value),
+    error: (value: string) => palette.error(value),
+    bold: (value: string) => palette.bold(value),
+  })
+  const overlayManager = new TuiOverlayManager({
+    viewport: () => Object.freeze({
+      columns: runtime.terminal.columns,
+      rows: runtime.terminal.rows,
+    }),
+    theme: () => extensionTheme,
+    display: displayText,
+    show: (component, options) => ui.showOverlay(component, options === undefined
+      ? undefined
+      : {
+        ...options,
+        ...typeof options.margin === 'object'
+          ? { margin: { ...options.margin } }
+          : {},
+      }),
+    invalidate: requestRender,
+    reportError: (error) => {
+      const message = errorChain(error)
+      ctx.logger.warn(`ui-tui: overlay failed: ${message}`)
+      /* v8 ignore next -- shutdown removes overlays before the terminal stops */
+      if (disposed) return
+      appendNotice(`TUI overlay failed: ${message}`, 'error')
+    },
+  })
+
   const disposeTargetListeners = installAgentLlmTarget(agent.ctx, target)
 
   const resolveContextWindow = (selected: AgentLlmTarget | undefined): void => {
@@ -1608,29 +2052,29 @@ export function createTuiChat(
       appendNotice(`Current model: ${current}\nNo models are advertised by registered providers.`, 'warning')
       return
     }
-    modelOverlay?.hide()
-    modelOverlay = undefined
-    const close = (): void => {
-      modelOverlay?.hide()
-      modelOverlay = undefined
-      requestRender()
-    }
-    const dialog = new ModelDialog(
-      choices,
-      target.current,
-      resolved.maxModelOptions,
-      palette,
-      (selected) => {
-        close()
-        selectModel(selected)
+    void modelOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new ModelDialog(
+        choices,
+        target.current,
+        resolved.maxModelOptions,
+        palette,
+        (selected) => {
+          void session.close()
+          selectModel(selected)
+        },
+        () => { void session.close() },
+      ),
+      options: {
+        width: resolved.modelDialogWidth,
+        maxHeight: resolved.modelDialogMaxHeight,
+        anchor: 'center',
+        margin: 1,
       },
-      close,
-    )
-    modelOverlay = ui.showOverlay(dialog, {
-      width: resolved.modelDialogWidth,
-      maxHeight: resolved.modelDialogMaxHeight,
-      anchor: 'center',
-      margin: 1,
+    })
+    modelOverlay = session
+    void session.closed.then(() => {
+      if (modelOverlay === session) modelOverlay = undefined
     })
     requestRender()
   }
@@ -1795,6 +2239,29 @@ export function createTuiChat(
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
+        // Injected context (plugin/goal source) renders as a dim context card,
+        // not a human bubble; only a direct human prompt is a user message. The
+        // boolean avoids narrowing `source`, so the label keeps its full union.
+        const source = event.data.source
+        if (source.kind !== 'user') {
+          const references = sessionReferenceCard(event.data.meta)
+          if (references !== undefined) {
+            chat.addChild(new Spacer(1))
+            chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+            break
+          }
+          const text = displayText(contentText(event.data.content).trim())
+          if (text) {
+            // The tui type view lacks plugin-augmented source kinds (e.g. goal),
+            // so read the display label without narrowing on `kind`.
+            const labelled = source as { kind: string; plugin?: string }
+            const label = labelled.plugin ?? labelled.kind
+            chat.addChild(new Spacer(1))
+            chat.addChild(new Text(palette.dim(`Context · ${displayText(label)}`), 1, 0))
+            chat.addChild(new Text(palette.muted(text), 1, 0))
+          }
+          break
+        }
         const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
@@ -1816,22 +2283,6 @@ export function createTuiChat(
         for (const references of promptReferenceCards(event)) {
           chat.addChild(new Spacer(1))
           chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
-        }
-        break
-      }
-      case 'context/message': {
-        const references = sessionReferenceCard(event.data.meta)
-        if (references !== undefined) {
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
-          break
-        }
-        const text = displayText(contentText(event.data.content).trim())
-        if (text) {
-          const source = event.data.source.kind === 'plugin' ? event.data.source.plugin : event.data.source.kind
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Context · ${displayText(source)}`), 1, 0))
-          chat.addChild(new Text(palette.muted(text), 1, 0))
         }
         break
       }
@@ -1919,7 +2370,6 @@ export function createTuiChat(
       const isSurface = event.type === 'user/message'
         || event.type === 'assistant/message'
         || event.type === 'tool/result'
-        || event.type === 'context/message'
         || event.type === 'steering/message'
       if (isSurface && !active.has(event.seq)) continue
       if (event.type === 'tool/call' && !activeCalls.has(event.data.callId)) continue
@@ -1933,7 +2383,7 @@ export function createTuiChat(
   }
 
   const rejectQuestion = (pending: PendingQuestion): void => {
-    pending.overlay?.hide()
+    void pending.overlay?.close()
     pending.overlay = undefined
     removeAbortListener(pending)
     pending.reject(new UserInteractionError(
@@ -1956,31 +2406,48 @@ export function createTuiChat(
         startNextQuestion()
         return
       }
-      const dialog = new QuestionDialog(
-        question,
-        pending.index + 1,
-        pending.request.questions.length,
-        pending.request.questions.length - pending.answers.length,
-        resolved.maxQuestionOptions,
-        palette,
-        (selection) => {
-          pending.overlay?.hide()
-          pending.overlay = undefined
-          pending.answers.push({ id: question.id, ...selection })
-          pending.index += 1
-          show()
+      const session = overlayManager.open({
+        ...pending.request.signal === undefined ? {} : { signal: pending.request.signal },
+        create: () => new QuestionDialog(
+          question,
+          pending.index + 1,
+          pending.request.questions.length,
+          pending.request.questions.length - pending.answers.length,
+          resolved.maxQuestionOptions,
+          palette,
+          (selection) => {
+            pending.overlay = undefined
+            void session.close()
+            pending.answers.push({ id: question.id, ...selection })
+            pending.index += 1
+            show()
+          },
+          () => {
+            activeQuestion = undefined
+            rejectQuestion(pending)
+            startNextQuestion()
+          },
+        ),
+        options: {
+          width: resolved.questionDialogWidth,
+          maxHeight: resolved.questionDialogMaxHeight,
+          anchor: 'bottom-left',
+          margin: { bottom: 1 },
         },
-        () => {
-          activeQuestion = undefined
-          rejectQuestion(pending)
-          startNextQuestion()
-        },
-      )
-      pending.overlay = ui.showOverlay(dialog, {
-        width: resolved.questionDialogWidth,
-        maxHeight: resolved.questionDialogMaxHeight,
-        anchor: 'bottom-left',
-        margin: { bottom: 1 },
+      })
+      pending.overlay = session
+      void session.closed.then((result) => {
+        if (pending.overlay !== session) return
+        pending.overlay = undefined
+        /* v8 ignore next 2 -- close, abort, and shutdown settle the owner before this callback */
+        if (result.reason !== 'error') return
+        activeQuestion = undefined
+        removeAbortListener(pending)
+        pending.reject(new UserInteractionError(
+          `ask_user_question TUI failed: ${errorChain(result.error)}`,
+          'ASK_ABORTED',
+        ))
+        startNextQuestion()
       })
       requestRender()
     }
@@ -2032,7 +2499,6 @@ export function createTuiChat(
     }
     return all
       .filter(header => header.cwd === agent.session.header.cwd)
-      .sort((a, b) => b.createdAt - a.createdAt)
   }
 
   /**
@@ -2051,20 +2517,23 @@ export function createTuiChat(
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
+      overlayManager.beginShutdown()
       contextResolution = undefined
       clearStatus()
-      modelOverlay?.hide()
-      modelOverlay = undefined
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
       commandControllers.clear()
       for (const controller of referenceControllers) controller.abort(new Error('TUI disposed'))
       referenceControllers.clear()
+      await tuiServiceFiber?.dispose()
+      tuiServiceFiber = undefined
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
         rejectQuestion(pending)
       }
       for (const pending of questionQueue.splice(0)) rejectQuestion(pending)
+      await overlayManager.dispose()
+      modelOverlay = undefined
       disposeUserInteraction()
       await runtime.terminal.drainInput(100, 20)
       ui.stop()
@@ -2209,15 +2678,19 @@ export function createTuiChat(
         ...ctx.commands.list(agent).map(command => ({
           name: command.name,
           description: command.description,
+          ...(command.input === undefined ? {} : { argumentHint: command.input.hint }),
         })),
         ...skillCommands,
       ],
       agent.session.header.cwd ?? process.cwd(),
     )
     const sessionReferences = ctx.get('sessionReferences')
-    editor.setAutocompleteProvider(sessionReferences === undefined
-      ? base
-      : new SessionAutocompleteProvider(base, sessionReferences, agent))
+    editor.setAutocompleteProvider(new ReferenceAutocompleteProvider(
+      base,
+      fileSearch,
+      sessionReferences,
+      agent,
+    ))
   }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
@@ -2301,6 +2774,16 @@ export function createTuiChat(
       handler: () => { requestExit(); return { kind: 'success' } },
     })
   })
+  const fileReferencePromptFiber = agent.ctx.inject(['systemPrompt'], (promptCtx) => {
+    promptCtx.systemPrompt.section({
+      name: 'ui:tui-file-reference',
+      order: 99,
+      // Tool visibility can change dynamically or by agent scope. Empty
+      // sections are omitted by renderPrompt, so guidance never names a tool
+      // that this agent cannot call.
+      text: () => agent.ctx.tools.get('read', agent) === undefined ? '' : FILE_REFERENCE_PROMPT,
+    })
+  })
 
   const runCommand = (text: string): void => {
     const controller = new AbortController()
@@ -2328,7 +2811,7 @@ export function createTuiChat(
     } else if (agent.status === 'running') {
       agent.steer(content, { contexts })
     } else {
-      agent.send(content, { contexts })
+      agent.followup(content, { contexts })
     }
   }
 
@@ -2408,37 +2891,156 @@ export function createTuiChat(
     })
   }
 
-  /**
-   * List this workspace's resumable sessions, newest first, each with its
-   * resume command and a marker on the current one. Warns when resume is not
-   * configured or no persistence backend is mounted; notes when nothing is
-   * persisted yet. The listing is asynchronous (a persistence scan), so the
-   * transcript updates once it resolves.
-   */
-  const showResume = (): void => {
-    const template = config.resumeCommand
-    if (template === undefined) {
-      appendNotice('Resume is not configured for this app.', 'warning')
-      return
+  /** Build one display candidate without letting a corrupt neighbor abort the selector. */
+  const readResumeCandidate = async (
+    record: SessionRecord,
+    providers: ReadonlySet<string>,
+  ): Promise<ResumeCandidate> => {
+    try {
+      let snapshot: SessionLogSnapshot
+      const live = ctx.sessions.get(record.header.id)
+      if (live !== undefined) {
+        snapshot = {
+          session: structuredClone(live.header),
+          events: live.events.map(event => structuredClone(event)),
+        }
+      } else {
+        /* v8 ignore next -- caller checks the optional service before mapping records */
+        if (sessionQuery === undefined) throw new Error('session query is unavailable')
+        snapshot = await sessionQuery.readSession(record.header.id)
+      }
+      return summarizeResumeCandidate(
+        record,
+        snapshot,
+        agent.session.id,
+        agent.session.header.cwd,
+        providers,
+      )
+    } catch (error: unknown) {
+      return {
+        record,
+        title: 'Unreadable session',
+        lastActivityAt: record.header.createdAt,
+        lastTurn: 'log unavailable',
+        disabledReason: `session cannot be loaded: ${errorChain(error)}`,
+      }
     }
-    if (persistence === undefined) {
-      appendNotice('Resume is not available: no persistence backend is mounted.', 'warning')
-      return
-    }
-    void listWorkspaceSessions().then((sessions) => {
-      if (sessions.length === 0) {
-        appendNotice('No resumable sessions found for this workspace yet.', 'info')
+  }
+
+  /** Re-read every mutable precondition immediately before terminal handoff. */
+  const preflightResume = async (sessionId: SessionId): Promise<ResumeCandidate> => {
+    /* v8 ignore next -- only showResume can call this closure, after proving the optional service exists */
+    if (sessionQuery === undefined) throw new Error('Resume is unavailable: session query is not mounted.')
+    const initialStatus = agentStatus()
+    if (initialStatus !== 'idle') throw new Error(`Resume requires an idle agent (status: ${initialStatus}).`)
+    const record = (await sessionQuery.listSessions()).find(candidate => candidate.header.id === sessionId)
+    if (record === undefined) throw new Error(`Session "${sessionId}" is no longer available.`)
+    const candidate = await readResumeCandidate(
+      record,
+      new Set(ctx.llm.listProviders().map(provider => provider.id)),
+    )
+    if (candidate.disabledReason !== undefined) throw new Error(candidate.disabledReason)
+    const finalStatus = agentStatus()
+    if (finalStatus !== 'idle') throw new Error(`Resume requires an idle agent (status: ${finalStatus}).`)
+    return candidate
+  }
+
+  const handoffResume = async (candidate: ResumeCandidate, overlay: TuiOverlaySession): Promise<void> => {
+    if (resumeInFlight) return
+    resumeInFlight = true
+    let terminalReleased = false
+    try {
+      const checked = await preflightResume(candidate.record.header.id)
+      const hostHandoff = runtime.handoffResume
+      if (hostHandoff === undefined) {
+        const template = config.resumeCommand
+        const fallback = template?.replaceAll('{session}', checked.record.header.id)
+        await overlay.close()
+        resumeOverlay = undefined
+        appendNotice(fallback === undefined
+          ? 'Session is resumable, but this host cannot hand it off in place.'
+          : `This host cannot hand off in place. Exit and run: ${fallback}`, 'warning')
         return
       }
-      chat.addChild(new Spacer(1))
-      chat.addChild(new Text(palette.bold(palette.accent('Resumable sessions')), 1, 0))
-      const lines = sessions.map((header) => {
-        const when = new Date(header.createdAt).toISOString().slice(0, 16).replace('T', ' ')
-        const marker = header.id === agent.session.id ? palette.success(' (current)') : ''
-        return `${palette.muted(when)}${marker}\n  ${displayText(template.replaceAll('{session}', header.id))}`
+      /* v8 ignore next -- shutdown during preflight invalidates an awaited service read or reaches this guard */
+      if (disposed) return
+      await ctx.sessions.flush(agent.session)
+      // Disposal can run while the flush promise is pending; TypeScript does not model that reentry.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (disposed) return
+      if (agent.status !== 'idle') throw new Error(`Resume requires an idle agent (status: ${agent.status}).`)
+      await overlay.close()
+      resumeOverlay = undefined
+      await runtime.terminal.drainInput(100, 20)
+      // Disposal can run while terminal draining is pending; TypeScript does not model that reentry.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (disposed) return
+      ui.stop()
+      terminalReleased = true
+      await hostHandoff(checked.record.header.id)
+      throw new Error('resume host returned without replacing the process')
+    } catch (error: unknown) {
+      if (!disposed) {
+        if (terminalReleased) {
+          ui.start()
+          ui.setFocus(editor)
+          appendNotice(`Resume handoff failed: ${errorChain(error)}`, 'error')
+        } else {
+          await overlay.close()
+          resumeOverlay = undefined
+          appendNotice(`Resume failed: ${errorChain(error)}`, 'error')
+        }
+      }
+    } finally {
+      resumeInFlight = false
+    }
+  }
+
+  /** Open the current-workspace searchable session selector. */
+  const showResume = (): void => {
+    if (agent.status !== 'idle') {
+      appendNotice('Resume requires the current turn to finish or be cancelled first.', 'warning')
+      return
+    }
+    if (sessionQuery === undefined) {
+      appendNotice('Resume is not available: session query is not mounted.', 'warning')
+      return
+    }
+    const scan = ++resumeScan
+    void resumeOverlay?.close()
+    void sessionQuery.listSessions().then(async (records) => {
+      if (isDisposed() || scan !== resumeScan) return
+      const workspace = records.filter(record => record.header.cwd === agent.session.header.cwd)
+      const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
+      const candidates = await Promise.all(workspace.map(record => readResumeCandidate(record, providers)))
+      candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
+        || a.record.header.id.localeCompare(b.record.header.id))
+      if (isDisposed() || scan !== resumeScan) return
+      const session = overlayManager.open({
+        create: host => new ResumePicker(
+          candidates,
+          resolved.maxResumeOptions,
+          runtime.formatCwd?.(agent.session.header.cwd) ?? formatCwd(agent.session.header.cwd),
+          () => host.viewport.rows,
+          palette,
+          (candidate) => { void handoffResume(candidate, session) },
+          () => { void session.close() },
+        ),
+        options: {
+          width: '100%',
+          maxHeight: '100%',
+          anchor: 'top-left',
+          margin: 0,
+        },
       })
-      chat.addChild(new Text(lines.join('\n'), 1, 0))
+      resumeOverlay = session
+      void session.closed.then(() => {
+        /* v8 ignore next -- overlay FIFO closes this session before a replacement can become the tracked resume overlay */
+        if (resumeOverlay === session) resumeOverlay = undefined
+      })
       requestRender()
+    }, (error: unknown) => {
+      if (!disposed && scan === resumeScan) appendNotice(`Resume session scan failed: ${errorChain(error)}`, 'error')
     })
   }
 
@@ -2510,7 +3112,7 @@ export function createTuiChat(
   }
 
   const removeInputListener = ui.addInputListener((data) => {
-    if (activeQuestion !== undefined || modelOverlay !== undefined) return undefined
+    if (overlayManager.hasActiveOverlay()) return undefined
     if (matchesKey(data, Key.ctrl('o'))) {
       toggleTools()
       return { consume: true }
@@ -2548,13 +3150,14 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
+    if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     advanceTurnPhase(event)
     if (event.type === 'steering/message') {
       // A queued steering message reached the model as it drained; drop its
-      // entry from the badge. Matching by source keeps loop-authored steering
-      // (e.g. continuation reasons), which logs here without a matching
-      // `agent/queued` increment, from consuming a pending user slot.
+      // entry from the badge. Matching by source keeps a loop-authored
+      // continuation reason popping its own enqueued slot rather than a pending
+      // user message's slot.
       const drained = pendingSteering.indexOf(JSON.stringify(event.data.source))
       if (drained >= 0) {
         pendingSteering.splice(drained, 1)
@@ -2568,7 +3171,7 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
-  const disposeQueued = ctx.on('agent/queued', (subject, _content, info) => {
+  const disposeQueued = ctx.on('agent/inbox/enqueue', (subject, info) => {
     if (subject !== agent || !info.steering) return
     pendingSteering.push(JSON.stringify(info.source))
     refreshStatus()
@@ -2596,6 +3199,7 @@ export function createTuiChat(
 
   const detachListeners = (): void => {
     skillAbort.abort()
+    fileSearch.dispose()
     removeInputListener()
     disposeCommandChanges()
     stopBannerReveal()
@@ -2637,16 +3241,27 @@ export function createTuiChat(
   }
 
   rebuildTranscript(true)
+  const restoredGoal = foldGoal(agent.session.events).goal
+  if (restoredGoal !== undefined && restoredGoal.phase !== 'complete') {
+    appendNotice(
+      `Goal restored (${restoredGoal.phase}) with automatic continuation disarmed. `
+      + 'Human confirmation is required; send “继续” or run /goal resume.',
+      'warning',
+    )
+  }
   setStatus(agent.status)
   try {
     ui.start()
   } catch (error: unknown) {
     disposed = true
     detachListeners()
-    void commandFiber.dispose().catch(
+    void Promise.all([
+      commandFiber.dispose(),
+      fileReferencePromptFiber.dispose(),
+    ]).catch(
       /* v8 ignore next 2 -- command registration cleanup is non-throwing; this guards a future disposer regression */
       (cleanupError: unknown) => {
-        ctx.logger.warn(`ui-tui: command cleanup after startup failure failed: ${errorChain(cleanupError)}`)
+        ctx.logger.warn(`ui-tui: scoped cleanup after startup failure failed: ${errorChain(cleanupError)}`)
       },
     )
     clearStatus()
@@ -2654,13 +3269,19 @@ export function createTuiChat(
     ui.stop()
     throw error
   }
+  tuiServiceFiber = ctx.inject([], (serviceCtx) => {
+    new TuiExtensionServiceImpl(serviceCtx, agent, overlayManager)
+  })
   startBannerReveal()
 
   return {
     async dispose(): Promise<void> {
       detachListeners()
       await shutdown(false)
-      await commandFiber.dispose()
+      await Promise.all([
+        commandFiber.dispose(),
+        fileReferencePromptFiber.dispose(),
+      ])
     },
   }
 }
@@ -2715,9 +3336,11 @@ export function apply(ctx: Context, config: Config): void {
   // Truecolor is a terminal capability, so detect it here at the process
   // boundary from COLORTERM; an explicit `truecolor` config value still wins.
   const truecolor = config.truecolor ?? ['truecolor', '24bit'].includes(process.env.COLORTERM ?? '')
+  const resumeHost = ctx.get('tuiResumeHost')
   mountTui(ctx, Object.assign({}, config, { truecolor }), {
     terminal: new ProcessTerminal(),
     exit: code => process.exit(code),
+    ...resumeHost === undefined ? {} : { handoffResume: sessionId => resumeHost.handoff(sessionId) },
   })
 }
 /* v8 ignore stop */

@@ -17,3 +17,13 @@ body {
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
 }
+
+/* Form controls don't inherit the body font (UA sheets pin their families —
+   Chrome buttons fall back to Arial, textareas to monospace), so the app
+   stack is re-applied to them explicitly, as upstream's global reset does. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}

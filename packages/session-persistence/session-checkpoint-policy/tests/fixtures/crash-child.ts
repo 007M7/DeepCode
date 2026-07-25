@@ -45,6 +45,7 @@ ctx.tools.register({
   name: 'crash_tool',
   description: 'records an external effect and never returns',
   parameters: {},
+  output: { schema: { type: 'null' }, render: () => [] },
   async execute() {
     await writeFile(failpoint, 'tool-side-effect')
     return waitForCrash()
@@ -55,5 +56,5 @@ const handle = await ctx.agents.create({
   sessionId: SessionId('semantic-checkpoint-crash'),
   agentOptions: { provider: 'crash', model: 'crash' },
 })
-handle.agent.send([{ type: 'text', text: 'exercise the crash boundary' }])
+handle.agent.followup([{ type: 'text', text: 'exercise the crash boundary' }])
 await waitForCrash()

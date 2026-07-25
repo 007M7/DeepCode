@@ -8,6 +8,8 @@ Client-disconnect detection hangs off the **response** `close` event, not the re
 
 A request whose handling throws (a malformed %-escape hitting `decodeURIComponent`, a client dropping mid-body) is answered 400 — or the socket destroyed when headers are already out — and reported to `onError`; it never becomes a process-killing unhandled rejection.
 
+In development, the client-plugin registry synchronously captures each built bundle's stat baseline before it returns, then polls those baselines and re-hashes changed content. Each rescan stages its candidate table, graph, and watch map before publishing them, so a baseline failure preserves the prior graph. An immediate rebuild therefore cannot disappear into an asynchronously established watch baseline; a rename window marks the path dirty, retains the last successful baseline, and forces a re-hash when the bundle reappears even with identical metadata.
+
 ## Model Experience
 
 None, as the package is a pure HTTP carrier between the browser and the injected API handler; nothing here reaches a model request.

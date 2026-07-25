@@ -31,11 +31,12 @@ interface HeadlessInvocation {
   prompt: string
 }
 
-/** Browser UI: `dsh web`. Host constrained to {@link LOOPBACK_HOST}/{@link ALL_INTERFACES_HOST}; port already coerced and range-checked. */
+/** Browser UI: `dsh web`. Host constrained to {@link LOOPBACK_HOST}/{@link ALL_INTERFACES_HOST}; port already coerced and range-checked; `dev` mounts the client HMR driver and bundle watch. */
 interface WebInvocation {
   mode: 'web'
   host: string
   port: number
+  dev: boolean
 }
 
 /** `--help` or `--version` requested: `bin.ts` prints `text` to stdout and exits 0. */
@@ -108,10 +109,11 @@ function parseWeb(argv: readonly string[], version: string): DshInvocation {
     .description('serve the browser UI')
     .addOption(new Option('--host <host>', 'bind host').choices([LOOPBACK_HOST, ALL_INTERFACES_HOST]).default(LOOPBACK_HOST))
     .addOption(new Option('--port <port>', 'listen port').default(DEFAULT_WEB_PORT).argParser(parsePort))
+    .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
   const settled = settle(web, argv, sink)
   if (settled !== undefined) return settled
-  const { host, port } = web.opts<{ host: string; port: number }>()
-  return { mode: 'web', host, port }
+  const { host, port, dev } = web.opts<{ host: string; port: number; dev?: boolean }>()
+  return { mode: 'web', host, port, dev: dev ?? false }
 }
 
 /** Parse the default (TUI / headless) arguments: `[config]`, `-p/--prompt`, `--resume`. */

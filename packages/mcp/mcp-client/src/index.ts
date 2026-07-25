@@ -22,6 +22,8 @@ import { syncTools } from './tools.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
+export type { McpResult } from './tools.ts'
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
 

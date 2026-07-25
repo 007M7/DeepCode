@@ -10,7 +10,7 @@
  * in the module cache (a de-facto singleton surviving plugin reloads).
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ChatStoreState, SelectionTarget, ViewId } from './contract/views.ts'
+import type { ChatStoreState, SelectionTarget } from './contract/views.ts'
 
 /**
  * Annotation twin of the actions literal below (the export needs a declared
@@ -21,22 +21,22 @@ type ChatActions = {
   setDraft: (draft: ChatStoreState, text: string) => void
   clearDraft: (draft: ChatStoreState) => void
   restoreDraft: (draft: ChatStoreState, text: string) => void
-  setView: (draft: ChatStoreState, view: ViewId) => void
+  setView: (draft: ChatStoreState, view: string) => void
 }
 
 /**
  * Declare the per-session chat store. `selection` is the details-linkage
  * channel (conversation writes, details reads); `draft` is the composer text
  * (persisted so it survives session switches and reloads); `view` is the
- * active conversation view id (previously layout.viewFor — store seat is the
- * cross-remount survival channel, null falls back to the first registered view).
+ * active conversation view id (a 'conversation.view' entry id — store seat is
+ * the cross-remount survival channel, null falls back to the first view).
  * @returns the store handle (spec + identity + factory in one value).
  */
 export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions> {
   return defineStore({
-    // Anchored to the contract shape: views consume the store through
-    // ConvViewProps' SnapshotSelectorHook<ChatStoreState>, so init and the
-    // contract cannot drift.
+    // Anchored to the contract shape: consumers read the store through
+    // PropsStore<ChatStore>'s SnapshotSelectorHook<ChatStoreState>, so init
+    // and the contract cannot drift.
     init: (): ChatStoreState => ({ selection: null, draft: '', view: null }),
     persist: 'dsh.conversation.chat',
     actions: {
@@ -46,7 +46,7 @@ export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions
       // Optimistic-send failure restore: only when the user typed nothing new
       // since the clear (send choreography lives in the inject factory).
       restoreDraft: (d, text: string) => { if (d.draft === '') d.draft = text },
-      setView: (d, view: ViewId) => { d.view = view },
+      setView: (d, view: string) => { d.view = view },
     },
   })
 }

@@ -152,7 +152,7 @@ export class HarnessSdkServer {
     rec.activePrompt = true
     try {
       rec.lastTurnEnd = undefined
-      rec.handle.agent.send(params.contentBlocks)
+      rec.handle.agent.followup(params.contentBlocks)
       await rec.handle.agent.whenIdle()
       const status = this.finishedStatus(rec.lastTurnEnd)
       this.transport.notify('session.finished', {

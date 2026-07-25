@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService, { CallId, ContentBlock, MessageSource, ProviderRequestId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent, type ContinuationDecision, type HookContext } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
@@ -50,7 +50,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('session log records what agent/step-result actually produced', () => {
@@ -60,7 +60,7 @@ describe('session log records what agent/step-result actually produced', () => {
     const adapter = new MockAdapter([original, textResponse('done')])
     const ctx = await harness(adapter)
     const executed: string[] = []
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'injected-tool',
       description: '',
       parameters: {},
@@ -229,7 +229,7 @@ describe('abort during tool execution ends the turn', () => {
     const ctx = await harness(adapter)
     const executed: string[] = []
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -250,7 +250,7 @@ describe('abort during tool execution ends the turn', () => {
         source: { kind: 'plugin', plugin: 'abort-test' },
       }],
     }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'second',
       description: '',
       parameters: {},
@@ -275,7 +275,9 @@ describe('abort during tool execution ends the turn', () => {
           order.push(`tool/result:${event.data.callId}:${outcome}`)
           break
         }
-        case 'context/message': order.push('context/message'); break
+        // Injected context is a plugin-sourced user/message; the direct human
+        // prompt (user source) is not tracked in this ordering.
+        case 'user/message': if (event.data.source.kind !== 'user') order.push('context/message'); break
         case 'steering/message': order.push('steering/message'); break
         case 'step/end': order.push('step/end'); break
         case 'turn/end': {
@@ -332,7 +334,7 @@ describe('abort during tool execution ends the turn', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'aborter', {})])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-abort-injection'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -354,13 +356,14 @@ describe('abort during tool execution ends the turn', () => {
     await waitForIdle(ctx, agent)
 
     const events = [...agent.session.events]
+    const isInjected = (e: SessionEvent): e is SessionEvent<'user/message'> => e.type === 'user/message' && e.data.source.kind !== 'user'
     expect(events
-      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+      .filter(event => event.type === 'tool/result' || isInjected(event)
         || event.type === 'step/end' || event.type === 'turn/end')
-      .map(event => event.type))
+      .map(event => isInjected(event) ? 'context/message' : event.type))
       .toEqual(['tool/result', 'context/message', 'context/message', 'step/end', 'turn/end'])
     expect(events
-      .filter(event => event.type === 'context/message')
+      .filter(isInjected)
       .map(event => event.data.content))
       .toEqual([
         [{ type: 'text', text: 'accepted before abort' }],
@@ -378,7 +381,7 @@ describe('abort during tool execution ends the turn', () => {
     ] satisfies StreamChunk[]])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-later-abort-context'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'first',
       description: '',
       parameters: {},
@@ -386,7 +389,7 @@ describe('abort during tool execution ends the turn', () => {
         return [{ type: 'text', text: 'first done' }]
       },
     }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -410,12 +413,13 @@ describe('abort during tool execution ends the turn', () => {
     await waitForIdle(ctx, agent)
 
     const events = [...agent.session.events]
+    const isInjected = (e: SessionEvent): e is SessionEvent<'user/message'> => e.type === 'user/message' && e.data.source.kind !== 'user'
     expect(events
-      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+      .filter(event => event.type === 'tool/result' || isInjected(event)
         || event.type === 'step/end' || event.type === 'turn/end')
-      .map(event => event.type))
+      .map(event => isInjected(event) ? 'context/message' : event.type))
       .toEqual(['tool/result', 'tool/result', 'context/message', 'step/end', 'turn/end'])
-    expect(events.find(event => event.type === 'context/message')?.data.content)
+    expect(events.find(isInjected)?.data.content)
       .toEqual([{ type: 'text', text: 'accepted after first result' }])
   })
 
@@ -427,7 +431,7 @@ describe('abort during tool execution ends the turn', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-dispose-injection'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'waiter',
       description: '',
       parameters: {},
@@ -456,7 +460,7 @@ describe('abort during tool execution ends the turn', () => {
     await fiber.dispose()
 
     expect(agent.session.events
-      .filter(event => event.type === 'context/message')
+      .filter((event): event is SessionEvent<'user/message'> => event.type === 'user/message' && event.data.source.kind !== 'user')
       .map(event => event.data.content))
       .toEqual([
         [{ type: 'text', text: 'accepted before disposal' }],
@@ -479,7 +483,7 @@ describe('abort during tool execution ends the turn', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-historical-tool-pair'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -488,7 +492,7 @@ describe('abort during tool execution ends the turn', () => {
         return [{ type: 'text', text: 'done' }]
       },
     }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'second',
       description: '',
       parameters: {},
@@ -507,7 +511,7 @@ describe('abort during tool execution ends the turn', () => {
     send(agent, 'start a text-only turn')
     await waitForIdle(ctx, agent)
 
-    expect(agent.session.events.find(event => event.type === 'context/message')?.data.content)
+    expect(agent.session.events.find((event): event is SessionEvent<'user/message'> => event.type === 'user/message' && event.data.source.kind !== 'user')?.data.content)
       .toEqual([{ type: 'text', text: 'new turn context' }])
     expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('new turn context')
   })
@@ -763,11 +767,11 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     expect(agent.session.deriveMessages().at(-1)?.content).toEqual([{ type: 'text', text: 'routed' }])
   })
 
-  it('agent/queued carries the resolved source; steering/message records its source', async () => {
+  it('agent/inbox/enqueue carries the resolved source; steering/message records its source', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'noop',
       description: '',
       parameters: {},
@@ -778,7 +782,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     }))
 
     const queuedSources: { source: MessageSource; contexts: HookContext[]; steering: boolean }[] = []
-    ctx.on('agent/queued', (_agent, _content, info) => void queuedSources.push(info))
+    ctx.on('agent/inbox/enqueue', (_agent, info) => void queuedSources.push({ source: info.source, contexts: info.contexts, steering: info.steering }))
 
     send(agent, 'go') // no explicit source → default {kind:'user'} must be visible
     await waitForIdle(ctx, agent)
@@ -800,11 +804,11 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     let notifiedContent: ContentBlock[] | undefined
     let notifiedSource: MessageSource | undefined
     let notifiedContexts: HookContext[] | undefined
-    ctx.on('agent/queued', (subject, acceptedContent, info) => {
+    ctx.on('agent/inbox/enqueue', (subject, info) => {
       if (subject !== agent || info.steering) return
       // Retain the exact notification references: cloning here would test the
       // listener's copy rather than the event/inbox ownership boundary.
-      notifiedContent = acceptedContent
+      notifiedContent = info.content
       notifiedSource = info.source
       notifiedContexts = info.contexts
     })
@@ -814,7 +818,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       source: { kind: 'plugin', plugin: 'context-source' },
       meta: { version: 1 },
     }]
-    agent.send(content, { source, contexts })
+    agent.followup(content, { source, contexts })
     content[0]!.text = 'caller-mutated-send'
     source.plugin = 'caller-mutated-source'
     contexts[0]!.content[0] = { type: 'text', text: 'caller-mutated-context' }
@@ -850,7 +854,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const agent = ctx.agentLoop.create(SessionId('owned-steer'), { provider: 'mock', model: 'mock' })
     const entered = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'gate',
       description: '',
       parameters: {},
@@ -863,14 +867,14 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     let notifiedContent: ContentBlock[] | undefined
     let notifiedSource: MessageSource | undefined
     let notifiedContexts: HookContext[] | undefined
-    ctx.on('agent/queued', (subject, acceptedContent, info) => {
+    ctx.on('agent/inbox/enqueue', (subject, info) => {
       if (subject !== agent || !info.steering) return
-      notifiedContent = acceptedContent
+      notifiedContent = info.content
       notifiedSource = info.source
       notifiedContexts = info.contexts
     })
 
-    agent.send([{ type: 'text', text: 'start' }])
+    agent.followup([{ type: 'text', text: 'start' }])
     await entered.promise
     expect(agent.status).toBe('running')
     const content = [{ type: 'text' as const, text: 'accepted-steer' }]
@@ -951,7 +955,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     expect(request).not.toContain('caller-mutated-steering-context-without-meta')
 
     const steeringIndex = agent.session.events.findIndex(event => event.type === 'steering/message')
-    const contextIndex = agent.session.events.findIndex(event => event.type === 'context/message'
+    const contextIndex = agent.session.events.findIndex(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin' && event.data.source.plugin === 'steering-context')
     expect(steeringIndex).toBeGreaterThanOrEqual(0)
     expect(contextIndex).toBe(steeringIndex + 1)
@@ -987,7 +991,7 @@ describe('turn numbering continues across seeded sessions', () => {
 
     const turns: number[] = []
     ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
-    forked.send([{ type: 'text', text: 'continue' }])
+    forked.followup([{ type: 'text', text: 'continue' }])
     await new Promise<void>((resolve) => {
       ctx2.on('agent/status', (subject, status) => {
         if (subject === forked && status === 'idle') resolve()
@@ -1497,7 +1501,7 @@ describe('tool result call identity', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: 'echo',
       parameters: { x: { type: 'number' } },

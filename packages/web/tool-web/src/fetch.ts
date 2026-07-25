@@ -8,7 +8,6 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { WebFetchBody, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -91,16 +90,54 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
     parameters: {
       url: { type: 'string', required: true, description: 'The HTTP(S) URL to fetch.' },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          url: { type: 'string', required: true },
+          statusCode: { type: 'integer', required: true },
+          body: {
+            required: true,
+            oneOf: [
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'html' },
+                  content: { type: 'string', required: true },
+                },
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'text' },
+                  content: { type: 'string', required: true },
+                },
+              },
+            ],
+          },
+          truncated: { type: 'boolean', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: formatFetchOutput(value) }],
+    },
     timeoutMs,
     // Provider reads do not mutate parent-agent state.
     isConcurrencySafe: () => true,
-    async execute(args, exec): Promise<ContentBlock[]> {
+    async execute(args, exec) {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(
         { url: input.url },
         exec.signal,
       )
-      return [{ type: 'text', text: formatFetchOutput(result) }]
+      return {
+        url: result.url,
+        statusCode: result.statusCode,
+        body: { kind: result.body.kind, content: result.body.content },
+        truncated: result.truncated,
+      }
     },
     presentCall: presentFetchCall,
   }))

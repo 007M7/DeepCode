@@ -99,7 +99,7 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     it('classifies an invalid glob as SEARCH_INVALID_PATTERN', async () => {
       const result = await call('glob', { pattern: '[' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_INVALID_PATTERN' })
+      expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_INVALID_PATTERN' } })
     })
   })
 
@@ -142,13 +142,13 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     it('classifies a real rg regex error as SEARCH_INVALID_PATTERN', async () => {
       const result = await call('grep', { pattern: '(unclosed' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
+      expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
     })
 
     it('classifies a missing target as SEARCH_FAILED', async () => {
       const result = await call('grep', { pattern: 'x', path: 'no-such-dir' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
+      expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     })
   })
 
@@ -179,14 +179,14 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
         signal: controller.signal,
       })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+      expect(result.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
     })
 
     it('an unusable session cwd (spawn failure) is SEARCH_FAILED', async () => {
       const gone = join(dir, 'deleted-session-dir')
       const result = await call('glob', { pattern: '*' }, { session: { header: { id: 'session-int', cwd: gone } } })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_FAILED' })
+      expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
       expect(text(result)).toContain('could not start')
     })
   })

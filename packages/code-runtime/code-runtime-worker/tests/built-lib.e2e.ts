@@ -23,8 +23,15 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
       const ctx = new Context()
       await ctx.plugin(WorkerCodeRuntime, {})
       const result = await ctx.codeRuntime.run({
-        program: 'const doubled: number = await tools.double({ n: 21 }); console.log("halfway", doubled); return doubled;',
-        bindings: [{ global: 'tools', functions: { double: async args => args.n * 2 } }],
+        program: 'const doubled: number = await tools.double({ n: 21 }); console.log("halfway", doubled); let failure; try { await tools.fail({}) } catch (error) { failure = { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message } } return { doubled, failure };',
+        bindings: [{
+          global: 'tools',
+          functions: {
+            double: async args => args.n * 2,
+            fail: async () => { throw new Error('denied') },
+          },
+          errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
+        }],
       })
       console.log(JSON.stringify(result))
       process.exit(0)
@@ -40,7 +47,10 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
     const lastLine = stdout.trim().split('\n').at(-1) ?? ''
     const result = JSON.parse(lastLine) as { value?: unknown; logs: string[]; error?: unknown }
     expect(result.error).toBeUndefined()
-    expect(result.value).toBe(42)
+    expect(result.value).toEqual({
+      doubled: 42,
+      failure: { typed: true, name: 'ToolCallError', toolName: 'fail', message: 'denied' },
+    })
     expect(result.logs).toContain('halfway 42')
   })
 })

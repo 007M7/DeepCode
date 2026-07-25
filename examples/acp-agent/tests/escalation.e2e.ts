@@ -25,13 +25,11 @@ import { cleanupAcpExampleTest } from './cleanup.ts'
  * model nor a sandbox runner is ever exercised.
  *
  * With-key escalation flow (self-skips without DEEPSEEK_API_KEY or a usable
- * platform runner): a scripted ACP client plays the human. The prompt asserts
- * a prior denial (the organic denial→marker path lives on the sandbox e2e
- * legs and unit tiers), the real model escalates with `sandbox_permissions` +
- * `justification`, the bridge prompts THIS client over
- * `session/request_permission`, the client answers `allow-once`, and the
- * retried write must land ON DISK (world-verified) — under the granted mode,
- * a temp-dir session cwd is writable either way.
+ * platform runner): a scripted ACP client plays the human. The subprocess
+ * starts read-only, its first real bash write is denied, the model retries with
+ * `sandbox_permissions` + `justification`, and the bridge prompts THIS client
+ * over `session/request_permission`. An approved workspace-write retry must
+ * then land ON DISK (world-verified).
  */
 
 const AGENT: AgentUnderTest = {
@@ -58,14 +56,21 @@ interface Spawned extends LaunchedAcpTestAgent {
   permissionRequests: RequestPermissionRequest[]
 }
 
-/** Boot the example as an ACP subprocess; the scripted client answers every permission prompt with `answer`. */
-function launchExampleAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'): Spawned {
+/** Boot the example with an optional sandbox override; the scripted client answers every permission prompt with `answer`. */
+function launchExampleAcpAgent(
+  cwd: string,
+  answer: 'allow-once' | 'reject-once',
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access',
+): Spawned {
   const permissionRequests: RequestPermissionRequest[] = []
   const launched = launchAcpTestAgent({
     agent: AGENT,
     cwd,
     // A dummy key lets the adapter boot keylessly; live tests carry the real key.
-    env: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+    env: {
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+      DSH_PERMISSION_MODE: sandboxMode,
+    },
     requestPermission(params) {
       permissionRequests.push(params)
       const option = params.options.find(o => o.optionId === answer)
@@ -76,6 +81,17 @@ function launchExampleAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'
     },
   })
   return Object.assign(launched, { permissionRequests })
+}
+
+function escalationPrompt(path: string, content: string): string {
+  return `Create ${path} containing exactly ${JSON.stringify(content)} using bash, not filesystem tools. `
+    + 'First try the command without sandbox_permissions. If the sandbox denies it, retry that exact command once '
+    + 'with sandbox_permissions set to workspace-write and a one-sentence justification.'
+}
+
+function includesReadOnlyDenial(updates: LaunchedAcpTestAgent['updates']): boolean {
+  return updates.some(update => update.sessionUpdate === 'tool_call_update'
+    && JSON.stringify(update.content).includes('[sandbox: file access denied under read-only mode]'))
 }
 
 let spawned: Spawned | undefined
@@ -137,17 +153,20 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox composition e2e: the live approval loop', () => {
   it('denial → model escalation → editor prompt → allow-once → the retried write lands on disk', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
-    spawned = launchExampleAcpAgent(workdir, 'allow-once')
-    const { client, permissionRequests } = spawned
+    spawned = launchExampleAcpAgent(workdir, 'allow-once', 'read-only')
+    const { client, permissionRequests, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
     const res = await client.prompt({
       sessionId,
-      prompt: [{ type: 'text', text: `The sandbox already denied writing ${workdir}/escalated.txt. Create it now containing exactly "ACP_ESCALATION_OK": `
-        + 'one single bash call with sandbox_permissions set to danger-full-access and a one-sentence justification, then stop.' }],
+      prompt: [{
+        type: 'text',
+        text: `${escalationPrompt(join(workdir, 'escalated.txt'), 'ACP_ESCALATION_OK')} Then stop.`,
+      }],
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
+    expect(includesReadOnlyDenial(updates)).toBe(true)
 
     // The WORLD: the approved escalated retry landed the write.
     const proof = await readFile(join(workdir, 'escalated.txt'), 'utf8')
@@ -166,17 +185,20 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox co
 
   it('a rejected escalation stays denied: no write lands, the turn still ends', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
-    spawned = launchExampleAcpAgent(workdir, 'reject-once')
-    const { client, permissionRequests } = spawned
+    spawned = launchExampleAcpAgent(workdir, 'reject-once', 'read-only')
+    const { client, permissionRequests, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
     const res = await client.prompt({
       sessionId,
-      prompt: [{ type: 'text', text: `The sandbox already denied writing ${workdir}/refused.txt. Create it now containing "NO": `
-        + 'one single bash call with sandbox_permissions set to danger-full-access and a one-sentence justification. If that is rejected, stop and say so.' }],
+      prompt: [{
+        type: 'text',
+        text: `${escalationPrompt(join(workdir, 'refused.txt'), 'NO')} If approval is rejected, stop and say so.`,
+      }],
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
+    expect(includesReadOnlyDenial(updates)).toBe(true)
 
     // The WORLD: rejected means the file never appeared.
     await expect(readFile(join(workdir, 'refused.txt'), 'utf8')).rejects.toThrow()

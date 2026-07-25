@@ -13,6 +13,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'test.session': { kind: 'single'; scope: 'session' }
     'test.list': { kind: 'list'; scope: 'root' }
     'test.keyed': { kind: 'keyed'; scope: 'session' }
+    'test.chain': { kind: 'chain'; scope: 'session'; owner: { tags: string[] } }
     'test.grandchild': { kind: 'single'; scope: 'root' }
   }
 }
@@ -39,6 +40,7 @@ function mountFrame(core: SlotCore) {
       'test.session': { kind: 'single', scope: 'session' },
       'test.list': { kind: 'list', scope: 'root' },
       'test.keyed': { kind: 'keyed', scope: 'session' },
+      'test.chain': { kind: 'chain', scope: 'session' },
     },
   // Type-level renderSlot presence is proven by the type-chain spec; erasing
   // here keeps runtime fixtures terse.
@@ -146,6 +148,31 @@ describe('kind semantics', () => {
     // @ts-expect-error list registration requires options.id
     expect(() => core.register({ name: 'test.list' }, Comp)).toThrow('requires options.id')
     expect(core.entries('test.list').map(e => e.options.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('chain: missing select throws; select and priority land on the stored entry', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    // Statically rejected (KindOptions); runtime guard stays for dynamic callers.
+    // @ts-expect-error chain registration requires options.select
+    expect(() => core.register({ name: 'test.chain' }, Comp)).toThrow('requires options.select')
+    const select = ({ tags }: { tags: string[] }) => tags[0] ?? null
+    core.register({ name: 'test.chain', select, priority: 5 }, Comp as never)
+    const entry = core.entries('test.chain')[0]!
+    expect(entry.select).toBe(select)
+    expect(entry.options.priority).toBe(5)
+  })
+
+  it('chain: entries sort by priority ascending, ties keep registration order', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    const sel = () => null
+    core.register({ name: 'test.chain', select: sel, priority: 10, registrant: 'late' }, Comp as never)
+    core.register({ name: 'test.chain', select: sel, registrant: 'default-a' }, Comp as never)
+    core.register({ name: 'test.chain', select: sel, registrant: 'default-b' }, Comp as never)
+    core.register({ name: 'test.chain', select: sel, priority: -1, registrant: 'first' }, Comp as never)
+    expect(core.entries('test.chain').map(e => e.registrant))
+      .toEqual(['first', 'default-a', 'default-b', 'late'])
   })
 
   it('single: second registration throws, disposer frees the seat', () => {
@@ -294,7 +321,7 @@ describe('subscription surface', () => {
     const off = core.onMutate(key => keys.push(key))
     mountFrame(core)
     // Contribution first, then each declared child key.
-    expect(keys).toEqual(['root', 'test.single', 'test.session', 'test.list', 'test.keyed'])
+    expect(keys).toEqual(['root', 'test.single', 'test.session', 'test.list', 'test.keyed', 'test.chain'])
     keys.length = 0
     core.register({ name: 'test.list', id: 'a' }, Comp)
     expect(keys).toEqual(['test.list'])

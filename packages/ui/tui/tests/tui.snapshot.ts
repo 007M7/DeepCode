@@ -1,4 +1,5 @@
-import { mkdir, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -6,8 +7,7 @@ import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import type { Session } from '@deepseek-ai/dsh-session'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type JsonValue, type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition, type ToolResultView } from '@deepseek-ai/dsh-tools'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
@@ -32,6 +32,7 @@ const CHECKPOINTS = [
   'retry-cancelled',
   'retry-exhausted',
   'banner-gradient',
+  'file-autocomplete',
   'code-mode-pending',
   'dynamic-workflow-pending',
   'cordis-tools-pending',
@@ -157,7 +158,7 @@ function appendToolResult(
   session: Session,
   id: string,
   content: ContentBlock[],
-  options: { isError?: boolean; meta?: unknown } = {},
+  options: { isError?: boolean; meta?: JsonValue } = {},
 ): void {
   session.append('tool/result', {
     turn: 1,
@@ -178,6 +179,7 @@ function visualTool(
     name,
     description: `${name} snapshot fixture`,
     parameters: {},
+    output: { schema: { type: 'null' }, render: () => [] },
     execute: () => Promise.resolve([]),
     presentCall: call,
     ...result === undefined ? {} : { presentResult: result },
@@ -337,6 +339,24 @@ describe('TUI terminal-state snapshots', () => {
     await disposeSnapshot(harness)
   })
 
+  it('pins fuzzy file candidates and the active path-only mention', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-file-snapshot-'))
+    await mkdir(join(cwd, 'src'), { recursive: true })
+    await writeFile(join(cwd, 'src', 'terminal-special-case.ts'), 'export const marker = true\n')
+    await writeFile(join(cwd, 'src', 'terminal-state.ts'), 'export const state = true\n')
+    const harness = await setupSnapshot({ cwd, formatCwd: () => '/workspace/project' })
+    try {
+      harness.terminal.send('@tsc')
+      await vi.waitFor(async () => {
+        expect(await harness.terminal.snapshot()).toContain('File · terminal-special-case.t')
+      })
+      await checkpoint('file-autocomplete', harness.terminal)
+    } finally {
+      await disposeSnapshot(harness)
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it('pins Code Mode run_code with its production presenter', async () => {
     const harness = await setupSnapshot({ configureContext: configureAdvancedTools })
     const call = {
@@ -451,7 +471,7 @@ describe('TUI terminal-state snapshots', () => {
         session.append('todo/write', {
           todos: [{ content: `Unsafe todo ${CONTROL_PROBE}`, status: 'in_progress' }],
         })
-        session.append('context/message', {
+        session.append('user/message', {
           content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
           source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
         }, { surfaceOp: 'append' })
@@ -567,7 +587,7 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('surface-before-compaction', harness.terminal, { includeScrollback: true })
 
     await renderAfter(harness, () => {
-      harness.session.append('context/message', {
+      harness.session.append('user/message', {
         content: [{ type: 'text', text: 'Compacted summary: the prior command completed and its details were retired from the active surface.' }],
         source: { kind: 'plugin', plugin: 'compact' },
       }, {
@@ -626,13 +646,27 @@ describe('TUI terminal-state snapshots', () => {
     await disposeSnapshot(harness)
   })
 
-  it('lists this workspace\'s resumable sessions with their commands', async () => {
+  it('opens the searchable resume selector with log-backed session summaries', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-23T08:00:00.000Z'))
+    const earlier = { version: 0, id: SessionId('earlier-session'), createdAt: Date.parse('2024-01-01T00:00:00Z'), cwd: '/workspace/project' }
     const harness = await setupSnapshot({
       config: { resumeCommand: 'RESUME_SESSION_ID={session} dsh' },
-      sessionPersistence: { list: async () => [
-        { version: 0, id: SessionId('main-session'), createdAt: Date.parse('2024-01-02T03:04:00Z'), cwd: '/workspace/project' },
-        { version: 0, id: SessionId('earlier-session'), createdAt: Date.parse('2024-01-01T00:00:00Z'), cwd: '/workspace/project' },
-      ] },
+      sessionPersistence: {
+        list: async () => [earlier],
+        load: async () => ({
+          meta: earlier,
+          events: [
+            { type: 'turn/start', seq: 0, time: Date.parse('2024-01-01T00:00:01Z'), data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+            { type: 'user/message', seq: 1, time: Date.parse('2024-01-01T00:00:02Z'), data: { content: [{ type: 'text', text: 'restore the selector' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+            { type: 'step/start', seq: 2, time: Date.parse('2024-01-01T00:00:03Z'), data: { turn: 1, step: 1 } },
+            { type: 'request/header', seq: 3, time: Date.parse('2024-01-01T00:00:04Z'), data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, reason: 'initial' } },
+            { type: 'assistant/message', seq: 4, time: Date.parse('2024-01-01T00:00:05Z'), data: { turn: 1, step: 1, content: [{ type: 'text', text: 'ready' }], provenance: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, surfaceOp: 'append' },
+            { type: 'step/end', seq: 5, time: Date.parse('2024-01-01T00:00:06Z'), data: { turn: 1, step: 1 } },
+            { type: 'turn/end', seq: 6, time: Date.parse('2024-01-01T00:00:07Z'), data: { turn: 1, reason: { kind: 'completed' } } },
+            { type: 'session/title', seq: 7, time: Date.parse('2024-01-01T00:00:08Z'), data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
+          ],
+        }),
+      },
     }, { columns: 92, rows: 32 })
     harness.terminal.send('/resume')
     harness.terminal.send('\r')
@@ -642,6 +676,7 @@ describe('TUI terminal-state snapshots', () => {
     await harness.terminal.flush()
     await checkpoint('resume-sessions', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
+    dateNow.mockRestore()
   })
 
   it('pins the detailed session diagnostics card', async () => {

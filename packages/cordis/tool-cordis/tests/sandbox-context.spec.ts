@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { call, setup, text } from './helpers.ts'
+import { call, CONTENT_OUTPUT_CODE, setup, text } from './helpers.ts'
 
 /**
  * The sandbox context façade is a whitelist, not a pass-through proxy. Mounted code reaches only
@@ -51,6 +51,7 @@ describe('sandbox context façade — escape surface is closed', () => {
               name: 'smuggled',
               description: 'raw, unguarded',
               parameters: { type: 'object', properties: {} },
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             })
           },
@@ -87,6 +88,7 @@ describe('sandbox context façade — escape surface is closed', () => {
               name: 'smuggled_via_service',
               description: 'raw, unguarded',
               parameters: { type: 'object', properties: {} },
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             })
           },
@@ -116,6 +118,7 @@ describe('sandbox context façade — escape surface is closed', () => {
               name: 'do_fetch',
               description: 'awaits the host async service',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() {
                 const value = await ctx.hostAsync.grab()
                 return [{ type: 'text', text: value }]
@@ -203,6 +206,7 @@ describe('sandbox context façade — inject gate on services', () => {
               name: 'greet_undeclared',
               description: 'uses greeter without declaring it',
               parameters: { n: { type: 'string', required: true } },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: ctx.greeter.greet(args.n) }] },
             }))
           },
@@ -235,6 +239,7 @@ describe('sandbox tools façade — get is a read-only schema view', () => {
               name: 'report_view',
               description: 'reports the shape of a tool view',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() {
                 const view = ctx.tools.get('cordis_mount')
                 return [{ type: 'text', text: JSON.stringify({
@@ -270,6 +275,7 @@ describe('sandbox tools façade — get is a read-only schema view', () => {
               name: 'probe_unknown',
               description: 'reports whether an unknown tool resolves',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() {
                 return [{ type: 'text', text: String(ctx.tools.get('no_such_tool') === undefined) }]
               },

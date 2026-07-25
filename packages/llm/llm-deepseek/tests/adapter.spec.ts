@@ -571,6 +571,27 @@ describe('plugin registration and config', () => {
       .resolves.toBeUndefined()
   })
 
+  it('uses exact model capacity before the adapter-wide default', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      defaultContextWindow: 256_000,
+      models: [
+        { id: 'inherits-default' },
+        { id: 'exact-override', contextWindow: 64_000 },
+      ],
+    })
+
+    await expect(ctx.llm.resolveModelContext('deepseek', 'inherits-default'))
+      .resolves.toEqual({ contextWindow: 256_000 })
+    await expect(ctx.llm.resolveModelContext('deepseek', 'exact-override'))
+      .resolves.toEqual({ contextWindow: 64_000 })
+    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted-pass-through'))
+      .resolves.toEqual({ contextWindow: 256_000 })
+  })
+
   it('allows an explicit empty model catalog', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -611,6 +632,26 @@ describe('plugin registration and config', () => {
     }).toThrow(/contextWindow must be a positive integer/)
     expect(ctx.llm.listProviders()).toEqual([])
   })
+
+  it.each([0, 1.5])(
+    'rejects invalid adapter-wide default context capacity %s',
+    async (defaultContextWindow) => {
+      expect(() => new DeepSeekAdapter({
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        defaultContextWindow,
+      })).toThrow(/defaultContextWindow must be a positive integer/)
+
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      await expect(ctx.plugin(LlmDeepSeek, {
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        defaultContextWindow,
+      })).rejects.toThrow(/defaultContextWindow/)
+      expect(ctx.llm.listProviders()).toEqual([])
+    },
+  )
 
   it('falls back to DEEPSEEK_API_KEY and DEEPSEEK_BASE_URL env vars', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'env-key')

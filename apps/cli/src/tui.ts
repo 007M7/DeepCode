@@ -18,17 +18,14 @@ import {
   installFailLoud,
   loadEnv,
   loadPersonalPatches,
+  RESUME_SESSION_ID_KEY,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import type { Context } from 'cordis'
+import type { TuiResumeHost } from '@deepseek-ai/dsh-tui'
 
 const NAME = 'dsh'
-
-// The env var the shipped tui-agent config reads (`resumeSessionId: !!js
-// process.env.RESUME_SESSION_ID`) to rehydrate a persisted session. The
-// `--resume <id>` flag is CLI sugar that sets it before boot, so the printed
-// `dsh --resume <id>` exit hint runs back through this same intake.
-const RESUME_SESSION_ID_ENV = 'RESUME_SESSION_ID'
 
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the shipped default config resolves with
@@ -47,7 +44,9 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * @param config - a config path to boot instead of the shipped default, or
  * `undefined` for the default; already parsed from the optional positional.
  * @param resumeSessionId - a persisted session id to resume, or `undefined`;
- * already parsed and non-empty-validated from `--resume`.
+ * already parsed and non-empty-validated from `--resume`. It is provided on the
+ * boot context under {@link RESUME_SESSION_ID_KEY}, which the shipped config
+ * reads through `!!js` to rehydrate that session.
  */
 export async function runTui(config: string | undefined, resumeSessionId: string | undefined): Promise<void> {
   // Refuse pipes BEFORE booting: a compose-time throw inside the Loader tree
@@ -61,10 +60,48 @@ export async function runTui(config: string | undefined, resumeSessionId: string
   // The bin already loaded the invoking directory's .env; the personal .env
   // only fills what is still unset (process.loadEnvFile never overrides).
   loadEnv(NAME, resolveDshHome())
-  // An explicit `--resume` flag beats any ambient RESUME_SESSION_ID, so set it
-  // after loadEnv and before boot reads it through the config's `!!js`.
-  if (resumeSessionId !== undefined) process.env[RESUME_SESSION_ID_ENV] = resumeSessionId
-  const ctx = await boot(NAME, resolveConfigPath(config ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
+  // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
+  // flag, so the resumed process rehydrates through this same intake. The host
+  // is offered only when Node exposes `process.execve` and knows its own entry.
+  const entry = process.argv[1]
+  const execve = process.execve?.bind(process)
+  const app: { current?: Context } = {}
+  const resumeHost: TuiResumeHost | undefined = entry === undefined || execve === undefined ? undefined : {
+    async handoff(sessionId): Promise<never> {
+      const current = app.current
+      if (current === undefined) throw new Error(`${NAME}: app boot has not completed`)
+      // Rebuild argv from the parsed config plus the selected id: TUI mode's
+      // only arguments are the optional config positional and `--resume <id>`.
+      const nextArgv = [
+        process.execPath,
+        ...process.execArgv,
+        entry,
+        ...config !== undefined ? [config] : [],
+        '--resume',
+        sessionId,
+      ]
+      try {
+        await current.fiber.dispose()
+        execve(process.execPath, nextArgv, process.env)
+        throw new Error('process replacement returned unexpectedly')
+      } catch (error) {
+        process.stderr.write(`${NAME}: resume handoff failed after terminal release: ${String(error)}\n`)
+        process.exit(1)
+      }
+    },
+  }
+  const ctx = await boot(
+    NAME,
+    resolveConfigPath(config ?? DEFAULT_CONFIG, undefined),
+    loadPersonalPatches(NAME),
+    (hostCtx) => {
+      // Inject the resume id (or undefined) so the shipped config's `!!js`
+      // reads it as a bare identifier; then offer the in-place handoff host.
+      hostCtx.provide(RESUME_SESSION_ID_KEY, resumeSessionId)
+      if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
+    },
+  )
+  app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
 }
 /* v8 ignore stop */

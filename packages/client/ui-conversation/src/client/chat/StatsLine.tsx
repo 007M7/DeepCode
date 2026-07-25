@@ -1,14 +1,13 @@
 // StatsLine: the session stats row (figma 122:11212 "cache hit 92% · 1,284
-// tokens · 45.2s · 5 turns · 32 steps"), mounted as the chat view's
-// chrome.footer — the first chrome-attachment consumer. Duration has no data
-// source in P-I (ledger). Subscribes to `nodes` only: chunk batches never swap
-// that reference, so the row renders zero times during streaming (the RFC
-// performance model's acceptance row).
+// tokens · 45.2s · 5 turns · 32 steps"), rendered by ChatView under the flow
+// (part of the chat view body — the chrome attachment mechanism retired with
+// the view ring). Duration has no data source in P-I (ledger). Subscribes to
+// `nodes` only: chunk batches never swap that reference, so the row renders
+// zero times during streaming (the RFC performance model's acceptance row).
 
 import { memo, useMemo } from 'react'
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ChromeProps } from '../contract/views.ts'
 import css from './StatsLine.module.css'
 
 interface UsageTotals {
@@ -55,8 +54,11 @@ export function deriveStats(nodes: ConversationSnapshot['nodes']): UsageTotals {
   }
 }
 
-export const StatsLine = memo(function StatsLine({ useSession }: ChromeProps) {
-  const nodes = (useSession as SnapshotSelectorHook<ConversationSnapshot>)((s) => s.nodes)
+/** Props: the conversation-snapshot selector hook (handed down by ChatView). */
+export interface StatsLineProps { useSession: SnapshotSelectorHook<ConversationSnapshot> }
+
+export const StatsLine = memo(function StatsLine({ useSession }: StatsLineProps) {
+  const nodes = useSession((s) => s.nodes)
   const stats = useMemo(() => deriveStats(nodes), [nodes])
   if (stats.steps === 0) return null
   const parts: string[] = []

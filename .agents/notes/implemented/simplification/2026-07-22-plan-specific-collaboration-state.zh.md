@@ -14,7 +14,7 @@ Status: implemented
 
 Plan mode 拥有一个 plan 专用产品包：位于 `packages/plan/plan-mode/` 的 `@deepseek-ai/dsh-plan-mode`。持久化事实为 `plan/mode: { active: boolean }`，由 `foldPlanMode(events)` 折叠，空日志值为 `false`。`ctx.planMode.get(agent)` 返回 `{ active, pending? }`，`set(agent, active)` 则记录在边界生效的选择。现有的提示词提交、continuation、重试、追加失败和 dispose（资源释放）栅栏在语义上保持不变。
 
-配置严格为 `{ section: string }`。该包自行注册固定的 `plan:policy` 段、`/plan [message]` 和 `exit_plan_mode`。不带参数的 `/plan` 选择该状态；非空参数则先选择该状态，再通过 `agent.steer()` 发送去除首尾空白后的文本，使该文本在受影响的步骤中成为一条记录到日志的普通用户消息。即使 plan mode 未激活，退出工具仍保持注册，以确保请求工具目录稳定。
+配置严格为 `{ section: string }`。该包自行注册固定的 `plan:policy` 段、`/plan [message]`、精确匹配的 `/plan off` 主动退出形式，以及 `exit_plan_mode`。不带参数的 `/plan` 选择激活；其他非空参数则先选择激活，再通过 `agent.steer()` 发送去除首尾空白后的文本，使该文本在受影响的步骤中成为一条记录到日志的普通用户消息。`/plan off` 选择未激活，不产生模型输入，并可取消仍待在边界生效的进入选择。即使 plan mode 未激活，退出工具仍保持注册，以确保请求工具目录稳定。
 
 ACP 保留协议层的 `default` 和 `plan` id。桥接层把这两个 id 映射到布尔服务，只公布这组固定选项，在适配器边界拒绝其他所有 id，并把已提交的 `plan/mode` 事件映射回 `current_mode_update`。协议仍保持通用性，但不会迫使产品领域也采用通用抽象。
 
@@ -38,9 +38,9 @@ ACP 保留协议层的 `default` 和 `plan` id。桥接层把这两个 id 映射
 ## 验证
 
 - 包测试通过布尔服务继续覆盖边界顺序、重试、追加失败、HMR（热模块替换）资源释放、提示词组装、稳定的原生 schema 与 Code Mode schema、评审结果和不变式。
-- 命令测试覆盖不带参数的 `/plan`、`/plan <message>`、不存在 `/mode` 和 `/review`，以及随 effect 作用域移除。
+- 命令测试覆盖不带参数的 `/plan`、`/plan <message>`、激活状态下的 `/plan off`、取消待生效的进入选择、未激活状态下的幂等性、不存在 `/mode` 和 `/review`，以及随 effect 作用域移除。
 - ACP 测试覆盖固定模式列表公布、两个 id、未知 id 拒绝、乐观更新、已提交退出和加载回放。
-- 无密钥 TUI 场景通过 `/plan <message>` 进入，证明 `plan/mode` 先于首个请求头，且消息在 plan 引导下记录到日志。
+- 无密钥 TUI 场景通过 `/plan <message>` 进入、通过 `/plan off` 退出，并证明每个已提交的 `plan/mode` 都先于其所改变的请求头，进入消息在 plan 引导下记录到日志，且退出后的请求不含该引导。
 
 ## 后果
 

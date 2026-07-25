@@ -40,6 +40,8 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Thinking effort (only meaningful with thinking enabled). */
   reasoningEffort?: 'high' | 'max'
+  /** Positive context capacity used when the selected model has no exact value. */
+  defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
@@ -58,6 +60,7 @@ export const Config: z<Config> = z.object({
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['high', 'max']),
+  defaultContextWindow: z.number().step(1).min(1),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
 })
@@ -103,6 +106,9 @@ export function apply(ctx: Context, config: Config): void {
       thinking: config.thinking,
       reasoningEffort: config.reasoningEffort,
     },
+    ...config.defaultContextWindow === undefined
+      ? {}
+      : { defaultContextWindow: config.defaultContextWindow },
     models: resolveModels(config.models),
     streamIdleTimeoutMs: config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   }))

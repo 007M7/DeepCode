@@ -50,7 +50,7 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
 function mountFrame() {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
   const instance = createLayoutStore().create()
-  instance.actions.openDetails() // seed: sidebar at default 300, details open at default 360
+  instance.actions.openDetails() // seed: sidebar at default 280, details open at default 360
   const slotCalls: { key: string; props: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, props: owner })
@@ -116,7 +116,7 @@ afterEach(() => {
 describe('AppFrame', () => {
   it('renders three tracks from store state', () => {
     const { frame } = mountFrame()
-    expect(tracks(frame)).toEqual([300, 360])
+    expect(tracks(frame)).toEqual([280, 360])
   })
 
   it('renders the session pair with empty owner shares (sessionId is framework-standard)', () => {
@@ -142,13 +142,13 @@ describe('AppFrame', () => {
 
   it('sidebar slot receives live concession output as owner props', () => {
     const { slotCalls } = mountFrame()
-    expect(slotCalls.find((c) => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 300 })
+    expect(slotCalls.find((c) => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
   })
 
   it('sidebar drag widens through rAF-batched pointer moves', () => {
     const { frame } = mountFrame()
     const handles = frame.querySelectorAll('[class*="handle"]')
-    drag(handles[0]!, 300, 350)
+    drag(handles[0]!, 280, 350)
     expect(tracks(frame)[0]).toBe(350)
   })
 
@@ -160,18 +160,18 @@ describe('AppFrame', () => {
   })
 
   it('drag base is the rendered (concession-clamped) width, not the preference', () => {
-    frameWidth = 1250 // step-2 squeeze: details renders 310 while preference is 360
+    frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
     const { frame, instance } = mountFrame()
-    expect(tracks(frame)).toEqual([300, 310])
+    expect(tracks(frame)).toEqual([280, 330])
     const handles = frame.querySelectorAll('[class*="handle"]')
-    drag(handles[1]!, 940, 950) // shrink by 10 from the rendered width
-    expect(instance.getSnapshot().details).toBe(300)
+    drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
+    expect(instance.getSnapshot().details).toBe(320)
   })
 
   it('details column stays mounted at zero width', () => {
     const { frame, instance, getByTestId } = mountFrame()
     act(() => { instance.actions.closeDetails() })
-    expect(tracks(frame)).toEqual([300, 0])
+    expect(tracks(frame)).toEqual([280, 0])
     expect(getByTestId('details-content')).toBeTruthy()
     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
   })
@@ -190,10 +190,10 @@ describe('AppFrame', () => {
     const { frame } = mountFrame()
     frameWidth = 1250
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
-    expect(tracks(frame)).toEqual([300, 310])
+    expect(tracks(frame)).toEqual([280, 330])
     frameWidth = 1920
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
-    expect(tracks(frame)).toEqual([300, 360])
+    expect(tracks(frame)).toEqual([280, 360])
   })
 
   it('drag handles disappear for collapsed columns', () => {
@@ -223,7 +223,7 @@ describe('AppFrame — guard branches', () => {
   it('two moves inside one frame coalesce through the pending rAF', () => {
     const { frame, instance } = mountFrame()
     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
-    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 300, bubbles: true })) })
+    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 280, bubbles: true })) })
     act(() => {
       // Two moves before the frame flushes: the second must ride the pending
       // rAF (frame.current ??= guard), and the flush sees the latest x.
@@ -238,7 +238,7 @@ describe('AppFrame — guard branches', () => {
   it('pointerup with a pending rAF cancels it and commits the final position', () => {
     const { frame, instance } = mountFrame()
     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
-    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 300, bubbles: true })) })
+    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 280, bubbles: true })) })
     act(() => {
       handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 360, bubbles: true }))
       // No timer advance: the rAF is still pending when pointerup arrives.
@@ -252,7 +252,7 @@ describe('AppFrame — guard branches', () => {
     frameWidth = 0
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     // Track template still reflects the last non-zero viewport.
-    expect(tracks(frame)).toEqual([300, 360])
+    expect(tracks(frame)).toEqual([280, 360])
   })
 })
 
@@ -270,6 +270,6 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
     const { frame } = mountFrame()
     frameWidth = 1250
     act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
-    expect(tracks(frame)).toEqual([300, 310])
+    expect(tracks(frame)).toEqual([280, 330])
   })
 })

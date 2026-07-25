@@ -213,8 +213,7 @@ export function apply(ctx: Context, config: Config): void {
       return { kind: 'block', feedback: downstream.feedback, additionalContexts: prependContext(reminder, downstream.additionalContexts) }
     }
     return {
-      kind: 'accept',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      ...downstream,
       additionalContexts: prependContext(reminder, downstream.additionalContexts),
     }
   })

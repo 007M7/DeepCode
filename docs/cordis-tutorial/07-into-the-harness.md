@@ -21,8 +21,12 @@ export function apply(ctx: Context) {
     parameters: {
       name: { type: 'string', required: true, description: 'Who to greet' },
     },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     async execute(args) {
-      return [{ type: 'text', text: `Hello, ${args.name}!` }]
+      return `Hello, ${args.name}!`
     },
   }))
 
@@ -40,7 +44,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-Every pattern here is from the earlier chapters: `inject: ['tools']` ([chapter 3](03-services.md)) holds the plugin until the tool registry exists; `ctx.tools.register(...)` attaches the registration disposer to the plugin ([chapter 2](02-lifecycle-and-effects.md)), so unloading unregisters the tool. `defineTool` converts the `parameters` spec to the JSON Schema shown to the model, infers the type of `args`, and validates model-supplied arguments before `execute` runs.
+Every pattern here is from the earlier chapters: `inject: ['tools']` ([chapter 3](03-services.md)) holds the plugin until the tool registry exists; `ctx.tools.register(...)` attaches the registration disposer to the plugin ([chapter 2](02-lifecycle-and-effects.md)), so unloading unregisters the tool. `defineTool` converts the `parameters` spec to the JSON Schema shown to the model, infers the type of `args`, and validates model-supplied arguments before `execute` runs. The tool returns the canonical value declared by `output.schema`; `output.render` separately produces the Native and durable result content.
 
 ## An observer plugin
 

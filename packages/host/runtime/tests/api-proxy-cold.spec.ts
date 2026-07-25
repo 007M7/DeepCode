@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -32,6 +33,7 @@ describe('sessions.list cold merge', () => {
   it('summarizes unattached sessions: log mtime, locate-less and vanished-log createdAt fallbacks, lineage', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(UserInteractionService)
     const root = mkdtempSync(join(tmpdir(), 'dsh-cold-'))
     const logPath = join(root, 'a.log')
     writeFileSync(logPath, 'log-bytes')
@@ -76,6 +78,7 @@ describe('degenerate composition (no persistence, no factory)', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
     const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const listed = await api.sessions.list(request({}))

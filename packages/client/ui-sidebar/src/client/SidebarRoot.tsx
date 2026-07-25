@@ -6,28 +6,32 @@
  * state, and rows are derived in render via useMemo (slot design section 6:
  * derived data is a pure function, no materializing store).
  *
- * Collapse is a morph, not a swap: the four control rows persist into the
- * 56px rail (collapse/new session/new workspace/search, one icon each, same
- * top-down order as their expanded rows) and animate their geometry on the
- * deepsuite curve, while wide-only content (brand, labels, input, tree)
- * cross-fades out and unmounts once the collapse settles — dropping the
- * sessions subscription. Rail search expands and focuses the search box.
+ * Collapse is a slide + crossfade: the content freezes at its expanded
+ * width (inline style) and fades out in place while the sliding column
+ * (AppFrame grid tracks) clips it — nothing reflows mid-slide. At settle
+ * the wide-only content (brand, labels, input, tree) unmounts, dropping
+ * the sessions subscription, and the control rows snap to the 56px rail
+ * (one icon each, same top-down order) fading in as the slide ends. Rail
+ * search expands and focuses the search box.
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo,
+  BrandWordmark, FishLogo,
   IconCloseFill14, IconNewChatOutline16, IconPanelLeftOutline16, IconPersonalizationOutline16,
   IconProjectAddOutline16, IconSearchOutline16, IconSettingsOutline14,
-  Menu,
+  Menu, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
 import { deriveRows } from './tree.ts'
 import { ProjectRowItem, SessionRowItem } from './Rows.tsx'
 import css from './SidebarRoot.module.css'
 
-/** Wide-content unmount delay; matches --ds-transition-duration-slow (0.3s). */
-const COLLAPSE_SETTLE_MS = 300
+/** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
+const COLLAPSE_SETTLE_MS = 150
+
+/** Column slide length (--ds-transition-duration-slow): rail-search focus waits it out — focus() forces a synchronous layout and would jank the slide. */
+const EXPAND_SLIDE_MS = 300
 
 const GROUP_BY_ITEMS = [
   { id: 'workspace', label: 'WorkSpace' },
@@ -134,7 +138,7 @@ function SessionTree({ useSessions, onOpen, onCreate, query }: SessionTreeProps)
  * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
  * @returns the sidebar element tree.
  */
-export function SidebarRoot({ collapsed, useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
+export function SidebarRoot({ collapsed, width, useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
@@ -150,72 +154,98 @@ export function SidebarRoot({ collapsed, useSessions, onOpen, onCreate, onToggle
   }, [collapsed])
   const wide = !collapsed || !settled
 
+  // Freeze the content at its expanded width while it fades out (collapsed
+  // && wide): the sliding column then clips it instead of reflowing it. The
+  // rail layout (.collapsed styles) only applies once the fade settles.
+  const lastWideWidth = useRef(width)
+  if (!collapsed) lastWideWidth.current = width
+
+  // Rail-in only crossfades a live collapse: a refresh straight into the
+  // collapsed state renders the rail statically (no delay-hidden icons).
+  const everWide = useRef(!collapsed)
+  if (!collapsed) everWide.current = true
+
   // Rail search = expand + land in the search box: the flag arms before the
   // expand toggle; once expanded the input is mounted and takes focus.
   const [searchOnExpand, setSearchOnExpand] = useState(false)
   useEffect(() => {
     if (!collapsed && searchOnExpand) {
-      searchInput.current?.focus()
-      setSearchOnExpand(false)
+      const timer = window.setTimeout(() => {
+        searchInput.current?.focus({ preventScroll: true })
+        setSearchOnExpand(false)
+      }, EXPAND_SLIDE_MS)
+      return () => { window.clearTimeout(timer) }
     }
   }, [collapsed, searchOnExpand])
 
   return (
-    <div className={clsx(css.root, collapsed && css.collapsed)}>
+    <div
+      className={clsx(css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn, collapsed && wide && css.fading)}
+      style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
+    >
       <div className={css.logoRow}>
         {wide && (
           <span className={clsx(css.brand, css.wide)}>
-            {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
-            <FishLogo size={23} />
-            <span className={css.wordmark}>deepseek</span>
-            <span className={css.badge}>HARNESS</span>
+            <BrandWordmark />
           </span>
         )}
-        <button
-          type="button"
-          className={css.iconButton}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          onClick={() => { onToggleSidebar() }}
-        >
-          <IconPanelLeftOutline16 />
-        </button>
+        {/* Rail resting state is the whale mark; hovering swaps in the panel
+            icon (the expand affordance, figma sidebar-hover flow). */}
+        <Tooltip label="Open sidebar" disabled={wide}>
+          <button
+            type="button"
+            className={clsx(css.iconButton, css.toggle)}
+            aria-label={collapsed ? 'Open sidebar' : 'Collapse sidebar'}
+            onClick={() => { onToggleSidebar() }}
+          >
+            {!wide && <FishLogo className={css.railFish} size={24} />}
+            {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
+            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
+          </button>
+        </Tooltip>
       </div>
 
-      <button
-        type="button"
-        className={css.newSession}
-        aria-label="New session"
-        onClick={() => { onCreate() }}
-      >
-        <IconNewChatOutline16 size={14} />
-        {wide && <span className={clsx(css.newSessionLabel, css.wide)}>New Session</span>}
-      </button>
+      <Tooltip label="New session" disabled={wide}>
+        <button
+          type="button"
+          className={css.newSession}
+          aria-label="New session"
+          onClick={() => { onCreate() }}
+        >
+          <IconNewChatOutline16 size={wide ? 14 : 18} />
+          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>New Session</span>}
+        </button>
+      </Tooltip>
 
       <div className={css.sectionHeader}>
         {wide && <span className={clsx(css.sectionLabel, css.wide)}>WorkSpace</span>}
         {wide && <GroupByMenu />}
-        <button
-          type="button"
-          className={css.iconButton}
-          aria-label="New workspace"
-          onClick={() => { onCreate() }}
-        >
-          <IconProjectAddOutline16 />
-        </button>
+        <Tooltip label="New Workspace" disabled={wide}>
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label="New workspace"
+            onClick={() => { onCreate() }}
+          >
+            <IconProjectAddOutline16 size={wide ? 16 : 18} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Expanded: the row is a click-to-focus field (the leading icon is
           decorative). Collapsed: the icon is the rail's search control. */}
       <div className={css.search} onClick={() => { if (!collapsed) searchInput.current?.focus() }}>
-        <button
-          type="button"
-          className={css.searchButton}
-          aria-label="Search sessions"
-          tabIndex={collapsed ? 0 : -1}
-          onClick={() => { if (collapsed) { setSearchOnExpand(true); onToggleSidebar() } }}
-        >
-          <IconSearchOutline16 size={14} />
-        </button>
+        <Tooltip label="Search" disabled={wide}>
+          <button
+            type="button"
+            className={css.searchButton}
+            aria-label="Search sessions"
+            tabIndex={collapsed ? 0 : -1}
+            onClick={() => { if (collapsed) { setSearchOnExpand(true); onToggleSidebar() } }}
+          >
+            <IconSearchOutline16 size={wide ? 14 : 18} />
+          </button>
+        </Tooltip>
         {wide && (
           <input
             ref={searchInput}
@@ -245,7 +275,7 @@ export function SidebarRoot({ collapsed, useSessions, onOpen, onCreate, onToggle
       </div>
 
       <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
-        <IconSettingsOutline14 />
+        <IconSettingsOutline14 size={wide ? 14 : 18} />
         {wide && <span className={clsx(css.footLabel, css.wide)}>Settings</span>}
       </div>
     </div>

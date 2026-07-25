@@ -22,14 +22,14 @@ type PtySessionStatus =
 
 ## Backend and live session
 
-A backend owns how one registered type starts and detects readiness. `PtyService` publishes the returned session only after setup succeeds, then owns id authorization and cleanup. A backend session owns terminal state and captured-resource quiescence.
+A backend owns how one registered type starts and detects readiness. `PtyService` publishes the returned session only after setup succeeds, then owns id authorization and cleanup. A backend that cannot clean partial startup resources rejects with `PtyBackendCleanupError`, allowing disposal to retain the cleanup failure without replacing the caller's cancellation reason. A backend session owns terminal state and captured-resource quiescence.
 
 ```ts type-equiv
 /** Replaceable provider for one PTY session type. */
 interface PtyBackend {
   /** Stable type selected by {@link PtySpawnRequest.type}. */
   readonly type: string
-  /** Create an unpublished session or reject after cleaning partial resources. */
+  /** Create an unpublished session or reject after cleaning partial resources; cleanup failure uses {@link PtyBackendCleanupError}. */
   spawn(spec: PtyBackendSpawnSpec): Promise<PtyBackendSession>
 }
 ```

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write
+2026-07-12-drop-unconsumed-skill-provider-events.md: b0ed7585882328b6abdcf57974200053d9c26048
+2026-07-12-drop-unconsumed-skill-provider-events.zh.md: fd380b2c0421abfc3032b88b550b4a3e8b88bf38

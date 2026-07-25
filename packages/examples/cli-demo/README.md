@@ -38,7 +38,7 @@ The root headless-agent example supplies its leaf:
 pnpm run demo:headless "inspect the failing test and fix it"
 ```
 
-Loader configs with bare package specifiers require `node --expose-internals` or the Loader's optional native fallback. The root command supplies the Node flag.
+Loader configs resolve bare package specifiers through the optional native helper installed by the repository, so the root command needs no special Node flags.
 
 ### Output formats
 

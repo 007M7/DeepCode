@@ -123,23 +123,25 @@ describe('selection survives on the store seat', () => {
     expect(two.store.getSnapshot().selection).toEqual({ turnSeq: 9, callId: 'z' })
   })
 
-  it('a title-upgrading list refresh keeps instance identity and the selection value', async () => {
+  it('a display-title-upgrading list refresh keeps instance identity and the selection value', async () => {
     const b = bench()
     // First-send shape: client-side create inserts the row without cwd (title = bare id).
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s1') }))
     const id = await b.sessions.create({})
     await flush()
-    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBe('s1')
+    expect(b.sessions.list.getSnapshot().byId[id]).toMatchObject({ displayTitle: 's1' })
+    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBeUndefined()
 
     const store = storeFor(b, 'conversation', id)
     store.actions.select({ turnSeq: 3, callId: 'c1' })
     store.actions.setDraft('half-typed')
 
-    // The late list refresh lands (host knows the cwd → formal title).
+    // The late list refresh lands (host knows the cwd → better fallback label).
     feed(b, [{ id: 's1', cwd: '/w/proj-a' }])
     await b.sessions.manager.refreshList()
     await flush()
-    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBe('proj-a')
+    expect(b.sessions.list.getSnapshot().byId[id]).toMatchObject({ displayTitle: 'proj-a' })
+    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBeUndefined()
 
     const after = storeFor(b, 'conversation', id)
     expect(after).toBe(store)

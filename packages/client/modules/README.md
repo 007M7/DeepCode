@@ -1,0 +1,20 @@
+# @deepseek-ai/dsh-client-modules
+
+Client module system: the browser peer of Node's internal ESM loader, built as a lazy CJS table. The web shell mounts the vendored cordis Loader for entry governance (fiber lifecycle, inject waiting, update/refresh) and injects this package's `ClientModuleLoader` as its `internal` seam — the vendored side's only consumption point is `EntryTree.import`, so replacing `internal` replaces exactly "how plugin code arrives" and nothing else.
+
+Lazy CJS model (web2): executing a plugin bundle only REGISTERS its factory (`window.__ModuleLoader__.load({id, factory})`); every module body side effect — CSS injection included — lives in the factory closure and runs at materialization (`factory(require)` → export surface, memoized in `loadCache`), not at script execution. A factory that requires another registered-but-unmaterialized module materializes it recursively, so load order needs no external sequencing; require cycles throw (factory-form CJS cannot deliver partial exports). `<id>/client` and the bare id name the same surface (a plugin bundle IS its package's client half).
+
+Resolution branch order (`import(specifier)`): platform seed word → shell instance; memoized record → surface; shell-own static registry (`registerStatic`, app-shell) → module; registered factory → materialize; graph row (`window.__DSH_BOOT__`) → fetch + execute + materialize; anything else throws — the runtime mirror of the build-time bundle purity gate. The synchronous `require` handed to factories walks the same order minus the fetch branch and records observed edges into the module record. `prefetch` is the stage-one arrival hook (fetch + execute, registration only; concurrent calls share one in-flight task); `invalidate` drops the factory and the materialized record so the next prefetch/import refetches (the HMR hook).
+
+## Model Experience
+
+None, as the module loader is browser-side kernel machinery; nothing here reaches a model request.
+
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
+## Known Limitations and Deferred Work
+
+- **Flat module graph by design** — every bundle is one module node whose edges point only at table leaves; the interface (loadCache/edges/invalidate) is shaped for a general module graph so the externalization granularity can change without an interface change.
+- **No unload bookkeeping of its own** — style removal and fiber teardown ordering live with the HMR driver (`@deepseek-ai/dsh-client-hmr`); the loader only inventories owned style tag ids per record.

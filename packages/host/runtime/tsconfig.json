@@ -24,6 +24,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
+      "path": "../../session-title/session-title-first-message-llm"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {
@@ -61,9 +67,6 @@
     },
     {
       "path": "../../fs/tool-fs-search"
-    },
-    {
-      "path": "../../context/workspace-context"
     },
     {
       "path": "../../llm/token-meter"
@@ -120,28 +123,10 @@
       "path": "../../../vendor/loader"
     },
     {
-      "path": "../../client/connection"
+      "path": "../../context/workspace-context"
     },
     {
-      "path": "../../client/runtime"
-    },
-    {
-      "path": "../../client/ui-theme"
-    },
-    {
-      "path": "../../client/i18n"
-    },
-    {
-      "path": "../../client/ui-layout"
-    },
-    {
-      "path": "../../client/ui-sidebar"
-    },
-    {
-      "path": "../../client/ui-conversation"
-    },
-    {
-      "path": "../../client/ui-trajectory"
+      "path": "../../ui/user-interaction"
     }
   ]
 }

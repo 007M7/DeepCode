@@ -13,13 +13,14 @@ import { act, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { ActionsDecl, SlotEntryDef, SlotSpec, StoreHandle, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  createSlotRenderer, SessionProvider, SlotOwnershipError,
+  createSlotRenderer, SessionProvider, SlotOwnershipError, StaleAuthorizationError,
   type RenderOpts, type SessionCell,
   type SlotRendererHost, type StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-web-react'
 
 type AnyProps = Record<string, unknown>
 type RenderSlotFn = (key: string, owner: object, opts?: RenderOpts) => ReactNode
+type RenderSlotChainFn = (key: string, owner: object, opts?: { fallback?: ReactNode }) => ReactNode
 type DeclaredSpec = SlotSpec<SlotEntryDef>
 /** Entry literal helper: fake entries default the mandatory options bag. */
 const entryOf = (partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }): StoredEntry =>
@@ -129,7 +130,13 @@ function makeHost() {
     declare: (key: string, spec: DeclaredSpec) => { specs.set(key, spec); bump(key) },
     add: (key: string, partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }) => {
       const entry = entryOf(partial)
-      entries.set(key, [...(entries.get(key) ?? []), entry])
+      const next = [...(entries.get(key) ?? []), entry]
+      // Mirror the ledger contract: chain entries arrive priority-sorted
+      // (stable, ascending) — outlets iterate entries() order as-is.
+      if (specs.get(key)?.kind === 'chain') {
+        next.sort((a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0))
+      }
+      entries.set(key, next)
       live.add(entry)
       bump(key)
       return () => {
@@ -165,6 +172,29 @@ function mountRoot(h: Fake, children: Record<string, DeclaredSpec>, body: (rende
 
 const SINGLE_ROOT: DeclaredSpec = { kind: 'single', scope: 'root' }
 const SINGLE_SESSION: DeclaredSpec = { kind: 'single', scope: 'session' }
+const CHAIN_ROOT: DeclaredSpec = { kind: 'chain', scope: 'root' }
+
+/** Chain entry literal: top-level select, priority in the options bag (the StoredEntry chain shape). */
+const chainEntryOf = (partial: {
+  component: unknown
+  select: (owner: object) => unknown
+  priority?: number
+}): Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] } => ({
+  component: partial.component,
+  select: partial.select as StoredEntry['select'],
+  ...(partial.priority !== undefined ? { options: { priority: partial.priority } } : {}),
+})
+
+/** Mount a root entry whose component renders `body` with its kit renderSlotChain. */
+function mountChainRoot(h: Fake, children: Record<string, DeclaredSpec>, body: (renderSlotChain: RenderSlotChainFn) => ReactNode) {
+  const dispose = h.add('root', {
+    component: (props: { renderSlotChain: RenderSlotChainFn }) => <>{body(props.renderSlotChain)}</>,
+    children,
+  })
+  const renderer = createSlotRenderer()
+  const view = render(<>{renderer.renderRoot(h.host, {})}</>)
+  return { view, dispose }
+}
 
 describe('root outlet', () => {
   it('renders the root registration and fails loud when root is unregistered (boot order)', () => {
@@ -259,6 +289,183 @@ describe('child outlets and the renderSlot binding', () => {
     spy.mockRestore()
     expect(view.container.textContent).toBe('alive')
     expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
+  })
+})
+
+describe('chain outlets and the renderSlotChain binding', () => {
+  it('elects the first non-null selector in order, injects matched, and skips decliners without mounting them', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    const declinerBody = vi.fn(() => <span>never</span>)
+    h.add('k.chain', chainEntryOf({
+      component: declinerBody,
+      select: () => null,
+    }))
+    h.add('k.chain', chainEntryOf({
+      component: ({ matched }: { matched?: { label: string } }) => <b>{matched?.label}</b>,
+      select: (owner) => ({ label: `hit:${(owner as { tag: string }).tag}` }),
+    }))
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', { tag: 'T' }))
+    // The declining entry never mounts: the routing decision is select-layer only.
+    expect(view.container.textContent).toBe('hit:T')
+    expect(declinerBody).not.toHaveBeenCalled()
+  })
+
+  it('contains a throwing selector to its entry: reported, treated as declined, chain and fallback intact', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.add('k.chain', chainEntryOf({
+      component: () => <span>never</span>,
+      select: () => { throw new Error('selector boom') },
+    }))
+    h.add('k.chain', chainEntryOf({
+      component: ({ matched }: { matched?: string }) => <b>{matched}</b>,
+      select: (owner) => (owner as { pick?: string }).pick ?? null,
+    }))
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT }, (renderSlotChain) => <>
+      <main>{renderSlotChain('k.chain', { pick: 'OK' })}</main>
+      <aside>{renderSlotChain('k.chain', {}, { fallback: <i>fb</i> })}</aside>
+    </>)
+    // The breach never escapes to the owner region: later entries still get
+    // tried, and an all-throw/all-null pass still lands on the fallback.
+    expect(view.container.querySelector('main')!.textContent).toBe('OK')
+    expect(view.container.querySelector('aside')!.textContent).toBe('fb')
+    expect(spy.mock.calls.some(([msg]) => String(msg).includes('chain selector crashed'))).toBe(true)
+    spy.mockRestore()
+  })
+
+  it('remounts the boundary on re-election: a failed entry does not black out its replacement', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.add('k.chain', chainEntryOf({
+      component: () => { throw new Error('entry A boom') },
+      select: (owner) => (owner as { pick?: string }).pick === 'A' ? {} : null,
+    }))
+    h.add('k.chain', chainEntryOf({
+      component: () => <b>B-ok</b>,
+      select: (owner) => (owner as { pick?: string }).pick === 'B' ? {} : null,
+    }))
+    let pick = 'A'
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', { pick }))
+    spy.mockRestore()
+    expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
+    // Re-elect entry B: the entry-keyed boundary remounts fresh instead of
+    // holding A's failed state over the healthy replacement.
+    pick = 'B'
+    act(() => { h.add('root', { component: () => null }) })   // root bump re-renders the dispatch site
+    expect(view.container.textContent).toBe('B-ok')
+    expect(view.container.querySelector('[data-slot-error]')).toBeNull()
+  })
+
+  it('falls to the owner fallback when every selector declines, and re-routes live', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.add('k.chain', chainEntryOf({
+      component: ({ matched }: { matched?: string }) => <b>{matched}</b>,
+      select: (owner) => (owner as { pick?: string }).pick ?? null,
+    }))
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT }, (renderSlotChain) => <>
+      <main>{renderSlotChain('k.chain', {}, { fallback: <i>bar</i> })}</main>
+      <aside>{renderSlotChain('k.chain', { pick: 'P' }, { fallback: <i>bar</i> })}</aside>
+    </>)
+    // Same chain, two dispatch sites: all-null owner props fall back, matching ones elect.
+    expect(view.container.querySelector('main')!.textContent).toBe('bar')
+    expect(view.container.querySelector('aside')!.textContent).toBe('P')
+  })
+
+  it('renders the fallback for an empty chain and elects live once an entry registers', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', {}, { fallback: <i>none</i> }))
+    expect(view.container.textContent).toBe('none')
+    let dispose = () => {}
+    act(() => {
+      dispose = h.add('k.chain', chainEntryOf({
+        component: () => <b>IN</b>,
+        select: () => ({}),
+      }))
+    })
+    expect(view.container.textContent).toBe('IN')
+    act(() => { dispose() })
+    expect(view.container.textContent).toBe('none')
+  })
+
+  it('orders the chain by ascending priority with registration sequence breaking ties', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    // Registered first but priority 2: must yield to the later priority-1 entry.
+    h.add('k.chain', chainEntryOf({
+      component: () => <b>late</b>,
+      select: () => ({}),
+      priority: 2,
+    }))
+    h.add('k.chain', chainEntryOf({
+      component: () => <b>early</b>,
+      select: () => ({}),
+      priority: 1,
+    }))
+    // Tie pair at priority 1: registration order decides (early wins over tie).
+    h.add('k.chain', chainEntryOf({
+      component: () => <b>tie</b>,
+      select: () => ({}),
+      priority: 1,
+    }))
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', {}))
+    expect(view.container.textContent).toBe('early')
+  })
+
+  it('keeps the renderSlotChain binding identity-stable across re-renders', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    const seen: RenderSlotChainFn[] = []
+    mountChainRoot(h, { 'k.chain': CHAIN_ROOT }, (renderSlotChain) => {
+      seen.push(renderSlotChain)
+      return renderSlotChain('k.chain', {}, { fallback: <i>fb</i> })
+    })
+    act(() => { h.add('root', { component: () => null }) })   // root bump re-renders the entry
+    expect(seen.length).toBeGreaterThan(1)
+    expect(seen.at(-1)).toBe(seen[0])
+  })
+
+  it('backstops off-declaration keys, kind mismatches both ways, and disposed registrations', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.declare('k.single', SINGLE_ROOT)
+    let chainFn: RenderSlotChainFn | undefined
+    let slotFn: RenderSlotFn | undefined
+    const dispose = h.add('root', {
+      component: (props: { renderSlot: RenderSlotFn; renderSlotChain: RenderSlotChainFn }) => {
+        slotFn = props.renderSlot
+        chainFn = props.renderSlotChain
+        return null
+      },
+      children: { 'k.chain': CHAIN_ROOT, 'k.single': SINGLE_ROOT },
+    })
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    expect(() => chainFn!('k.undeclared', {})).toThrow(SlotOwnershipError)
+    expect(() => chainFn!('k.single', {})).toThrow(SlotOwnershipError)   // non-chain key via chain face
+    expect(() => slotFn!('k.chain', {})).toThrow(SlotOwnershipError)     // chain key via plain face
+    view.unmount()
+    dispose()
+    expect(() => chainFn!('k.chain', {})).toThrow(StaleAuthorizationError)
+  })
+
+  it('withholds the renderSlotChain seat from entries declaring no chain child', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const seen: AnyProps[] = []
+    h.add('root', {
+      component: (props: AnyProps) => { seen.push(props); return null },
+      children: { 'k.single': SINGLE_ROOT },
+    })
+    render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    expect(seen.at(-1)!['renderSlotChain']).toBeUndefined()
   })
 })
 

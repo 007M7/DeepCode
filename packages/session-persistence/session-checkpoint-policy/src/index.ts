@@ -42,7 +42,10 @@ function abortedBeforeDispatchResult(): ToolExecutionResult {
   return {
     content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
     isError: true,
-    error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    error: {
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    },
   }
 }
 

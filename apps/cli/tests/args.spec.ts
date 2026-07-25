@@ -9,9 +9,10 @@ describe('parseDshArgs', () => {
     expect(parse(['custom.yml'])).toEqual({ mode: 'tui', config: 'custom.yml' })
     expect(parse(['--resume', 'sess', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
-    expect(parse(['web'])).toEqual({ mode: 'web', host: LOOPBACK_HOST, port: 3080 })
+    expect(parse(['web'])).toEqual({ mode: 'web', host: LOOPBACK_HOST, port: 3080, dev: false })
     expect(parse(['web', '--host', ALL_INTERFACES_HOST, '--port', '8080']))
-      .toEqual({ mode: 'web', host: ALL_INTERFACES_HOST, port: 8080 })
+      .toEqual({ mode: 'web', host: ALL_INTERFACES_HOST, port: 8080, dev: false })
+    expect(parse(['web', '--dev'])).toEqual({ mode: 'web', host: LOOPBACK_HOST, port: 3080, dev: true })
   })
 
   it('fails loud instead of silently starting fresh or serving on bad input', () => {

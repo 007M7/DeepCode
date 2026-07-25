@@ -9,7 +9,7 @@ Packages here are named with the directory prefix: `@deepseek-ai/dsh-client-<nam
 The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) owns the full design; these are the rules you must not violate when writing or reviewing client code:
 
 1. **One API**: a plugin composes UI only through `ctx.slots.register({ name, children?, store?, inject? }, Component)`. There is no separate slot-definition call, no whitelist face object, no face-minting helper. The shell alone renders `'root'`.
-2. **children = declaration + authorization**: the slots your component renders are exactly the keys of your register call's `children` object (spec values: `kind`/`scope`). Rendering a slot you didn't declare, or declaring one someone else declared, fails at load — do not work around it; the conflict is the design speaking.
+2. **children = declaration + authorization**: the slots your component renders are exactly the keys of your register call's `children` object (spec values: `kind`/`scope`). Rendering a slot you didn't declare, or declaring one someone else declared, fails at load — do not work around it; the conflict is the design speaking. Slot names mirror the composition path: `<domain>.<entry>.<hole>` (e.g. `'conversation.chat.toolview'`).
 3. **Component props are the four shares, all derived**: `PropsRuntime<K>` (SlotMap: owner params + `useSession`/`sessionId` on session scope + `useSessions`) & `PropsRenderSlots<S>` (children keys) & `PropsStore<H>` (store factory) & the inject face. Never hand-write a member a share already derives; never re-type a share locally.
 4. **Hooks are framework-made only**: `useSession`, `useSessions`, `useStore`, `renderSlot` are the four seats. Business code never creates a hook or selector as a prop value — pass plain data and callbacks. (Component-internal behavioral hooks that subscribe to nothing external are fine.)
 5. **Live data has exactly three channels**: parent knows it → owner props at the renderSlot site; only the component knows it → local state; shared across entries or survives remounts → a store declared at register. Derived data is a pure function over framework-hook data (`useMemo`), never its own subscription.
@@ -20,9 +20,9 @@ The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-
 
 The `/client` surface of a UI plugin package is a contract face, not a convenience barrel. Three rules, enforced package-wide (do not restate them as per-file comments):
 
-1. **A UI plugin exports no values beyond what cordis loading needs** — `apply` / `inject` (and `Config` where present), plus store factories consumed type-only by components (`ReturnType<typeof createXXXStore>`). Types are the extra allowance: contract types (owner shares, injected shapes, view/toolview entry types) export freely. Implementation components, pure helpers, constants, and store handles stay internal. Adding any new value export requires user sign-off, not a matching consumer.
+1. **A UI plugin exports no values beyond what cordis loading needs** — `apply` / `inject` (and `Config` where present), plus store factories consumed type-only by components (`ReturnType<typeof createXXXStore>`). Types are the extra allowance: contract types (owner shares, injected shapes, composed props aliases) export freely. Implementation components, pure helpers, constants, and store handles stay internal. Adding any new value export requires user sign-off, not a matching consumer.
 2. **Same-package tests import internals directly** — relative `../src/client/xxx.ts` from package tests, or the `./src/*` subpath where a spec lives outside the package. Never widen the public surface to make a test compile.
-3. **Cross-package imports of another plugin's symbols are in principle forbidden.** The sanctioned routes are the slot system (register/renderSlot, the view and toolview registries) and ctx services. If neither fits, stop and escalate — do not add an export to unblock yourself.
+3. **Cross-package imports of another plugin's symbols are in principle forbidden.** The sanctioned routes are the slot system (register/renderSlot) and ctx services. If neither fits, stop and escalate — do not add an export to unblock yourself.
 
 ## ctx discipline (components never see ctx)
 
@@ -45,7 +45,7 @@ Non-negotiables across the layers:
 
 ## Directory regime (plugin packages)
 
-One UI feature = one plugin package (`src/client/` browser half). A multi-domain package splits by future package boundaries — ui-conversation is the exemplar: `contract/` (the only shared face), domain directories that never import a sibling domain, and `apply.ts` as the single cross-domain assembly point; `scripts/verify-client-domain-graph.ts` enforces the levels. Registration goes through the slot/view/toolview registries in `apply` — never module-level side effects.
+One UI feature = one plugin package (`src/client/` browser half). A multi-domain package splits by future package boundaries — ui-conversation is the exemplar: `contract/` (the only shared face), domain directories that never import a sibling domain, and `apply.ts` as the single cross-domain assembly point; `scripts/verify-client-domain-graph.ts` enforces the levels. Registration goes through `slots.register` in `apply` — never module-level side effects.
 
 ## Styling
 

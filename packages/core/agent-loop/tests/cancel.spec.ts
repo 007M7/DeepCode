@@ -11,7 +11,7 @@ import { Context } from 'cordis'
 import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -33,7 +33,7 @@ async function harness(adapter: MockAdapter) {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 /** Resolve on the agent's next idle transition (event-based, not status poll). */
@@ -63,7 +63,7 @@ describe('Agent.cancel()', () => {
     ctx.on('agent/cancel-requested', (subject, cause) => {
       if (subject !== agent) return
       seen.push(`first:${cause.kind}`)
-      subject.send([{ type: 'text', text: 'queued by cancel observer' }])
+      subject.followup([{ type: 'text', text: 'queued by cancel observer' }])
       throw new Error('observer failed')
     })
     ctx.on('agent/cancel-requested', (subject, cause) => {
@@ -96,6 +96,57 @@ describe('Agent.cancel()', () => {
     // The prompt ran: its user message is in the log and one turn completed.
     expect(userTexts(agent)).toEqual(['real prompt'])
     expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)
+  })
+
+  it('cancel({ keepInbox: true }) preserves queued work and emits no discard', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const discards: unknown[] = []
+    ctx.on('agent/inbox/discard', (subject, items) => { if (subject === agent) discards.push(items) })
+
+    // Queue a turn WITHOUT waking the driver, so it sits in the inbox.
+    agent.queue([{ type: 'text', text: 'preserved' }])
+    // keepInbox cancel: no active turn, work preserved, no discard event.
+    agent.cancel({ kind: 'user' }, { keepInbox: true })
+    expect(discards).toEqual([])
+
+    // The preserved item still runs once the driver is woken by a later send.
+    send(agent, 'wake it')
+    await waitForIdle(ctx, agent)
+    expect(userTexts(agent)).toEqual(['preserved', 'wake it'])
+  })
+
+  it('a lone queued message leaves the agent parked at idle', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    // A quiet item alone must NOT wake the driver: no turn runs and whenIdle
+    // resolves (the agent is quiescent), leaving the item queued.
+    agent.queue([{ type: 'text', text: 'quiet' }])
+    await agent.whenIdle()
+    expect(agent.status).toBe('idle')
+    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
+
+    // A later waking send drives the loop, and the quiet item rides along first.
+    send(agent, 'wake')
+    await waitForIdle(ctx, agent)
+    expect(userTexts(agent)).toEqual(['quiet', 'wake'])
+  })
+
+  it('cancelling a parked quiet item settles a pending whenIdle() without a later send', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    agent.queue([{ type: 'text', text: 'quiet' }])
+    const idle = agent.whenIdle()
+    // Cancel reaches quiescence with no status transition and no waking send;
+    // whenIdle must still resolve (previously it hung until the next send).
+    agent.cancel({ kind: 'user' })
+    await idle
+    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
   })
 
   it('pre-step cancel drops the about-to-start turn (no turn is opened)', async () => {
@@ -365,7 +416,7 @@ describe('Agent.cancel()', () => {
     ])
     const ctx = await harness(adapter)
     let executions = 0
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'danger',
       description: 'must not run after cancellation',
       parameters: {},
@@ -952,7 +1003,7 @@ describe('Agent.cancel()', () => {
         })
         break
       case 'tool':
-        ctx.tools.register(defineTool({
+        ctx.tools.register(defineContentToolFixture({
           name: 'blocked',
           description: 'wait for cancellation',
           parameters: {},
