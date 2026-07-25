@@ -1893,7 +1893,6 @@ describe('ToolRegistry', () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
-    // Register a second tool and call its returned disposer directly
     const dispose = ctx.tools.register({ ...echoTool, name: 'disposable' })
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo', 'disposable'])
 
@@ -2055,9 +2054,7 @@ describe('defineTool / schema DSL', () => {
       parameters: { a: { type: 'string' as const, required: true as const }, b: { type: 'number' as const } },
       output: { schema: { type: 'string' }, render: () => [] },
       async execute(args) {
-        // Verify types at runtime via typeof
         expect(typeof args.a).toBe('string')
-        // args.b should be undefined when not provided
         void args
         return args.a
       },

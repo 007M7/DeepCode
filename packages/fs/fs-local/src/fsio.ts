@@ -472,8 +472,8 @@ export async function writeFileAtomic(
       try {
         await replaceFile(absolutePath, tempPath)
       } catch (error: unknown) {
-        // Preserve the old behavior when an external actor removes the observed target during
-        // staging: the temp already carries that target's protected DACL, so rename recreates it.
+        // If the observed target disappears during staging, the protected DACL
+        // already copied to the temp remains authoritative for recreation.
         if (!isENOENT(error)) throw error
         await rename(tempPath, absolutePath)
       }

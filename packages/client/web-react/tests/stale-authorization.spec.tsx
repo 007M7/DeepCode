@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Stale renderSlot bindings (slot terminal design §9): a binding dies with
- * its entry — a retained closure invoked after the entry's disposal throws
- * StaleAuthorizationError off the ledger check, and an HMR-style reload (new
- * entry, same key) mints a NEW binding rather than reviving the old one.
+ * A retained render binding dies with its entry. Re-registering the same key
+ * creates a new binding rather than reviving the stale closure.
  */
 import { describe, expect, it } from 'vitest'
 import { act, render } from '@testing-library/react'

@@ -1,7 +1,4 @@
-// Session: wraps every contract call that needs a sessionId + all conversation state for this
-// session (design §A.2/§A.9/§D.2/§D.3). Instances are resident (ruling 2): never destroyed once
-// created, they keep consuming mux frames in the background; React connects directly via
-// subscribe/getSnapshot.
+// Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
@@ -22,14 +19,12 @@ import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
 
-/** Messages per page (F.4 ledger: promote to Config at graduation; every call site references this constant). */
+/** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
 /**
- * Per-session state owner: event window + fold + partial, snapshot out via
- * subscribe/getSnapshot (see the web client architecture RFC). Bare source
- * only (store migration): the React machinery binds the per-cell useSession
- * hook at its own seam — no selector hook member lives on the data layer.
+ * Owns a session's event window, derived conversation state, and observable
+ * snapshot. React bindings remain outside this data layer.
  */
 export class Session implements ObservableSnapshot<ConversationSnapshot> {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
@@ -54,8 +49,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
   private frozenNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
-  // Revision counters + caches backing the snapshot's reference-stability contract (§A.9.4/§C.2,
-  // audit S5): buildSnapshot reuses the previous array when the revision is unchanged, so
+  // Revision counters preserve array identity when derived content is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
   // tool card and pending card). Mutation sites bump the matching revision. partial needs no
   // counter — PartialAccumulator.toPartial already returns a cached reference when unchanged.
@@ -69,9 +63,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
-  /** Buffer for live events arriving while open/resync is in flight (stitched by seq once history lands, §D.3). */
+  /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
-  /** Gap-repair (resync-lite) in flight: acceptLiveEvent detours to liveBuffer until the tail page lands (audit S3). */
+  /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
   private stitching = false
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
@@ -292,8 +286,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.notifier.markDirty()
   }
 
-  /** Instance-eviction hook, reserved no-op (design §F.6): resident instances are never destroyed
-   *  in v1; an eviction policy lands here (unsubscribe, drop buffers) without touching call sites. */
+  /** No-op because session instances remain resident. */
   dispose(): void {}
 
   // ---- 私有 ----

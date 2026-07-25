@@ -16,9 +16,7 @@ async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const slots = ctx.get('slots') as SlotsService
-  // Stand-in for ui-conversation's conversation entry: the composer slot only
-  // exists while a live entry declares it in children (declaration account:
-  // design §2.2).
+  // The composer slot exists only while its declaring entry is live.
   slots.register(
     { name: 'root', children: { 'conversation.composer': { kind: 'chain', scope: 'session' } } } as never,
     () => null,

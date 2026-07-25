@@ -2,13 +2,12 @@
  * On-disk format helpers for the JSONL session-persistence backend: path
  * sanitization (a {@link SessionId} is an unvalidated branded string, so it
  * MUST be encoded before use in a path — no traversal, no collision), the
- * per-cwd directory layout, header-line (de)serialization, and the
+ * per-project/session directory layout, header-line (de)serialization, and the
  * truncation-repair offset computation.
  *
  * @module dsh-session-persistence-jsonl/format
  */
 
-import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { decodeStorageRecord, packChunkRuns } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId, StorageRecord } from '@deepseek-ai/dsh-session'
@@ -123,24 +122,64 @@ export function encodeSegment(raw: string): string {
 }
 
 /**
- * The directory a session's files live in: the configured root, then a per-cwd
- * subdirectory so sessions group by project. The cwd subdir is a stable hash of
- * the cwd (short, collision-resistant, filesystem-safe); sessions without a
- * cwd go in a shared `_no-cwd` bucket.
- * @param root - the backend's session root directory.
- * @param cwd - the session's project directory; `undefined` selects the shared `_no-cwd` bucket.
- * @returns the per-cwd bucket directory path under `root`.
+ * Build the readable directory key for a project path.
+ * Filesystem separators and drive separators become `-`; unsafe code units use
+ * the same `~XXXX` escape as session ids. The key is bounded for filesystem
+ * component limits. Separator replacement and truncation are intentionally
+ * lossy, following the common human-navigable project-directory convention.
+ * @param cwd - the session's project directory.
+ * @returns a single filesystem-safe project directory name.
  */
-export function sessionDir(root: string, cwd: string | undefined): string {
+export function projectKey(cwd: string): string {
+  if (cwd.length === 0) throw new Error('cannot encode an empty project path')
+  let readable = ''
+  let separatorRun = false
+  for (let i = 0; i < cwd.length; i++) {
+    const code = cwd.charCodeAt(i)
+    const ch = String.fromCharCode(code)
+    if (ch === '/' || ch === '\\' || ch === ':') {
+      if (!separatorRun) readable += '-'
+      separatorRun = true
+    } else if (ch !== '~' && /^[A-Za-z0-9._-]$/.test(ch)) {
+      readable += ch
+      separatorRun = false
+    } else {
+      readable += '~' + code.toString(16).toUpperCase().padStart(4, '0')
+      separatorRun = false
+    }
+  }
+  const slug = readable.replace(/^-+/, '') || 'root'
+  return `--${slug.slice(0, 251)}--`
+}
+
+/**
+ * The configured root's human-navigable project directory. A configured root
+ * may be local or shared; this grouping does not prescribe its deployment.
+ * @param root - the backend's session root directory.
+ * @param cwd - the session's project directory; `undefined` selects `_no-cwd`.
+ * @returns the project directory path under `root`.
+ */
+export function projectDir(root: string, cwd: string | undefined): string {
   if (cwd === undefined) return join(root, '_no-cwd')
-  const hash = createHash('sha256').update(cwd).digest('hex').slice(0, 12)
-  return join(root, `cwd-${hash}`)
+  return join(root, projectKey(cwd))
+}
+
+/**
+ * The directory owned by one session and available for future session-local
+ * artifacts.
+ * @param root - the backend's session root directory.
+ * @param cwd - the session's project directory.
+ * @param id - the session id, encoded to one safe path segment.
+ * @returns the session directory beneath its project directory.
+ */
+export function sessionDir(root: string, cwd: string | undefined, id: SessionId): string {
+  return join(projectDir(root, cwd), encodeSegment(id))
 }
 
 /**
  * The append-only event-log file path for a session.
  * @param root - the backend's session root directory.
- * @param cwd - the session's project directory (picks the per-cwd bucket; `undefined` → `_no-cwd`).
+ * @param cwd - the session's project directory (`undefined` → `_no-cwd`).
  * @param id - the session id, path-encoded via {@link encodeSegment} before filesystem use.
  * @param compression - physical artifact encoding and filename suffix.
  * @returns the session's configured JSONL artifact path.
@@ -151,7 +190,7 @@ export function logPath(
   id: SessionId,
   compression: JsonlCompression,
 ): string {
-  return join(sessionDir(root, cwd), `${encodeSegment(id)}${logSuffix(compression)}`)
+  return join(sessionDir(root, cwd, id), `session${logSuffix(compression)}`)
 }
 
 /**

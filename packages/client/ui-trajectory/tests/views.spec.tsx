@@ -59,7 +59,7 @@ function fakeSession(nodes: ConversationSnapshot['nodes']) {
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
 
-/** Empty sessions-list hook stub (breadcrumbs fall back to the raw id; engines carry no hook since the store migration — bind here). */
+/** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
     { ids: [], byId: {}, current: undefined } as SessionListState)
@@ -173,7 +173,6 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Chat', 'Trajectory', 'Waterfall'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    // Trajectory no longer mounts the span stats bar; the turn-list chrome owns the body.
     expect(screen.queryByText(/turns ·/)).toBeNull()
     expect(screen.getByText('Turn 1')).toBeTruthy()
     expect(screen.getByText('Turn 2')).toBeTruthy()

@@ -102,7 +102,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     await run.dispose()
 
     expect(result.stopReason).toBe('completed')
-    // Verify the WORLD: the child process actually wrote the file in its cwd.
+    // Assert the filesystem effect independently of the model response.
     const proof = await readFile(join(workdir, 'proof.txt'), 'utf8')
     expect(proof).toContain('ACP_CHILD_WAS_HERE')
   }, 180_000)
