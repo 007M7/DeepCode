@@ -57,7 +57,7 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory for JSONL sessions. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
   packChunks?: boolean
@@ -80,7 +80,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:37`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:39`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -1066,6 +1066,8 @@ export interface Config extends SessionQueryConfig {
   maxLimit?: number
   /** Maximum snippet length in Unicode code points. Defaults to 240. */
   snippetChars?: number
+  /** Maximum concurrent persisted-log inspections in one inherited batch read. Defaults to 4. */
+  persistedInspectConcurrency?: number
 }
 
 /** Supported SQLite journal modes. */
@@ -1074,7 +1076,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:74`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:76`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-reference`
 
@@ -1548,6 +1550,22 @@ export interface Config {
 
 Source: [`packages/workflow/tool-ralph/src/index.ts:23`](../packages/workflow/tool-ralph/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-session-query`
+
+Requires: `tools` · `systemPrompt` · `sessionQuery`
+
+```ts config-catalog
+/** Deployment-owned search count and timeout bounds. */
+export interface Config {
+  /** Maximum authorized hits returned by one search call. Defaults to 100. */
+  maxSearchResults?: number
+  /** Cooperative full-text search deadline in milliseconds. Defaults to 30000. */
+  searchTimeoutMs?: number
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts:29`](../packages/session-query/tool-session-query/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-skill`
 
 Requires: `tools` · `skills`
@@ -1790,8 +1808,8 @@ export interface Config {
   /**
    * Shell command template the TUI prints on exit and lists under `/resume`,
    * with `{session}` replaced by the live session id (forwarded to the front
-   * door). Set it to a command that resumes via this app's env var, e.g.
-   * `RESUME_SESSION_ID={session} dsh`.
+   * door). Set it to a command that resumes the session, e.g.
+   * `dsh --resume {session}`.
    */
   resumeCommand?: string
   /** Full-screen TUI presentation settings. */

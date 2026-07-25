@@ -94,8 +94,8 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.load(id)
   }
 
-  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.coordinator.inspect(id)
+  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id, signal)
   }
 
   // --- PersistenceBackend hooks (the Map storage primitives) ---
@@ -132,11 +132,13 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     if (closers.length > 0) entry.events.push(...structuredClone(closers) as SessionEvent[])
   }
 
-  async list(): Promise<SessionHeader[]> {
+  async list(signal?: AbortSignal): Promise<SessionHeader[]> {
+    signal?.throwIfAborted()
     return [...this.store.values()].map(e => structuredClone(e.meta))
   }
 
-  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+  async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
+    signal?.throwIfAborted()
     return [...this.store.values()].map(entry => ({
       header: structuredClone(entry.meta),
       revision: SessionPersistenceRevision(`events:${entry.events.length}`),
@@ -153,10 +155,10 @@ class ControlledBackend implements PersistenceBackend<never> {
   loadAttempts = 0
   repairAttempts = 0
   beforeAppend?: (attempt: number) => Promise<void>
-  beforeLoadStored?: (attempt: number) => Promise<void>
+  beforeLoadStored?: (attempt: number, signal?: AbortSignal) => Promise<void>
 
-  async loadStored(id: SessionId): Promise<StoredPrefix<never> | undefined> {
-    await this.beforeLoadStored?.(++this.loadAttempts)
+  async loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<never> | undefined> {
+    await this.beforeLoadStored?.(++this.loadAttempts, signal)
     const entry = this.store.get(id)
     if (entry === undefined) return undefined
     return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
@@ -342,6 +344,109 @@ describe('PersistenceCoordinator stored identity', () => {
       await expect(ctx.sessions.flush(resumed)).resolves.toBeUndefined()
     } finally {
       loadGate.resolve(true)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('PersistenceCoordinator observation cancellation', () => {
+  it('promptly rejects a queued inspect without invoking it and keeps the same-id chain healthy', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('queued-inspect-cancellation')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    const loadGate = Promise.withResolvers<boolean>()
+    backend.beforeLoadStored = async (attempt) => {
+      if (attempt === 1) await loadGate.promise
+    }
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const prior = coordinator.inspect(id)
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
+      const controller = new AbortController()
+      const reason = new Error('queued inspect cancelled')
+      const queued = coordinator.inspect(id, controller.signal)
+      let observedReason: unknown
+      const observedAbort = queued.catch((error: unknown) => {
+        observedReason = error
+      })
+
+      controller.abort(reason)
+
+      await vi.waitFor(() => { expect(observedReason).toBe(reason) })
+      expect(backend.loadAttempts).toBe(1)
+      const subsequent = coordinator.inspect(id)
+      expect(backend.loadAttempts).toBe(1)
+
+      loadGate.resolve(true)
+      await expect(prior).resolves.toMatchObject({ meta: { id } })
+      await observedAbort
+      await expect(subsequent).resolves.toMatchObject({ meta: { id } })
+      expect(backend.loadAttempts).toBe(2)
+      await vi.waitFor(() => {
+        expect((coordinator as unknown as CoordinatorInternals).chains.size).toBe(0)
+      })
+    } finally {
+      loadGate.resolve(true)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('waits for active cooperative inspection cleanup before rejecting cancellation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('active-inspect-cancellation')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    const cleanupGate = Promise.withResolvers<boolean>()
+    let cleanupComplete = false
+    backend.beforeLoadStored = async (_attempt, signal) => {
+      await new Promise<void>((resolve) => {
+        signal?.addEventListener('abort', () => {
+          void cleanupGate.promise.then(() => {
+            cleanupComplete = true
+            resolve()
+          })
+        }, { once: true })
+      })
+      throw new Error('backend cancellation after cleanup')
+    }
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const controller = new AbortController()
+      const reason = new Error('active inspect cancelled')
+      const pending = coordinator.inspect(id, controller.signal)
+      let observedReason: unknown
+      const observed = pending.catch((error: unknown) => {
+        observedReason = error
+      })
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
+
+      controller.abort(reason)
+      await Promise.resolve()
+
+      expect(observedReason).toBeUndefined()
+      expect(cleanupComplete).toBe(false)
+      cleanupGate.resolve(true)
+      await observed
+      expect(cleanupComplete).toBe(true)
+      expect(observedReason).toBe(reason)
+      const backendFailure = new Error('later inspection failure')
+      backend.beforeLoadStored = () => Promise.reject(backendFailure)
+      await expect(coordinator.inspect(id)).rejects.toBe(backendFailure)
+    } finally {
+      cleanupGate.resolve(true)
       await fiber.dispose()
       await ctx.fiber.dispose()
     }

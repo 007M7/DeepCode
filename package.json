@@ -93,7 +93,7 @@
     "demo:headless": "node --import tsx packages/examples/cli-demo/src/bin.ts --config examples/headless-agent/cordis.yml",
     "demo:tui": "node --import tsx apps/cli/src/bin.ts",
     "demo:code-mode": "node scripts/demo-code-mode.mjs",
-    "demo:cordis": "node --import tsx packages/examples/tui-demo/src/bin.ts examples/cordis-agent/cordis.yml",
+    "demo:cordis": "node --import tsx apps/cli/src/bin.ts --config examples/cordis-agent/cordis.yml",
     "demo:acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/acp-agent/cordis.yml",
     "demo:web": "npm run build && npm run build:web && node --import tsx apps/cli/src/bin.ts web",
     "dev:web": "tsx scripts/dev-web.ts --poll",
