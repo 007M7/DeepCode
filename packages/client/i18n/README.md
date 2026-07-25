@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-i18n
 
+English | [中文](README.zh.md)
+
 i18n plugin: I18nService (ns×locale dictionaries, bind(ns)→t with a stable function identity, locale store). Contract: api-contracts v3 §8.
 
 ## Model Experience

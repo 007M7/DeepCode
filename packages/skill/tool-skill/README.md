@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-skill
 
+English | [中文](README.zh.md)
+
 The model-facing skill catalog and `skill` tool.
 
 Requires `ctx.tools` and `ctx.skills` (`inject: ['tools', 'skills']`).

@@ -1,5 +1,7 @@
 # ui/ — human and SDK-client integration surfaces
 
+English | [中文](README.zh.md)
+
 Human-facing channels and the out-of-process SDK server. These are **product** packages: real interfaces that a person or SDK client drives.
 
 | Package | Role | ctx key |

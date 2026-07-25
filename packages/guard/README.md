@@ -1,5 +1,7 @@
 # guard/ — loop-hygiene guard family
 
+English | [中文](README.zh.md)
+
 Behavioral guard plugins that watch the agent loop for unproductive patterns and nudge the model back on course. A single **product** package — there is no interface/implementation seam here, because a guard is a self-contained consumer of existing core seams (`tools/post-execute`, `agent/prompt-submit`, `agent/status`), not a swappable capability.
 
 | Package | Role | ctx key |

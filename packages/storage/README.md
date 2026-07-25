@@ -1,5 +1,7 @@
 # storage/ — non-session storage family
 
+English | [中文](README.zh.md)
+
 The storage family persists everything that is not a session event log: a hub where named backends and typed data forms meet. Design record: [domain KV storage Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md).
 
 | Package | Role | ctx key |

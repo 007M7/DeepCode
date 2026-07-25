@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-jsonrpc-demo
 
+English | [中文](README.zh.md)
+
 Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../ui/jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. `lib/bin.js` is also the [single-executable runtime](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) entry.
 
 ## Config discovery
