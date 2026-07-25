@@ -19,7 +19,7 @@ import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
@@ -112,7 +112,7 @@ async function typedCodeModeHarness(): Promise<Context> {
 /** Keyless real-worker harness with the task-owned bash lifecycle. */
 async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
   const harness = await typedCodeModeHarness()
-  await harness.plugin(TaskService)
+  await harness.plugin(LocalTaskService)
   await harness.plugin(ToolTasks, {})
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
