@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-theme",
-  "description": "Theme plugin: ThemeService (apply = toggle body[data-ds-dark-theme]), --dsw-* token base stylesheets",
+  "description": "Theme plugin: ThemeService (light/dark/system preference, prefers-color-scheme resolution, theme/change snapshots; no DOM), --dsw-* token base stylesheets",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -44,5 +44,9 @@
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "src"
-  ]
+  ],
+  "scripts": {
+    "bundle": "tsdown",
+    "watch": "tsdown --watch"
+  }
 }

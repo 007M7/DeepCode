@@ -1,24 +1,24 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-client-i18n`.
- * @module @deepseek-ai/dsh-client-i18n/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-client-ui-settings`.
+ * @module @deepseek-ai/dsh-client-ui-settings/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-client-i18n'
+const PACKAGE_NAME = '@deepseek-ai/dsh-client-ui-settings'
 
 /** Cordis companion plugin name. */
-export const name = 'client-i18n-invariant'
+export const name = 'client-ui-settings-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: ns-by-locale dictionary registry with a stable
- * bind(ns) surface — it emits no cordis events and owns no cross-plugin
- * mutable relation; fallback-chain resolution and locale-store behavior are
- * asserted directly by this package's behavior specs.
+ * No runtime invariant: a presentation shell projecting the settings.section
+ * ledger into navigation — it emits no cordis events and owns no cross-plugin
+ * mutable relation; slot declaration/registration conflicts already fail loud
+ * in the slot core at load time.
  */
 const install: InvariantInstaller = () => {}
 

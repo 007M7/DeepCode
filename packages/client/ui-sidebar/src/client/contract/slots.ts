@@ -20,7 +20,22 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * is claiming); ui-workspace registers the picker.
      */
     'sidebar.workspace': { kind: 'single'; scope: 'root'; owner: SidebarWorkspaceOwnerProps }
+    /**
+     * The settings seat at the sidebar foot. Declared by this package's
+     * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
+     * The sidebar passes only its column state — it holds no settings state.
+     */
+    'sidebar.settings': { kind: 'single'; scope: 'root'; owner: SidebarSettingsOwnerProps }
   }
+}
+
+/**
+ * Owner share of the sidebar settings seat: the column display state the
+ * occupant's trigger row must render against (wide row vs rail icon).
+ */
+export interface SidebarSettingsOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
 }
 
 /**
@@ -62,8 +77,9 @@ export type SidebarRootInjected = {
 
 /**
  * Full component props: layout owner state/actions plus global useSessions
- * and useWorkspaces, the declared Workspace picker render share, and this
- * package's injected callback. No store is registered.
+ * and useWorkspaces, the declared child-slot render shares (Workspace picker
+ * and settings seat), and this package's injected callback. No store is
+ * registered.
  */
 export type SidebarRootComponentProps =
-  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspace'> & SidebarRootInjected
+  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspace' | 'sidebar.settings'> & SidebarRootInjected

@@ -12,7 +12,7 @@ import clsx from 'clsx'
 import {
   BrandWordmark, FishLogo,
   IconCloseFill14, IconNewChatOutline16, IconPanelLeftOutline16, IconPersonalizationOutline16,
-  IconProjectAddOutline16, IconSearchOutline16, IconSettingsOutline14,
+  IconProjectAddOutline16, IconSearchOutline16,
   Menu, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
@@ -314,9 +314,10 @@ export function SidebarRoot({
         )}
       </div>
 
-      <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
-        <IconSettingsOutline14 size={wide ? 14 : 18} />
-        {wide && <span className={clsx(css.footLabel, css.wide)}>Settings</span>}
+      {/* Foot seat: the flex slot pinning the settings entry to the column
+          bottom; ui-settings occupies it with the trigger row + panel. */}
+      <div className={css.footArea}>
+        {renderSlot('sidebar.settings', { wide })}
       </div>
     </div>
   )

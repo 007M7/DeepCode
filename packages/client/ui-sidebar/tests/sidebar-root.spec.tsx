@@ -32,16 +32,16 @@ const workspaces: WorkspaceListState = {
 function mount(sessionState: SessionListState = sessions) {
   const startSession = vi.fn()
   const open = vi.fn()
-  let pickerOwner: unknown
+  const owners: Record<string, unknown> = {}
   const view = render(
     <SidebarRoot
       collapsed={false} width={300}
       useSessions={hook(sessionState)} useWorkspaces={hook(workspaces)}
       startSession={startSession} open={open} toggleSidebar={vi.fn()}
-      renderSlot={((_key: string, owner: unknown) => { pickerOwner = owner; return null }) as SidebarRootComponentProps['renderSlot']}
+      renderSlot={((key: string, owner: unknown) => { owners[key] = owner; return null }) as SidebarRootComponentProps['renderSlot']}
     />,
   )
-  return { view, startSession, open, pickerOwner: () => pickerOwner }
+  return { view, startSession, open, pickerOwner: () => owners['sidebar.workspace'], settingsOwner: () => owners['sidebar.settings'] }
 }
 
 function mountSidebar({
@@ -58,14 +58,14 @@ function mountSidebar({
   const startSession = vi.fn()
   const open = vi.fn()
   const toggleSidebar = vi.fn()
-  let pickerOwner: unknown
+  const owners: Record<string, unknown> = {}
   let current = { sessionState, workspaceState, collapsed, width }
   const root = () => (
     <SidebarRoot
       collapsed={current.collapsed} width={current.width}
       useSessions={hook(current.sessionState)} useWorkspaces={hook(current.workspaceState)}
       startSession={startSession} open={open} toggleSidebar={toggleSidebar}
-      renderSlot={((_key: string, owner: unknown) => { pickerOwner = owner; return null }) as SidebarRootComponentProps['renderSlot']}
+      renderSlot={((key: string, owner: unknown) => { owners[key] = owner; return null }) as SidebarRootComponentProps['renderSlot']}
     />
   )
   const view = render(root())
@@ -73,7 +73,8 @@ function mountSidebar({
     startSession,
     open,
     toggleSidebar,
-    pickerOwner: () => pickerOwner,
+    pickerOwner: () => owners['sidebar.workspace'],
+    settingsOwner: () => owners['sidebar.settings'],
     rerender(next: Partial<typeof current>) {
       current = { ...current, ...next }
       view.rerender(root())
@@ -246,6 +247,7 @@ describe('SidebarRoot', () => {
   it('keeps wide content during live collapse, then settles to the rail', () => {
     vi.useFakeTimers()
     const b = mountSidebar({ width: 320 })
+    expect((b.settingsOwner() as { wide: boolean }).wide).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(b.toggleSidebar).toHaveBeenCalledOnce()
     b.rerender({ collapsed: true, width: 56 })
@@ -253,6 +255,8 @@ describe('SidebarRoot', () => {
     act(() => { vi.advanceTimersByTime(150) })
     expect(screen.queryByPlaceholderText('Search name, keywords...')).toBeNull()
     expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
+    // The settings seat share tracks the settled column state.
+    expect((b.settingsOwner() as { wide: boolean }).wide).toBe(false)
   })
 })
 
