@@ -1,14 +1,14 @@
 # Agent Note: 移除 ACP（Agent Client Protocol）终端 `_meta` 渲染
 
-Status: rejected — Zed 是当前目标客户端，terminal `_meta` 约定是有意设计的 Zed UX，同时为其他客户端保留普通 ACP 回退。
+Status: rejected — 在 ACP 仍是编辑器桥接层时，仅移除 Zed 终端元数据的方案被否决；后续仅面向自动化的 ACP 则移除了整个编辑器投影。
 
 [English](2026-06-20-drop-acp-terminal-meta.md) | 中文
 
 ## 问题
 
-原 ACP 编辑器桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。当前的 [render-intent 决策](../../implemented/architecture/2026-07-02-tool-render-intent-union.md)保留了底层规则：bash 执行属于 harness，terminal 卡片只用于展示。后续的[仅面向自动化 ACP 决策](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)从 ACP 中移除了 `_meta` 投影、桥接状态、能力协商、终端 id、特殊 update 映射、文本回退测试和 exit-pill 解析。
+原 ACP 编辑器桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。当前的 [render-intent 决策](../../implemented/architecture/2026-07-02-tool-render-intent-union.md)保留了底层规则：bash 执行属于 harness，terminal 卡片只用于展示。后续的[仅面向自动化 ACP 决策](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)从 ACP 中移除了 `_meta` 投影、桥接状态、能力协商、终端 id、特殊 update 映射、文本回退测试和 exit-pill 解析。TUI 与 Web 宿主/客户端运行时保留带标签的展示契约，而 ACP 不再渲染编辑器卡片。
 
-回退路径已经存在：将工具调用和完成输出渲染为普通 ACP 内容块。非 Zed 客户端本来就依赖这条路径，但 Zed 终端卡片是当前目标客户端的功能特性，而非推测性装饰。
+本提案提出时，回退路径已经存在：将工具调用和完成输出渲染为普通 ACP 内容块。当时，非 Zed 客户端依赖这条路径，但 Zed 终端卡片是目标客户端的功能特性，而非推测性装饰。
 
 ## 提案
 
@@ -26,6 +26,6 @@ Status: rejected — Zed 是当前目标客户端，terminal `_meta` 约定是�
 
 ## 放弃的内容
 
-Zed 用户将失去专用终端卡片：没有 cwd 头部、终端展示或 exit pill。他们仍能以纯内容形式看到命令和输出。在 ACP 桥接层尚未发布、`_meta` 键只是约定而非标准的阶段，这是合理的简化。
+如果采用本提案，Zed 用户会失去专用终端卡片：没有 cwd 头部、终端展示或 exit pill。但他们仍会以纯内容形式看到命令和输出。当时 ACP 桥接层尚未发布，且 `_meta` 键只是约定而非标准；在这种情况下，考虑这项简化是合理的。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->
