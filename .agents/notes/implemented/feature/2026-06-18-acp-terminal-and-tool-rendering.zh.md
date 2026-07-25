@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-06-18-acp-terminal-and-tool-rendering.md) | 中文
 
+> 就 ACP 而言已被 [ACP 作为仅面向自动化的协议](../simplification/2026-07-23-acp-automation-only-protocol.md)取代。工具渲染意图对 UI 传输层仍然可用，但 ACP 不再将其投影为终端卡片。
+
 ## 问题
 
 ACP（Agent Client Protocol）桥接层允许每个工具通过 `presentCall`/`presentResult` 自行控制调用渲染（见[工具调用 UI 呈现](2026-06-14-acp-agent-client-protocol.md)与 `packages/core/tools`）。对于 `bash`，我们将确切命令作为 `tool_call` 标题呈现，模型的 `description` 作为一个内容文本块，`kind: 'execute'`，完成后的输出包裹在 ` ```console ` 围栏文本块中。

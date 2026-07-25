@@ -60,7 +60,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 - **嵌套 `workflow()`**、**token `budget`**，以及 `effort`/`isolation`/`agentType` agent 选项（每个都以命名延迟的消息大声拒绝）。
 - **整体运行的挂钟超时**：取消总能释放调用方（result 在宽限期内 settle），因此总运行时间上限是后台重设计的策略旋钮，不是此处的正确性需求。
 - **超越 worker 线程的引擎加固**：在同一 seam 背后使用 isolated-vm 或独立进程引擎（真正的沙箱化；内存限制）。
-- **ACP 进度 UI**（基于 `workflow/*` 事件的 `/workflows` 风格视图）；事件已为此而存在。
+- **面向人类界面的进度 UI**（基于 `workflow/*` 事件的 `/workflows` 风格视图）；事件已为此而存在。
 - **ACP 后端结构化输出**和 **`toolFilter`**（两者仍以能力标志 `false` 门控）。
 
 ## 曾考虑的替代方案

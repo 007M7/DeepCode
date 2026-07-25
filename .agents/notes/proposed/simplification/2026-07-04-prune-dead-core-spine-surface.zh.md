@@ -17,7 +17,7 @@ Status: proposed
 | `ReactLoopAgent` 根导出 | 包外的命名导入都是测试；生产代码面向 `Agent` 编程，通过 `ctx.agents` 创建/恢复。 | 返回/接口类型为 `Agent`，将具体循环类改为包内部；保留有意设计的同步、仅配置的 `AgentLoop.create()` 路径。 |
 | `workflow-workerthread` 的 protocol/runtime/session 再导出与命名的 `WorkerWorkflowEngine` | 每个包名消费方都使用默认引擎；工作流 Agent Note 已将 worker 协议格式（wire format）定义为私有。 | 保留默认插件类/配置契约；移除重复的命名类导出，将协议模块保持为源码私有。 |
 | `code-runtime-worker` 的 protocol/bootstrap 再导出 | 包外的生产/e2e 消费方使用 `WorkerCodeRuntime` 和配置，而非 `BootstrapPort`、`PatchableStream` 或 worker 消息/启动类型。 | 保留运行时类/配置契约，将其协议格式/bootstrap 词汇改为源码私有。 |
-| ACP 的 translation/presenter 根导出 | `agentOptions`、`streamSessionEventUpdate`、`todosToPlan`、`ToolPresenter`、`nullToolPresenter` 和 `TerminalRendering` 只有同文件或 ACP 测试消费方；唯一的包外生产消费方挂载的是插件命名空间。 | 保留 `name`、`inject`、`Config`、`AcpConfig` 和 `apply`；将 translation/presentation 辅助函数改为源码私有，在包内测试。 |
+| ACP 的 `agentOptions` 根导出 | 该辅助函数只有同文件和 ACP 测试消费方；唯一的包外生产消费方挂载的是插件命名空间。 | 保留 `name`、`inject`、`Config`、`AcpConfig` 和 `apply`；将 `agentOptions` 改为源码私有，通过桥接层行为测试。 |
 | `providerWording` 与 `completedTurnPrefix` 根导出 | 各有一个同包生产调用者；只有 balanced-prefix 辅助函数有一个同包白盒测试。 | 改为源码私有，测试提供方行为。 |
 | `depthOf`、`SubagentDepthError`、`SENSITIVE_ENV_PATTERN`、`waitForExit` 与 `exitsWithin` 根导出 | 生产 subagent 后端消费的是进程内 runner 和子进程构造/dispose（资源释放）辅助函数，而非这些强制/测试内部实现。 | 保留深度/环境/退出行为，但将辅助函数和 error/regex 改为源码私有；通过 spawn 和 dispose 测试。 |
 | `PersistenceCoordinator.inits`、后端 `inits` 访问器、`seedCoversPrefix` 与 `assertSerializable` | 访问器为白盒测试而存在；`seedCoversPrefix` 没有包外生产导入者；`assertSerializable` 没有生产调用者，且与 coordinator append 边界的无损快照重复。 | 通过 `session/flush` 观察初始化，将 `seedCoversPrefix` 改为源码私有，删除 `assertSerializable`。保留两个后端、`SessionHeader` 和 SQLite 的版本契约。 |

@@ -6,9 +6,9 @@ Status: implemented
 
 ## 问题
 
-单元测试不会覆盖完整的 ACP（Agent Client Protocol）子进程 transcript（文本记录），而真实 API 测试不具确定性且受密钥门控。因此，即使单元覆盖率为绿色，面向编辑器的 `session/update` 输出仍可能回归，[默认导出事后分析](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)已经证明了这一点。
+单元测试不会覆盖组装后的完整 agent（智能体）子进程及其 ACP（Agent Client Protocol）自动化线协议，而真实 API 测试不具确定性且受密钥门控。因此，即使单元覆盖率为绿色，Loader 接线、后端行为和协议输出仍可能回归，[默认导出事后分析](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)已经证明了这一点。
 
-全 transcript 测试的阻塞因素在于模型：agent（智能体）的输出由非确定性的 LLM（大语言模型）驱动，而每次运行都命中真实 API 的密钥门控测试既不确定也无法在 CI 中运行。我们需要真实运行的保真度与 fixture（测试前置数据）的确定性兼得。
+全 transcript（文本记录）测试的阻塞因素在于模型：agent 的输出由非确定性的 LLM（大语言模型）驱动，而每次运行都命中真实 API 的密钥门控测试既不确定也无法在 CI 中运行。我们需要真实运行的保真度与 fixture（测试前置数据）的确定性兼得。
 
 本 Agent Note（agent 决策记录）记下了新增第三层测试——**快照测试**——的决策，以及让它具备确定性、在 CI 中无需密钥、且维护成本低廉的设计选择。
 
@@ -52,10 +52,10 @@ Status: implemented
 
 快照运行断言**两个**归一化后的表面，因为 harness 的外部表面是不同的：
 
-1. **stdout transcript**——编辑器看到的、经过 framing 的 `session/update` JSON-RPC。用于捕获 ACP bridge 中事件→更新转换（`streamSessionEventUpdate`）的回归。与已提交的 `stdout.expected.jsonl` 比较。
+1. **stdout transcript**——自动化客户端收到的、经过 framing 的 ACP JSON-RPC 响应与已提交的消息更新。它捕获传输契约的回归，与已提交的 `stdout.expected.jsonl` 比较。
 2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为重放来源和预期日志。提示词文本会被清理；按照[请求头固定 Agent Note](2026-07-06-pin-request-header-content-in-one-scenario.md)所述，每种请求头类别由一个场景固定可读提示词与工具内容。Override 场景仅从其 sidecar 派生模型行为。
 
-两个表面互补：stdout 覆盖 bridge 投影，JSONL 覆盖投影所省略的 loop、工具和 boundary 结构。
+两个表面互补：stdout 覆盖精简的自动化线协议，JSONL 覆盖线协议有意省略的 loop、工具和 boundary 结构。
 
 规范化会替换会话、cwd、协议 id、时间戳、路径和进程易变值，同时保留确定性序号。场景把真实 bash 使用限制在稳定命令上。stdout 预期输出仍是线协议形状的 JSONL，每个原始行都必须可解析为 JSON。Vitest 只更新 stdout 预期输出；规范化会话相等性检查从不覆盖重放 fixture。
 
@@ -79,6 +79,6 @@ Status: implemented
 
 ## 后果
 
-新测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture。记录与重放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥 transcript 覆盖。子进程、输入、workspace、规范化和重放 harness 也可以支持 ACP 之外的示例。
+该测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture。记录与重放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥覆盖。保留下来的大多数场景测试的是组装后的后端而非 ACP；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary)将该语料保留在此处，并把向传输无关 headless 套件的任何迁移推迟为一项独立的测试变更（套件级 FIXME 标记了这一点）。
 
-本 Agent Note 与[拟议的确定性 Agent Note](../../proposed/testing/2026-06-11-deterministic-and-stress-testing.md)相关，但不取代它：该提案的“通用重放 fixture”在每次测试后重新派生会话*消息历史*（内部一致性不变量），而快照测试固定*外部协议输出*。两者相互补充——一个守护事件溯源不变量，另一个守护面向编辑器的契约。
+本 Agent Note 与[拟议的确定性 Agent Note](../../proposed/testing/2026-06-11-deterministic-and-stress-testing.md)相关，但不取代它：该提案的“通用重放 fixture”在每次测试后重新派生会话*消息历史*（内部一致性不变量），而这些快照固定组装后的行为与外部自动化输出。在后端语料迁出 ACP 之前，两者相互补充。

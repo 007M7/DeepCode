@@ -96,6 +96,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **A fresh process per run** — persistent-process pooling is a future optimization ([the seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)).
 - **Local workspaces only** — the resolved cwd is a local path handed to a child on the same machine; workspace mapping for a remote ACP agent would need its own backend capability and is not designed here.
 - **No optional start-time capabilities** — this provider cannot apply the local harness's `outputSchema`, depth cap, tool filter, or persona inside the remote process, so it advertises none and the service rejects requests that require them.
-- **Only `agent_message_chunk` text is collected** — the child's tool-call activity, thought chunks, and plan updates are not surfaced to the parent.
+- **Only committed `agent_message_chunk` text is collected** — the automation server keeps reasoning, tool activity, plans, and other trace data in the child session log rather than emitting them on ACP.
 - **Permission prompts are auto-answered** (`permission: allow | reject`) — no human is surfaced a child's `session/request_permission` in this cut.
 - **No snapshot-tier replay coverage** (`TODO(acp-subagent-replay)`) — an ACP child is its own process with its own replay shape, deferred.

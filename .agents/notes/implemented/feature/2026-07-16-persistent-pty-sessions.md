@@ -24,7 +24,7 @@ The implementation supports interactive shells and line-oriented REPLs on Linux 
 |---|---|---|
 | `dsh-pty` | `PtyService`, branded `PtySessionId`, backend registry, owner-scoped session contract, and result types | `ctx.pty` |
 | `dsh-pty-local` | [`node-pty`](https://github.com/microsoft/node-pty)-based local backend, platform process inspection, bounded terminal buffer, sandbox resolution, and process-tree supervision | registers a backend on `ctx.pty` |
-| `dsh-tool-pty` | Six model-facing tools, task-runtime integration for background sends, guidance, and ACP render intents | registers on `ctx.tools` |
+| `dsh-tool-pty` | Six model-facing tools, task-runtime integration for background sends, guidance, and UI render intents | registers on `ctx.tools` |
 
 Idle detection is backend behavior, not a second public seam. A remote or container backend may have authoritative readiness signals that do not resemble local `/proc` inspection; every `PtyBackend` therefore returns the common send result while owning its detection mechanism internally.
 
@@ -58,7 +58,7 @@ The implementation uses only public `node-pty` capabilities: child PID, `data` a
 | `terminal_close` | Close one session and await process-tree quiescence | `{ killed }` |
 | `terminal_list` | List the caller's live sessions | owner-scoped session summaries |
 
-The ACP render contract is exact and location-free. `terminal_send` uses terminal call/result cards only for foreground sends; its background form is generic `execute`. `terminal_open`, `terminal_read`, `terminal_signal`, `terminal_close`, and `terminal_list` use generic `execute`, `read`, `execute`, `delete`, and `read` cards respectively. No PTY tool emits `locations`.
+The UI render contract is exact and location-free. `terminal_send` uses terminal call/result cards only for foreground sends; its background form is generic `execute`. `terminal_open`, `terminal_read`, `terminal_signal`, `terminal_close`, and `terminal_list` use generic `execute`, `read`, `execute`, `delete`, and `read` cards respectively. No PTY tool emits `locations`.
 
 `terminal_send({ sessionId, text, submit?, run_in_background? })` treats `text` as UTF-8 bytes and resolves `submit` to `true` in the tool implementation. When `submit` is true it writes the platform Enter sequence after the text; when false it writes only the text, allowing control characters and REPL fragments without hidden content heuristics. `enableRunInBackground` defaults to true; false removes `run_in_background` from the schema and rejects the same undeclared argument if a caller forces it through execution.
 
@@ -155,7 +155,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 - Per-file coverage pins owner fencing, concurrent reservations, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
 - Linux process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
 - Real `node-pty` tests exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
-- A Loader-driven `cordis.yml` test mounts the real three-package composition, while ACP and headless snapshots pin the six schemas, bounded results, error rendering, and terminal/generic cards through opt-in overlays.
+- A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
 - Package contracts, the architecture map, core data structures, generated catalogs, and the website API describe the same shipped surface.
 - The repository CI-equivalent sequence owns type, lint, coverage, snapshot, documentation, build, hygiene, demo, and built-entry verification.
 

@@ -1,10 +1,9 @@
-# ui/ — editor/client integration surfaces
+# ui/ — human and SDK-client integration surfaces
 
-Integrations that expose the agent to an external editor or client. These are **product** packages: a real surface a user drives the harness through.
+Human-facing channels and the out-of-process SDK server. These are **product** packages: real interfaces that a person or SDK client drives.
 
 | Package | Role | ctx key |
 |---|---|---|
-| `acp/` | Agent Client Protocol bridge: serves agents, commands, and live/replayed title updates to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
 | `commands/` | Human-command registry: shared discovery metadata, scoped shadowing, cancellation, and direct UI dispatch | `ctx.commands` |
 | `user-approval/` | One-shot user-approval mechanism, closed outcome vocabulary, audit events, and per-session approval policy | `ctx.approval` |
 | `permission/` | User-facing permission presets (`workspace-write`/`danger-full-access`): one product-level select bundling the sandbox-mode and approval-policy knobs, written through to their session events | `ctx.permission` |
@@ -14,8 +13,8 @@ Integrations that expose the agent to an external editor or client. These are **
 | `jsonrpc/` | Stdio JSON-RPC server for out-of-process SDK clients | (drives `ctx.agents`) |
 | `app-boot/` | Shared boot glue for the app bins: `.env` loading, fail-loud Loader guards, snapshot-aware config resolution, the settle-the-tree boot sequence | (library for the bins) |
 
-A UI integration is a client-driver plugin, not a loop change: it consumes the existing `agent/*` event taxonomy and the `dsh-agent` factory. The `jsonrpc` plugin is the SDK-client sibling of the `acp` bridge (a JSON-RPC server over `ctx.agents` for out-of-process SDK clients rather than editors). [`tui`](tui/README.md) is the interactive terminal front door and supplies the terminal-local `ctx.tui` extension service; non-interactive tasks use the headless `cli-demo` app instead of a UI channel. [`commands`](commands/README.md) is the human-only discovery and dispatch plane shared by TUI and ACP; command input and output do not become model messages.
+A UI integration is a client-driver plugin, not a loop change: it consumes the existing `agent/*` event taxonomy and the `dsh-agent` factory. [`tui`](tui/README.md) is the interactive terminal front door and supplies the terminal-local `ctx.tui` extension service; [`jsonrpc`](jsonrpc/README.md) serves out-of-process SDK clients, while non-interactive one-shot tasks use `cli-demo`. [`commands`](commands/README.md) is the human-only discovery and dispatch plane consumed by TUI; command input and output do not become model messages.
 
-`user-approval`, `user-interaction`, and `tool-ask-user` live here because asking a human is a UI-backed product affordance, not part of the providerless core spine. `user-approval` owns the one-shot `ctx.approval` decision mechanism and its policy tier; answerers remain with their UI channel owners. `user-interaction` remains provider-neutral (`ctx.userInteraction`), while `tool-ask-user` is its model-facing consumer and the app/bridge packages provide concrete providers.
+`user-approval`, `user-interaction`, and `tool-ask-user` live here because asking a human is a UI-backed product affordance, not part of the providerless core spine. `user-approval` owns the one-shot `ctx.approval` decision mechanism and its policy tier; answerers remain with the channel or automation transport that owns the agent. `user-interaction` remains provider-neutral (`ctx.userInteraction`), while `tool-ask-user` is its model-facing consumer and interactive app packages provide concrete providers.
 
-The runnable app bundles that bake these bridges into boot bins — the TUI app, ACP server app, and JSON-RPC SDK-runtime bin — live in [`examples/`](../examples/README.md) (`tui-demo`, `acp-demo`, `jsonrpc-demo`), each composed over the [`agent-spine-demo`](../examples/agent-spine-demo/README.md) bundle. `ui/` keeps the reusable bridge/channel plugins and the `app-boot` glue; each front door owns its stdout policy, and a leaf `cordis.yml` supplies backends and optional tools.
+The runnable app bundles that bake these interfaces into boot bins live in [`examples/`](../examples/README.md), composed over [`agent-spine-demo`](../examples/agent-spine-demo/README.md). `ui/` keeps the reusable human/SDK channel plugins and shared `app-boot` glue; the automation-only ACP transport lives in [`acp/`](../acp/README.md). Each front door owns its stdout policy, and a leaf `cordis.yml` supplies backends and optional tools.

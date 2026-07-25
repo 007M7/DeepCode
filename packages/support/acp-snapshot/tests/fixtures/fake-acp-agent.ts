@@ -45,18 +45,10 @@ interface Behavior {
   rejectExtraDirs?: boolean
   /** How `session/prompt` settles: a clean response, a JSON-RPC error, or a hang until `session/cancel`. */
   prompt?: 'respond' | 'error' | 'hang-until-cancel'
-  /** Emit a tool call instead of a message chunk before parking a cancellable prompt. */
-  cancelAtToolCall?: boolean
-  /** Emit the parked tool call's terminal update after answering cancellation. */
-  cancelToolCallUpdate?: boolean
   /** Persist the scripted logs while handling cancellation, before stdin EOF. */
   persistLogsOnCancel?: boolean
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
-  /** Before responding to a prompt, send an `elicitation/create` request and echo its response as a chunk. */
-  elicitationProbe?: boolean
-  /** How `session/set_mode` settles: an empty response (echoing the modeId as a chunk) or a JSON-RPC error. */
-  setMode?: 'respond' | 'error'
   /** Echo the `DSH_SNAPSHOT_*` env the harness set as a chunk (spec-side env-plumbing assertions). */
   echoEnv?: boolean
   /** Echo the sorted cwd listing as a chunk (spec-side workspace-seeding assertions). */
@@ -73,13 +65,6 @@ interface Behavior {
   strayBucketFile?: boolean
   /** Delete the sessions root entirely (harvest must yield no logs). */
   deleteSessionsRoot?: boolean
-  /**
-   * Vocabulary for `session/set_config_option`: allowed values per config id.
-   * A set naming an unknown id or an out-of-vocabulary value rejects (the
-   * real bridge's rule); a valid set answers with the complete refreshed
-   * option state, `currentValue` updated. Absent: every set rejects.
-   */
-  configOptions?: Record<string, string[]>
 }
 
 const sessionsRoot = process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? ''
@@ -102,10 +87,10 @@ let sessionId = ''
 let sessionCwd = ''
 /** The parked prompt request id while `hang-until-cancel` waits for the cancel notification. */
 let parkedPromptId: number | string | null = null
-/** Resolvers for outbound probe responses (permission/elicitation), keyed by request id. */
+/** The transient raw JSONL log that proves the parked turn started durably. */
+let parkedTurnLog: string | undefined
+/** Resolvers for outbound permission responses, keyed by request id. */
 const pendingOutbound = new Map<number, (result: unknown) => void>()
-/** Per-run `session/set_config_option` state: config id → current value (first vocabulary entry until set). */
-const currentConfig: Record<string, string> = {}
 
 function send(frame: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
@@ -138,39 +123,34 @@ function instantiate(value: unknown): unknown {
   return value
 }
 
+/** Persist an open turn so cancellation tests wait on agent state, not presentation output. */
+function persistParkedTurnStart(): void {
+  parkedTurnLog = join(sessionsRoot, 'ready', 'open.jsonl')
+  mkdirSync(dirname(parkedTurnLog), { recursive: true })
+  writeFileSync(parkedTurnLog, [
+    JSON.stringify({ type: 'session', version: 0, id: sessionId, createdAt: 1, cwd: sessionCwd, delegationDepth: 0 }),
+    JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
+    '',
+  ].join('\n'))
+}
+
+/** Remove the transient open-turn log before publishing any scripted final logs. */
+function clearParkedTurnStart(): void {
+  if (parkedTurnLog === undefined) return
+  rmSync(parkedTurnLog, { force: true })
+  parkedTurnLog = undefined
+}
+
 async function handlePrompt(id: number | string): Promise<void> {
-  if ((behavior.prompt ?? 'respond') === 'hang-until-cancel') {
-    // A thought chunk BEFORE any message chunk: a promptAndCancel waiter
-    // watches for agent_message_chunk, so this exercises its non-matching
-    // update path while the waiter is armed.
-    send({
-      method: 'session/update',
-      params: { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'mulling' } } },
-    })
-  }
-  if (behavior.cancelAtToolCall === true) {
-    send({
-      method: 'session/update',
-      params: {
-        sessionId,
-        update: {
-          sessionUpdate: 'tool_call',
-          toolCallId: 'call_fake_1',
-          title: 'fake tool',
-          kind: 'execute',
-          status: 'in_progress',
-        },
-      },
-    })
-  } else {
-    chunk('thinking about it')
-  }
+  chunk('thinking about it')
   if (behavior.echoEnv === true) {
     chunk(`env:${JSON.stringify({
       mode: process.env.DSH_SNAPSHOT,
       override: process.env.DSH_SNAPSHOT_OVERRIDE ?? null,
       childFiles: process.env.DSH_SNAPSHOT_CHILD_FILES ?? null,
       spillRoot: process.env.DSH_SNAPSHOT_SPILL_ROOT ?? null,
+      // Scenario-supplied deployment env (the `Scenario.env` layering seam).
+      permissionMode: process.env.DSH_PERMISSION_MODE ?? null,
     })}`)
   }
   if (behavior.echoWorkspace === true) {
@@ -185,7 +165,7 @@ async function handlePrompt(id: number | string): Promise<void> {
         method: 'session/request_permission',
         params: {
           sessionId,
-          toolCall: { toolCallId: 'call_fake_1', title: 'fake tool', kind: 'execute', status: 'pending' },
+          toolCall: { toolCallId: 'call_fake_1' },
           options: [
             { optionId: 'opt-allow', name: 'Allow once', kind: 'allow_once' },
             { optionId: 'opt-reject', name: 'Reject once', kind: 'reject_once' },
@@ -195,23 +175,6 @@ async function handlePrompt(id: number | string): Promise<void> {
     })
     chunk(`permission:${JSON.stringify((result as { outcome?: unknown } | undefined)?.outcome ?? null)}`)
   }
-  if (behavior.elicitationProbe === true) {
-    const requestId = nextOutboundId++
-    const result = await new Promise<unknown>((resolve) => {
-      pendingOutbound.set(requestId, resolve)
-      send({
-        id: requestId,
-        method: 'elicitation/create',
-        params: {
-          sessionId,
-          mode: 'form',
-          message: 'Approve this plan and leave plan mode?',
-          requestedSchema: { type: 'object', title: 'Plan review', properties: { choice: { type: 'string' }, custom: { type: 'string' } }, required: [] },
-        },
-      })
-    })
-    chunk(`elicitation:${JSON.stringify(result ?? null)}`)
-  }
   switch (behavior.prompt ?? 'respond') {
     case 'respond':
       respond(id, { stopReason: 'end_turn' })
@@ -220,6 +183,7 @@ async function handlePrompt(id: number | string): Promise<void> {
       respondError(id, 'model exploded')
       return
     case 'hang-until-cancel':
+      persistParkedTurnStart()
       parkedPromptId = id
       return
   }
@@ -254,59 +218,13 @@ function handleFrame(frame: Record<string, unknown>): void {
     case 'session/prompt':
       void handlePrompt(id as number | string)
       return
-    case 'session/set_mode':
-      if ((behavior.setMode ?? 'respond') === 'error') {
-        respondError(id as number | string, 'unknown mode')
-        return
-      }
-      chunk(`setMode:${String(params.modeId)}`)
-      respond(id as number | string, {})
-      return
-    case 'session/set_config_option': {
-      const vocabulary = behavior.configOptions
-      const configId = params.configId as string
-      const value = params.value as string
-      const values = vocabulary?.[configId]
-      if (values === undefined) {
-        respondError(id as number | string, `unknown config option ${configId}`)
-        return
-      }
-      if (!values.includes(value)) {
-        respondError(id as number | string, `unknown ${configId} value ${value}`)
-        return
-      }
-      currentConfig[configId] = value
-      // The real bridge's contract: every set answers with the COMPLETE
-      // refreshed option state, not just the changed entry.
-      respond(id as number | string, {
-        configOptions: Object.entries(vocabulary as Record<string, string[]>).map(([cid, vs]) => ({
-          id: cid,
-          type: 'select',
-          currentValue: currentConfig[cid] ?? vs[0],
-          options: vs.map(v => ({ value: v, name: v })),
-        })),
-      })
-      return
-    }
     case 'session/cancel':
       if (parkedPromptId !== null) {
         const parked = parkedPromptId
         parkedPromptId = null
-        respond(parked, { stopReason: 'cancelled' })
-        if (behavior.cancelToolCallUpdate === true) {
-          send({
-            method: 'session/update',
-            params: {
-              sessionId,
-              update: {
-                sessionUpdate: 'tool_call_update',
-                toolCallId: 'call_fake_1',
-                status: 'failed',
-              },
-            },
-          })
-        }
+        clearParkedTurnStart()
         if (behavior.persistLogsOnCancel === true) writeLogs()
+        respond(parked, { stopReason: 'cancelled' })
       }
       return
     default:
@@ -325,6 +243,7 @@ function writeLogs(): void {
 }
 
 function flushLogsAndExit(): void {
+  clearParkedTurnStart()
   writeLogs()
   if (behavior.strayRootFile === true) writeFileSync(join(sessionsRoot, 'stray.txt'), 'not a bucket\n')
   if (behavior.strayBucketFile === true) {
