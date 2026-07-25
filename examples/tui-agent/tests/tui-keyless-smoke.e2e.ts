@@ -253,7 +253,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       label: 'dsh in-place resume',
       tempDirPrefix: 'dsh-in-place-resume-',
       binScript: dshBinScript,
-      configArgs: [scriptedConfigPath],
+      configPath: scriptedConfigPath,
       prepare: seedResumeSession,
       actions: [
         { waitFor: 'scripted TUI ready.', send: '/resume\r' },
@@ -350,7 +350,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       label: 'dsh source-path prompt',
       tempDirPrefix: 'dsh-source-path-',
       binScript: dshBinScript,
-      configArgs: [scriptedConfigPath],
+      configPath: scriptedConfigPath,
       actions: [
         ...SELECT_PRO_MODEL,
         { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },

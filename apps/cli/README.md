@@ -1,12 +1,12 @@
 # `@deepseek-ai/dsh`
 
-The `dsh` command-line entry follows the `apps/` assembly tier: `apps/*` are product assemblies over `packages/*` libraries. Plain `dsh [config.yml]` boots the interactive TUI coding agent, `dsh -p "task"` runs one headless turn, and `dsh web` serves the browser UI.
+The `dsh` command-line entry follows the `apps/` assembly tier: `apps/*` are product assemblies over `packages/*` libraries. Plain `dsh` boots the interactive TUI coding agent, `dsh -p "task"` runs one headless turn, and `dsh web` serves the browser UI.
 
-Argv is parsed once through a [Commander](https://github.com/tj/commander.js) adapter ([`src/args.ts`](src/args.ts)) that resolves the invocation into a single mode; `src/bin.ts` switches on that mode and dynamic-imports only the chosen mode's module. `dsh --help` and `dsh web --help` render usage, `dsh --version` prints this app's version, and an unknown option or an invalid `--host`/`--port`/`--resume` value fails loud (stderr, exit 1) instead of misrouting.
+Argv is parsed once through a [Commander](https://github.com/tj/commander.js) adapter ([`src/args.ts`](src/args.ts)): one program whose default (no subcommand) is the TUI/headless surface (`--config`, `-p`/`--prompt`, `--resume`) and whose `web` subcommand is the browser UI. `src/bin.ts` switches on the resolved mode and dynamic-imports only that mode's module. `dsh --help` lists every mode and `dsh web --help` renders the web usage, `dsh --version` prints this app's version, and an unknown option or an invalid `--host`/`--port`/`--resume` value fails loud (stderr, exit 1) instead of misrouting.
 
 The TUI surface:
 
-- boots the shipped default config (`examples/tui-agent/cordis.yml`) or an explicit config argument, through [`dsh-app-boot`](../../packages/ui/app-boot/README.md);
+- boots the shipped default config (`examples/tui-agent/cordis.yml`), or the tree named by `--config <path>` (the demo/test escape for booting an alternate example tree), through [`dsh-app-boot`](../../packages/ui/app-boot/README.md);
 - resumes a persisted session with `dsh --resume <session-id>` and, when the Node host exposes `process.execve`, supplies the TUI's in-place handoff host: after selector preflight and current-session flush, the host disposes the app and replaces the process with a normalized `dsh --resume <id>`; runtimes without process replacement keep the displayed command fallback. The flag provides the id on the boot context under `RESUME_SESSION_ID_KEY` (no environment variable), which the shipped config reads through `!!js`, and a missing or unreadable id fails loud instead of creating a fresh session;
 - treats the **invoking directory** as the workspace — sessions, relative paths, and workspace instructions resolve from the cwd;
 - tells the agent where its own source lives: after boot it adds a prompt section naming this harness checkout, resolved from the launcher's real path so it holds under a PATH symlink and an arbitrary cwd, so the self-referential `cordis` toolset can read and modify it;

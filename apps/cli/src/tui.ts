@@ -1,6 +1,6 @@
 /**
  * `dsh` default surface — the interactive TUI coding agent. Boots the shipped
- * tui-agent config (or an explicit config argument) with the personal overlay
+ * tui-agent config (or the `--config` override) with the personal overlay
  * from the Harness home (`~/.dsh`): its `.env` fills environment gaps (precedence:
  * ambient environment, then the invoking directory's `.env`, then the personal one)
  * and its `config.yaml` patches the booted tree. The workspace is the invoking
@@ -42,7 +42,7 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 /**
  * Run the interactive TUI from the invoking directory.
  * @param config - a config path to boot instead of the shipped default, or
- * `undefined` for the default; already parsed from the optional positional.
+ * `undefined` for the default; already parsed from `--config`.
  * @param resumeSessionId - a persisted session id to resume, or `undefined`;
  * already parsed and non-empty-validated from `--resume`. It is provided on the
  * boot context under {@link RESUME_SESSION_ID_KEY}, which the shipped config
@@ -73,14 +73,13 @@ export async function runTui(config: string | undefined, resumeSessionId: string
       const current = app.current
       if (current === undefined) throw new Error(`${NAME}: app boot has not completed`)
       // Rebuild argv from the parsed config plus the selected id: TUI mode's
-      // only arguments are the optional config positional and `--resume <id>`.
-      // The `--` guard keeps a config named like a flag or `web` a positional.
+      // only arguments are `--config <path>` and `--resume <id>`.
       const nextArgv = [
         process.execPath,
         ...process.execArgv,
         entry,
         `--resume=${sessionId}`,
-        ...config !== undefined ? ['--', config] : [],
+        ...config !== undefined ? ['--config', config] : [],
       ]
       try {
         await current.fiber.dispose()

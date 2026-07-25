@@ -26,8 +26,8 @@ afterEach(() => { vi.restoreAllMocks() })
 describe('parseDshArgs', () => {
   it('routes each mode by its shape: default TUI, -p headless, web subcommand', () => {
     expect(parse([])).toEqual({ mode: 'tui' })
-    expect(parse(['custom.yml'])).toEqual({ mode: 'tui', config: 'custom.yml' })
-    expect(parse(['--resume', 'sess', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
+    expect(parse(['--config', 'custom.yml'])).toEqual({ mode: 'tui', config: 'custom.yml' })
+    expect(parse(['--resume', 'sess', '--config', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
     // Bare `web` carries no host/port: the shipped cordis.yml owns the default.
     expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
@@ -43,8 +43,10 @@ describe('parseDshArgs', () => {
     expect(exitCode(['web', '--host', '10.0.0.1'])).toBe(1)
     expect(exitCode(['web', '--port', 'abc'])).toBe(1)
     expect(exitCode(['web', '--port='])).toBe(1)
-    expect(exitCode(['config.yml', '-p', 'x'])).toBe(1)
+    expect(exitCode(['-p', 'x', '--config', 'c.yml'])).toBe(1)
+    expect(exitCode(['-p', 'x', '--resume', 's'])).toBe(1)
     expect(exitCode(['--bogus'])).toBe(1)
+    expect(exitCode(['bogus-positional'])).toBe(1)
   })
 
   it('exits 0 for --help (disclosing web) and --version', () => {
