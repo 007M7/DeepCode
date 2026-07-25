@@ -1,14 +1,16 @@
 # Agent Note: 收拢工具自有的 UI 展示逻辑
 
-Status: rejected — 工具拥有的呈现机制应等到出现更多真实工具后再进行泛化或删除。Bash 与 ACP（Agent Client Protocol）目前仍需要现有的丰富呈现路径。
+Status: rejected — 尽管 ACP（Agent Client Protocol）已不再投影这套契约，TUI 与 Web 宿主/客户端运行时仍消费带标签 render-intent 联合类型，因此工具自有的展示仍然有效。
 
 [English](2026-06-20-generic-tool-rendering.md) | 中文
 
 ## 问题
 
-工具可以定义 `presentCall()` 和 `presentResult()` 回调，返回 `ToolCallPresentation`、`ToolResultPresentation` 以及可选的 `ToolTerminal` 字段。代码本身就标记了这个设计的混乱：title、kind、raw input、content、terminal cwd、terminal output、exit code 和 signal 逐步增长为一堆可选字段。ACP 随后维护 pending call 状态以将 result 与原始 args 配对，在 `session/load` 时创建仅用于回放的 presenter，并将 terminal 子字段映射为 Zed 特有的 `_meta`。`dsh-tool-bash` 甚至从渲染后的文本中反向解析退出状态，因为纯回放安全的 presenter 已经拿不到结构化的 `BashRunResult`。
+下文所述的可选字段集合与 ACP 的编辑器映射，是本提案遭否决时的背景。当前契约分别由[带标签 render-intent 联合类型](../../implemented/architecture/2026-07-02-tool-render-intent-union.md)与[ACP 作为仅面向自动化的协议](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)承载。
 
-真正的第一方用途是为 ACP 提供 bash 展示。这不足以作为冻结一个跨包（package）UI 展示 API 的依据。
+当时，工具可以定义 `presentCall()` 和 `presentResult()` 回调，返回 `ToolCallPresentation`、`ToolResultPresentation` 以及可选的 `ToolTerminal` 字段。代码本身就标记了这个设计的混乱：title、kind、raw input、content、terminal cwd、terminal output、exit code 和 signal 已经逐步增长为一堆可选字段。ACP 随后维护 pending call 状态以将 result 与原始 args 配对，在 `session/load` 时创建仅用于回放的 presenter，并将 terminal 子字段映射为 Zed 特有的 `_meta`。`dsh-tool-bash` 甚至从渲染后的文本中反向解析退出状态，因为纯回放安全的 presenter 已经拿不到结构化的 `BashRunResult`。
+
+当时，真正的第一方用途是为 ACP 提供 bash 展示。这点证据不足以作为冻结一个跨包（package）UI 展示 API 的依据。
 
 ## 提案
 
@@ -28,8 +30,8 @@ Status: rejected — 工具拥有的呈现机制应等到出现更多真实工�
 
 ## 放弃了什么
 
-Bash 失去其自定义的终端风格卡片和模型生成描述的放置位置。回退方案仍然合理：命令作为工具输入展示，输出作为文本展示。富展示应当在产品拥有足够的 UI/工具多样性、足以支撑一份稳定的展示契约时再行设计。
+如果采用本提案，Bash 会失去其自定义的终端风格卡片和模型生成描述的放置位置。届时，回退方案仍然合理：命令会作为工具输入展示，输出会作为文本展示。只有当产品拥有足够的 UI/工具多样性、足以支撑一份稳定的展示契约时，才会设计富展示。
 
 ## 相关
 
-这是[移除 ACP terminal 元数据](2026-06-20-drop-acp-terminal-meta.md)的宽泛版本。如果本 Agent Note（agent 决策记录）被接受，那个更窄的 Agent Note 就不再必要。
+后续的[带标签 render-intent 联合类型](../../implemented/architecture/2026-07-02-tool-render-intent-union.md)在多类生产者与消费方为这套词汇提供充分依据后，实现了较小的替代方案。[ACP 作为仅面向自动化的协议](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)移除了 ACP 的编辑器投影，但没有从 TUI 或 Web 宿主/客户端运行时中移除工具自有的展示。

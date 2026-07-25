@@ -126,6 +126,7 @@
     { "path": "./packages/support/llm-replay" },
     { "path": "./packages/support/acp-snapshot" },
     { "path": "./packages/support/loader-smoke" },
+    { "path": "./packages/support/llm-mock-server" },
     { "path": "./packages/subagent/subagent" },
     { "path": "./packages/subagent/tool-subagent" },
     { "path": "./packages/subagent/subagent-inprocess" },
