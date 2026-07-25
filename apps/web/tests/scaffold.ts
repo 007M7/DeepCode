@@ -101,6 +101,12 @@ export interface LaunchOptions {
    * mounts).
    */
   replayFixture?: string
+  /**
+   * Optional replay.override.json sidecar (whole-script replacement or
+   * `{ patches }` augmentation) for throw/hang scenarios not expressible as
+   * recorded chunks; replay/refresh only.
+   */
+  replayOverride?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
   paceMs?: number
 }
@@ -179,6 +185,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     replayHandle = installLlmReplay(ctx, {
       file: options.replayFixture,
       providers: REPLAY_PROVIDERS,
+      ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
       ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
     })
   }
