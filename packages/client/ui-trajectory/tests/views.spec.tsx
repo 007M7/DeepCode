@@ -15,7 +15,7 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
 import { ConversationRoot, type ConversationRootProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationRoot.tsx'
@@ -62,7 +62,15 @@ function fakeSession(nodes: ConversationSnapshot['nodes']) {
 /** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined } as SessionListState)
+    { ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready' })
+  return bindSnapshotSelector(store)
+}
+
+function emptyWorkspaces() {
+  const store = createSnapshotStore<WorkspaceListState>({
+    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+    recentWorkspaceId: undefined,
+  })
   return bindSnapshotSelector(store)
 }
 
@@ -75,6 +83,7 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
     sessionId: SID,
     useSession: fakeSession(nodes).useSession,
     useSessions: emptySessions(),
+    useWorkspaces: emptyWorkspaces(),
   } as unknown as ConvViewProps
 }
 
@@ -121,7 +130,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
     const View = entry.component as FC<ConvViewProps>
     return (
       <View
-        {...({ sessionId: SID, useSession, useSessions: emptySessions() } as unknown as ConvViewProps)}
+        {...({ sessionId: SID, useSession, useSessions: emptySessions(), useWorkspaces: emptyWorkspaces() } as unknown as ConvViewProps)}
         key={key}
       />
     )
@@ -131,6 +140,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       sessionId={SID}
       useSession={useSession}
       useSessions={emptySessions()}
+      useWorkspaces={emptyWorkspaces()}
       useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       renderSlot={renderSlot}
@@ -144,6 +154,8 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       send={vi.fn()}
       stop={vi.fn()}
       open={vi.fn()}
+      updateSessionPrompt={vi.fn()}
+      retrySessionPrompt={vi.fn()}
     />,
   )
 }

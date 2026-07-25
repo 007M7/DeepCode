@@ -98,6 +98,11 @@ export interface SlotRendererHost {
      */
     cell(id: string): SessionCell | undefined
   }
+  /** Workspace-side standard-kit sources. */
+  workspaces: {
+    /** Workspace list source backing the useWorkspaces standard hook. */
+    list: HostObservable<unknown>
+  }
 }
 
 /** The install seam: runtime owns install()/renderSlot(); web-react implements rendering. */

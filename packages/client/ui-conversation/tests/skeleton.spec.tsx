@@ -1,344 +1,205 @@
 // @vitest-environment jsdom
-/**
- * Skeleton acceptance over the four-share props form: empty-state transition
- * (same InputBar component in hero position, startSession submit, in-component
- * cwd derivation), ConversationRoot view switching through the store's view
- * field, DetailsPanel selection through the shared store. Components stay
- * pure — the framework shares are stubbed (useSession/useSessions), the store
- * share is a REAL createChatStore().create() instance (same construction path
- * as production), injected callbacks are spies.
- */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { ConversationSnapshot, PendingInteraction, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
-import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {
+  ConversationSnapshot, SessionId, SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import type { EmptyStateProps } from '../src/client/skeleton/EmptyState.tsx'
 import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
-// Export discipline: packages/client/AGENTS.md.
 import { createChatStore } from '../src/client/stores.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
-import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 
-const sid = (s: string): SessionId => s as SessionId
-
 afterEach(cleanup)
-beforeEach(() => {
-  // jsdom normally provides localStorage; some host Node builds surface it as undefined.
-  globalThis.localStorage?.clear()
+beforeEach(() => { localStorage.clear() })
+
+const sid = (id: string) => id as SessionId
+const wid = (id: string) => id as WorkspaceId
+const SID = sid('s1')
+
+function workspace(id = 'w1'): WorkspaceView {
+  return {
+    workspaceId: wid(id), path: `/projects/${id}`, title: id, sessionIds: [],
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+type SessionIntent = NonNullable<SessionListState['intent']>
+type WorkspaceIntent = NonNullable<WorkspaceListState['intent']>
+
+const workspaceState = (
+  items: readonly WorkspaceView[], workspaceIntent?: WorkspaceIntent,
+): WorkspaceListState => ({
+  items, intent: workspaceIntent, state: 'idle', phase: 'ready', error: null,
+  baselinesReady: true, recentWorkspaceId: undefined,
 })
+const hook = <T,>(snapshot: T) => <S,>(selector: (state: T) => S): S => selector(snapshot)
 
-/** Minimal conversation snapshot slice the skeleton reads. */
-interface FakeSnapshot {
-  nodes: readonly {
-    kind: string
-    seq?: number
-    time?: number
-    callId?: string
-    call?: { name: string; argsRaw: string } | null
-    callTime?: number | null
-    content?: readonly { type: string; text?: string }[]
-    isError?: boolean
-    callView?: null
-    resultView?: null
-  }[]
-  runningCalls: readonly {
-    callId: string
-    name: string
-    argsRaw: string
-    turn?: number
-    step?: number
-    time?: number
-    callView?: null
-  }[]
-  running: boolean
-  removed: boolean
-  promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null
-  pending: readonly PendingInteraction[]
+function mountEmpty(
+  intent: SessionIntent,
+  items: readonly WorkspaceView[] = [],
+  localWorkspace?: WorkspaceIntent,
+) {
+  const updateSessionPrompt = vi.fn()
+  const sendSession = vi.fn()
+  const startSession = vi.fn()
+  let pickerOwner: unknown
+  const sessionState: SessionListState = {
+    ids: [], byId: {}, current: intent.sessionId, intent, phase: 'ready',
+  }
+  const workspaceIntent = intent.target.kind === 'workspace-intent'
+    ? localWorkspace ?? { name: 'workspace', phase: 'ready' as const }
+    : undefined
+  const view = render(
+    <EmptyState
+      useSessions={hook(sessionState)}
+      useWorkspaces={hook(workspaceState(items, workspaceIntent))}
+      updateSessionPrompt={updateSessionPrompt}
+      sendSession={sendSession}
+      startSession={startSession}
+      renderSlot={((_key: string, owner: unknown) => { pickerOwner = owner; return null }) as EmptyStateProps['renderSlot']}
+    />,
+  )
+  return { view, updateSessionPrompt, sendSession, startSession, pickerOwner: () => pickerOwner }
 }
-
-function fakeSession(init: Partial<FakeSnapshot> = {}) {
-  const store = createSnapshotStore<FakeSnapshot>({
-    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, pending: [], ...init,
-  })
-  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
-}
-
-/** Sessions-list stub: the standard useSessions hook over a snapshot store. */
-function fakeSessions(rows: { id: string; title: string; cwd?: string; parentId?: string }[]) {
-  const store = createSnapshotStore<SessionListState>({
-    ids: rows.map(r => sid(r.id)),
-    byId: Object.fromEntries(rows.map(r => [r.id, {
-      id: sid(r.id), title: `durable ${r.title}`, displayTitle: r.title, running: false, updatedAt: 1,
-      ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
-      ...(r.parentId !== undefined ? { parentId: sid(r.parentId) } : {}),
-    }])),
-    current: undefined,
-  } as SessionListState)
-  return { store, useSessions: bindSnapshotSelector(store) }
-}
-
-/** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
-const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(sid('s1'))}</>
 
 describe('EmptyState', () => {
-  const noopCreate = () => Promise.resolve()
-
-  it('derives cwd options from the sessions list, submits startSession, failure surfaces locally', async () => {
-    const { useSessions } = fakeSessions([
-      { id: 'a', title: 'a', cwd: '/w/app' },
-      { id: 'b', title: 'b', cwd: '/w/lib' },
-      { id: 'c', title: 'c', cwd: '/w/app' }, // duplicate cwd dedupes
-    ])
-    let reject!: (e: Error) => void
-    const startSession = vi.fn(() => new Promise<void>((_res, rej) => { reject = rej }))
-    render(
-      <EmptyState
-        useSessions={useSessions}
-        startSession={startSession}
-        createWorkspaceSession={noopCreate}
-      />,
-    )
-
-    const trigger = screen.getByRole('button', { name: '项目目录' })
-    fireEvent.click(trigger)
-    const menu = screen.getByRole('menu')
-    expect([...menu.querySelectorAll('[role="menuitem"]')].map(el => el.textContent))
-      .toEqual(['app', 'lib', 'New Workspace'])
-    fireEvent.click(screen.getByRole('menuitem', { name: 'app' }))
-    const box = screen.getByPlaceholderText('Message to run task, plan and build, enter for / commands')
-    fireEvent.change(box, { target: { value: '造一个轮子' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
-    expect(startSession).toHaveBeenCalledWith({ text: '造一个轮子', mode: 'queue', cwd: '/w/app' })
-
-    reject(new Error('后端拒收'))
-    expect(await screen.findByText(/后端拒收/)).toBeTruthy()
-    // Draft survives the failure for retry.
-    expect((box as HTMLTextAreaElement).value).toBe('造一个轮子')
+  it('reads the Workspace and Session intents from runtime projections', () => {
+    const b = mountEmpty({
+      sessionId: sid('local-1'), target: { kind: 'workspace-intent' },
+      prompt: 'draft', phase: 'ready',
+    })
+    expect(b.view.getByRole('button', { name: 'Choose workspace' }).textContent).toContain('workspace')
+    fireEvent.click(b.view.getByRole('button', { name: 'Add attachment' }))
+    expect((b.pickerOwner() as { open: boolean }).open).toBe(false)
+    fireEvent.change(b.view.getByPlaceholderText('Describe what you want to build'), { target: { value: 'build it' } })
+    expect(b.updateSessionPrompt).toHaveBeenCalledWith('build it')
+    fireEvent.click(b.view.getByRole('button', { name: 'Send message' }))
+    expect(b.sendSession).toHaveBeenCalledOnce()
   })
 
-  it('Use a existing folder opens the path modal and Open Folder sets the chip', () => {
-    const { useSessions } = fakeSessions([])
-    render(
-      <EmptyState
-        useSessions={useSessions}
-        startSession={() => Promise.resolve()}
-        createWorkspaceSession={noopCreate}
-      />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
-    const newWs = screen.getByRole('menuitem', { name: 'New Workspace' })
-    fireEvent.mouseEnter(newWs.parentElement as HTMLElement)
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Use a existing folder' }))
-    expect(screen.getByRole('dialog', { name: 'Enter an existing folder path' })).toBeTruthy()
-    const path = screen.getByLabelText('Folder path') as HTMLInputElement
-    fireEvent.change(path, { target: { value: '/tmp/fresh' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Open Folder' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(screen.getByRole('button', { name: '项目目录' }).textContent).toContain('fresh')
+  it('uses useWorkspaces for the selected label and preserves the prompt when retargeting', () => {
+    const first = workspace('first')
+    const b = mountEmpty({
+      sessionId: sid('local-2'), target: { kind: 'workspace', workspaceId: first.workspaceId },
+      prompt: 'keep me', phase: 'ready',
+    }, [first])
+    expect(b.view.getByRole('button', { name: 'Choose workspace' }).textContent).toContain('first')
+    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
+    owner.onPick(wid('second'))
+    expect(b.startSession).toHaveBeenCalledWith(wid('second'), 'keep me')
   })
 
-  it('Create new opens the modal and createWorkspaceSession succeeds', async () => {
-    const { useSessions } = fakeSessions([])
-    const createWorkspaceSession = vi.fn(() => Promise.resolve())
-    render(
-      <EmptyState
-        useSessions={useSessions}
-        startSession={() => Promise.resolve()}
-        createWorkspaceSession={createWorkspaceSession}
-      />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Create new' }))
-    expect(screen.getByRole('dialog', { name: 'Create new workspace' })).toBeTruthy()
-    const name = screen.getByLabelText('Workspace name') as HTMLInputElement
-    expect(name.value).toBe('New WorkSpace')
-    fireEvent.change(name, { target: { value: 'My Proj' } })
-    fireEvent.keyDown(name, { key: 'Enter' })
-    await vi.waitFor(() => expect(createWorkspaceSession).toHaveBeenCalledWith('My Proj'))
-  })
-
-  it('Create modal Cancel dismisses without calling createWorkspaceSession', () => {
-    const { useSessions } = fakeSessions([])
-    const createWorkspaceSession = vi.fn(() => Promise.resolve())
-    render(
-      <EmptyState
-        useSessions={useSessions}
-        startSession={() => Promise.resolve()}
-        createWorkspaceSession={createWorkspaceSession}
-      />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'New Workspace' }).parentElement as HTMLElement)
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Create new' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(createWorkspaceSession).not.toHaveBeenCalled()
+  it('exposes materialization phase and failure text', () => {
+    const creating = mountEmpty({
+      sessionId: sid('local-3'), target: { kind: 'workspace-intent' },
+      prompt: 'x', phase: 'ready',
+    }, [], { name: 'workspace', phase: 'creating' })
+    expect(creating.view.getByRole('status').textContent).toBe('Creating workspace…')
+    cleanup()
+    const workspaceFailed = mountEmpty({
+      sessionId: sid('local-3'), target: { kind: 'workspace-intent' },
+      prompt: 'x', phase: 'ready',
+    }, [], { name: 'workspace', phase: 'ready', error: 'offline' })
+    expect(workspaceFailed.view.getByRole('alert').textContent).toBe('Workspace creation failed: offline')
+    cleanup()
+    const failed = mountEmpty({
+      sessionId: sid('local-3'), target: { kind: 'workspace', workspaceId: wid('w1') },
+      prompt: 'x', phase: 'ready', error: { step: 'session', message: 'offline' },
+    }, [workspace()])
+    expect(failed.view.getByRole('alert').textContent).toBe('Session creation failed: offline')
   })
 })
 
-describe('ConversationRoot', () => {
-  function bench(
-    tabs: ViewTab[], activeView?: string, init: Partial<FakeSnapshot> = {},
-    renderSlotChain?: ConversationRootProps['renderSlotChain'],
-  ) {
-    const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }], ...init })
-    const { useSessions } = fakeSessions([
-      { id: 'root', title: 'proj' },
-      { id: 's1', title: 'child', parentId: 'root' },
-    ])
-    const chat = createChatStore().create()
-    if (activeView !== undefined) chat.actions.setView(activeView)
-    const send = vi.fn()
-    const stop = vi.fn()
-    const open = vi.fn()
-    // The renderSlot share as the outlet would bake it: renders a marker for
-    // the ring key carrying the active-id filter (a Mock cannot satisfy the
-    // generic method type directly — cast once at the prop seam).
-    const renderSlot = vi.fn((key: string, _owner: object, opts?: { only?: string }) => (
-      <div data-testid={`view-${opts?.only ?? '(all)'}`} data-slot={key} />
-    ))
-    const ui = render(
-      <ConversationRoot
-        sessionId={sid('s1')}
-        useSession={useSession}
-        useSessions={useSessions}
-        useStore={bindSnapshotSelector(chat)}
-        actions={chat.actions}
-        renderSlot={renderSlot as unknown as ConversationRootProps['renderSlot']}
-        renderSlotChain={renderSlotChain ?? ((_key, _owner, opts) => opts?.fallback ?? null)}
-        SessionProvider={SessionProviderStub}
-        views={{
-          list: () => tabs,
-          subscribe: () => () => {},
-          version: () => 1,
-        }}
-        send={send}
-        stop={stop}
-        open={open}
-      />)
-    return { ui, chat, send, stop, open, renderSlot }
+function conversationSnapshot(
+  composerPhase: ConversationSnapshot['composerPhase'],
+  pendingPrompt: ConversationSnapshot['pendingPrompt'] = null,
+): ConversationSnapshot {
+  return {
+    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
+    pending: [], running: false, composerPhase, removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt, lastAgentError: null,
   }
+}
 
-  const tab = (id: string, label: string): ViewTab => ({ id, label })
-
-  it('renders breadcrumb chain (useSessions-derived), meta turns, and the default chat view', () => {
-    const { open } = bench([tab('chat', 'Chat'), tab('trajectory', 'Trajectory')])
-    expect(screen.getByText('proj')).toBeTruthy()
-    expect(screen.getByText('child')).toBeTruthy()
-    expect(screen.getByText(/2 turns/)).toBeTruthy()
-    expect(screen.getByTestId('view-chat')).toBeTruthy()
-    // Ancestor crumb navigates; current crumb is disabled.
-    fireEvent.click(screen.getByRole('button', { name: 'proj' }))
-    expect(open).toHaveBeenCalledWith('root')
-    expect((screen.getByRole('button', { name: 'child' }) as HTMLButtonElement).disabled).toBe(true)
+function mountConversation(pendingPrompt: ConversationSnapshot['pendingPrompt'] = null) {
+  const root = sid('root')
+  const sessions = createSnapshotStore<SessionListState>({
+    ids: [root, SID],
+    byId: {
+      [root]: { id: root, displayTitle: 'Root', running: false, updatedAt: 1 },
+      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, updatedAt: 2 },
+    },
+    current: SID,
+    intent: undefined,
+    phase: 'ready',
   })
+  const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState([{ ...workspace('one'), sessionIds: [SID] }]))
+  const session = createSnapshotStore<ConversationSnapshot>(conversationSnapshot(
+    pendingPrompt === null ? 'active' : 'blank', pendingPrompt,
+  ))
+  const chat = createChatStore().create()
+  chat.actions.setDraft('ordinary draft')
+  const send = vi.fn()
+  const stop = vi.fn()
+  const open = vi.fn()
+  const updateSessionPrompt = vi.fn()
+  const retrySessionPrompt = vi.fn()
+  const renderSlot = ((_key: string, _owner: object, opts?: { only?: string }) => (
+    <div data-testid={`view-${opts?.only ?? 'all'}`} />
+  )) as ConversationRootProps['renderSlot']
+  const renderSlotChain = ((_key, _owner, opts) => opts?.fallback ?? null) as ConversationRootProps['renderSlotChain']
+  const SessionProvider: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
+  const props: ConversationRootProps = {
+    sessionId: SID,
+    useSession: bindSnapshotSelector(session),
+    useSessions: bindSnapshotSelector(sessions),
+    useWorkspaces: bindSnapshotSelector(workspaces),
+    useStore: bindSnapshotSelector(chat),
+    actions: chat.actions,
+    renderSlot,
+    renderSlotChain,
+    SessionProvider,
+    views: { list: () => [{ id: 'chat', label: 'Chat' }], subscribe: () => () => {}, version: () => 1 },
+    send,
+    stop,
+    open,
+    updateSessionPrompt,
+    retrySessionPrompt,
+  }
+  const view = render(<ConversationRoot {...props} />)
+  return { view, chat, send, open, updateSessionPrompt, retrySessionPrompt }
+}
 
-  it('switches views through the store view field and falls back on unknown ids', () => {
-    const { chat } = bench([tab('chat', 'Chat'), tab('trajectory', 'Trajectory')])
-    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    expect(chat.store.getSnapshot().view).toBe('trajectory')
-    expect(screen.getByTestId('view-trajectory')).toBeTruthy()
-    cleanup()
-    // A stale persisted id (its view plugin unloaded) falls to the first view.
-    bench([tab('chat', 'Chat'), tab('trajectory', 'Trajectory')], 'ghost-view')
-    expect(screen.getByTestId('view-chat')).toBeTruthy()
-  })
-
-  it('renders the active view through the declared ring slot with the only filter', () => {
-    const { renderSlot } = bench([tab('chat', 'Chat')])
-    // No owner share: views take everything from the standard kit (contract).
-    expect(renderSlot).toHaveBeenCalledWith('conversation.view', {}, { only: 'chat' })
-    expect(screen.getByTestId('view-chat').getAttribute('data-slot')).toBe('conversation.view')
-  })
-
-  it('hides the tab strip with a single view; composer writes the store draft and sends it', () => {
-    const { chat, send } = bench([tab('chat', 'Chat')])
-    expect(screen.queryByRole('tablist')).toBeNull()
-    const box = screen.getByPlaceholderText(/输入消息/)
-    fireEvent.change(box, { target: { value: 'hi' } })
-    // Typing goes through actions.setDraft into the shared store.
-    expect(chat.store.getSnapshot().draft).toBe('hi')
+describe('ConversationRoot draft ownership', () => {
+  it('keeps ordinary per-Session composer text in the chat store and selects through runtime actions', () => {
+    const b = mountConversation()
+    const box = b.view.getByRole('textbox')
+    expect((box as HTMLTextAreaElement).value).toBe('ordinary draft')
+    fireEvent.change(box, { target: { value: 'ordinary revised' } })
+    expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(send).toHaveBeenCalledWith('hi', 'queue')
+    expect(b.send).toHaveBeenCalledWith('ordinary revised', 'queue')
+    fireEvent.click(b.view.getByRole('button', { name: 'Root' }))
+    expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
-  it('dispatches the pending list to the composer chain; all-decline falls back to InputBar', () => {
-    const wait = new PendingWait('question', RpcId('rq'), sid('s1'),
-      { questions: [{ id: 'mode', question: 'Choose?', options: [{ label: 'Fast' }] }] } as PendingWait<'question'>['payload'], vi.fn())
-    // A matching entry takes the composer over.
-    const renderSlotChain = vi.fn(() => <div>question takeover</div>) as unknown as ConversationRootProps['renderSlotChain']
-    bench([tab('chat', 'Chat')], undefined, { pending: [wait] }, renderSlotChain)
-    expect(screen.getByText('question takeover')).toBeTruthy()
-    expect(screen.queryByPlaceholderText(/输入消息/)).toBeNull()
-    // The owner dispatches the raw pending list (chain currency); routing
-    // lives in entry selectors, not here.
-    expect(renderSlotChain).toHaveBeenCalledWith(
-      'conversation.composer',
-      expect.objectContaining({
-        interactions: expect.arrayContaining([expect.objectContaining({ key: 'q:rq' })]),
-      }),
-      expect.objectContaining({ fallback: expect.anything() }),
-    )
-    cleanup()
-    // Zero registered entries (default all-decline stub): the fallback IS the
-    // default InputBar — behavior equals the pre-chain composer.
-    bench([tab('chat', 'Chat')], undefined, { pending: [wait] })
-    expect(screen.getByPlaceholderText(/输入消息/)).toBeTruthy()
-  })
-})
-
-describe('DetailsPanel', () => {
-  function benchDetails(snapshot: Partial<FakeSnapshot>, selection: SelectionTarget | null) {
-    const { useSession } = fakeSession(snapshot)
-    const { useSessions } = fakeSessions([])
-    const chat = createChatStore().create()
-    if (selection !== null) chat.actions.select(selection)
-    const closeDetails = vi.fn()
-    render(
-      <DetailsPanel
-        sessionId={sid('s1')}
-        useSession={useSession}
-        useSessions={useSessions}
-        useStore={bindSnapshotSelector(chat)}
-        actions={chat.actions}
-        closeDetails={closeDetails}
-      />)
-    return { closeDetails, chat }
-  }
-
-  it('renders the selected call args and result off the shared store; close fires the injected callback', () => {
-    const { closeDetails } = benchDetails({
-      nodes: [{
-        kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
-        call: { name: 'bash', argsRaw: '{"cmd":"ls"}' },
-        callTime: 500,
-        content: [{ type: 'text', text: 'file-a\nfile-b' }],
-        isError: false, callView: null, resultView: null,
-      }],
-    }, { turnSeq: 1, callId: 'c1' })
-    expect(screen.getByText('bash')).toBeTruthy()
-    expect(screen.getByText(/"cmd": "ls"/)).toBeTruthy()
-    expect(screen.getByText(/file-a/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
-    expect(closeDetails).toHaveBeenCalledTimes(1)
-  })
-
-  it('shows the empty hint without a selection and the running state for open calls', () => {
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}', turn: 1, step: 1, time: 1_000, callView: null }] }, null)
-    expect(screen.getByText(/点击消息流中的工具行/)).toBeTruthy()
-    cleanup()
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}', turn: 1, step: 1, time: 1_000, callView: null }] }, { turnSeq: 1, callId: 'c9' })
-    expect(screen.getByText('运行中…')).toBeTruthy()
-  })
-
-  it('reports an out-of-window call distinctly', () => {
-    benchDetails({}, { turnSeq: 1, callId: 'ghost' })
-    expect(screen.getByText(/不在当前窗口内/)).toBeTruthy()
+  it('reads a retained prompt from useSession and edits/retries it through the scoped Session', () => {
+    const b = mountConversation({
+      workspaceId: wid('one'), text: 'retry me', phase: 'failed',
+      retry: 'send', error: 'offline',
+    })
+    const box = b.view.getByRole('textbox')
+    expect((box as HTMLTextAreaElement).value).toBe('retry me')
+    expect(b.view.getByRole('alert').textContent).toBe('Message send failed: offline')
+    fireEvent.change(box, { target: { value: 'revised prompt' } })
+    expect(b.updateSessionPrompt).toHaveBeenCalledWith('revised prompt')
+    expect(b.chat.store.getSnapshot().draft).toBe('ordinary draft')
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(b.retrySessionPrompt).toHaveBeenCalledOnce()
+    expect(b.send).not.toHaveBeenCalled()
   })
 })

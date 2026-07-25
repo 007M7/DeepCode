@@ -1,6 +1,7 @@
 /** Conversation slot declarations and their composed component props. */
+import type { RefObject } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { PendingInteraction, SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -30,6 +31,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * zero owner changes.
      */
     'conversation.composer': { kind: 'chain'; scope: 'session'; owner: ComposerChainProps }
+    /** Shared Workspace picker hole used by the page-local Session Intent hero. */
+    'conversation.empty.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
   }
 }
 
@@ -94,7 +97,12 @@ export interface ConversationInjected {
   send(text: string, mode: 'queue' | 'steer'): void
   /** Cancel the in-flight turn (failure surfaces via snapshot.promptError). */
   stop(): void
-  open(id: SessionId): void
+  /** Select a real Session through the runtime navigation owner. */
+  open(sessionId: SessionId): void
+  /** Update the scoped Session's retained prompt. */
+  updateSessionPrompt(text: string): void
+  /** Retry the scoped Session's retained prompt. */
+  retrySessionPrompt(): void
 }
 
 /**
@@ -140,16 +148,24 @@ export interface DetailsInjected {
 /** Full details-slot component props: selection arrives through the shared store, call material through useSession. */
 export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected
 
-/** Injected share of the no-session empty-state slot. */
-export interface EmptyStateInjected {
-  /** The create → navigate → first-send chain, in one service call. */
-  startSession(opts: { cwd?: string; text: string; mode: 'queue' | 'steer' }): Promise<void>
-  /**
-   * Create a workspace folder under the host cwd, mint a session there, and
-   * open it (Create-new modal success path).
-   */
-  createWorkspaceSession(name: string): Promise<void>
+/** Owner share common to the empty hero's Workspace picker. */
+export interface EmptyWorkspaceOwnerProps {
+  open: boolean
+  anchorRef?: RefObject<HTMLElement>
+  onPick(workspaceId: WorkspaceId): void
+  onClose(): void
 }
 
-/** Full empty-state component props (root slot: no store; cwd options derive from useSessions in-component). */
-export type EmptyStateSlotProps = PropsRuntime<'conversation.empty'> & EmptyStateInjected
+/** Runtime-owned actions injected into the empty-state occupant. */
+export interface EmptyStateInjected {
+  /** Replace the current Session intent, optionally preserving a prompt while retargeting. */
+  startSession(workspaceId?: WorkspaceId, prompt?: string): void
+  /** Update the current Session intent's controlled prompt. */
+  updateSessionPrompt(text: string): void
+  /** Materialize and send the current Session intent. */
+  sendSession(): void
+}
+
+/** Full empty-state component props: runtime projections, picker child slot, and injected actions. */
+export type EmptyStateSlotProps =
+  PropsRuntime<'conversation.empty'> & PropsRenderSlots<'conversation.empty.workspace'> & EmptyStateInjected

@@ -6,10 +6,10 @@
  * renders HERE with live parameters from the concession solve, and the
  * session pair renders under the SessionProvider standard seat (render-prop
  * form, injected by the renderer because the children declaration contains
- * session-scope slots; session slots get sessionId as a framework-standard
- * prop, so the owner shares stay empty). Pure component: everything arrives
- * through the four prop shares — zero cordis or framework imports, zero
- * self-made hooks.
+ * session-scope slots; session data arrives through framework-standard props
+ * and each registrant's inject face). Pure component: everything arrives
+ * through the three framework shares — zero cordis or framework imports,
+ * zero self-made hooks.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -18,7 +18,7 @@ import { computeColumns } from './columns.ts'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
 
-/** Full composed props: runtime share + child-slot render share + store share (no business face). */
+/** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
   & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'conversation.empty'>
@@ -82,8 +82,17 @@ function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart:
 }
 
 /** The three-column frame (see module doc). SessionProvider arrives as a standard seat (declaring a session-scope child summons it — no framework import). */
-export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: AppFrameProps) {
+export function AppFrame({
+  useStore,
+  actions,
+  renderSlot,
+  SessionProvider,
+  useSessions,
+  useWorkspaces,
+}: AppFrameProps) {
   const panels = useStore((s) => s)
+  const sessions = useSessions(s => s)
+  const baselinesReady = useWorkspaces(s => s.baselinesReady)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
@@ -143,24 +152,47 @@ export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: App
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
             (collapsed follows the preference, not the resolved width). */}
-        {renderSlot('sidebar', { collapsed: panels.sidebar === 0, width: cols.sidebar })}
+        {renderSlot('sidebar', {
+          collapsed: panels.sidebar === 0,
+          width: cols.sidebar,
+        })}
       </div>
-      <SessionProvider
-        empty={() => (
+      {!baselinesReady
+        ? (
           <>
-            <CenterColumn>{renderSlot('conversation.empty', {})}</CenterColumn>
+            <CenterColumn>
+              <div role="status">Loading workspaces and sessions…</div>
+            </CenterColumn>
             <DetailsColumn />
           </>
-        )}
-      >
-        {() => (
-          <>
-            {/* sessionId is a framework-standard prop on session slots — the owner passes nothing. */}
-            <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-            <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
-          </>
-        )}
-      </SessionProvider>
+          )
+        : sessions.intent !== undefined
+          ? (
+            <>
+              <CenterColumn>
+                {renderSlot('conversation.empty', {})}
+              </CenterColumn>
+              <DetailsColumn />
+            </>
+            )
+          : (
+            <SessionProvider
+              empty={() => (
+                <>
+                  <CenterColumn><div role="status">Opening session…</div></CenterColumn>
+                  <DetailsColumn />
+                </>
+              )}
+            >
+              {() => (
+                <>
+                  {/* Session data and actions arrive from standard hooks and the registrant's inject face. */}
+                  <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+                  <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
+                </>
+              )}
+            </SessionProvider>
+            )}
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {panels.sidebar > 0 && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}

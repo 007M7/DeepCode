@@ -1,17 +1,16 @@
 # `@deepseek-ai/dsh-app-boot`
 
-Shared boot glue for the app bins ([`dsh-tui-demo`](../../examples/tui-demo/README.md), [`dsh-cli-demo`](../../examples/cli-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)): each bin is a thin self-executing composition over these helpers, parameterized by its diagnostic prefix, so the loader-failure lore lives once — under the per-file coverage gate — instead of drifting between published artifacts.
+Shared boot glue for the app bins ([`dsh`](../../../apps/cli/README.md), [`dsh-cli-demo`](../../examples/cli-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)): each bin is a thin self-executing composition over these helpers, parameterized by its diagnostic prefix, so the loader-failure lore lives once — under the per-file coverage gate — instead of drifting between published artifacts.
 
 | Export | Role |
 |---|---|
 | `resolveConfigPath(path, snapshotMode, cwd?)` | Absolute config path; `snapshotMode === 'replay'` swaps a `cordis.yml`/`.yaml` basename for its sibling `cordis.snapshot.yml` |
-| `parseResumeArg(argv)` | Split the `--resume <id>` / `--resume=<id>` flag out of the arguments, returning `{ resumeSessionId, rest }`; a valueless, empty, or repeated flag throws so a mistyped resume fails loud instead of silently starting fresh |
-| `replaceResumeArg(argv, sessionId)` | Remove an existing resume flag and append one canonical `--resume <sessionId>` pair while preserving positional arguments |
 | `loadEnv(binName, dir?, warn?)` | Load the gitignored `.env` (Node `process.loadEnvFile`); absent file is fine, an unloadable one warns a single labelled line (default: stderr) |
 | `installFailLoud(binName, proc?)` | Turn a post-`boot()` unhandled Loader rejection into one labelled stderr line + `exit(1)`; returns the uninstaller (for tests) |
 | `assertEntriesLoaded(ctx, binName)` | Throw when a settled tree holds an enabled entry with no fiber (a plugin module that failed to import) |
 | `loadPersonalPatches(binName, dir?)` | Parse the optional `config.yaml` in the Harness home (default [`resolveDshHome()`](../../util/paths/README.md): `$DSH_HOME`, else `~/.dsh`) — a top-level YAML array of include `PatchOptions` (id-targeted config overrides, `insert` lists, `!!js` allowed); absent file → `undefined`, an unreadable/unparsable/non-array file throws |
-| `boot(binName, absoluteConfigPath, patches?, prepare?)` | Create the root context, run optional host preparation before plugins mount, then mount the Loader/include tree, await it, assert entries loaded, and return the root context |
+| `boot(binName, absoluteConfigPath, patches?, prepare?)` | Create the root context, run optional host preparation before plugins mount (e.g. `ctx.provide(RESUME_SESSION_ID_KEY, id)`), then mount the Loader/include tree, await it, assert entries loaded, and return the root context |
+| `RESUME_SESSION_ID_KEY` | Context key a bin sets through `boot`'s `prepare` hook to hand a resume session id to the booted config; the config reads it as the bare identifier `resumeSessionId` in a `!!js` expression, so resuming needs no environment variable |
 | `addHarnessSourceSection(ctx, sourceRoot)` | Add a global `harness:source` prompt section (ordered just after the harness identity, before the persona) telling the agent the on-disk path to its own source checkout; a no-op returning `undefined` when the booted tree has no `systemPrompt` service. The section is registered against that service's fiber, so a dev HMR reload of the system prompt drops it until the next boot |
 | `HARNESS_SOURCE_SECTION` | The `'harness:source'` section name `addHarnessSourceSection` registers under |
 

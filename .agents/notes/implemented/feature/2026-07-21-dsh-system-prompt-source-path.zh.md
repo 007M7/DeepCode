@@ -16,7 +16,7 @@ Status: implemented
 
 ## Scope
 
-只有 `dsh` CLI 会加入这一段。demo bin（`dsh-tui-demo`、`dsh-acp-demo`）原样引导它们已提交的插件树，不会获得 source 段：它们不是自我修改的接口，其检出根目录也不是模型需要知道的事实。
+只有 `dsh` CLI 会加入这一段。demo bin（`dsh-cli-demo`、`dsh-acp-demo`）原样引导它们已提交的插件树，不会获得 source 段：它们不是自我修改的接口，其检出根目录也不是模型需要知道的事实。
 
 ## HMR
 

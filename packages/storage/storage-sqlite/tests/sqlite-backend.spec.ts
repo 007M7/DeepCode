@@ -4,7 +4,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import Storage from '@deepseek-ai/dsh-storage'
+import Storage, { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import type { KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
 import { runKvBackendContract } from '../../storage/tests/contract.ts'
 import * as StorageSqlite from '../src/index.ts'
@@ -233,11 +233,13 @@ describe('sqlite backend specifics', () => {
     await ctx.plugin(Storage)
     const fiber = await ctx.plugin(StorageSqlite, { path: ':memory:' })
     const backend = ctx.storage.backend.get('sqlite')
+    expect(ctx.get(storageBackendServiceKey('sqlite'))).toBe(backend)
     const unit = await backend.kv!.open(DESCRIPTOR)
     await unit.putRecord('records', 'k', { n: 1 })
 
     await fiber.dispose()
     expect(ctx.storage.backend.names()).toEqual([])
+    expect(ctx.get(storageBackendServiceKey('sqlite'))).toBeUndefined()
     await expect(backend.kv!.open(DESCRIPTOR)).rejects.toMatchObject({ code: 'closed' })
   })
 

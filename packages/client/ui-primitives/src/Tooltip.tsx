@@ -7,8 +7,8 @@
 // it escapes ancestor overflow clipping (the sidebar rail clips its column)
 // without a portal.
 
-import { cloneElement, useEffect, useRef, useState } from 'react'
-import type { FocusEventHandler, MouseEventHandler, ReactElement, Ref } from 'react'
+import { cloneElement, useCallback, useEffect, useRef, useState } from 'react'
+import type { FocusEventHandler, MouseEventHandler, MutableRefObject, ReactElement, Ref } from 'react'
 import css from './Tooltip.module.css'
 
 /** Bubble placement relative to the anchor. */
@@ -28,11 +28,19 @@ interface AnchorProps {
  * @param props.label - bubble text.
  * @param props.side - placement relative to the anchor (default 'right').
  * @param props.disabled - suppress the bubble while true; the anchor renders identically so toggling never remounts it (which would cut its CSS transitions).
- * @param props.children - a single anchor element. Tooltip owns its ref (no current consumer passes one).
+ * @param props.children - a single anchor element; its own ref (callback or object) is forwarded alongside the tooltip's.
  * @returns the cloned anchor plus a fixed-position bubble while hovered/focused.
  */
 export function Tooltip({ label, side = 'right', disabled = false, children }: { label: string; side?: TooltipSide; disabled?: boolean; children: ReactElement<AnchorProps> }) {
   const anchor = useRef<HTMLElement | null>(null)
+  // React 18 keeps the element's ref outside props; forward it so wrapping an
+  // anchor in Tooltip never silently severs the owner's ref.
+  const childRef = (children as ReactElement<AnchorProps> & { ref?: Ref<HTMLElement> }).ref
+  const mergedRef = useCallback((el: HTMLElement | null) => {
+    anchor.current = el
+    if (typeof childRef === 'function') childRef(el)
+    else if (childRef != null) (childRef as MutableRefObject<HTMLElement | null>).current = el
+  }, [childRef])
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   // Hover and focus are independent triggers: the bubble hides only after
   // BOTH clear (hovering away from a focused anchor must not drop it).
@@ -61,7 +69,7 @@ export function Tooltip({ label, side = 'right', disabled = false, children }: {
   return (
     <>
       {cloneElement(children, {
-        ref: anchor,
+        ref: mergedRef,
         onMouseEnter: (e) => { children.props.onMouseEnter?.(e); triggers.current.hover = true; show() },
         onMouseLeave: (e) => { children.props.onMouseLeave?.(e); triggers.current.hover = false; hide() },
         onFocus: (e) => { children.props.onFocus?.(e); triggers.current.focus = true; show() },

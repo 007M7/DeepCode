@@ -1,117 +1,60 @@
-/**
- * apply wiring on a real cordis Context + SlotsService (terminal register
- * form): SidebarRoot registered into the layout-declared sidebar slot, the
- * thin inject surface (three plain service callbacks closed over the plugin
- * ctx — no hooks, no store lines), load-order fail-loud, and fiber-teardown
- * unregistration. Component behavior is covered props-direct in
- * sidebar-root.spec.tsx; no renderer machinery here.
- */
+/** Sidebar slot registration and its plain runtime/layout callbacks. */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { SidebarRootInjected } from '@deepseek-ai/dsh-client-ui-sidebar/client'
-// Type-only: ui-layout's SlotMap merge so the sidebar slot key typechecks.
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 
-const sid = (s: string) => s as SessionId
-
-async function bench() {
+async function bench(declare = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
-  const list = createSnapshotStore<SessionListState>({
-    ids: [sid('a')],
-    byId: { [sid('a')]: { id: sid('a'), title: 'alpha', displayTitle: 'alpha', cwd: '/proj', running: false, updatedAt: 1 } },
-    current: undefined,
-  })
-  const sessions = {
-    list,
-    create: vi.fn(async () => sid('minted')),
-    open: vi.fn(),
-    clear: vi.fn(),
-  }
   const layout = { toggleSidebar: vi.fn() }
-  ctx.provide('sessions', sessions)
+  const sessions = { open: vi.fn() }
+  const workspaces = { startSession: vi.fn() }
   ctx.provide('layout', layout)
+  ctx.provide('sessions', sessions as never)
+  ctx.provide('workspaces', workspaces as never)
   const slots = ctx.get('slots') as SlotsService
-  // The sidebar slot exists only while its declaring entry is live.
-  slots.register(
-    { name: 'root', children: { 'sidebar': { kind: 'single', scope: 'root' } } } as never,
-    () => null,
-  )
-  return { ctx, slots, sessions, layout }
+  if (declare) {
+    slots.register(
+      { name: 'root', children: { 'sidebar': { kind: 'single', scope: 'root' } } } as never,
+      () => null,
+    )
+  }
+  return { ctx, slots, layout, sessions, workspaces }
 }
 
-/** The sidebar entry's injected share, read off the stored entry. */
-function injectedOf(slots: SlotsService): SidebarRootInjected {
-  const entries = slots.entries('sidebar')
-  expect(entries).toHaveLength(1)
-  // The typed StoredEntry.inject is declaration-derived ((...args: never[])
-  // shape); the sidebar factory is parameterless, so the call is safe here.
-  const inject = entries[0]!.inject as (() => SidebarRootInjected) | undefined
-  return inject!()
-}
-
-describe('apply', () => {
-  it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'layout', 'sessions'])
+describe('ui-sidebar apply', () => {
+  it('declares only the services it uses', () => {
+    expect(inject).toEqual(['slots', 'layout', 'sessions', 'workspaces'])
   })
 
-  it('fails loud when mounted without the inject declaration', async () => {
-    // ctx.slots rides the cordis property proxy: reading it from a plugin
-    // that never declared the dependency throws instead of yielding undefined.
-    const ctx = new Context()
-    await ctx.plugin(SlotsService).await()
-    await expect(ctx.plugin({ apply })).rejects.toThrow(/without inject/)
+  it('registers the sidebar and declares its Workspace picker hole', async () => {
+    const b = await bench()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries('sidebar')).toHaveLength(1)
+    expect(b.slots.spec('sidebar.workspace')).toEqual({ kind: 'single', scope: 'root' })
+    const injected = (b.slots.entries('sidebar')[0]!.inject as () => SidebarRootInjected)()
+    expect(Object.keys(injected)).toEqual(['startSession', 'open', 'toggleSidebar'])
+    injected.startSession('workspace' as never, 'prompt')
+    expect(b.workspaces.startSession).toHaveBeenCalledWith('workspace', 'prompt')
+    injected.open('session' as never)
+    expect(b.sessions.open).toHaveBeenCalledWith('session')
+    injected.toggleSidebar()
+    expect(b.layout.toggleSidebar).toHaveBeenCalledOnce()
   })
 
-  it('fails loud when no live entry has declared the sidebar slot', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SlotsService).await()
-    ctx.provide('sessions', {})
-    ctx.provide('layout', {})
-    await expect(ctx.plugin({ inject: [...inject], apply })).rejects.toThrow(/slot "sidebar" is not declared/)
+  it('fails when no live owner declared the sidebar slot', async () => {
+    const b = await bench(false)
+    await expect(b.ctx.plugin({ inject: [...inject], apply })).rejects.toThrow(/not declared/)
   })
 
-  it('registers SidebarRoot with the thin three-callback inject surface', async () => {
-    const { ctx, slots } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
-    const injected = injectedOf(slots)
-    // The whole business face: three plain callbacks, no hooks, no store lines.
-    expect(Object.keys(injected).sort()).toEqual(['onCreate', 'onOpen', 'onToggleSidebar'])
-  })
-
-  it('routes the callbacks to the layout/sessions services', async () => {
-    const { ctx, slots, sessions, layout } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
-    const injected = injectedOf(slots)
-
-    injected.onToggleSidebar()
-    expect(layout.toggleSidebar).toHaveBeenCalledOnce()
-
-    injected.onOpen(sid('a'))
-    expect(sessions.open).toHaveBeenCalledWith('a')
-
-    injected.onCreate()
-    expect(sessions.clear).toHaveBeenCalledOnce()
-    expect(sessions.create).not.toHaveBeenCalled()
-
-    injected.onCreate('/proj')
-    expect(sessions.create).toHaveBeenCalledWith({ cwd: '/proj' })
-    // create-then-open lands after the create promise resolves.
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(sessions.open).toHaveBeenCalledWith('minted')
-  })
-
-  it('teardown unregisters the slot entry', async () => {
-    const { ctx, slots } = await bench()
-    const fiber = ctx.plugin({ inject: [...inject], apply })
+  it('removes the entry and child declaration on teardown', async () => {
+    const b = await bench()
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(slots.entries('sidebar')).toHaveLength(1)
     await fiber.dispose()
-    expect(slots.entries('sidebar')).toHaveLength(0)
+    expect(b.slots.entries('sidebar')).toHaveLength(0)
+    expect(b.slots.spec('sidebar.workspace')).toBeUndefined()
   })
 })

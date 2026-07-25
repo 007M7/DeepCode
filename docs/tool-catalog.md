@@ -27,6 +27,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflows`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.skills` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
 | `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. |
@@ -777,6 +778,239 @@ Load the full instructions for an available skill. Call this with the exact skil
 ```
 
 Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-session-query`
+
+### `session_event_read`
+
+Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Target event sequence number."
+    },
+    "before": {
+      "type": "integer",
+      "description": "Number of preceding raw events to summarize. Omit for none."
+    },
+    "after": {
+      "type": "integer",
+      "description": "Number of following raw events to summarize. Omit for none."
+    }
+  },
+  "required": [
+    "seq"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_event_search`
+
+Search prior events in one authorized session; the current session excludes the step performing this call.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "query": {
+      "type": "string",
+      "description": "Literal full-text query over the target session."
+    },
+    "seq_from": {
+      "type": "integer",
+      "description": "Inclusive event sequence lower bound."
+    },
+    "seq_to": {
+      "type": "integer",
+      "description": "Inclusive event sequence upper bound."
+    },
+    "time_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+    },
+    "time_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+    },
+    "event_types": {
+      "type": "array",
+      "description": "Event types to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "description": "Event surfaces to include.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "current",
+          "shadowed",
+          "log-only"
+        ]
+      }
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_event_trace`
+
+Read every direct replacement and provenance relationship for one event in an authorized session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Target event sequence number."
+    }
+  },
+  "required": [
+    "seq"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_search`
+
+Search prior sessions in the caller workspace and return the strongest matching event from each session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Literal full-text query over prior session history."
+    },
+    "session_ids": {
+      "type": "array",
+      "description": "Optional session ids to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_at_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time lower bound."
+    },
+    "created_at_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time upper bound."
+    },
+    "parent_session_ids": {
+      "type": "array",
+      "description": "Optional direct parent session ids.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "include_root_sessions": {
+      "type": "boolean",
+      "description": "Include sessions with no parent in the parent filter."
+    },
+    "availability": {
+      "type": "array",
+      "description": "Require at least one selected source availability.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "live",
+          "persisted"
+        ]
+      }
+    },
+    "event_seq_from": {
+      "type": "integer",
+      "description": "Inclusive event sequence lower bound."
+    },
+    "event_seq_to": {
+      "type": "integer",
+      "description": "Inclusive event sequence upper bound."
+    },
+    "event_time_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+    },
+    "event_time_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+    },
+    "event_types": {
+      "type": "array",
+      "description": "Event types to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "event_surfaces": {
+      "type": "array",
+      "description": "Event surfaces to include.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "current",
+          "shadowed",
+          "log-only"
+        ]
+      }
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_trace`
+
+Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    }
+  }
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
