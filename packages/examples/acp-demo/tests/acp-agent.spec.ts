@@ -76,6 +76,16 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe('dsh-acp-demo composition', () => {
+  it('rejects app-level llmRetry config through plugin validation', async () => {
+    const ctx = new Context()
+    await expect(ctx.plugin(acpAgent, {
+      provider: 'mock',
+      model: 'mock',
+      workspaceContext: false,
+      llmRetry: { maxTransientRetries: 2 },
+    } as never)).rejects.toThrow(/llmRetry/)
+  })
+
   it('brings up the spine + persistence + the ACP bridge', async () => {
     const ctx = await mount({
       provider: 'mock',

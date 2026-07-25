@@ -277,6 +277,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
   step: number
   provider: string
   mode: 'normal'
+  policyKey: string
   retry: number
   maxRetries: number
   delayMs: number
@@ -286,13 +287,14 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
   step: number
   provider: string
   mode: 'always'
+  policyKey: string
   retry: number
   delayMs: number
   failure: LlmFailure
 }
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:19`](../packages/llm/llm-retry/src/index.ts)
 
 ### `permission/*`
 

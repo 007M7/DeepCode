@@ -82,6 +82,8 @@ export interface Config {
   resumeSessionId?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
+  /** Invalid at app level; configure `retryPolicy` under each provider. */
+  llmRetry?: never
 }
 
 export const Config: z<Config> = z.object({
@@ -106,6 +108,8 @@ export const Config: z<Config> = z.object({
   goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
+  // Provider retryPolicy makes a top-level llmRetry invalid.
+  llmRetry: z.never(),
 })
 /* jscpd:ignore-end */
 

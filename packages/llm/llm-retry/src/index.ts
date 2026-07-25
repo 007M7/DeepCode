@@ -11,6 +11,7 @@ import type { Agent, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { providerForClosedStep } from './history.ts'
+import { retryPolicyKey } from './policy-key.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -20,6 +21,7 @@ declare module '@deepseek-ai/dsh-session' {
       step: number
       provider: string
       mode: 'normal'
+      policyKey: string
       retry: number
       maxRetries: number
       delayMs: number
@@ -29,6 +31,7 @@ declare module '@deepseek-ai/dsh-session' {
       step: number
       provider: string
       mode: 'always'
+      policyKey: string
       retry: number
       delayMs: number
       failure: LlmFailure
@@ -121,6 +124,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     failure: LlmFailure,
     provider: string,
     policy: ResolvedRetryPolicy,
+    policyKey: string,
     retry: number,
     delayMs: number,
     signal: AbortSignal,
@@ -133,6 +137,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
         step,
         provider,
         mode: policy.mode,
+        policyKey,
         retry,
         maxRetries: policy.maxRetries,
         delayMs,
@@ -143,6 +148,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
         step,
         provider,
         mode: policy.mode,
+        policyKey,
         retry,
         delayMs,
         failure,
@@ -192,6 +198,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
       return next()
     }
 
+    const policyKey = retryPolicyKey(policy)
     const firstPriorStep = step - priorFailures.length
     const priorPolicyRetry = agent.session.events.findLast((event): event is SessionEvent<'llm/retry'> =>
       event.type === 'llm/retry'
@@ -199,7 +206,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
       && event.data.step >= firstPriorStep
       && event.data.step < step
       && event.data.provider === provider
-      && event.data.mode === policy.mode,
+      && event.data.policyKey === policyKey,
     )
     const previousRetry = priorPolicyRetry?.data.retry ?? 0
     if (policy.mode === 'normal' && previousRetry >= policy.maxRetries) return next()
@@ -218,7 +225,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
       delayMs = localDelay(policy, retry, random)
     }
 
-    return backoff(agent, turn, step, failure, provider, policy, retry, delayMs, signal)
+    return backoff(agent, turn, step, failure, provider, policy, policyKey, retry, delayMs, signal)
   }
 
   const disposeListener = ctx.on('agent/request-error', (

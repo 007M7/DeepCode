@@ -73,6 +73,8 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and tools. */
   goals?: agentCore.GoalConfig | false
+  /** Invalid at app level; configure `retryPolicy` under each provider. */
+  llmRetry?: never
 }
 ```
 
@@ -160,6 +162,8 @@ export interface Config {
   invariants?: InvariantConfig
   /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
   goals?: GoalConfig | false
+  /** Invalid at bundle level; configure `retryPolicy` under each provider. */
+  llmRetry?: never
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
@@ -261,6 +265,8 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
+  /** Invalid at app level; configure `retryPolicy` under each provider. */
+  llmRetry?: never
 }
 ```
 
@@ -696,7 +702,7 @@ Requires: `agents`
 export type Config = Readonly<Record<string, never>>
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:43`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:46`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
@@ -1794,6 +1800,8 @@ export interface Config {
   resumeSessionId?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
+  /** Invalid at app level; configure `retryPolicy` under each provider. */
+  llmRetry?: never
 }
 ```
 

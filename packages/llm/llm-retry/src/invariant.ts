@@ -2,9 +2,9 @@
 
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { providerForClosedStep } from './history.ts'
+import { parseRetryPolicyKey } from './policy-key.ts'
 import type {} from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-llm-retry'
@@ -20,12 +20,16 @@ function validateRetry(
   event: SessionEvent<'llm/retry'>,
   fail: InvariantFailure,
 ): void {
-  const { turn, step, provider, mode, retry, delayMs } = event.data
+  const { turn, step, provider, mode, policyKey, retry, delayMs } = event.data
   if (!Number.isSafeInteger(retry) || retry < 1) {
     fail('llm/retry retry must be a positive safe integer')
   }
   if (typeof provider !== 'string' || provider.length === 0) {
     fail('llm/retry provider must be non-empty string')
+  }
+  const keyedPolicy = parseRetryPolicyKey(policyKey)
+  if (keyedPolicy === undefined) {
+    fail('llm/retry policyKey must encode a canonical resolved policy')
   }
   switch (mode) {
     case 'normal': {
@@ -33,17 +37,29 @@ function validateRetry(
       if (!Number.isSafeInteger(maxRetries) || maxRetries < 1 || retry > maxRetries) {
         fail(`llm/retry retry ${retry} must not exceed a positive safe maxRetries ${maxRetries}`)
       }
+      if (keyedPolicy.mode !== 'normal') {
+        fail(`llm/retry mode normal must match policyKey mode ${keyedPolicy.mode}`)
+      }
+      if (keyedPolicy.maxRetries !== maxRetries) {
+        fail(`llm/retry maxRetries ${maxRetries} must match policyKey`)
+      }
+      if (!keyedPolicy.retryableCodes.includes(event.data.failure.code)) {
+        fail(`llm/retry failure code ${event.data.failure.code} must be eligible under policyKey`)
+      }
       break
     }
     case 'always':
+      if (keyedPolicy.mode !== 'always') {
+        fail(`llm/retry mode always must match policyKey mode ${keyedPolicy.mode}`)
+      }
       if ('maxRetries' in event.data) fail('llm/retry always mode must omit maxRetries')
       break
     default:
       fail(`llm/retry mode must be normal or always, got ${String(mode)}`)
   }
   if (typeof delayMs !== 'number' || !Number.isFinite(delayMs)
-    || delayMs < 0 || delayMs > MAX_TIMER_DELAY_MS) {
-    fail(`llm/retry delayMs must be a finite number within 0..${MAX_TIMER_DELAY_MS}`)
+    || delayMs < 0 || delayMs > keyedPolicy.maxDelayMs) {
+    fail(`llm/retry delayMs must be a finite number within policyKey range 0..${keyedPolicy.maxDelayMs}`)
   }
 
   const turnStartIndex = history.findLastIndex(prior =>
@@ -86,7 +102,7 @@ function validateRetry(
     index > lastSuccessIndex
     && prior.type === 'llm/retry'
     && prior.data.provider === provider
-    && prior.data.mode === mode
+    && prior.data.policyKey === policyKey
   ))
   const expectedRetry = (priorPolicyRetry?.data.retry ?? 0) + 1
   if (retry !== expectedRetry) {

@@ -184,6 +184,7 @@ describe('provider-routed retry policy', () => {
       step: 1,
       provider: 'mock',
       mode: 'normal',
+      policyKey: '["normal",2,["RATE_LIMIT","SERVER","TIMEOUT","TRANSPORT"],500,10000,0.1]',
       retry: 1,
       maxRetries: 2,
       delayMs: 500,
@@ -560,6 +561,110 @@ describe('provider-routed retry policy', () => {
       })
     },
   )
+
+  it('starts a new retry history when a same-mode route replacement changes policy', async () => {
+    vi.useFakeTimers()
+    const oldAdapter = new ScriptedAdapter([
+      new LlmError('old route failed', 'AUTH'),
+    ])
+    const mounted = await harness(oldAdapter, { mock: alwaysConfig({
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+    }) })
+    context = mounted.ctx
+    const agent = context.agentLoop.create(SessionId('retry-policy-replacement'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const first = waitForRetry(context, agent, 1)
+
+    agent.followup([{ type: 'text', text: 'replace policy between attempts' }])
+    expect((await first).data).toMatchObject({
+      mode: 'always',
+      retry: 1,
+      delayMs: 1,
+    })
+
+    mounted.disposeAdapter()
+    const replacement = new ScriptedAdapter([
+      new LlmError('replacement failed', 'AUTH'),
+      textResponse('replacement recovered'),
+    ])
+    replacement.configureRetryPolicies({ mock: alwaysConfig({
+      initialDelayMs: 3,
+      maxDelayMs: 9,
+    }) })
+    context.llm.registerAdapter(['mock'], replacement)
+
+    const second = waitForRetry(context, agent, 1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect((await second).data).toMatchObject({
+      mode: 'always',
+      retry: 1,
+      delayMs: 3,
+    })
+
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(3)
+    await idle
+
+    expect(oldAdapter.requests).toHaveLength(1)
+    expect(replacement.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => ({
+      policyKey: event.data.policyKey,
+      retry: event.data.retry,
+    }))).toEqual([
+      { policyKey: '["always",1,1,0]', retry: 1 },
+      { policyKey: '["always",3,9,0]', retry: 1 },
+    ])
+  })
+
+  it('continues retry history when a replacement only reorders retryable codes', async () => {
+    vi.useFakeTimers()
+    const oldAdapter = new ScriptedAdapter([
+      new LlmError('old route failed', 'SERVER'),
+    ])
+    const mounted = await harness(oldAdapter, { mock: normalConfig({
+      maxRetries: 2,
+      retryableCodes: ['SERVER', 'RATE_LIMIT'],
+      backoff: { initialDelayMs: 1, maxDelayMs: 4 },
+    }) })
+    context = mounted.ctx
+    const agent = context.agentLoop.create(SessionId('retry-policy-code-order'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const first = waitForRetry(context, agent, 1)
+
+    agent.followup([{ type: 'text', text: 'replace equivalent policy between attempts' }])
+    const firstEvent = await first
+    expect(firstEvent.data.delayMs).toBe(1)
+
+    mounted.disposeAdapter()
+    const replacement = new ScriptedAdapter([
+      new LlmError('replacement failed', 'SERVER'),
+      textResponse('replacement recovered'),
+    ])
+    replacement.configureRetryPolicies({ mock: normalConfig({
+      maxRetries: 2,
+      retryableCodes: ['RATE_LIMIT', 'SERVER'],
+      backoff: { initialDelayMs: 1, maxDelayMs: 4 },
+    }) })
+    context.llm.registerAdapter(['mock'], replacement)
+
+    const second = waitForRetry(context, agent, 2)
+    await vi.advanceTimersByTimeAsync(1)
+    const secondEvent = await second
+    expect(secondEvent.data).toMatchObject({ retry: 2, delayMs: 2 })
+    expect(secondEvent.data.policyKey).toBe(firstEvent.data.policyKey)
+
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(2)
+    await idle
+
+    expect(oldAdapter.requests).toHaveLength(1)
+    expect(replacement.requests).toHaveLength(2)
+  })
 
   it('keeps always mode unbounded while preserving cancellable jittered backoff', async () => {
     vi.useFakeTimers()

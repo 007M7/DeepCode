@@ -67,6 +67,8 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and tools. */
   goals?: agentCore.GoalConfig | false
+  /** Invalid at app level; configure `retryPolicy` under each provider. */
+  llmRetry?: never
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
@@ -92,6 +94,8 @@ export const Config: z<Config> = z.object({
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
+  // Provider retryPolicy makes a top-level llmRetry invalid.
+  llmRetry: z.never(),
 })
 /* jscpd:ignore-end */
 

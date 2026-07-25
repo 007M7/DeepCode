@@ -192,6 +192,39 @@ describe.skipIf(!existsSync(cliBin))('dsh-cli-demo BUILT bin', () => {
     }
   }, 30_000)
 
+  it('rejects legacy app-level llmRetry through the published Loader path', async () => {
+    consumer = await makeConsumer()
+    const configPath = join(consumer, 'cordis.yml')
+    const config = await readFile(configPath, 'utf8')
+    await writeFile(configPath, config.replace(
+      '    workspaceContext: false',
+      '    workspaceContext: false\n    llmRetry:\n      maxTransientRetries: 2',
+    ))
+
+    const result = await runBuiltBin(consumer, ['--config', './cordis.yml', 'task'])
+    expect(result.code).not.toBe(0)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('llmRetry')
+  }, 30_000)
+
+  it('rejects legacy bundle-level llmRetry when the published spine is loaded directly', async () => {
+    consumer = await makeConsumer()
+    await writeFile(join(consumer, 'cordis.yml'), [
+      '- id: spine',
+      "  name: '@deepseek-ai/dsh-agent-spine-demo'",
+      '  config:',
+      '    workspaceContext: false',
+      '    llmRetry:',
+      '      maxTransientRetries: 2',
+      '',
+    ].join('\n'))
+
+    const result = await runBuiltBin(consumer, ['--config', './cordis.yml', 'task'])
+    expect(result.code).not.toBe(0)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('llmRetry')
+  }, 30_000)
+
   describe.skipIf(process.platform === 'win32')('POSIX signal delivery', () => {
     it.each([
       ['SIGINT', 130],
