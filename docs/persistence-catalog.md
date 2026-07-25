@@ -294,7 +294,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 }
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:19`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src/index.ts)
 
 ### `permission/*`
 

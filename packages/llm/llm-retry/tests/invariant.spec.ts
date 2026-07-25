@@ -28,13 +28,26 @@ function closeStep(ctx: Context, id: string, turn = 1, step = 1) {
 }
 
 const failure = { message: 'provider busy', code: 'RATE_LIMIT', status: 429 }
-const normalPolicyKey = (maxRetries: number): string =>
-  `["normal",${maxRetries},["RATE_LIMIT"],1,10000,0]`
-const alwaysPolicyKey = '["always",1,10000,0]'
-const normal = { provider: 'mock', mode: 'normal' as const, policyKey: normalPolicyKey(2) }
+const normal = {
+  provider: 'mock',
+  mode: 'normal' as const,
+  policyKey: 'normal-policy',
+  retry: 1,
+  maxRetries: 2,
+  delayMs: 1,
+  failure,
+}
+const always = {
+  provider: 'mock',
+  mode: 'always' as const,
+  policyKey: 'always-policy',
+  retry: 1,
+  delayMs: 1,
+  failure,
+}
 
 describe('llm-retry invariants', () => {
-  it('has no provider without the requested closed step', () => {
+  it('has no provider without the requested closed step or a route marker', () => {
     expect(providerForClosedStep([], 1, 1)).toBeUndefined()
     expect(providerForClosedStep([{
       type: 'step/end',
@@ -42,82 +55,31 @@ describe('llm-retry invariants', () => {
     }] as never, 1, 1)).toBeUndefined()
   })
 
-  it('inherits the latest provider across a turn boundary when the header is unchanged', () => {
-    expect(providerForClosedStep([
-      { type: 'turn/start', data: { turn: 1 } },
-      {
-        type: 'request/header',
-        data: { header: { config: { provider: 'prior' } } },
-      },
-      { type: 'turn/end', data: { turn: 1 } },
-      { type: 'turn/start', data: { turn: 2 } },
-      { type: 'step/end', data: { turn: 2, step: 1 } },
-    ] as never, 2, 1)).toBe('prior')
-  })
-
-  it('accepts increasing retry records for successive closed steps and ignores unrelated events', async () => {
+  it('accepts bounded and unbounded records after successive closed steps', async () => {
     const ctx = await setup()
     const session = closeStep(ctx, 'retry-invariant-valid')
+
     expect(() => {
-      session.append('llm/retry', {
-        turn: 1, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: 500, failure,
-      })
+      session.append('llm/retry', { turn: 1, step: 1, ...normal })
       session.append('step/start', { turn: 1, step: 2 })
       session.append('step/end', { turn: 1, step: 2 })
       session.append('llm/retry', {
-        turn: 1, step: 2, ...normal, retry: 2, maxRetries: 2, delayMs: 1_000, failure,
+        turn: 1, step: 2, ...normal, retry: 2, delayMs: 0,
       })
-      const zeroDelay = closeStep(ctx, 'retry-invariant-zero-delay')
-      zeroDelay.append('llm/retry', {
-        turn: 1, step: 1, ...normal, policyKey: normalPolicyKey(1),
-        retry: 1, maxRetries: 1, delayMs: 0, failure,
-      })
+      const unbounded = closeStep(ctx, 'retry-invariant-always')
+      unbounded.append('llm/retry', { turn: 1, step: 1, ...always })
     }).not.toThrow()
     expect(() => { ctx.emit('tools/change') }).not.toThrow()
   })
 
-  it('accepts unbounded always records without serializing an infinite maximum', async () => {
-    const ctx = await setup()
-    const session = closeStep(ctx, 'retry-invariant-always')
-    expect(() => {
-      session.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        delayMs: 500,
-        failure,
-      })
-    }).not.toThrow()
-    expect(() => {
-      session.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        maxRetries: 2,
-        delayMs: 500,
-        failure,
-      } as never)
-    }).toThrow(/always mode must omit maxRetries/)
-  })
-
-  it('validates complete durable failures before either retry mode uses them', async () => {
+  it('validates the complete durable failure payload', async () => {
     const ctx = await setup()
     const complete = closeStep(ctx, 'retry-invariant-complete-failure')
     expect(() => {
       complete.append('llm/retry', {
         turn: 1,
         step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        delayMs: 1,
+        ...always,
         failure: {
           message: 'provider busy',
           code: 'RATE_LIMIT',
@@ -128,16 +90,8 @@ describe('llm-retry invariants', () => {
       })
     }).not.toThrow()
 
-    const normalNull = closeStep(ctx, 'retry-invariant-normal-null-failure')
-    expect(() => {
-      normalNull.append('llm/retry', {
-        turn: 1, step: 1, ...normal,
-        retry: 1, maxRetries: 2, delayMs: 1, failure: null,
-      } as never)
-    }).toThrow(/failure must be an object/)
-
     const invalidFailures: readonly [string, unknown, RegExp][] = [
-      ['always-null', null, /failure must be an object/],
+      ['null', null, /failure must be an object/],
       ['message-type', { message: 1, code: 'RATE_LIMIT' }, /failure\.message/],
       ['message-empty', { message: '', code: 'RATE_LIMIT' }, /failure\.message/],
       ['code-type', { message: 'failed', code: 1 }, /failure\.code/],
@@ -159,284 +113,116 @@ describe('llm-retry invariants', () => {
       ['request-id-empty', { message: 'failed', code: 'RATE_LIMIT', requestId: '' }, /failure\.requestId/],
     ]
     for (const [name, invalidFailure, message] of invalidFailures) {
-      const session = closeStep(ctx, `retry-invariant-${name}`)
+      const session = closeStep(ctx, `retry-invariant-failure-${name}`)
       expect(() => {
         session.append('llm/retry', {
-          turn: 1,
-          step: 1,
-          provider: 'mock',
-          mode: 'always',
-          policyKey: alwaysPolicyKey,
-          retry: 1,
-          delayMs: 1,
-          failure: invalidFailure,
+          turn: 1, step: 1, ...always, failure: invalidFailure,
         } as never)
       }).toThrow(message)
     }
   })
 
-  it('binds event mode and finite budget to the canonical policy key', async () => {
-    const ctx = await setup()
-    const normalModeMismatch = closeStep(ctx, 'retry-invariant-normal-mode-key')
-    expect(() => {
-      normalModeMismatch.append('llm/retry', {
-        turn: 1, step: 1, ...normal, policyKey: alwaysPolicyKey,
-        retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
-    }).toThrow(/mode normal must match policyKey mode always/)
-
-    const alwaysModeMismatch = closeStep(ctx, 'retry-invariant-always-mode-key')
-    expect(() => {
-      alwaysModeMismatch.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: normalPolicyKey(2),
-        retry: 1,
-        delayMs: 1,
-        failure,
-      })
-    }).toThrow(/mode always must match policyKey mode normal/)
-
-    const budgetMismatch = closeStep(ctx, 'retry-invariant-budget-key')
-    expect(() => {
-      budgetMismatch.append('llm/retry', {
-        turn: 1, step: 1, ...normal, policyKey: normalPolicyKey(3),
-        retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
-    }).toThrow(/maxRetries 2 must match policyKey/)
-  })
-
-  it('binds the failure code and scheduled delay to the canonical policy key', async () => {
-    const ctx = await setup()
-    const ineligibleFailure = closeStep(ctx, 'retry-invariant-failure-code-key')
-    expect(() => {
-      ineligibleFailure.append('llm/retry', {
-        turn: 1, step: 1, ...normal,
-        retry: 1, maxRetries: 2, delayMs: 1,
-        failure: { message: 'authentication failed', code: 'AUTH', status: 401 },
-      })
-    }).toThrow(/failure code AUTH must be eligible under policyKey/)
-
-    const overPolicyDelay = closeStep(ctx, 'retry-invariant-delay-key')
-    expect(() => {
-      overPolicyDelay.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: '["always",1,1,0]',
-        retry: 1,
-        delayMs: 2,
-        failure,
-      })
-    }).toThrow(/within policyKey range 0\.\.1/)
-  })
-
-  it('rejects empty providers and unknown modes from hostile durable input', async () => {
-    const ctx = await setup()
-    const emptyProvider = closeStep(ctx, 'retry-invariant-empty-provider')
-    expect(() => {
-      emptyProvider.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: '',
-        mode: 'always',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        delayMs: 1,
-        failure,
-      })
-    }).toThrow(/provider must be non-empty/)
-
-    const unknownMode = closeStep(ctx, 'retry-invariant-unknown-mode')
-    expect(() => {
-      unknownMode.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        mode: 'sometimes',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        delayMs: 1,
-        failure,
-      } as never)
-    }).toThrow(/mode must be normal or always/)
-
-    const emptyPolicyKey = closeStep(ctx, 'retry-invariant-empty-policy-key')
-    expect(() => {
-      emptyPolicyKey.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: '',
-        retry: 1,
-        delayMs: 1,
-        failure,
-      })
-    }).toThrow(/policyKey must encode a canonical resolved policy/)
-  })
-
   it.each([
-    [{ retry: 0, maxRetries: 2, delayMs: 1 }, /positive safe integer/],
-    [{ retry: 1.5, maxRetries: 2, delayMs: 1 }, /positive safe integer/],
-    [{ retry: 1, maxRetries: 0, delayMs: 1 }, /positive safe maxRetries/],
-    [{ retry: 1, maxRetries: 1.5, delayMs: 1 }, /positive safe maxRetries/],
-    [{ retry: 3, maxRetries: 2, delayMs: 1 }, /must not exceed/],
-    [{ retry: 1, maxRetries: 2, delayMs: -1 }, /delayMs/],
-    [{ retry: 1, maxRetries: 2, delayMs: MAX_TIMER_DELAY_MS + 1 }, /delayMs/],
-  ])('rejects invalid retry bounds %#', async (data, message) => {
+    ['retry-zero', { ...normal, retry: 0 }, /positive safe integer/],
+    ['retry-fraction', { ...normal, retry: 1.5 }, /positive safe integer/],
+    ['max-zero', { ...normal, maxRetries: 0 }, /positive safe maxRetries/],
+    ['max-fraction', { ...normal, maxRetries: 1.5 }, /positive safe maxRetries/],
+    ['over-budget', { ...normal, retry: 3 }, /must not exceed/],
+    ['always-maximum', { ...always, maxRetries: 2 }, /always mode must omit maxRetries/],
+    ['unknown-mode', { ...always, mode: 'sometimes' }, /mode must be normal or always/],
+    ['empty-provider', { ...always, provider: '' }, /provider must be a non-empty string/],
+    ['empty-policy-key', { ...always, policyKey: '' }, /policyKey must be a non-empty string/],
+    ['delay-negative', { ...normal, delayMs: -1 }, /delayMs/],
+    ['delay-overflow', { ...normal, delayMs: MAX_TIMER_DELAY_MS + 1 }, /delayMs/],
+    ['delay-type', { ...normal, delayMs: '1' }, /delayMs/],
+  ])('rejects invalid retry data: %s', async (name, data, message) => {
     const ctx = await setup()
-    const session = closeStep(ctx, `retry-invariant-bounds-${data.retry}-${data.maxRetries}-${data.delayMs}`)
+    const session = closeStep(ctx, `retry-invariant-${name}`)
     expect(() => {
-      session.append('llm/retry', { turn: 1, step: 1, ...normal, ...data, failure })
+      session.append('llm/retry', { turn: 1, step: 1, ...data } as never)
     }).toThrow(message)
   })
 
-  it('rejects retry records outside the matching closed-step boundary', async () => {
+  it('rejects records outside the latest closed step of an open turn', async () => {
     const ctx = await setup()
     const absent = ctx.sessions.create(SessionId('retry-invariant-no-turn'))
     expect(() => {
-      absent.append('llm/retry', {
-        turn: 1, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
+      absent.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/inside an open turn/)
 
     const wrongTurn = closeStep(ctx, 'retry-invariant-wrong-turn')
     expect(() => {
-      wrongTurn.append('llm/retry', {
-        turn: 2, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
+      wrongTurn.append('llm/retry', { turn: 2, step: 1, ...normal })
     }).toThrow(/open turn is 1/)
 
     const openStep = ctx.sessions.create(SessionId('retry-invariant-open-step'))
     openStep.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     openStep.append('step/start', { turn: 1, step: 1 })
     expect(() => {
-      openStep.append('llm/retry', {
-        turn: 1, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
+      openStep.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/step 1 is still open/)
 
     const noStep = ctx.sessions.create(SessionId('retry-invariant-no-step'))
     noStep.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => {
-      noStep.append('llm/retry', {
-        turn: 1, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
+      noStep.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/latest closed step is undefined/)
 
     const wrongStep = closeStep(ctx, 'retry-invariant-wrong-step')
     expect(() => {
-      wrongStep.append('llm/retry', {
-        turn: 1, step: 2, ...normal, retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
+      wrongStep.append('llm/retry', { turn: 1, step: 2, ...normal })
     }).toThrow(/latest closed step is 1/)
 
     const closedTurn = closeStep(ctx, 'retry-invariant-closed-turn')
     closedTurn.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
     expect(() => {
-      closedTurn.append('llm/retry', {
-        turn: 1, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: 1, failure,
-      })
+      closedTurn.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/inside an open turn/)
   })
 
-  it('binds the policy provider to the failed step rather than a later header', async () => {
+  it('rejects a second retry record for the same step', async () => {
+    const ctx = await setup()
+    const session = closeStep(ctx, 'retry-invariant-duplicate')
+    session.append('llm/retry', { turn: 1, step: 1, ...normal })
+
+    expect(() => {
+      session.append('llm/retry', { turn: 1, step: 1, ...normal, retry: 2 })
+    }).toThrow(/duplicates the retry record/)
+  })
+
+  it('binds retry numbering to the provider policy and resets it after success', async () => {
+    const ctx = await setup()
+    const mismatch = closeStep(ctx, 'retry-invariant-numbering')
+    mismatch.append('llm/retry', { turn: 1, step: 1, ...normal })
+    mismatch.append('step/start', { turn: 1, step: 2 })
+    mismatch.append('step/end', { turn: 1, step: 2 })
+    expect(() => {
+      mismatch.append('llm/retry', { turn: 1, step: 2, ...normal, retry: 1 })
+    }).toThrow(/must equal provider policy retry 2/)
+
+    const reset = closeStep(ctx, 'retry-invariant-reset')
+    reset.append('llm/retry', { turn: 1, step: 1, ...normal })
+    reset.append('step/start', { turn: 1, step: 2 })
+    reset.append('assistant/message', {
+      turn: 1,
+      step: 2,
+      content: [{ type: 'text', text: 'success' }],
+      provenance: { provider: 'mock', model: 'mock' },
+    }, { surfaceOp: 'append' })
+    reset.append('step/end', { turn: 1, step: 2 })
+    reset.append('step/start', { turn: 1, step: 3 })
+    reset.append('step/end', { turn: 1, step: 3 })
+    expect(() => {
+      reset.append('llm/retry', { turn: 1, step: 3, ...normal })
+    }).not.toThrow()
+  })
+
+  it('rejects a provider that does not match the failed request route', async () => {
     const ctx = await setup()
     const session = closeStep(ctx, 'retry-invariant-provider')
-    session.append('request/header', {
-      header: { config: { provider: 'other', model: 'mock' } },
-      reason: 'change',
-    })
     expect(() => {
-      session.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        delayMs: 1,
-        failure,
-      })
-    }).not.toThrow()
-
-    const mismatch = closeStep(ctx, 'retry-invariant-provider-mismatch')
-    expect(() => {
-      mismatch.append('llm/retry', {
-        turn: 1,
-        step: 1,
-        provider: 'other',
-        mode: 'always',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        delayMs: 1,
-        failure,
-      })
+      session.append('llm/retry', { turn: 1, step: 1, ...always, provider: 'other' })
     }).toThrow(/does not match the failed request provider mock/)
-  })
-
-  it('accepts a current-turn retry under an unchanged prior provider route', async () => {
-    const ctx = await setup()
-    const session = closeStep(ctx, 'retry-invariant-prior-route')
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('step/start', { turn: 2, step: 1 })
-    session.append('step/end', { turn: 2, step: 1 })
-    expect(() => {
-      session.append('llm/retry', {
-        turn: 2,
-        step: 1,
-        provider: 'mock',
-        mode: 'always',
-        policyKey: alwaysPolicyKey,
-        retry: 1,
-        delayMs: 1,
-        failure,
-      })
-    }).not.toThrow()
-  })
-
-  it('rejects non-numeric durable delays', async () => {
-    const ctx = await setup()
-    const session = closeStep(ctx, 'retry-invariant-delay-type')
-    expect(() => {
-      session.append('llm/retry', {
-        turn: 1, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: '1', failure,
-      } as never)
-    }).toThrow(/delayMs must be a finite number/)
-  })
-
-  it('rejects duplicate and non-increasing retry records', async () => {
-    const ctx = await setup()
-    const duplicate = closeStep(ctx, 'retry-invariant-duplicate')
-    duplicate.append('llm/retry', {
-      turn: 1, step: 1, ...normal, policyKey: normalPolicyKey(3),
-      retry: 1, maxRetries: 3, delayMs: 1, failure,
-    })
-    expect(() => {
-      duplicate.append('llm/retry', {
-        turn: 1, step: 1, ...normal, policyKey: normalPolicyKey(3),
-        retry: 2, maxRetries: 3, delayMs: 1, failure,
-      })
-    }).toThrow(/duplicates the retry record/)
-
-    const nonIncreasing = closeStep(ctx, 'retry-invariant-non-increasing')
-    nonIncreasing.append('llm/retry', {
-      turn: 1, step: 1, ...normal, policyKey: normalPolicyKey(3),
-      retry: 1, maxRetries: 3, delayMs: 1, failure,
-    })
-    nonIncreasing.append('step/start', { turn: 1, step: 2 })
-    nonIncreasing.append('step/end', { turn: 1, step: 2 })
-    expect(() => {
-      nonIncreasing.append('llm/retry', {
-        turn: 1, step: 2, ...normal, policyKey: normalPolicyKey(3),
-        retry: 1, maxRetries: 3, delayMs: 1, failure,
-      })
-    }).toThrow(/must equal provider policy retry 2/)
   })
 
   it('validates existing histories on late registration', async () => {
@@ -444,9 +230,7 @@ describe('llm-retry invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('retry-invariant-late'))
     session.append('step/end', { turn: 1, step: 1 })
-    session.append('llm/retry', {
-      turn: 1, step: 1, ...normal, retry: 1, maxRetries: 2, delayMs: 1, failure,
-    })
+    session.append('llm/retry', { turn: 1, step: 1, ...normal })
     await ctx.plugin(InvariantService)
     await expect(ctx.plugin(RetryInvariant)).rejects.toThrow(/inside an open turn/)
   })

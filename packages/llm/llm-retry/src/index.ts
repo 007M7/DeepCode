@@ -11,7 +11,6 @@ import type { Agent, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { providerForClosedStep } from './history.ts'
-import { retryPolicyKey } from './policy-key.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -82,6 +81,19 @@ function localDelay(config: ResolvedRetryPolicy, retry: number, random: () => nu
   const exponential = Math.min(config.initialDelayMs * 2 ** exponent, config.maxDelayMs)
   const jitter = 1 - config.jitterRatio + 2 * config.jitterRatio * random()
   return Math.min(exponential * jitter, config.maxDelayMs)
+}
+
+function retryPolicyKey(policy: ResolvedRetryPolicy): string {
+  return policy.mode === 'always'
+    ? JSON.stringify([policy.mode, policy.initialDelayMs, policy.maxDelayMs, policy.jitterRatio])
+    : JSON.stringify([
+      policy.mode,
+      policy.maxRetries,
+      [...policy.retryableCodes].sort(),
+      policy.initialDelayMs,
+      policy.maxDelayMs,
+      policy.jitterRatio,
+    ])
 }
 
 function cancellableDelay(delayMs: number, signal: AbortSignal): Promise<boolean> {

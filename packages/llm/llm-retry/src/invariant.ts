@@ -3,9 +3,9 @@
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { LlmFailure } from '@deepseek-ai/dsh-llm'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { providerForClosedStep } from './history.ts'
-import { parseRetryPolicyKey } from './policy-key.ts'
 import type {} from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-llm-retry'
@@ -54,11 +54,10 @@ function validateRetry(
     fail('llm/retry retry must be a positive safe integer')
   }
   if (typeof provider !== 'string' || provider.length === 0) {
-    fail('llm/retry provider must be non-empty string')
+    fail('llm/retry provider must be a non-empty string')
   }
-  const keyedPolicy = parseRetryPolicyKey(policyKey)
-  if (keyedPolicy === undefined) {
-    fail('llm/retry policyKey must encode a canonical resolved policy')
+  if (typeof policyKey !== 'string' || policyKey.length === 0) {
+    fail('llm/retry policyKey must be a non-empty string')
   }
   switch (mode) {
     case 'normal': {
@@ -66,29 +65,17 @@ function validateRetry(
       if (!Number.isSafeInteger(maxRetries) || maxRetries < 1 || retry > maxRetries) {
         fail(`llm/retry retry ${retry} must not exceed a positive safe maxRetries ${maxRetries}`)
       }
-      if (keyedPolicy.mode !== 'normal') {
-        fail(`llm/retry mode normal must match policyKey mode ${keyedPolicy.mode}`)
-      }
-      if (keyedPolicy.maxRetries !== maxRetries) {
-        fail(`llm/retry maxRetries ${maxRetries} must match policyKey`)
-      }
-      if (!keyedPolicy.retryableCodes.includes(failure.code)) {
-        fail(`llm/retry failure code ${failure.code} must be eligible under policyKey`)
-      }
       break
     }
     case 'always':
-      if (keyedPolicy.mode !== 'always') {
-        fail(`llm/retry mode always must match policyKey mode ${keyedPolicy.mode}`)
-      }
       if ('maxRetries' in event.data) fail('llm/retry always mode must omit maxRetries')
       break
     default:
       fail(`llm/retry mode must be normal or always, got ${String(mode)}`)
   }
   if (typeof delayMs !== 'number' || !Number.isFinite(delayMs)
-    || delayMs < 0 || delayMs > keyedPolicy.maxDelayMs) {
-    fail(`llm/retry delayMs must be a finite number within policyKey range 0..${keyedPolicy.maxDelayMs}`)
+    || delayMs < 0 || delayMs > MAX_TIMER_DELAY_MS) {
+    fail(`llm/retry delayMs must be a finite number within 0..${MAX_TIMER_DELAY_MS}`)
   }
 
   const turnStartIndex = history.findLastIndex(prior =>

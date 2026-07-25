@@ -8,7 +8,7 @@ Both modes use bounded exponential backoff with symmetric jitter. A valid `provi
 
 Before waiting, the plugin appends a non-surface `llm/retry` event with the provider, mode, canonical resolved-policy key, failure, and scheduled delay. The key includes every behavior-affecting field and sorts normal-mode codes because eligibility uses set membership. Retry numbers continue only across events with the same provider and complete policy key, so a route replacement with different limits, code membership, or backoff starts its own history. Normal events include the finite maximum; always events omit it, and UIs render `∞`. Cancellation and plugin disposal abort active backoff, drain active delegated recovery before applying the abort, and make a callback captured before disposal fail closed.
 
-The separately published `./invariant` companion checks that every retry record names the current open turn and latest closed step, matches the failed request's durable provider, carries a producer-canonical policy key consistent with its mode and finite budget, binds normal failures and every scheduled delay to that policy, has a unique step record and correct provider-policy retry number, and carries a bounded timer delay. Full jitter may schedule zero milliseconds at its lower boundary.
+The separately published `./invariant` companion checks that every retry record names the current open turn and latest closed step, matches the failed request's durable provider, carries non-empty provider and policy identities, has mode-specific bounds, a unique step record, the correct provider-policy retry number, and a bounded timer delay. Full jitter may schedule zero milliseconds at its lower boundary.
 
 ```yaml
 - name: '@deepseek-ai/dsh-llm-deepseek'

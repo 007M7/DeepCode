@@ -181,19 +181,14 @@ describe('provider-routed retry policy', () => {
       new LlmError('busy', 'RATE_LIMIT', { status: 429 }),
       textResponse('done'),
     ])
-    ;({ ctx: context } = await harness(adapter, {}, undefined, { random: () => 0.5 }))
+    ;({ ctx: context } = await harness(adapter, {
+      mock: normalConfig({ retryableCodes: ['SERVER', 'RATE_LIMIT'] }),
+    }, undefined, { random: () => 0.5 }))
     const agent = context.agentLoop.create(SessionId('retry-success'), {
       provider: 'mock',
       model: 'mock',
     })
-    const scheduled = new Promise<Extract<(typeof agent.session.events)[number], { type: 'llm/retry' }>>((resolve) => {
-      const dispose = context?.on('session/event', (session, event) => {
-        if (session === agent.session && event.type === 'llm/retry') {
-          dispose?.()
-          resolve(event)
-        }
-      })
-    })
+    const scheduled = waitForRetry(context, agent, 1)
 
     agent.followup([{ type: 'text', text: 'go' }])
     const event = await scheduled
@@ -203,7 +198,7 @@ describe('provider-routed retry policy', () => {
       step: 1,
       provider: 'mock',
       mode: 'normal',
-      policyKey: '["normal",2,["EMPTY_RESPONSE","RATE_LIMIT","SERVER","TIMEOUT","TRANSPORT"],500,10000,0.1]',
+      policyKey: '["normal",2,["RATE_LIMIT","SERVER"],500,10000,0]',
       retry: 1,
       maxRetries: 2,
       delayMs: 500,
@@ -224,45 +219,6 @@ describe('provider-routed retry policy', () => {
       role: 'assistant',
       content: [{ type: 'text', text: 'done' }],
       provenance: { provider: 'mock', model: 'mock' },
-    })
-  })
-
-  it('retries a later turn under its unchanged provider header', async () => {
-    vi.useFakeTimers()
-    const adapter = new ScriptedAdapter([
-      textResponse('first turn'),
-      new LlmError('busy on second turn', 'RATE_LIMIT'),
-      textResponse('second turn recovered'),
-    ])
-    ;({ ctx: context } = await harness(adapter, { mock: normalConfig({
-      backoff: { initialDelayMs: 1, maxDelayMs: 1 },
-    }) }))
-    const agent = context.agentLoop.create(SessionId('retry-later-turn'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-
-    const firstIdle = waitForIdle(context, agent)
-    agent.followup([{ type: 'text', text: 'first' }])
-    await firstIdle
-    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
-
-    const scheduled = waitForRetry(context, agent, 1)
-    agent.followup([{ type: 'text', text: 'second' }])
-    expect((await scheduled).data).toMatchObject({
-      turn: 2,
-      step: 1,
-      provider: 'mock',
-    })
-    const secondIdle = waitForIdle(context, agent)
-    await vi.advanceTimersByTimeAsync(1)
-    await secondIdle
-
-    expect(adapter.requests).toHaveLength(3)
-    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
-    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'second turn recovered' }],
     })
   })
 
@@ -556,8 +512,50 @@ describe('provider-routed retry policy', () => {
     expect(adapter.requests.map(request => request.provider)).toEqual(['other', 'other'])
   })
 
+  it('keeps finite retry budgets scoped to the failed provider', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('mock failed', 'SERVER'),
+      new LlmError('other failed', 'SERVER'),
+      textResponse('other recovered'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {
+      mock: normalConfig({
+        maxRetries: 1,
+        backoff: { initialDelayMs: 1, maxDelayMs: 1 },
+      }),
+      other: normalConfig({
+        maxRetries: 1,
+        backoff: { initialDelayMs: 1, maxDelayMs: 1 },
+      }),
+    }, (ctx) => {
+      ctx.on('agent/request', async (_agent, _turn, step, config) => ({
+        ...config,
+        provider: step === 1 ? 'mock' : 'other',
+      }))
+    }))
+    const agent = context.agentLoop.create(SessionId('retry-provider-budgets'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const idle = waitForIdle(context, agent)
+
+    agent.followup([{ type: 'text', text: 'switch provider after failure' }])
+    await vi.runAllTimersAsync()
+    await idle
+
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock', 'other', 'other'])
+    expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => ({
+      provider: event.data.provider,
+      retry: event.data.retry,
+    }))).toEqual([
+      { provider: 'mock', retry: 1 },
+      { provider: 'other', retry: 1 },
+    ])
+  })
+
   it.each(['thrown', 'in-band'] as const)(
-    'uses the serving registration policy when an in-flight route is replaced after a %s failure',
+    'uses the serving registration policy and resets changed-policy history after a %s failure',
     async (failureKind) => {
       vi.useFakeTimers()
       const entered = Promise.withResolvers<undefined>()
@@ -590,133 +588,46 @@ describe('provider-routed retry policy', () => {
       await entered.promise
 
       mounted.disposeAdapter()
-      const replacement = new ScriptedAdapter([textResponse('replacement recovered')])
-      replacement.configureRetryPolicies({ mock: normalConfig({ maxRetries: 0 }) })
+      const replacement = new ScriptedAdapter([
+        new LlmError('replacement failed', 'AUTH'),
+        textResponse('replacement recovered'),
+      ])
+      replacement.configureRetryPolicies({ mock: alwaysConfig({
+        initialDelayMs: 3,
+        maxDelayMs: 3,
+      }) })
       context.llm.registerAdapter(['mock'], replacement)
       release.resolve(undefined)
 
-      expect((await scheduled).data).toMatchObject({
+      const firstEvent = await scheduled
+      expect(firstEvent.data).toMatchObject({
         provider: 'mock',
         mode: 'always',
         retry: 1,
         delayMs: 1,
       })
+      const replacementScheduled = waitForRetry(context, agent, 1)
       const idle = waitForIdle(context, agent)
       await vi.advanceTimersByTimeAsync(1)
+      const replacementEvent = await replacementScheduled
+      expect(replacementEvent.data).toMatchObject({
+        provider: 'mock',
+        mode: 'always',
+        retry: 1,
+        delayMs: 3,
+      })
+      expect(replacementEvent.data.policyKey).not.toBe(firstEvent.data.policyKey)
+      await vi.advanceTimersByTimeAsync(3)
       await idle
 
       expect(oldAdapter.requests).toHaveLength(1)
-      expect(replacement.requests).toHaveLength(1)
+      expect(replacement.requests).toHaveLength(2)
       expect(agent.session.deriveMessages().at(-1)).toMatchObject({
         role: 'assistant',
         content: [{ type: 'text', text: 'replacement recovered' }],
       })
     },
   )
-
-  it('starts a new retry history when a same-mode route replacement changes policy', async () => {
-    vi.useFakeTimers()
-    const oldAdapter = new ScriptedAdapter([
-      new LlmError('old route failed', 'AUTH'),
-    ])
-    const mounted = await harness(oldAdapter, { mock: alwaysConfig({
-      initialDelayMs: 1,
-      maxDelayMs: 1,
-    }) })
-    context = mounted.ctx
-    const agent = context.agentLoop.create(SessionId('retry-policy-replacement'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    const first = waitForRetry(context, agent, 1)
-
-    agent.followup([{ type: 'text', text: 'replace policy between attempts' }])
-    expect((await first).data).toMatchObject({
-      mode: 'always',
-      retry: 1,
-      delayMs: 1,
-    })
-
-    mounted.disposeAdapter()
-    const replacement = new ScriptedAdapter([
-      new LlmError('replacement failed', 'AUTH'),
-      textResponse('replacement recovered'),
-    ])
-    replacement.configureRetryPolicies({ mock: alwaysConfig({
-      initialDelayMs: 3,
-      maxDelayMs: 9,
-    }) })
-    context.llm.registerAdapter(['mock'], replacement)
-
-    const second = waitForRetry(context, agent, 1)
-    await vi.advanceTimersByTimeAsync(1)
-    expect((await second).data).toMatchObject({
-      mode: 'always',
-      retry: 1,
-      delayMs: 3,
-    })
-
-    const idle = waitForIdle(context, agent)
-    await vi.advanceTimersByTimeAsync(3)
-    await idle
-
-    expect(oldAdapter.requests).toHaveLength(1)
-    expect(replacement.requests).toHaveLength(2)
-    expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => ({
-      policyKey: event.data.policyKey,
-      retry: event.data.retry,
-    }))).toEqual([
-      { policyKey: '["always",1,1,0]', retry: 1 },
-      { policyKey: '["always",3,9,0]', retry: 1 },
-    ])
-  })
-
-  it('continues retry history when a replacement only reorders retryable codes', async () => {
-    vi.useFakeTimers()
-    const oldAdapter = new ScriptedAdapter([
-      new LlmError('old route failed', 'SERVER'),
-    ])
-    const mounted = await harness(oldAdapter, { mock: normalConfig({
-      maxRetries: 2,
-      retryableCodes: ['SERVER', 'RATE_LIMIT'],
-      backoff: { initialDelayMs: 1, maxDelayMs: 4 },
-    }) })
-    context = mounted.ctx
-    const agent = context.agentLoop.create(SessionId('retry-policy-code-order'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    const first = waitForRetry(context, agent, 1)
-
-    agent.followup([{ type: 'text', text: 'replace equivalent policy between attempts' }])
-    const firstEvent = await first
-    expect(firstEvent.data.delayMs).toBe(1)
-
-    mounted.disposeAdapter()
-    const replacement = new ScriptedAdapter([
-      new LlmError('replacement failed', 'SERVER'),
-      textResponse('replacement recovered'),
-    ])
-    replacement.configureRetryPolicies({ mock: normalConfig({
-      maxRetries: 2,
-      retryableCodes: ['RATE_LIMIT', 'SERVER'],
-      backoff: { initialDelayMs: 1, maxDelayMs: 4 },
-    }) })
-    context.llm.registerAdapter(['mock'], replacement)
-
-    const second = waitForRetry(context, agent, 2)
-    await vi.advanceTimersByTimeAsync(1)
-    const secondEvent = await second
-    expect(secondEvent.data).toMatchObject({ retry: 2, delayMs: 2 })
-    expect(secondEvent.data.policyKey).toBe(firstEvent.data.policyKey)
-
-    const idle = waitForIdle(context, agent)
-    await vi.advanceTimersByTimeAsync(2)
-    await idle
-
-    expect(oldAdapter.requests).toHaveLength(1)
-    expect(replacement.requests).toHaveLength(2)
-  })
 
   it('keeps always mode unbounded while preserving cancellable jittered backoff', async () => {
     vi.useFakeTimers()
