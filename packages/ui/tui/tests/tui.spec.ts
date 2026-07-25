@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { agentEvents, assembleContextFor, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
-import { type LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -157,7 +157,7 @@ describe('TUI config', () => {
       maxResumeOptions: 8,
       questionDialogWidth: 200,
       questionDialogMaxHeight: 20,
-      modelDialogWidth: 72,
+      modelDialogWidth: 76,
       modelDialogMaxHeight: 20,
       fileSearchMaxResults: 20,
       fileSearchMaxEntries: 10_000,
@@ -1712,7 +1712,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('main-session')
     expect(result.terminal.output).toContain('Inspect status \\x1b]2;unsafe\\x07')
     expect(result.terminal.output).toContain('/workspace/status')
-    expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (reasoning hidden)')
+    expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (effort default; reasoning blocks')
+    expect(result.terminal.output).toContain('hidden)')
     expect(result.terminal.output).toContain('running · 6 events · 1 turn · 1 step · 2 tool calls')
     expect(result.terminal.output).toContain('1,250 input + 340 output')
     expect(result.terminal.output).toContain('[███████████░░░░░] 67% hit (3,000 read + 250 write)')
@@ -1748,7 +1749,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
 
     expect(result.terminal.output).toContain('untitled')
-    expect(result.terminal.output).toContain('unset (reasoning shown)')
+    expect(result.terminal.output).toContain('unset (effort unset; reasoning blocks shown)')
     expect(result.terminal.output).toContain('idle · 0 events · 0 turns · 0 steps · 0 tool calls')
     expect(result.terminal.output).toContain('n/a (0 read + 0 write)')
     expect(result.terminal.output).toContain('7 used · capacity unknown')
@@ -2301,6 +2302,35 @@ describe('pi-tui chat lifecycle and transcript', () => {
         resolveModelContext: (provider, model) => provider === 'alpha' && model === 'a1'
           ? initialContext.promise
           : Promise.resolve({ contextWindow: 200 }),
+        resolveModelReasoning: (provider, model) => {
+          if (model === 'a1') {
+            return Promise.resolve({
+              efforts: [
+                { id: ReasoningEffortId('low'), name: 'Low' },
+                { id: ReasoningEffortId('high'), name: 'High' },
+              ],
+              defaultEffort: ReasoningEffortId('low'),
+            })
+          }
+          if (model === 'b1') {
+            return Promise.resolve({
+              efforts: [
+                { id: ReasoningEffortId('high'), name: 'High' },
+                { id: ReasoningEffortId('max'), name: 'Max' },
+              ],
+              defaultEffort: ReasoningEffortId('high'),
+            })
+          }
+          if (provider === 'alpha' && model === 'shared') {
+            return Promise.resolve({
+              efforts: [
+                { id: ReasoningEffortId('standard'), name: 'Standard' },
+                { id: ReasoningEffortId('ultra'), name: 'Ultra' },
+              ],
+            })
+          }
+          return Promise.resolve(undefined)
+        },
       },
     })
 
@@ -2325,6 +2355,62 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\x1b')
     await tick()
 
+    const providerDefaultOutput = result.terminal.output.length
+    result.terminal.send('/model alpha/shared')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: provider default.')
+    })
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Select model')
+    })
+    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — provider default')
+    result.terminal.send('\x1b[Z')
+    await tick()
+    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — Standard')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: Standard.')
+
+    const nonReasoningOutput = result.terminal.output.length
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(nonReasoningOutput)).toContain('Select model')
+    })
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[Z')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output.slice(nonReasoningOutput)).toContain('Model selected: beta/shared.')
+    result.terminal.send('/model beta/shared')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(nonReasoningOutput)).toContain('Model is already beta/shared.')
+    })
+    await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+    result.terminal.send('/model alpha/a1')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(nonReasoningOutput)).toContain('Reasoning effort: Low.')
+    })
+    const inheritedEffort: LlmCallConfig = {
+      provider: 'alpha',
+      model: 'a1',
+      reasoningEffort: ReasoningEffortId('max'),
+    }
+    await expect(agentEvents(result.ctx, result.agent).waterfall(
+      'agent/request',
+      0,
+      0,
+      inheritedEffort,
+      new AbortController().signal,
+      () => Promise.resolve(inheritedEffort),
+    )).resolves.toEqual({ provider: 'beta', model: 'shared' })
+
     result.agent.status = 'running'
     const runningSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
@@ -2333,13 +2419,18 @@ describe('pi-tui chat lifecycle and transcript', () => {
       const output = result.terminal.output.slice(runningSelectorOutput)
       expect(output).toContain('Select model')
       expect(output).toContain('alpha/a1')
-      expect(output).toContain('Alpha One — Fast — current')
+      expect(output).toContain('Alpha One — Fast — Low — current')
+      expect(output).toContain('Beta One — High')
     })
     result.terminal.send('\x1b[B')
     result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[Z')
+    await tick()
+    expect(result.terminal.output).toContain('Beta One — Max')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('Model selected: beta/b1')
+    expect(result.terminal.output).toContain('Reasoning effort: Max.')
     expect(result.agent.sent).toEqual([])
     expect(result.agent.steered).toEqual([])
     initialContext.resolve({ contextWindow: 100 })
@@ -2358,8 +2449,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'idle'
     result.ctx.emit('agent/status', result.agent, 'idle')
     await tick()
-    expect(result.terminal.output).toContain('b1  ')
+    expect(result.terminal.output).toContain('b1 max  ')
     expect(result.terminal.output).toContain('25% context  tools:collapsed')
+    result.terminal.send('/status')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('beta/b1 (effort max; reasoning blocks shown)')
 
     const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
     expect(assembly.variables).toMatchObject({ provider: 'beta', model: 'b1' })
@@ -2367,7 +2462,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const request = await agentEvents(result.ctx, result.agent).waterfall(
       'agent/request', 1, 0, seed, new AbortController().signal, () => Promise.resolve(seed),
     )
-    expect(request).toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
+    expect(request).toEqual({
+      provider: 'beta',
+      model: 'b1',
+      reasoningEffort: ReasoningEffortId('max'),
+      temperature: 0.2,
+    })
     await dispose(result)
   })
 
@@ -2377,7 +2477,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
       catalog: { providers: [{ id: 'beta', name: 'Beta' }], models: [] },
       beforeMount(session) {
         session.append('request/header', {
-          header: { config: { provider: 'beta', model: 'private' } },
+          header: {
+            config: {
+              provider: 'beta',
+              model: 'private',
+              reasoningEffort: ReasoningEffortId('ultra'),
+            },
+          },
           reason: 'initial',
         })
       },
@@ -2387,8 +2493,29 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(resumed.terminal.output).toContain('Select model')
     expect(resumed.terminal.output).toContain('beta/private')
-    expect(resumed.terminal.output).toContain('private — current')
+    expect(resumed.terminal.output).toContain('private — ultra — current')
+    resumed.terminal.send('\x1b')
+    await tick()
+    resumed.terminal.send('/model beta/private')
+    resumed.terminal.send('\r')
+    await tick()
+    expect(resumed.terminal.output).toContain('with reasoning effort ultra')
     await dispose(resumed)
+
+    const resumedDefault = await setup({
+      catalog: {
+        providers: [{ id: 'alpha', name: 'Alpha' }],
+        models: [{ provider: 'alpha', id: 'default', name: 'Default Model' }],
+      },
+      beforeMount(session) {
+        session.append('request/header', {
+          header: { config: { provider: 'alpha', model: 'default' } },
+          reason: 'initial',
+        })
+      },
+    })
+    expect(resumedDefault.terminal.output).toContain('default  •  main-session')
+    await dispose(resumedDefault)
 
     const unset = await setup({
       agentOptions: {},
@@ -2437,6 +2564,20 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
     expect(failed.terminal.output).toContain('Could not resolve model context: capacity offline')
     await dispose(failed)
+
+    const reasoningFailed = await setup({
+      catalog: {
+        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        models: [{ provider: 'deepseek', id: 'model-1', name: 'Model One' }],
+        resolveModelReasoning: () => Promise.reject(new Error('reasoning metadata offline')),
+      },
+    })
+    reasoningFailed.terminal.send('/model')
+    reasoningFailed.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(reasoningFailed.terminal.output).toContain('Could not read the model catalog: reasoning metadata offline')
+    })
+    await dispose(reasoningFailed)
   })
 
   it('does not render a model catalog that resolves after TUI disposal', async () => {

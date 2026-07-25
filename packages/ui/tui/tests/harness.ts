@@ -8,7 +8,13 @@ import AgentRegistry, {
   type AgentStatus,
   type SendOptions,
 } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  LlmModelContext,
+  LlmModelInfo,
+  LlmModelReasoningInfo,
+  LlmProviderInfo,
+} from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -48,6 +54,10 @@ export interface TuiHarnessOptions {
     models: LlmModelInfo[]
     listModels?: (provider: string) => Promise<LlmModelInfo[]>
     resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
+    resolveModelReasoning?: (
+      provider: string,
+      model: string,
+    ) => Promise<LlmModelReasoningInfo | undefined>
   }
   /** Provide a fake `sessionPersistence` service so resume surfaces can list sessions. */
   sessionPersistence?: {
@@ -121,6 +131,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       resolveModelContext(provider: string, model: string) {
         return catalog.resolveModelContext?.(provider, model)
           ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+      },
+      resolveModelReasoning(provider: string, model: string) {
+        return catalog.resolveModelReasoning?.(provider, model) ?? Promise.resolve(undefined)
       },
     } as never)
   }
