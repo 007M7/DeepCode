@@ -9,6 +9,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as themeApply, inject as themeInject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { apply, inject, LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
@@ -17,6 +18,9 @@ import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
 async function bench() {
   const ctx = new Context()
   const slotsFiber = ctx.plugin(SlotsService)
+  // Theme now injects ['slots', 'locale'] (it registers its Appearance
+  // settings row); seat a real locale service so the theme fiber activates.
+  ctx.provide('locale', new LocaleService(ctx))
   await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
   return { ctx, slots: ctx.get('slots') as SlotsService }

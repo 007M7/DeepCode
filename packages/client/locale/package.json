@@ -58,8 +58,5 @@
   "scripts": {
     "bundle": "tsdown",
     "watch": "tsdown --watch"
-  },
-  "dependencies": {
-    "clsx": "^2.0.0"
   }
 }
