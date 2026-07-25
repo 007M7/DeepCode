@@ -12,7 +12,7 @@ export const name = 'commands'
 
 const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
 
-/** Immutable command input metadata compatible with ACP unstructured input. */
+/** Immutable metadata for a command's optional unstructured input. */
 export interface CommandInputDescriptor {
   /** Placeholder shown before the user supplies free-form input. */
   readonly hint: string

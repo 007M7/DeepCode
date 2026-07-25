@@ -9,7 +9,7 @@
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import { SessionsService, scopeOf } from '../src/client/sessions/service.ts'
+import { SessionCreateError, SessionsService, scopeOf } from '../src/client/sessions/service.ts'
 import { FakeApiClient, ok } from './fake-api.ts'
 
 const sid = (s: string): SessionId => s as SessionId
@@ -36,14 +36,14 @@ async function feedList(b: Bench, rows: { id: string; cwd?: string; parentId?: s
       ...(r.parentId !== undefined ? { parentSessionId: sid(r.parentId) } : {}),
     })),
   }) as never)
-  await b.svc.manager.refreshList()
+  await b.svc.refresh()
   await Promise.resolve() // manager notifier flush
 }
 
 describe('list store projection', () => {
   it('projects durable titles separately from cwd/id display fallbacks and parent links', async () => {
     const b = bench()
-    b.svc.manager.handleMuxEnvelope({
+    b.svc.handleMuxEnvelope({
       rpcId: 'title' as never,
       payload: { type: 'session/title', sessionId: sid('s1'), title: 'Durable title', eventSeq: 2, updatedAt: 3 },
     })
@@ -61,7 +61,7 @@ describe('list store projection', () => {
   it('reflects live increments (host stream via manager) into the store', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
-    b.svc.manager.handleHostEnvelope({ rpcId: 'r1' as never, payload: { type: 'host/session-added', sessionId: sid('s2') } as never })
+    b.svc.handleHostEnvelope({ rpcId: 'r1' as never, payload: { type: 'host/session-added', sessionId: sid('s2') } as never })
     await Promise.resolve()
     expect(b.svc.list.getSnapshot().ids).toContain('s2')
   })
@@ -77,7 +77,7 @@ describe('scope tree', () => {
     expect(scopeOf(scoped as Context)).toBe('s1')
     expect(scopeOf(b.ctx)).toBeUndefined()
     const binding = b.svc.binding(sid('s1'))
-    expect(binding?.session).toBe(b.svc.manager.get(sid('s1')))
+    expect(binding?.session).toBe(b.svc.cell('s1')?.session)
     expect(b.svc.binding(sid('s1'))).toBe(binding)
     expect(binding?.ctx).toBe(scoped)
   })
@@ -133,6 +133,26 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
     expect(b.svc.list.getSnapshot().current).toBe('s1') // failed open leaves the selection alone
   })
 
+  it('clear() blanks list.current and the persisted selection', async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v) },
+      removeItem: (k: string) => { storage.delete(k) },
+      clear: () => { storage.clear() },
+    })
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.open(sid('s1'))
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
+    b.svc.clear()
+    expect(b.svc.list.getSnapshot().current).toBeUndefined()
+    // Persisted wipe: a fresh service with the same storage stays on empty.
+    const again = bench()
+    await feedList(again, [{ id: 's1' }])
+    expect(again.svc.list.getSnapshot().current).toBeUndefined()
+  })
+
   it('masks (not destroys) the selection while its session is off the list', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
@@ -167,9 +187,8 @@ describe('cell (render-layer session kit)', () => {
     const cell = b.svc.cell('s1')
     expect(cell).toBeDefined()
     expect(cell?.sessionId).toBe('s1')
-    // Bare-source form (store migration): the cell carries the Session
-    // observable itself; hook binding happens in the React machinery.
-    expect(cell?.session).toBe(b.svc.manager.get(sid('s1')))
+    // The cell carries the observable; hook binding happens in React.
+    expect(cell?.session).toBe(b.svc.binding(sid('s1'))?.session)
     expect(b.svc.cell('s1')).toBe(cell)
     expect(b.svc.cell('ghost')).toBeUndefined()
   })
@@ -265,15 +284,45 @@ describe('ancestry', () => {
 })
 
 describe('create', () => {
-  it('returns the new id on ok and throws a coded error on failure', async () => {
+  it('passes a preallocated id and preserves it on ordinary failure', async () => {
     const b = bench()
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('fresh') }))
-    await expect(b.svc.create({ cwd: '/w' })).resolves.toBe('fresh')
+    await expect(b.svc.create({ cwd: '/w', sessionId: sid('fresh') })).resolves.toBe('fresh')
+    expect(b.api.callsOf('session.create')).toEqual([{ cwd: '/w', sessionId: 'fresh' }])
     b.api.onCreate = () => Promise.resolve({
       rpcId: 'e' as never,
       result: { ok: false as const, error: { code: 'internal' as const, message: '爆了', details: {} } },
     } as never)
-    await expect(b.svc.create()).rejects.toThrow(/internal: 爆了/)
+    const failure = await b.svc.create({ sessionId: sid('candidate') }).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(SessionCreateError)
+    expect(failure).toMatchObject({
+      requestedSessionId: 'candidate', publishedSessionId: undefined,
+      rpcError: { code: 'internal', message: '爆了' },
+    })
+  })
+
+  it('surfaces the definitely published id after Workspace attachment fails', async () => {
+    const b = bench()
+    b.api.onCreate = () => Promise.resolve({
+      rpcId: 'attach' as never,
+      result: {
+        ok: false,
+        error: {
+          code: 'workspace-attach-failed', message: 'ledger unavailable',
+          details: { sessionId: sid('published'), workspaceId: 'ws' },
+        },
+      },
+    } as never)
+    const failure = await b.svc.create({
+      workspaceId: 'ws' as never,
+      sessionId: sid('published'),
+    }).catch((error: unknown) => error)
+    await Promise.resolve()
+    expect(failure).toMatchObject({
+      publishedSessionId: 'published', requestedSessionId: 'published',
+      rpcError: { code: 'workspace-attach-failed' },
+    })
+    expect(b.svc.list.getSnapshot().byId[sid('published')]).toMatchObject({ id: 'published' })
   })
 })
 

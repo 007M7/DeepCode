@@ -157,8 +157,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.load(id)
   }
 
-  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.coordinator.inspect(id)
+  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id, signal)
   }
 
   // One method serves both public `list` and the backend hook; delegating it to
@@ -167,8 +167,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   // --- PersistenceBackend hooks (the SQLite storage primitives) ---
 
   /** Read a stored prefix by id (ids are globally unique — no scope to scan). */
-  loadStored(id: SessionId): Promise<StoredPrefix<number> | undefined> {
-    return this.readPrefix(id)
+  loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<number> | undefined> {
+    return this.readPrefix(id, signal)
   }
 
   /**
@@ -176,14 +176,17 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
    * torn-tail marker is the seq from which a never-committed tail must be deleted
    * (`scanRows` already returns it as `number | undefined`).
    */
-  private async readPrefix(id: SessionId): Promise<StoredPrefix<number> | undefined> {
+  private async readPrefix(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<number> | undefined> {
+    signal?.throwIfAborted()
     await this.ready
+    signal?.throwIfAborted()
     const row = this.rowFor(id)
     if (row === undefined) return undefined
     const meta = rowToMeta(row)
     const eventRows = this.db
       .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
+    signal?.throwIfAborted()
     const { preserved, tornFrom } = scanRows(eventRows)
     return { meta, events: preserved, ...tornFrom !== undefined ? { tornMarker: tornFrom } : {} }
   }
@@ -251,18 +254,24 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   /** List all materialized sessions' metadata (every row is a materialized session). */
-  async list(): Promise<SessionHeader[]> {
+  async list(signal?: AbortSignal): Promise<SessionHeader[]> {
+    signal?.throwIfAborted()
     await this.ready
+    signal?.throwIfAborted()
     const rows = this.db
       .prepare('SELECT * FROM sessions')
       .all() as unknown as SessionRow[]
+    signal?.throwIfAborted()
     return rows.map(rowToMeta)
   }
 
   /** List metadata with a source-qualified monotonic revision per session. */
-  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+  async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
+    signal?.throwIfAborted()
     await this.ready
+    signal?.throwIfAborted()
     const rows = this.db.prepare('SELECT * FROM sessions').all() as unknown as SessionRow[]
+    signal?.throwIfAborted()
     return rows.map(row => ({
       header: rowToMeta(row),
       revision: SessionPersistenceRevision(

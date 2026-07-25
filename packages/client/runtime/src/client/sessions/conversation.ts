@@ -4,7 +4,9 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { RpcError, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  RpcError, SessionId, ToolCallView, ToolResultView, WorkspaceId,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 
 /** Assistant content blocks sorted by what the UI cares about
@@ -42,6 +44,8 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
 export interface UserMessageNode {
   kind: 'user'
   seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
   content: readonly ContentBlock[]
   source: unknown
 }
@@ -50,6 +54,8 @@ export interface UserMessageNode {
 export interface AssistantMessageNode {
   kind: 'assistant'
   seq: number
+  /** Unix epoch ms from the source session event (or turn/end when frozen from a partial). */
+  time: number
   turn: number
   step: number
   blocks: readonly AssistantBlock[]
@@ -63,6 +69,8 @@ export interface AssistantMessageNode {
 export interface SteeringMessageNode {
   kind: 'steering'
   seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
   turn: number
   content: readonly ContentBlock[]
   source: unknown
@@ -72,6 +80,8 @@ export interface SteeringMessageNode {
 export interface ContextMessageNode {
   kind: 'context'
   seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
   content: readonly ContentBlock[]
   source: unknown
   meta?: unknown
@@ -81,9 +91,13 @@ export interface ContextMessageNode {
 export interface ToolResultNode {
   kind: 'tool-result'
   seq: number
+  /** Unix epoch ms from the tool/result session event. */
+  time: number
   callId: string
   /** Call head backfilled from the in-window tool/call; null when window truncation left the call outside (card head shows callId). */
   call: { name: string; argsRaw: string } | null
+  /** Unix epoch ms of the paired tool/call when the call is still in-window; used for call-row duration. */
+  callTime: number | null
   content: readonly ContentBlock[]
   isError: boolean
   error?: { name: string; code: string }
@@ -98,6 +112,8 @@ export interface ToolResultNode {
 export interface UnknownSurfaceNode {
   kind: 'unknown'
   seq: number
+  /** Unix epoch ms from the source session event when known. */
+  time: number
   type: string
   data: unknown
 }
@@ -118,6 +134,8 @@ export interface RunningToolCall {
   argsRaw: string
   turn: number
   step: number
+  /** Unix epoch ms when the tool/call event was logged. */
+  time: number
   /** Host-computed render intent riding the tool/call frame; null = generic JSON card. */
   callView: ToolCallView | null
 }
@@ -133,10 +151,56 @@ export interface PartialAssistant {
 /** History-open lifecycle of a Session window. */
 export type OpenState = 'cold' | 'loading' | 'open' | 'error'
 
+/**
+ * Input-area shape of an OPEN session, derived at snapshot assembly (the one
+ * place that knows the predicate — consumers switch, never re-derive):
+ *
+ * - `blank`: no activity ever (no nodes, no partial, not running, no pending
+ *   waits, no prompt attempt) — the UI renders the blank-session guidance
+ *   hero.
+ * - `engaging`: the first prompt was initiated but no content landed yet —
+ *   the UI holds the composer through the accept → running → first-event
+ *   frames. Entered synchronously before prompt()'s first await.
+ * - `active`: content exists (nodes, partial, running turn, or pending
+ *   waits) — the ordinary conversation view.
+ *
+ * Monotone within a session object: blank → engaging → active, no returns.
+ * A failed first prompt stays `engaging` (composer + error strip — retry
+ * semantics; bouncing back to the hero would discard the error context).
+ * Sessions whose window is not open (`loading`/`error`) are outside phase
+ * jurisdiction: consumers branch on {@link ConversationSnapshot.openState}
+ * first (phase still reports `active`-ish facts but must not be rendered).
+ */
+export type ComposerPhase = 'blank' | 'engaging' | 'active'
+
 /** Send/stop failure surfaced in the input error strip; op picks the user-facing copy (发送失败 vs 停止失败). */
 export interface PromptError {
   op: 'send' | 'stop'
   error: RpcError
+}
+
+/** Workspace target of a frontend-only Session. */
+export type SessionIntentTarget =
+  | { kind: 'workspace'; workspaceId: WorkspaceId }
+  | { kind: 'workspace-intent' }
+
+/** Publication state owned by a frontend Session before it joins the Host. */
+export interface SessionIntentSnapshot {
+  target: SessionIntentTarget
+  phase: 'ready' | 'connecting'
+  error?: { step: 'session'; message: string }
+}
+
+/** One editable prompt retained by its Session until the Host accepts it. */
+export interface PendingPrompt {
+  text: string
+  phase: 'editing' | 'sending' | 'failed'
+  /** Failed prerequisite retried before sending, or the send itself. */
+  retry: 'connect' | 'send'
+  /** Workspace needed when retrying Session attachment. */
+  workspaceId?: WorkspaceId
+  /** Last failure diagnostic, absent while editing or sending. */
+  error?: string
 }
 
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
@@ -150,6 +214,8 @@ export interface ConversationSnapshot {
   runningCalls: readonly RunningToolCall[]
   pending: readonly PendingInteraction[]
   running: boolean
+  /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */
+  composerPhase: ComposerPhase
   /** Set after host/session-removed; the UI grays out and disables input. */
   removed: boolean
   openState: OpenState
@@ -157,5 +223,9 @@ export interface ConversationSnapshot {
   hasMore: boolean
   loadingOlder: boolean
   promptError: PromptError | null
+  /** Frontend-only publication state; null for a Host-connected Session. */
+  intent: SessionIntentSnapshot | null
+  /** Session-owned editable prompt waiting for connection, attachment, or send. */
+  pendingPrompt: PendingPrompt | null
   lastAgentError: string | null
 }

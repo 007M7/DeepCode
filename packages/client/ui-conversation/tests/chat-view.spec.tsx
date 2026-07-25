@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode,
+  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
@@ -29,8 +29,8 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
+    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
   }
 }
 
@@ -54,24 +54,33 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 }
 
 const user = (seq: number, text: string): UserMessageNode => ({
-  kind: 'user', seq, content: [{ type: 'text', text }] as never, source: null,
+  kind: 'user', seq, time: seq * 1_000, content: [{ type: 'text', text }] as never, source: null,
 })
 const assistant = (seq: number, text: string): AssistantMessageNode => ({
-  kind: 'assistant', seq, turn: 1, step: 1, blocks: [{ kind: 'text', text }],
+  kind: 'assistant', seq, time: seq * 1_000, turn: 1, step: 1, blocks: [{ kind: 'text', text }],
 })
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
-  kind: 'tool-result', seq, callId,
+  kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
+  callTime: seq * 1_000 - 500,
   content: [], isError: false, callView: null, resultView: null,
 })
 const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
-  callId, name, argsRaw: `{"command":"cmd-${callId}"}`, turn: 2, step: 1, callView: null,
+  callId, name, argsRaw: `{"command":"cmd-${callId}"}`, turn: 2, step: 1, time: 1_000, callView: null,
 })
 
-/** Empty sessions-list hook stub (the global standard-kit seat; engines carry no hook since the store migration — bind here). */
+/** Empty sessions-list hook for the global standard-kit seat. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined } as SessionListState)
+    { ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready' })
+  return bindSnapshotSelector(store)
+}
+
+function emptyWorkspaces() {
+  const store = createSnapshotStore<WorkspaceListState>({
+    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+    baselinesReady: true, recentWorkspaceId: undefined,
+  })
   return bindSnapshotSelector(store)
 }
 
@@ -94,6 +103,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     sessionId: SID,
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
+    useWorkspaces: emptyWorkspaces(),
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
     renderSlot,

@@ -15,8 +15,7 @@
  * The exit tool remains registered while plan mode is inactive so crossing a
  * boundary changes only the prompt section, not the request tool catalog.
  *
- * Agent Notes:
- * - .agents/notes/implemented/feature/2026-07-07-plan-mode.md
+ * Agent Note:
  * - .agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md
  *
  * @module @deepseek-ai/dsh-plan-mode
@@ -357,7 +356,7 @@ export class PlanModeService extends Service {
     const text = target
       ? 'The user switched this session to plan mode.'
       : 'The user switched this session back to the default mode.'
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text }],
       source: { kind: 'plugin', plugin: 'plan-mode' },
     }, { surfaceOp: 'append' })

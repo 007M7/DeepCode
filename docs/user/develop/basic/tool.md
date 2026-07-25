@@ -158,7 +158,7 @@ Do not repeat type validation inside `execute`.
 
 ## Presentation
 
-A tool can define UI presentation methods for terminal and ACP clients:
+A tool can define transport-neutral presentation methods for terminal and web clients:
 
 ```ts ignore-check
 defineTool({

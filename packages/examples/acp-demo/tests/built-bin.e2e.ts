@@ -18,7 +18,6 @@ import { Readable, Writable } from 'node:stream'
 import { promisify } from 'node:util'
 import { zstdDecompress } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ACP_SESSION_REFERENCE_META_KEY } from '@deepseek-ai/dsh-acp'
 
 /**
  * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer and
@@ -36,8 +35,7 @@ const dshPackages = [
   'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-checkpoint-policy', 'session-persistence/session-persistence-jsonl',
-  'session-query/session-query', 'session-query/session-query-sqlite',
-  'context/session-reference', 'ui/acp', 'examples/acp-demo', 'util/paths',
+  'acp/acp', 'examples/acp-demo', 'util/paths',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
@@ -45,8 +43,8 @@ const vendorPackages = [
 ]
 // Resolve ACP's declared third-party dependencies from that package, not this test: pnpm's strict
 // layout need not hoist them. Symlink those exact paths into the plain-Node consumer.
-const npmDeps = ['@agentclientprotocol/sdk', 'zod']
-const acpPkgDir = join(repoRoot, 'packages/ui/acp')
+const npmDeps = ['@agentclientprotocol/sdk']
+const acpPkgDir = join(repoRoot, 'packages/acp/acp')
 
 async function pkgName(absDir: string): Promise<string> {
   const json = JSON.parse(await readFile(join(absDir, 'package.json'), 'utf8')) as { name: string }
@@ -72,7 +70,7 @@ async function makeConsumer(): Promise<string> {
     await link(abs, await pkgName(abs), nm)
   }
   for (const dep of npmDeps) {
-    // Resolve from `ui/acp`'s package.json URL (the package that declares the
+    // Resolve from ACP's package.json URL (the package that declares the
     // dep), not this test file's location — `acp-agent` does not depend on these.
     const fromAcp = pathToFileURL(join(acpPkgDir, 'package.json')).href
     const resolved = fileURLToPath(import.meta.resolve(`${dep}/package.json`, fromAcp))
@@ -154,8 +152,12 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
       Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
       Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
     )
+    const updates: SessionNotification['update'][] = []
     const makeClient = (_a: AcpAgent): Client => ({
-      sessionUpdate(_p: SessionNotification): Promise<void> { return Promise.resolve() },
+      sessionUpdate(params: SessionNotification): Promise<void> {
+        updates.push(params.update)
+        return Promise.resolve()
+      },
       requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
         return Promise.resolve({ outcome: { outcome: 'cancelled' } })
       },
@@ -163,33 +165,17 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     const client = new ClientSideConnection(makeClient, stream)
 
     const init = await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    // A response at all proves the built bin booted the bridge (the settle-race
-    // regression would exit before answering); loadSession proves the real app
-    // mounted, not a collapsed export shape.
-    expect(init.agentCapabilities?.loadSession).toBe(true)
-    expect(init.agentCapabilities?.sessionCapabilities?.list).toEqual({})
+    expect(init.agentCapabilities).toEqual({
+      promptCapabilities: { image: false, audio: false, embeddedContext: false },
+    })
     const sessionCwd = consumer
     const { sessionId } = await client.newSession({ cwd: sessionCwd, mcpServers: [] })
     const result = await client.prompt({ sessionId, prompt: [{ type: 'text', text: 'reply' }] })
     expect(result.stopReason).toBe('end_turn')
-    await expect.poll(async () => {
-      return (await client.listSessions({ cwd: sessionCwd })).sessions.find(candidate => candidate.sessionId === sessionId)
-    }).toMatchObject({
-      sessionId,
-      cwd: sessionCwd,
-      title: 'reply',
-    })
-    const listed = await client.listSessions({ cwd: sessionCwd })
-    const reference = listed.sessions.find(candidate => candidate.sessionId === sessionId)
-      ?._meta?.[ACP_SESSION_REFERENCE_META_KEY]
-    expect(reference).toBeTypeOf('object')
-    expect(reference).not.toBeNull()
-    expect(reference).toHaveProperty('uri')
-    if (typeof reference !== 'object' || reference === null || !('uri' in reference)) {
-      throw new Error('expected session reference metadata')
-    }
-    expect(reference.uri).toBeTypeOf('string')
-    expect(reference.uri).toMatch(/^dsh-session:[A-Za-z0-9_-]+$/u)
+    await expect.poll(() => updates).toEqual([{
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: 'ACP BUILT OK' },
+    }])
     const sessionsRoot = join(sessionCwd, '.sessions')
     let log: string | undefined
     await expect.poll(async () => {

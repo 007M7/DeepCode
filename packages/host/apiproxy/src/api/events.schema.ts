@@ -11,6 +11,7 @@ import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
 import { sessionEventSchema, sessionIdSchema, toolEventViewSchema } from './sessions.schema.ts'
+import { workspaceViewSchema } from './workspace.schema.ts'
 
 /** Question shape validated strictly against core dsh-user-interaction. */
 export const askUserQuestionItemSchema = z.object({
@@ -39,9 +40,10 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
 
 /** HostFrame union (payload slot of a host-stream ServerRequest). */
 export const hostFrameSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('host/session-added'), sessionId: sessionIdSchema, parentSessionId: sessionIdSchema.optional() }),
+  z.object({ type: z.literal('host/session-added'), sessionId: sessionIdSchema, parentSessionId: sessionIdSchema.optional(), cwd: z.string().optional() }),
   z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),
+  z.object({ type: z.literal('host/workspace-changed'), workspace: workspaceViewSchema }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>

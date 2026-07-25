@@ -183,7 +183,7 @@ describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', ()
             "kind": "select",
             "message": "Run interface",
             "options": [
-              "ACP server",
+              "ACP automation server",
               "Terminal TUI",
               "Embedded context",
             ],
@@ -285,12 +285,6 @@ describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', ()
                 "choices": undefined,
                 "default": false,
                 "label": "Tool timeout policy",
-                "required": false,
-              },
-              {
-                "choices": undefined,
-                "default": false,
-                "label": "Ask the user from the model loop",
                 "required": false,
               },
             ],

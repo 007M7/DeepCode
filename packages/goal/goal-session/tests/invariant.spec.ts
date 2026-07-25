@@ -40,7 +40,7 @@ function view(roundsStarted: number): GoalView {
 
 function appendChange(session: Session): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
-  session.append('context/message', {
+  session.append('user/message', {
     content: renderGoalChange(change),
     source: changeSource,
     meta: change as never,
@@ -126,7 +126,7 @@ describe('goal-session prompt invariants', () => {
   it('attributes an invalid durable prefix during late loading', async () => {
     const { ctx, session } = await mount(true)
     session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'counterfeit goal state' }],
       source: changeSource,
       meta: change as never,

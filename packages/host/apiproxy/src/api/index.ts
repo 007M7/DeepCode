@@ -6,6 +6,7 @@
 
 import type { SessionsApi } from './sessions.ts'
 import type { HostApi } from './host.ts'
+import type { WorkspaceApi } from './workspace.ts'
 import type { EventsApi } from './events.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
 
@@ -13,6 +14,7 @@ import type { ClientResponse, RpcReceipt } from './rpc.ts'
 export interface ApiProxy {
   sessions: SessionsApi
   host: HostApi
+  workspace: WorkspaceApi
   events: EventsApi
   /** Response entry for server-requests (client-response, echoing their rpcId); not a domain method (four-quadrant model). */
   respond(message: ClientResponse): Promise<RpcReceipt>
@@ -21,6 +23,7 @@ export interface ApiProxy {
 // ---- Domain interfaces and payload entities ----
 export type { HistoryEntry, SessionsApi, SessionSummary } from './sessions.ts'
 export type { HostApi } from './host.ts'
+export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { EventsApi, MuxFrame, HostFrame, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
 export type { QuestionResponsePayload } from './questions.ts'

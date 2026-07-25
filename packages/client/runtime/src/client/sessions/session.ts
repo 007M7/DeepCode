@@ -1,20 +1,18 @@
-// Session: wraps every contract call that needs a sessionId + all conversation state for this
-// session (design §A.2/§A.9/§D.2/§D.3). Instances are resident (ruling 2): never destroyed once
-// created, they keep consuming mux frames in the background; React connects directly via
-// subscribe/getSnapshot.
+// Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, ToolEventView,
+  SessionId, ToolEventView, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  ConversationNode, ConversationSnapshot, OpenState, PromptError, RunningToolCall,
+  ComposerPhase, ConversationNode, ConversationSnapshot, OpenState, PendingPrompt,
+  PromptError, RunningToolCall, SessionIntentSnapshot, SessionIntentTarget,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -22,14 +20,18 @@ import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
 
-/** Messages per page (F.4 ledger: promote to Config at graduation; every call site references this constant). */
+/** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
+/** Optional frontend Intent and publication observer for a Session object. */
+export interface SessionOptions {
+  intent?: { target: SessionIntentTarget; prompt: string }
+  onPublished?(session: Session): void
+}
+
 /**
- * Per-session state owner: event window + fold + partial, snapshot out via
- * subscribe/getSnapshot (see the web client architecture RFC). Bare source
- * only (store migration): the React machinery binds the per-cell useSession
- * hook at its own seam — no selector hook member lives on the data layer.
+ * Owns a session's event window, derived conversation state, and observable
+ * snapshot. React bindings remain outside this data layer.
  */
 export class Session implements ObservableSnapshot<ConversationSnapshot> {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
@@ -54,8 +56,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
   private frozenNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
-  // Revision counters + caches backing the snapshot's reference-stability contract (§A.9.4/§C.2,
-  // audit S5): buildSnapshot reuses the previous array when the revision is unchanged, so
+  // Revision counters preserve array identity when derived content is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
   // tool card and pending card). Mutation sites bump the matching revision. partial needs no
   // counter — PartialAccumulator.toPartial already returns a cached reference when unchanged.
@@ -66,12 +67,22 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
   private running = false
+  /**
+   * Sticky send marker, private input of the composerPhase derivation: set
+   * synchronously before prompt()'s first await, never reset — the blank →
+   * engaging edge of the phase machine (see ComposerPhase).
+   */
+  private promptAttempted = false
   private removed = false
   private promptError: PromptError | null = null
+  private intent: SessionIntentSnapshot | null
+  private pendingPrompt: PendingPrompt | null
+  private intentGeneration = 0
+  private published: boolean
   private lastAgentError: string | null = null
-  /** Buffer for live events arriving while open/resync is in flight (stitched by seq once history lands, §D.3). */
+  /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
-  /** Gap-repair (resync-lite) in flight: acceptLiveEvent detours to liveBuffer until the tail page lands (audit S3). */
+  /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
   private stitching = false
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
@@ -81,7 +92,23 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.snapshotCache = this.buildSnapshot()
   })
 
-  constructor(readonly sessionId: SessionId, private readonly api: IApiClient) {
+  /**
+   * @param sessionId - stable identity shared by the frontend Intent and Host entity.
+   * @param api - shared wire client.
+   * @param options - optional frontend-only initial state and publication observer.
+   */
+  constructor(
+    readonly sessionId: SessionId,
+    private readonly api: IApiClient,
+    private readonly options: SessionOptions = {},
+  ) {
+    this.intent = options.intent === undefined
+      ? null
+      : { target: options.intent.target, phase: 'ready' }
+    this.pendingPrompt = options.intent === undefined
+      ? null
+      : { text: options.intent.prompt, phase: 'editing', retry: 'send' }
+    this.published = options.intent === undefined
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -96,6 +123,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   async prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>> {
     this.promptError = null
     this.lastAgentError = null
+    // Synchronous, before the first await: the blank → engaging edge must be
+    // visible on the session area's very first frame when a caller sends
+    // ahead of navigation (first-send flow).
+    this.promptAttempted = true
     this.notifier.markDirty()
     let result: RpcResult<{ accepted: true }>
     try {
@@ -108,6 +139,60 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Update this Session's retained prompt while it remains editable.
+   * @param text - exact controlled value of this Session's retained prompt.
+   */
+  updatePendingPrompt(text: string): void {
+    const pending = this.pendingPrompt
+    if (pending === null || pending.phase === 'sending') return
+    this.pendingPrompt = { ...pending, text }
+    this.notifier.notifyNow()
+  }
+
+  /**
+   * Connect this frontend Session to a real Workspace and flush its retained prompt.
+   * @param workspaceId - real Workspace target.
+   */
+  connect(workspaceId: WorkspaceId): void {
+    const intent = this.intent
+    const pending = this.pendingPrompt
+    if (intent === null || intent.phase === 'connecting' || pending === null || pending.text.trim() === '') return
+    const connecting: SessionIntentSnapshot = {
+      target: { kind: 'workspace', workspaceId },
+      phase: 'connecting',
+    }
+    const queued: PendingPrompt = {
+      ...pending,
+      phase: 'sending',
+      retry: 'connect',
+      workspaceId,
+    }
+    delete queued.error
+    this.intent = connecting
+    this.pendingPrompt = queued
+    this.notifier.notifyNow()
+    void this.flushPendingPrompt()
+  }
+
+  /** Stop a superseded frontend Intent from automatically sending after publication. */
+  abandonIntent(): void {
+    if (this.intent === null) return
+    this.intentGeneration += 1
+  }
+
+  /** Retry this Session's retained prompt from its failed prerequisite. */
+  retryPendingPrompt(): void {
+    const pending = this.pendingPrompt
+    if (pending === null || pending.phase === 'sending' || pending.text.trim() === '') return
+    const sending: PendingPrompt = { ...pending, phase: 'sending' }
+    delete sending.error
+    this.pendingPrompt = sending
+    this.promptError = null
+    this.notifier.markDirty()
+    void this.flushPendingPrompt()
   }
 
   /**
@@ -277,6 +362,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.notifier.markDirty()
   }
 
+  /** Mark that Host publication is known without resolving an uncertain local create response. */
+  handlePublished(): void {
+    this.markPublished()
+  }
+
   /** host/session-removed relay: flag the snapshot (instance survives — resident-instance rule). */
   handleRemoved(): void {
     this.removed = true
@@ -292,8 +382,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.notifier.markDirty()
   }
 
-  /** Instance-eviction hook, reserved no-op (design §F.6): resident instances are never destroyed
-   *  in v1; an eviction policy lands here (unsubscribe, drop buffers) without touching call sites. */
+  /** No-op because session instances remain resident. */
   dispose(): void {}
 
   // ---- 私有 ----
@@ -309,6 +398,112 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     wait.markSettled()
     this.pending.delete(wait.key)
     this.pendingRev++
+  }
+
+  /** Advance the retained prompt through Session attachment and submission. */
+  private async flushPendingPrompt(): Promise<void> {
+    const pending = this.pendingPrompt
+    if (pending?.phase === 'sending') {
+      const ready = pending.retry === 'connect'
+        ? await this.attachPendingPrompt(pending)
+        : pending
+      if (ready !== null) await this.sendPendingPrompt(ready)
+    }
+  }
+
+  /** Complete the Host Session prerequisite and return the prompt's send step. */
+  private async attachPendingPrompt(pending: PendingPrompt): Promise<PendingPrompt | null> {
+    const workspaceId = pending.workspaceId
+    if (workspaceId === undefined) throw new Error('a Session attachment requires a Workspace id')
+    const originIntent = this.intent
+    const originGeneration = this.intentGeneration
+    let result: RpcResult<{ sessionId: SessionId }>
+    try {
+      result = (await this.api.sessions.create({ sessionId: this.sessionId, workspaceId })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    let ready: PendingPrompt | null = null
+    if (result.ok) {
+      ready = this.completePendingAttachment(pending, originIntent, originGeneration)
+    } else {
+      this.failPendingAttachment(pending, originIntent, originGeneration, result.error)
+    }
+    this.notifier.markDirty()
+    return ready
+  }
+
+  /** Move a published Session to the send step unless its page intent was superseded. */
+  private completePendingAttachment(
+    pending: PendingPrompt,
+    originIntent: SessionIntentSnapshot | null,
+    originGeneration: number,
+  ): PendingPrompt | null {
+    this.markPublished()
+    this.intent = null
+    this.promptAttempted = true
+    const superseded = originIntent !== null && originGeneration !== this.intentGeneration
+    const next: PendingPrompt = {
+      ...pending,
+      phase: superseded ? 'failed' : 'sending',
+      retry: 'send',
+      ...(superseded ? { error: 'Message was not sent because you navigated away.' } : {}),
+    }
+    if (!superseded) delete next.error
+    this.pendingPrompt = next
+    return superseded ? null : next
+  }
+
+  /** Retain the prompt at the failed attachment step that owns the retry. */
+  private failPendingAttachment(
+    pending: PendingPrompt,
+    originIntent: SessionIntentSnapshot | null,
+    originGeneration: number,
+    error: RpcError,
+  ): void {
+    const partiallyPublished = error.code === 'workspace-attach-failed'
+    if (partiallyPublished) {
+      this.markPublished()
+      this.intent = null
+      this.promptAttempted = true
+    }
+    const activeIntent = !partiallyPublished
+      && originIntent !== null
+      && originGeneration === this.intentGeneration
+      && this.intent === originIntent
+    if (activeIntent) {
+      this.intent = {
+        target: originIntent.target,
+        phase: 'ready',
+        error: { step: 'session', message: rpcErrorMessage(error) },
+      }
+      this.pendingPrompt = { ...pending, phase: 'editing' }
+    }
+    if (!activeIntent && (partiallyPublished || originIntent === null) && this.pendingPrompt === pending) {
+      this.pendingPrompt = { ...pending, phase: 'failed', error: rpcErrorMessage(error) }
+    }
+  }
+
+  /** Submit the retained prompt and keep it only when Host rejects the send. */
+  private async sendPendingPrompt(pending: PendingPrompt): Promise<void> {
+    const result = await this.prompt([{ type: 'text', text: pending.text.trim() }], 'queue')
+    if (this.pendingPrompt === pending) {
+      this.pendingPrompt = result.ok
+        ? null
+        : {
+          ...pending,
+          retry: 'send',
+          phase: 'failed',
+          error: rpcErrorMessage(result.error),
+        }
+      this.notifier.markDirty()
+    }
+  }
+
+  private markPublished(): void {
+    if (this.published) return
+    this.published = true
+    this.options.onPublished?.(this)
   }
 
   /** @param generation - openGeneration at launch; every await re-checks it and a stale pass
@@ -434,7 +629,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       case 'tool/call': {
         this.openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
-          turn: event.data.turn, step: event.data.step,
+          turn: event.data.turn, step: event.data.step, time: event.time,
           callView: view?.for === 'call' ? view.view : null,
         })
         this.callsRev++
@@ -455,7 +650,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
             this.frozenNodes.push({
-              kind: 'assistant', seq: event.seq - 0.9, turn: this.partial.turn, step: this.partial.step,
+              kind: 'assistant', seq: event.seq - 0.9, time: event.time,
+              turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
             this.frozenRev++
@@ -469,8 +665,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
           this.frozenNodes.push({
-            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, callId,
+            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
+            callId,
             call: { name: call.name, argsRaw: call.argsRaw },
+            callTime: call.time,
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })
@@ -524,21 +722,47 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
+    const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
       nodes,
       foldDegraded: degraded,
-      partial: this.partial?.toPartial() ?? null,
+      partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
       running: this.running,
+      composerPhase: derivePhase(
+        nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
+        this.promptAttempted,
+      ),
       removed: this.removed,
       openState: this.openState,
       openError: this.openError,
       hasMore: this.hasMore,
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
+      intent: this.intent,
+      pendingPrompt: this.pendingPrompt,
       lastAgentError: this.lastAgentError,
     }
   }
+}
+
+function rpcErrorMessage(error: RpcError): string {
+  return `${error.code}: ${error.message}`
+}
+
+/**
+ * The composerPhase judgment — the single site that knows the predicate
+ * (consumers switch on the result, never re-derive). Monotone per session
+ * object: `hasContent` only grows within a window and `promptAttempted` is
+ * sticky, so blank → engaging → active never steps back; a failed first
+ * prompt stays engaging (retry semantics — see ComposerPhase).
+ * @param hasContent - any conversation material exists (nodes, partial, running turn, pending waits).
+ * @param promptAttempted - a prompt was initiated on this session object.
+ * @returns the derived phase.
+ */
+function derivePhase(hasContent: boolean, promptAttempted: boolean): ComposerPhase {
+  if (hasContent) return 'active'
+  return promptAttempted ? 'engaging' : 'blank'
 }

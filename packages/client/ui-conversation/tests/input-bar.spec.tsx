@@ -19,7 +19,10 @@ function setup(over?: Partial<InputBarProps>) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
-  const button = view.container.querySelector('button')!
+  // aria-label (not role name): title carries the same label and would double-match.
+  const button = view.container.querySelector<HTMLButtonElement>(
+    `button[aria-label="${over?.running === true ? 'Stop generating' : 'Send message'}"]`,
+  )!
   return { view, textarea, button, props }
 }
 
@@ -77,7 +80,7 @@ describe('running lock and primary button', () => {
   it('running locks the textarea and turns the primary into stop', () => {
     const { textarea, button, props } = setup({ running: true })
     expect(textarea.disabled).toBe(true)
-    expect(button.getAttribute('aria-label')).toBe('停止')
+    expect(button.getAttribute('aria-label')).toBe('Stop generating')
     fireEvent.click(button)
     expect(props.onStop).toHaveBeenCalledTimes(1)
     expect(props.onSend).not.toHaveBeenCalled()
@@ -97,35 +100,70 @@ describe('running lock and primary button', () => {
     const textarea = view.container.querySelector('textarea')!
     expect(document.activeElement).toBe(textarea)
     textarea.blur()
-    fireEvent.mouseDown(view.container.querySelector('button')!)
+    fireEvent.mouseDown(view.container.querySelector('button[aria-label="Send message"]')!)
     expect(document.activeElement).toBe(textarea)
   })
 
   it('disabled state shows the unavailable placeholder; typing forwards drafts', () => {
     const { textarea } = setup({ disabled: true, draft: '' })
-    expect(textarea.placeholder).toBe('会话不可用')
+    expect(textarea.placeholder).toBe('Session unavailable')
     const live = setup({ draft: '' })
-    expect(live.textarea.placeholder).toContain('Enter 发送')
+    expect(live.textarea.placeholder).toBe('Message the agent')
     fireEvent.change(live.textarea, { target: { value: 'typed' } })
     expect(live.props.onDraftChange).toHaveBeenCalledWith('typed')
     const runningPh = setup({ running: true, draft: '' })
-    expect(runningPh.textarea.placeholder).toContain('停止')
-    const custom = setup({ placeholder: '自定义' })
-    expect(custom.textarea.placeholder).toBe('自定义')
+    expect(runningPh.textarea.placeholder).toBe('Generating a response…')
+    const custom = setup({ placeholder: 'Custom placeholder' })
+    expect(custom.textarea.placeholder).toBe('Custom placeholder')
   })
 })
 
 describe('error strip and variants', () => {
   it('renders send and stop failure copy', () => {
     const send = setup({ error: { op: 'send', message: 'boom' } })
-    expect(send.view.getByText(/发送失败：boom/)).toBeTruthy()
+    expect(send.view.container.querySelector('[role="alert"]')?.textContent).toBe('boom')
     const stop = setup({ error: { op: 'stop', message: 'halt' } })
-    expect(stop.view.getByText(/停止失败：halt/)).toBeTruthy()
+    expect(stop.view.container.querySelector('[role="alert"]')?.textContent).toBe('halt')
   })
 
   it('hero variant adds the hero class and accessory row renders', () => {
     const { view } = setup({ variant: 'hero', accessory: <i data-testid="acc" /> })
     expect(view.getByTestId('acc')).toBeTruthy()
     expect(view.container.querySelector('[class*="hero"]')).not.toBeNull()
+  })
+})
+
+describe('placeholder chrome', () => {
+  it('renders attach / Plan / Read-only / model controls', () => {
+    const { view } = setup()
+    expect(view.getByLabelText('Add attachment')).toBeTruthy()
+    expect((view.getByLabelText('Plan mode') as HTMLSelectElement).value).toBe('plan')
+    expect((view.getByLabelText('Access mode') as HTMLSelectElement).value).toBe('readonly')
+    expect((view.getByLabelText('Model') as HTMLSelectElement).value).toBe('v4-pro-high')
+  })
+
+  it('native select change updates the selected option', () => {
+    const { view } = setup()
+    const plan = view.getByLabelText('Plan mode') as HTMLSelectElement
+    fireEvent.change(plan, { target: { value: 'agent' } })
+    expect(plan.value).toBe('agent')
+    const access = view.getByLabelText('Access mode') as HTMLSelectElement
+    fireEvent.change(access, { target: { value: 'readwrite' } })
+    expect(access.value).toBe('readwrite')
+  })
+
+  it('model select can drop the High option', () => {
+    const { view } = setup()
+    const model = view.getByLabelText('Model') as HTMLSelectElement
+    fireEvent.change(model, { target: { value: 'v4-pro' } })
+    expect(model.value).toBe('v4-pro')
+    expect(model.selectedOptions[0]?.textContent).toBe('DeepSeek-V4-Pro')
+  })
+
+  it('running locks the chrome selects and attach control', () => {
+    const { view } = setup({ running: true })
+    expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('Plan mode') as HTMLSelectElement).disabled).toBe(true)
+    expect((view.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true)
   })
 })

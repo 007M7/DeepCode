@@ -3,8 +3,22 @@
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
   ClientResponse, HostFrame, IApiClient, MuxFrame, RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId,
+  WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+
+/** Programmable-default workspace row (branded id, ISO-ish times). */
+function fakeWorkspace(id: string, over: Partial<WorkspaceView> = {}): WorkspaceView {
+  return {
+    workspaceId: id as WorkspaceId,
+    path: '/f/ws',
+    title: 'ws',
+    sessionIds: [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...over,
+  }
+}
 
 export interface Deferred<T> {
   promise: Promise<T>
@@ -72,6 +86,15 @@ export class FakeApiClient implements IApiClient {
 
   readonly host: IApiClient['host'] = {
     describe: (payload: unknown) => this.record('host.describe', payload, this.onDescribe(payload)),
+  }
+
+  onWorkspaceList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
+  onWorkspaceCreate: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>> =
+    () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws'), created: true }))
+
+  readonly workspace: IApiClient['workspace'] = {
+    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload)),
+    create: (payload: unknown) => this.record('workspace.create', payload, this.onWorkspaceCreate(payload)),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

@@ -283,20 +283,17 @@ describe('SurfaceManager', () => {
 
   it('empty surface yields empty nodes', () => {
     const s = new Session(SessionId('empty'))
-    // Only turn boundaries, no surface nodes.
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('step/end', { turn: 1, step: 1 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect(s.surface.nodes.length).toBe(0)
-    // deriveMessages returns empty array
     expect(s.deriveMessages()).toEqual([])
   })
 
   it('picks up new events incrementally (delta processing)', () => {
     const s = surfaceSession()
     expect(s.surface.nodes.length).toBe(2)
-    // Append another surface node
     s.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     expect(s.surface.nodes.length).toBe(3)
     expect(s.surface.nodes[2]!).toBe(4) // seq 4: after turn/end at seq 3
@@ -306,7 +303,6 @@ describe('SurfaceManager', () => {
     const original = surfaceSession()
     original.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     const replayed = new Session(SessionId('replay'), [...original.events])
-    // Surface rebuilds from the seeded log's markers.
     expect(replayed.surface.nodes).toEqual([1, 2, 4])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
   })
@@ -444,9 +440,9 @@ describe('deriveMessages with surface', () => {
     expect(messages[0]!.content[0]).toMatchObject({ type: 'text', text: 'compacted' })
   })
 
-  it('context/message and steering/message appear on surface', () => {
+  it('injected-context and steering/message appear on surface', () => {
     const s = new Session(SessionId('ctx'))
-    s.append('context/message', { content: [{ type: 'text', text: 'file changed' }], source: { kind: 'plugin', plugin: 'watcher' } }, { surfaceOp: 'append' })
+    s.append('user/message', { content: [{ type: 'text', text: 'file changed' }], source: { kind: 'plugin', plugin: 'watcher' } }, { surfaceOp: 'append' })
     s.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'focus' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const messages = s.deriveMessages()
     expect(messages).toHaveLength(2)
@@ -524,7 +520,6 @@ describe('surface type guards', () => {
     expect(isSurfaceEligibleType('user/message')).toBe(true)
     expect(isSurfaceEligibleType('assistant/message')).toBe(true)
     expect(isSurfaceEligibleType('tool/result')).toBe(true)
-    expect(isSurfaceEligibleType('context/message')).toBe(true)
     expect(isSurfaceEligibleType('steering/message')).toBe(true)
     expect(isSurfaceEligibleType('turn/start')).toBe(false)
     expect(isSurfaceEligibleType('assistant/chunk')).toBe(false)
@@ -568,7 +563,7 @@ describe('SurfaceManager.replaceGeneration', () => {
     expect(s.surface.replaceGeneration).toBe(0)
 
     const nodes = s.surface.nodes
-    s.append('context/message', {
+    s.append('user/message', {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
     }, { surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! }, sourceEventSeqs: [nodes[0]!, nodes[1]!] })
     expect(s.surface.replaceGeneration).toBe(1)
