@@ -38,7 +38,7 @@ describe('llm-retry invariants', () => {
     }] as never, 1, 1)).toBeUndefined()
   })
 
-  it('does not inherit a provider across a turn boundary', () => {
+  it('inherits the latest provider across a turn boundary when the header is unchanged', () => {
     expect(providerForClosedStep([
       { type: 'turn/start', data: { turn: 1 } },
       {
@@ -48,7 +48,7 @@ describe('llm-retry invariants', () => {
       { type: 'turn/end', data: { turn: 1 } },
       { type: 'turn/start', data: { turn: 2 } },
       { type: 'step/end', data: { turn: 2, step: 1 } },
-    ] as never, 2, 1)).toBeUndefined()
+    ] as never, 2, 1)).toBe('prior')
   })
 
   it('accepts increasing retry records for successive closed steps and ignores unrelated events', async () => {
@@ -226,7 +226,7 @@ describe('llm-retry invariants', () => {
     }).toThrow(/does not match the failed request provider mock/)
   })
 
-  it('rejects a current-turn retry without a current-turn provider route', async () => {
+  it('accepts a current-turn retry under an unchanged prior provider route', async () => {
     const ctx = await setup()
     const session = closeStep(ctx, 'retry-invariant-prior-route')
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -243,7 +243,7 @@ describe('llm-retry invariants', () => {
         delayMs: 1,
         failure,
       })
-    }).toThrow(/does not match the failed request provider undefined/)
+    }).not.toThrow()
   })
 
   it('rejects non-numeric durable delays', async () => {

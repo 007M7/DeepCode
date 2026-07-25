@@ -207,6 +207,45 @@ describe('provider-routed retry policy', () => {
     })
   })
 
+  it('retries a later turn under its unchanged provider header', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      textResponse('first turn'),
+      new LlmError('busy on second turn', 'RATE_LIMIT'),
+      textResponse('second turn recovered'),
+    ])
+    ;({ ctx: context } = await harness(adapter, { mock: normalConfig({
+      backoff: { initialDelayMs: 1, maxDelayMs: 1 },
+    }) }))
+    const agent = context.agentLoop.create(SessionId('retry-later-turn'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    const firstIdle = waitForIdle(context, agent)
+    agent.followup([{ type: 'text', text: 'first' }])
+    await firstIdle
+    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
+
+    const scheduled = waitForRetry(context, agent, 1)
+    agent.followup([{ type: 'text', text: 'second' }])
+    expect((await scheduled).data).toMatchObject({
+      turn: 2,
+      step: 1,
+      provider: 'mock',
+    })
+    const secondIdle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(1)
+    await secondIdle
+
+    expect(adapter.requests).toHaveLength(3)
+    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'second turn recovered' }],
+    })
+  })
+
   it('leaves partial failed chunks on their step without committing a message or tool side effect', async () => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([

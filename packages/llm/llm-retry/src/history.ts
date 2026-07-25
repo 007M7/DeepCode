@@ -4,8 +4,9 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /**
  * Find the provider in force when one step closed, excluding later recovery mutations.
- * A preceding retry is also a route marker because every provider change
- * requires a newer full request-header snapshot.
+ * Request headers remain effective across turn boundaries until a newer full
+ * snapshot changes them. A preceding retry in the same turn is also a route
+ * marker because every provider change requires a newer full snapshot.
  * @param events - session events containing the closed step.
  * @param turn - turn that owns the failed step.
  * @param step - failed step whose provider is required.
@@ -32,7 +33,6 @@ export function providerForClosedStep(
       && event.data.step < step) {
       return event.data.provider
     }
-    if (event.type === 'turn/start' || event.type === 'turn/end') return undefined
   }
   return undefined
 }
