@@ -8,6 +8,10 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "apps/web/tests/scaffold.ts",
+    "apps/web/tests/support.ts",
+    "apps/web/tests/replay-round-trip.e2e.ts",
+    "apps/web/tests/seeded-history.e2e.ts",
     "apps/cli/tests/**/*.ts",
     "examples/*/src/**/*.ts",
     "examples/*/start.ts",
