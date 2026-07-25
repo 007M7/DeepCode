@@ -48,6 +48,7 @@ function GroupByMenu({ groupBy, onPick }: {
       items={GROUP_BY_ITEMS}
       selectedId={groupBy}
       onSelect={(id) => {
+        /* v8 ignore next -- narrowing guard: the heading label is not selectable, so the only arriving ids are the two modes. */
         if (id === 'workspace' || id === 'flat') onPick(id)
         setOpen(false)
       }}
@@ -137,6 +138,7 @@ function SessionTree({ useSessions, startSession, open, workspaces, query, onRen
               onRename={group.workspaceId === undefined
                 ? undefined
                 : () => {
+                    /* v8 ignore next -- narrowing guard: the closure is only created for real-workspace groups. */
                     if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
                   }}
             />
@@ -154,9 +156,11 @@ function SessionTree({ useSessions, startSession, open, workspaces, query, onRen
                 active: sameGroupDrag,
                 marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
                 hover: (half: 'before' | 'after') => {
+                  /* v8 ignore next -- narrowing guard: Rows gates hover on `active`, which is false while the drag state is null. */
                   setDrag(d => (d === null ? d : { ...d, over: { id: node.id, half } }))
                 },
                 drop: (half: 'before' | 'after') => {
+                  /* v8 ignore next -- narrowing guard: Rows gates drop on `active`, which is false while the drag state is null. */
                   if (drag === null) return
                   const roots = group.sessions
                   // Anchor = the row the insert line points at ('after' means
@@ -218,6 +222,7 @@ function FlatList({ useSessions, open, query }: Pick<SessionTreeProps, 'useSessi
             currentId={list.current}
             now={now}
             onOpen={open}
+            /* v8 ignore next -- required-prop filler: flat rows render no twist, so it never fires. */
             onToggle={() => {}}
             flat
           />

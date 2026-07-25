@@ -68,6 +68,19 @@ describe('unary round trip', () => {
     expect(response.result).toEqual({ ok: true, value: { items: [{ sessionId: 's1', updatedAt: 7, running: false }] } })
   })
 
+  it('routes workspace rename and insertSessionBefore through the wire', async () => {
+    const api = scriptedApi()
+    const c = client(api)
+    const renamed = await c.workspace.rename({ workspaceId: 'w1' as never, title: 'next' })
+    expect(renamed.result.ok).toBe(true)
+    const blankTitle = await c.workspace.rename({ workspaceId: 'w1' as never, title: '   ' })
+    expect(blankTitle.result).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    const anchored = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1'), beforeSessionId: sid('s2') })
+    expect(anchored.result.ok).toBe(true)
+    const appended = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1') })
+    expect(appended.result.ok).toBe(true)
+  })
+
   it('passes business errors through as 200 + err result, not a throw', async () => {
     const api = scriptedApi({
       sessions: {

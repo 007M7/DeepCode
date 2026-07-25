@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RpcId } from '../src/api/rpc.ts'
+import { RpcId, transportError } from '../src/api/rpc.ts'
 import {
   clientRequestSchema, clientResponseSchema, rpcErrorSchema, rpcIdSchema, rpcMessageSchema,
   rpcReceiptSchema, rpcResultSchema, serverRequestSchema, serverResponseSchema,
@@ -13,8 +13,10 @@ import {
 } from '../src/api/sessions.schema.ts'
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
 import {
-  workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema, workspaceListRequestSchema,
-  workspaceListValueSchema, workspaceViewSchema,
+  workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
+  workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
+  workspaceListRequestSchema, workspaceListValueSchema,
+  workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
 } from '../src/api/workspace.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
@@ -30,6 +32,13 @@ describe('RpcId', () => {
   })
 })
 
+describe('transportError', () => {
+  it('folds Error and non-Error throws into the internal error branch', () => {
+    expect(transportError(new Error('wire down'))).toEqual({ ok: false, error: { code: 'internal', message: 'wire down', details: {} } })
+    expect(transportError('raw')).toMatchObject({ ok: false, error: { code: 'internal', message: 'raw' } })
+  })
+})
+
 describe('rpcErrorSchema', () => {
   it('accepts every code branch with its required details', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
@@ -40,6 +49,7 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'workspace-not-found', message: 'm', details: { workspaceId: 'w' } }).code).toBe('workspace-not-found')
     expect(rpcErrorSchema.parse({ code: 'workspace-invalid-path', message: 'm', details: { path: '/x' } }).code).toBe('workspace-invalid-path')
     expect(rpcErrorSchema.parse({ code: 'workspace-name-conflict', message: 'm', details: { name: 'x' } }).code).toBe('workspace-name-conflict')
+    expect(rpcErrorSchema.parse({ code: 'workspace-move-invalid', message: 'm', details: { workspaceId: 'w', sessionId: 's' } }).code).toBe('workspace-move-invalid')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
@@ -152,6 +162,19 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceCreateRequestSchema.parse({})).toThrow(/exactly one/)
     expect(() => workspaceCreateRequestSchema.parse({ path: '/p', name: 'n' })).toThrow(/exactly one/)
     expect(workspaceCreateValueSchema.parse({ workspace: view, created: false }).created).toBe(false)
+  })
+
+  it('rename requires a non-blank title (both refine arms)', () => {
+    expect(workspaceRenameRequestSchema.parse({ workspaceId: 'w1', title: 'new' }).title).toBe('new')
+    expect(() => workspaceRenameRequestSchema.parse({ workspaceId: 'w1', title: '  ' })).toThrow(/non-blank/)
+    expect(workspaceRenameValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
+  })
+
+  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
+    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
+    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
   })
 
 })

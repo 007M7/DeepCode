@@ -10,7 +10,7 @@ import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import WorkspaceRegistry, { WorkspaceId, WorkspaceNameConflictError } from '../src/index.ts'
+import WorkspaceRegistry, { WorkspaceId, WorkspaceMoveInvalidError, WorkspaceNameConflictError } from '../src/index.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 
 const DOMAIN_VERSION = 2
@@ -447,6 +447,56 @@ describe('Workspace session ordering', () => {
     await workspace.attachSession(SessionId('s1'))
     expect(workspace.sessionIds).toEqual(['s2', 's1'])
     expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['s2', 's1'])
+  })
+
+  it('moves one id before an anchor or to the end, durably', async () => {
+    const dir = await makeDir('insert-before')
+    const result = await harness()
+    result.setSessions([header('s1', dir, 1), header('s2', dir, 2), header('s3', dir, 3)])
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('s1'))
+    await workspace.attachSession(SessionId('s2'))
+    await workspace.attachSession(SessionId('s3'))
+    expect(workspace.sessionIds).toEqual(['s3', 's2', 's1'])
+
+    await workspace.insertSessionBefore(SessionId('s1'), SessionId('s2'))
+    expect(workspace.sessionIds).toEqual(['s3', 's1', 's2'])
+    await workspace.insertSessionBefore(SessionId('s3'))
+    expect(workspace.sessionIds).toEqual(['s1', 's2', 's3'])
+    expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['s1', 's2', 's3'])
+  })
+
+  it('treats self-anchored and already-in-place moves as no-ops without writing', async () => {
+    const dir = await makeDir('insert-noop')
+    const result = await harness()
+    result.setSessions([header('s1', dir, 1), header('s2', dir, 2)])
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('s1'))
+    await workspace.attachSession(SessionId('s2'))
+    const written = result.changes.length
+
+    await workspace.insertSessionBefore(SessionId('s1'), SessionId('s1'))
+    await workspace.insertSessionBefore(SessionId('s2'), SessionId('s1'))
+    await workspace.insertSessionBefore(SessionId('s1'))
+    await workspace.detachSession(SessionId('absent'))
+    expect(result.changes).toHaveLength(written)
+    expect(workspace.sessionIds).toEqual(['s2', 's1'])
+  })
+
+  it('rejects moves naming an unaccounted session or anchor', async () => {
+    const dir = await makeDir('insert-invalid')
+    const result = await harness()
+    result.setSessions([header('s1', dir, 1)])
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('s1'))
+    const written = result.changes.length
+
+    await expect(workspace.insertSessionBefore(SessionId('ghost')))
+      .rejects.toBeInstanceOf(WorkspaceMoveInvalidError)
+    await expect(workspace.insertSessionBefore(SessionId('s1'), SessionId('ghost')))
+      .rejects.toThrow(/anchor session is not accounted/)
+    expect(result.changes).toHaveLength(written)
+    expect(workspace.sessionIds).toEqual(['s1'])
   })
 
   it('validates a lazy live session without requiring it in persistence.list()', async () => {

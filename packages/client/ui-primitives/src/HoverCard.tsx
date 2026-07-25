@@ -5,7 +5,7 @@
 // and closes the instant the pointer leaves the anchor (no close delay).
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import css from './HoverCard.module.css'
 
@@ -27,7 +27,7 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
   const cardRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<CSSProperties | null>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -50,8 +50,10 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
   useLayoutEffect(() => {
     if (!open) { setPos(null); return }
     const place = () => {
-      const r = rootRef.current?.getBoundingClientRect() ?? null
-      if (r === null) return
+      const wrapper = rootRef.current
+      /* v8 ignore next -- the ref is attached before the layout effect runs and the listeners die with it. */
+      if (wrapper === null) return
+      const r = wrapper.getBoundingClientRect()
       const h = cardRef.current?.offsetHeight ?? 0
       const top = r.top + h > window.innerHeight - 8 ? window.innerHeight - h - 8 : r.top
       setPos({ left: r.right + 8, top })
@@ -66,13 +68,14 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
   }, [open])
 
   // The first placement ran before the card mounted (height read 0): once the
-  // card's real height is measurable, correct the bottom-edge clamp.
+  // card's real height is measurable, correct the bottom-edge clamp. The
+  // correction converges — a clamped top satisfies the guard, so it runs once.
   useLayoutEffect(() => {
-    if (!open || pos === null || typeof pos.top !== 'number') return
+    if (!open || pos === null) return
+    /* v8 ignore next -- the card is mounted whenever pos is set, so the ref is attached here. */
     const h = cardRef.current?.offsetHeight ?? 0
     if (pos.top + h > window.innerHeight - 8) {
-      const top = window.innerHeight - h - 8
-      if (pos.top !== top) setPos({ ...pos, top })
+      setPos({ left: pos.left, top: window.innerHeight - h - 8 })
     }
   }, [open, pos])
 
