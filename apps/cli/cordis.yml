@@ -44,6 +44,18 @@
 
 - id: tools
   name: '@deepseek-ai/dsh-tools'
+  config:
+    # TEMPORARY workaround: DSH_TOOLS_MODE (native|code|both) opts a whole dsh
+    # process into Code Mode while per-session tool-mode selection is being
+    # designed; unset keeps the schema default (native). Remove the env seam
+    # once the web UI owns the choice per session.
+    mode: !!js process.env.DSH_TOOLS_MODE
+
+# Code Mode substrate for the row above. Mounted unconditionally because
+# Loader metadata is static (no conditional rows): a native-mode boot only
+# registers the service — a worker thread spawns per run_code execution.
+- id: code-runtime
+  name: '@deepseek-ai/dsh-code-runtime-worker'
 
 - id: user-interaction
   name: '@deepseek-ai/dsh-user-interaction'

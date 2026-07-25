@@ -204,6 +204,7 @@ describe('outer Code Mode failure capture', () => {
       name: 'run_code',
       arguments: {
         code: 'console.log("HEAD-" + "x".repeat(300)); console.log("TAIL-" + "y".repeat(300)); return "unreachable";',
+        description: 'Print oversized head and tail lines',
       },
       agent: agent as never,
     })
