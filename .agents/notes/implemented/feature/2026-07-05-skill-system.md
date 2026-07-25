@@ -12,7 +12,7 @@ DeepSeek Harness uses the same primitive so project-specific review, plugin-auth
 
 ## Decision
 
-`@deepseek-ai/dsh-skill` is the pure provider registry (`ctx.skills`), `@deepseek-ai/dsh-skill-local` is the shipped local filesystem provider, and `@deepseek-ai/dsh-tool-skill` owns the session-prefix catalog and model-facing loader tool. `dsh-agent-spine-demo` loads the registry, local provider, and consumer by default so stdio and ACP apps get the same behavior while embedded or remote providers contribute skills without changing the registry or consumer. Its `skills` config forwards `registry`, `local`, and `tool` branches to those owners.
+`@deepseek-ai/dsh-skill` is the pure provider registry (`ctx.skills`), `@deepseek-ai/dsh-skill-local` is the shipped local filesystem provider, and `@deepseek-ai/dsh-tool-skill` owns the session-prefix catalog and model-facing loader tool. `dsh-agent-spine-demo` loads the registry, local provider, and consumer by default so TUI, headless, and ACP apps get the same behavior while embedded or remote providers contribute skills without changing the registry or consumer. Its `skills` config forwards `registry`, `local`, and `tool` branches to those owners.
 
 Provider plugins register synchronously during `apply()`. Provider membership is direct effect-owned state: registration and disposal invalidate completed catalogs synchronously, and discovery reads the current provider map on demand rather than observing registry-change events. Provider catalogs return ranked candidates from awaited `list()` calls, where remote providers perform initialization, authentication, and discovery while honoring the lookup abort signal. The registry validates each candidate, resolves same-name skills first-wins by rank, provider registration order, and provider-local order, then sorts summaries by skill name for deterministic consumers. It caches only completed catalog snapshots and retries when a provider/runtime revision changes during discovery, so an unload cannot freeze a stale, unresolvable skill into a session prefix. Runtime `ctx.skills.register(...)` remains a convenience for embedded in-process skills and uses project-over-user priority; `runtime` is reserved as the registry-owned provider name.
 
@@ -32,7 +32,7 @@ The data structures and catalog/tool contract are documented in [skills.md](../.
 
 **Inject full skill bodies into every system prompt.** Rejected because it destroys progressive disclosure and makes every request pay for instructions that may not apply.
 
-**Expose skills only as slash commands.** Rejected because model-initiated loading is the core capability; slash/ACP command advertisement does not change discovery.
+**Expose skills only as slash commands.** Rejected because model-initiated loading is the core capability; human command advertisement does not change discovery.
 
 **Put local filesystem scanning directly inside `ctx.skills`.** Rejected because coding agents, web agents, and future plugin ecosystems need different skill sources. A provider registry mirrors the subagent seam: the registry owns conflict resolution and consumers, while implementations own loading.
 

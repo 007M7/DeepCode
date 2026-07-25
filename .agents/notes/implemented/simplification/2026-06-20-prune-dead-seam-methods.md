@@ -12,7 +12,7 @@ A capability seam ([interface / implementation / consumer](../architecture/2026-
 
 ### `SessionPersistence.has()` and `.delete()`
 
-The abstract service declared its operations beyond create/append: `load`, `list`, `has`, `delete`. Production consumers of `ctx.sessionPersistence` use only two: the agent-loop resume path calls `load()` ([packages/core/agent-loop/src/index.ts:176](../../../../packages/core/agent-loop/src/index.ts)), and the ACP bridge calls `list()` for `session/list` ([packages/ui/acp/src/index.ts:494](../../../../packages/ui/acp/src/index.ts)). Grepping every `sessionPersistence.*` / `persistence.*` use across `packages/*/src` and `examples/` finds no `has(` and no `delete(` on the service. The `.has(`/`.delete(` calls in `packages/ui/acp/src/index.ts` are on the in-memory `SessionStore` and a local `Set` of loading ids, not persistence. The only callers of `has`/`delete` were the contract suites and per-backend specs.
+The abstract service declared its operations beyond create/append: `load`, `list`, `has`, `delete`. Production consumers use `load()` and `list()` for resume and session discovery, while no production caller uses persistence `has()` or `delete()`. The similarly named in-memory collection calls in protocol and UI code are unrelated. The only callers of persistence `has`/`delete` were the contract suites and per-backend specs.
 
 `has()` was not just unused: it added a tracked-vs-untracked coordinator probe and a contract branch even though `loadStored(id)` already owns durable existence checks. `delete()` dragged the `deleteStored` backend hook that every backend had to implement. This is the [drop-mutable-session-summary](2026-06-19-drop-mutable-session-summary.md) pattern: a contract test exercised both, but no shipping code asks "is this session persisted?" or removes one.
 
@@ -33,7 +33,7 @@ Re-adding a seam method with a live consumer is cheap and better-designed than t
 
 ## Verification
 
-`has`/`delete`/`deleteStored` are gone from the persistence seam, impl, and contract suites with no new dead exports; the remaining operations (`create`/`append`/`load`/`list`) are untouched, with ACP `session/list` and crash-recovery behaving identically; and the seam README and `docs/architecture.md` list only the surviving methods.
+`has`/`delete`/`deleteStored` are gone from the persistence seam, impl, and contract suites with no new dead exports; the remaining operations (`create`/`append`/`load`/`list`) are untouched, with persistence-backed session queries and crash recovery behaving identically; and the seam README and `docs/architecture.md` list only the surviving methods.
 
 ## Consequences
 

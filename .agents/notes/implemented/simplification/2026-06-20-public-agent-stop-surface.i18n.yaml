@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-20-public-agent-stop-surface.md: 81a21de30bfbc25688069efbffb21647889b1bdb
-2026-06-20-public-agent-stop-surface.zh.md: 1f5a9ea3c1c3dd6f598c258574a81e52e291f3b7
+2026-06-20-public-agent-stop-surface.md: e22c4389df18f3c9ca96763fc097eabefcc5b761
+2026-06-20-public-agent-stop-surface.zh.md: e2647b498a8c906579b4fd2b50f94d1c326fe784

@@ -1,7 +1,7 @@
 /**
  * Per-session sandbox-mode override: the session log as the store. A runtime
- * switch (an ACP `session/set_config_option`, a test scenario) is recorded as
- * one `sandbox/mode` event on the session it applies to;
+ * switch (a UI policy control or test scenario) is recorded as one
+ * `sandbox/mode` event on the session it applies to;
  * `effective = fold(events) ?? the deployment default`, so an override
  * survives restart by replay, two sessions can never see each other's state,
  * and there is no external config store. The event is log-only (the

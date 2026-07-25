@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-19-drop-mutable-session-summary.md: 80fe043e365352b17d2a5b3efa1ab8d396d311c4
-2026-06-19-drop-mutable-session-summary.zh.md: e875d96d003367dbe8a671e6057a6b4a6a44ca74
+2026-06-19-drop-mutable-session-summary.md: f87378a1c3737950eb536be8e3f6776586eb8a01
+2026-06-19-drop-mutable-session-summary.zh.md: 05b6711b71ef87602b46706cd4340a10453e66ad

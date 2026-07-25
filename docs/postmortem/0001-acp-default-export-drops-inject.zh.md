@@ -26,7 +26,7 @@ ACP 服务器无法创建或加载任何一个会话——而这正是编辑器�
 
 ## 根因 #1——`export default apply` 丢弃了插件的 `inject`（导致 `session/new` 崩溃）
 
-`packages/ui/acp/src/index.ts` 是一个*命名空间插件*：它将 `name`、`inject`、`Config` 和 `apply` 作为独立的命名导出——与仓库中其他所有插件（`invariants`、`llm-deepseek`、`tool-bash`、`tui` 等）形状相同。但它*还*多了一行其他插件都没有的代码：
+`packages/acp/acp/src/index.ts` 是一个*命名空间插件*：它将 `name`、`inject`、`Config` 和 `apply` 作为独立的命名导出——与仓库中其他所有插件（`invariants`、`llm-deepseek`、`tool-bash`、`tui` 等）形状相同。但它*还*多了一行其他插件都没有的代码：
 
 ```ts ignore-check
 export const name = 'acp'
@@ -99,7 +99,7 @@ if (!ctx.fiber.runtime) return ctx.reflect.get(prop, false)   // ← direct glob
 
 ## 新增的防护措施
 
-- **删除 `export default apply`**（`packages/ui/acp/src/index.ts`）——Bug #1 的修复。
+- **删除 `export default apply`**（`packages/acp/acp/src/index.ts`）——Bug #1 的修复。
 - **`AgentLoop.resume` 使用 `this.ctx.get('sessionPersistence')`**（`packages/core/agent-loop/src/index.ts`）——Bug #2 的修复，附注释说明 shadow 遍历陷阱。
 - **无需 key 的 `session/new` e2e，通过真实 stdio 运行**（`examples/acp-agent/tests/acp.e2e.ts`）：以子进程方式通过真实 Loader 启动示例，并断言 `session/new` 正常返回。无需 API key 即可在 Bug #1 上大声失败。已验证恢复 `export default apply` 时测试失败。
 - **e2e spawn 中设置 `TSX_TSCONFIG_PATH`**：子进程从临时 cwd 运行，tsx 无法通过向上搜索找到仓库根的 tsconfig `paths` 映射——因此 dsh-* 的 import 静默回退到已构建的 `lib/`。将 tsx 指向仓库 tsconfig 使解析不依赖 cwd，确保测试运行的是*源码*而非可能陈旧的构建产物。

@@ -7,11 +7,6 @@
       "op": "newSession"
     },
     {
-      "op": "setConfigOption",
-      "configId": "permission",
-      "value": "read-only"
-    },
-    {
       "op": "prompt",
       "text": "Use the subagent tool exactly once to delegate this subtask to a child agent: 'Use the write tool exactly once with file_path set to exactly the relative path inherited.txt (never an absolute path) and content escaped. If the write is denied, do not retry and do not request escalation; reply with the single word CHILD_DENIED and the exact denial marker line from the tool result. If it succeeds, reply with the single word CHILD_WROTE.' After the subagent returns, state in one short sentence whether the child was denied by the sandbox, quoting the denial marker if there is one, then reply with the single word PARENT_DONE and stop. Do not use the bash or write tools yourself and do not request escalation."
     }

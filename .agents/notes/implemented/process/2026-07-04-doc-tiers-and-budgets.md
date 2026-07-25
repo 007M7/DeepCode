@@ -18,7 +18,7 @@ Standing docs accumulated repeated rules, retold incidents, duplicated package m
 ## Alternatives considered
 
 - **Skill and review discipline without a gate** — rejected: the accretion above happened while the current-state rule and reviewer attention already existed; a prose rule with no mechanical backstop demonstrably does not hold here, and this repo's own [quality-gates stance](2026-06-11-quality-gates.md) says invariants worth keeping are worth encoding.
-- **A broad gate over every doc tier** — rejected: a blanket ceiling punishes exactly the right kind of long doc (a feature matrix or type catalog where every row is a fact, e.g. `packages/ui/acp/acp-feature-support.md`) and generates per-file override churn that trains contributors to rubber-stamp raises.
+- **A broad gate over every doc tier** — rejected: a blanket ceiling punishes exactly the right kind of long doc (a feature matrix or type catalog where every row is a fact) and generates per-file override churn that trains contributors to rubber-stamp raises.
 - **Housing the standard inside the skill** — rejected: contracts live in docs and workflows in skills; a standard packed into SKILL.md is invisible to an agent that edits docs without invoking the skill, and `docs/AGENTS.md` already loads as subtree instructions for anyone working under `docs/`.
 
 ## Consequences

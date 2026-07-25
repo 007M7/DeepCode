@@ -31,7 +31,7 @@ Each bridge maps the neutral `MergedHookOutcome` from the shared lib onto the se
 | `subagent/start` (emit) | additionalContext → inject into a live in-process child; a remote child has no local injection target | unsupported by this bridge |
 | `subagent/end` (emit) | observe-only | unsupported by this bridge |
 
-The CC bridge's `ask` result is a real permission path, not a terminal bridge decision: `dsh-tools` resolves it through the optional [approval seam](2026-07-06-approval-seam.md). A composed ACP answerer prompts the owning editor session and `allowed-once` proceeds; without an ApprovalService or answerer, the call fails closed to `deny`.
+The CC bridge's `ask` result is a real permission path, not a terminal bridge decision: `dsh-tools` resolves it through the optional [approval seam](2026-07-06-approval-seam.md). An ACP automation client may answer the owning session's one-shot machine-policy request and `allowed-once` proceeds; without an ApprovalService or answerer, the call fails closed to `deny`.
 
 ### Context source is always the plugin (the mislabel guard)
 
@@ -55,7 +55,7 @@ Hooks run in the agent's session workspace, so relative paths target the user's 
 
 ## Deferred compatibility gaps
 
-- **Tool-input rewrite.** A CC/Codex `updatedInput` is logged + warned, not honored — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite Agent Note](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)), because the pre-execution args are read by `tool/call` audit + `assistant/message` history + ACP/tool-bash presentation, so an honest rewrite is a design unit, not a field.
+- **Tool-input rewrite.** A CC/Codex `updatedInput` is logged + warned, not honored — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite Agent Note](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)), because the pre-execution args are read by `tool/call` audit + `assistant/message` history + tool presentation, so an honest rewrite is a design unit, not a field.
 - **Stop loop-guard** (`TODO(stop-loop-guard)`). Claude Code supplies `stop_hook_active` and overrides a hook after eight consecutive blocks; Codex supplies `stop_hook_active` but documents no equivalent cap. Both bridges always report `false`, so a Stop hook that unconditionally blocks force-continues every step — a hook author must self-limit until state tracking lands.
 - **Hook `continue:false` (hard halt).** A hook can ask to halt the whole run (CC/Codex `continue:false`); the shared merge folds it into `MergedHookOutcome.stop`/`stopReason`, but no bridge acts on it (`TODO(hook-continue-false)`) — the interception seams have no "hard-halt the agent" primitive yet (a Decision blocks/steers a single point, not the run). Deferred with the loop-guard work; the halt request is recorded in the `hook/result` log, and the hook keeps its per-point effect (decision/context) meanwhile.
 - **Config discovery.** The path is explicit in `cordis.yml` and process-level (see above); the full multi-layer CC/Codex precedence walk, per-session project-local discovery, and the trust/hash model are not reimplemented (`TODO(per-session-hook-config)`).

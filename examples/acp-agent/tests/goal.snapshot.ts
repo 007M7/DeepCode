@@ -15,7 +15,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 
 // This lifecycle proof has goal-specific timestamp normalization and semantic
-// assertions, so it owns a separate snapshot root from the generic ACP suite.
+// assertions, so it owns a separate snapshot root from the generic suite.
 const scenarioDir = join(dirname(fileURLToPath(import.meta.url)), 'goal-snapshots/goal-session')
 const fixtureFile = join(scenarioDir, 'session.jsonl')
 const overrideFile = join(scenarioDir, 'replay.override.json')
@@ -63,7 +63,7 @@ function normalizeGoalLog(content: string, context: NormalizeContext): string {
     .join('\n') + '\n'
 }
 
-describe('ACP same-session goal snapshot', () => {
+describe('same-session goal snapshot through the ACP automation driver', () => {
   it('runs exact automatic rounds in the shipped application and persists cancellation', async () => {
     const input = JSON.parse(await readFile(join(scenarioDir, 'input.json'), 'utf8')) as InputScript
     const result = await runScenario(input, {
@@ -77,7 +77,7 @@ describe('ACP same-session goal snapshot', () => {
     expect(result.stderr).toBe('')
     expect(result.sessionLogs).toHaveLength(1)
     const log = result.sessionLogs[0]
-    if (log === undefined) throw new Error('goal snapshot did not persist its ACP session')
+    if (log === undefined) throw new Error('goal snapshot did not persist its session')
     const records = parseJsonl(log.content)
     const events = records.slice(1) as unknown as SessionEvent[]
     const calls = events.filter(event => event.type === 'tool/call').map(event => event.data.name)

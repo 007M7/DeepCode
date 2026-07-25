@@ -15,7 +15,7 @@ Status: implemented
 
 ## 问题
 
-循环在 `SessionEvent` 中记录规范 transcript（文本记录），同时还发出一组并行的实时 `agent/*` 边界镜像事件：`agent/turn-start`、`agent/turn-end`、`agent/step-start` 和 `agent/step-end`。这些镜像迫使消费方在同一持久事实的两个真源之间做选择。ACP（Agent Client Protocol）已经为面向编辑器的 transcript 选择会话日志，因为它是唯一持久、可重放的记录；消费实时镜像需要把它的时序与日志中已经存储的边界进行调和。stdio UI 是唯一仍从镜像事件渲染轮次边界的生产消费方；它已经从 `session/event` 渲染工具调用和结果。
+循环在 `SessionEvent` 中记录规范 transcript（文本记录），同时还发出一组并行的实时 `agent/*` 边界镜像事件：`agent/turn-start`、`agent/turn-end`、`agent/step-start` 和 `agent/step-end`。这些镜像迫使消费方在同一持久事实的两个真源之间做选择。ACP（Agent Client Protocol）已经为提示词结算和已提交输出选择会话日志，因为它是唯一持久、可重放的记录；消费实时镜像需要把它的时序与日志中已经存储的边界进行调和。stdio UI 是唯一仍从镜像事件渲染轮次边界的生产消费方；它已经从 `session/event` 渲染工具调用和结果。
 
 这种重复并非零成本。每次生命周期变更都需要同时更新会话事件、镜像事件、文档、不变式、测试和快照预期。重复的边界事件还使失败排序变得微妙：一个轮次可能在实时 `agent/turn-end` 监听器运行之前就已被持久化关闭，因此边界之后的监听器失败在日志中已没有合法位置可以插入，只能带外上报。
 

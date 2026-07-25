@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-modules",
-  "description": "Client module loader: the browser peer of Node's internal ESM loader, consumed by the vendored cordis Loader as its internal seam (resolve/import/loadCache/invalidate over seed table, static registry and fetch bundles)",
+  "description": "Client module system, dual-face: node half composes the __DSH_BOOT__ entry graph (incremental dshClient scan, bundle route, index tap, webPlugins service); browser half is the lazy-CJS module table the vendored cordis Loader consumes as its internal seam",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,6 +11,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
@@ -18,14 +22,26 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
+  "dshClient": {
+    "platform": "web",
+    "inject": [],
+    "immediately": true
+  },
+  "scripts": {
+    "bundle": "tsdown",
+    "watch": "tsdown --watch"
+  },
   "license": "BSD-3-Clause",
   "devDependencies": {
+    "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/client.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "src"
