@@ -209,17 +209,24 @@ export class SessionsService {
    * Start or retarget the sole client-local Session intent.
    * @param target - resolved real or frontend-only Workspace target.
    * @param prompt - optional prompt retained across retargeting.
+   * @returns the frontend Session object that owns the Intent.
    */
   startIntent(target: SessionIntentTarget, prompt = ''): Session {
     return this.manager.startIntent(target, prompt)
   }
 
-  /** @returns the active frontend Session object, if one exists. */
+  /**
+   * Resolve the active frontend Session Intent.
+   * @returns the active frontend Session object, if one exists.
+   */
   intent(): Session | undefined {
     return this.manager.getIntent()
   }
 
-  /** @param text - exact controlled-input value for the current Session Intent. */
+  /**
+   * Update the retained prompt of the active frontend Session.
+   * @param text - exact controlled-input value for the current Session Intent.
+   */
   updateIntent(text: string): void {
     this.manager.updateIntent(text)
   }

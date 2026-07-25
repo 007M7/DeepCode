@@ -49,7 +49,10 @@ export class ConversationService extends Service {
     await this.scopedSession('loadOlder').loadOlder()
   }
 
-  /** Update the scoped Session's retained pending prompt. */
+  /**
+   * Update the scoped Session's retained pending prompt.
+   * @param text - exact controlled-input value to retain.
+   */
   updatePendingPrompt(text: string): void {
     this.scopedSession('updatePendingPrompt').updatePendingPrompt(text)
   }

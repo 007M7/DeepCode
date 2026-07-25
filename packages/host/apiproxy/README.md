@@ -10,7 +10,7 @@ The layering/protocol decisions are recorded in the [GUI layering and RPC protoc
 
 The mux stream projects the latest log-backed title as a validated `session/title` control frame after each attached-session subscription baseline and immediately after the corresponding live raw title event. This projection does not add titles to `session.list`; cold sessions remain metadata-only there until opening or resuming attaches their logs.
 
-Workspace and Session lists are separate reconnect baselines. `workspace.create` creates a unique name or adopts an existing directory, `session.create` accepts an optional preallocated Session id, and `host/workspace-changed` plus `host/session-added` carry committed increments in either arrival order. Session drafts are client-only and have no wire method.
+Workspace and Session lists are separate reconnect baselines. `workspace.create` creates a unique name or adopts an existing directory, `session.create` accepts an optional preallocated Session id, and `host/workspace-changed` plus `host/session-added` carry committed increments in either arrival order. Frontend Workspace and Session Intents are client-only and have no wire method.
 
 ## Carrier layer (`/client` + root)
 

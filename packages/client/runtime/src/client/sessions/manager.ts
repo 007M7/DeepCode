@@ -149,12 +149,18 @@ export class SessionManager {
     return session
   }
 
-  /** @returns the active frontend Session, if one remains selected. */
+  /**
+   * Resolve the active frontend Session Intent.
+   * @returns the active frontend Session, if one remains selected.
+   */
   getIntent(): Session | undefined {
     return this.intentSessionId === undefined ? undefined : this.sessions.get(this.intentSessionId)
   }
 
-  /** @param text - exact controlled-input value for the active frontend Session. */
+  /**
+   * Update the retained prompt of the active frontend Session.
+   * @param text - exact controlled-input value for the active frontend Session.
+   */
   updateIntent(text: string): void {
     this.getIntent()?.updatePendingPrompt(text)
   }

@@ -141,7 +141,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return result
   }
 
-  /** @param text - exact controlled value of this Session's retained prompt. */
+  /**
+   * Update this Session's retained prompt while it remains editable.
+   * @param text - exact controlled value of this Session's retained prompt.
+   */
   updatePendingPrompt(text: string): void {
     const pending = this.pendingPrompt
     if (pending === null || pending.phase === 'sending') return

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-runtime
 
-Client cordis boot and React-free object services: SlotsService wraps SlotCore and supplies renderer data sources; SessionsService owns Session objects, list/scope/history state, and page-local Session Intent state; WorkspacesService owns Workspace objects, list/actions, page-local Workspace Intent state, and default-target derivation. The runtime fans the shared Host stream into both managers. Contract: api-contracts v3 §4.
+Client cordis boot and React-free object services: SlotsService wraps SlotCore and supplies renderer data sources; SessionsService owns Session objects, list/scope/history state, and page-local Session Intent state; WorkspacesService depends on SessionsService and owns Workspace objects, list/actions, page-local Workspace Intent state, default-target derivation, and the cross-object New Session flow. The runtime fans the shared Host stream into both managers. Contract: api-contracts v3 §4.
 
 ## Workspace and Session lists
 
