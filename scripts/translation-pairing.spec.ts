@@ -7,6 +7,8 @@ import {
   parseTranslationMarkdown,
   parseTranslationPairingManifest,
   requiresPairByDate,
+  requiresTranslationPair,
+  translationDocumentClass,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -20,10 +22,12 @@ describe('translation pairing manifest', () => {
     expect(parseTranslationPairingManifest(JSON.stringify({
       requiredSince: '2026-07-14',
       required: ['README.md'],
+      requiredClasses: ['non-readme'],
       excluded: ['docs/generated/'],
     }))).toEqual({
       requiredSince: '2026-07-14',
       required: ['README.md'],
+      requiredClasses: ['non-readme'],
       excluded: ['docs/generated/'],
     })
   })
@@ -33,6 +37,7 @@ describe('translation pairing manifest', () => {
     expect(() => parseTranslationPairingManifest(JSON.stringify({
       requiredSince: cutoff,
       required: [],
+      requiredClasses: [],
       excluded: [],
     }))).toThrow('requiredSince must be a valid YYYY-MM-DD date')
   })
@@ -41,8 +46,41 @@ describe('translation pairing manifest', () => {
     expect(() => parseTranslationPairingManifest(JSON.stringify({
       requiredSince: '2026-07-14',
       required: [42],
+      requiredClasses: [],
       excluded: [],
     }))).toThrow('required must be an array of strings')
+  })
+
+  it('rejects unknown and duplicate document classes', () => {
+    const manifest = (requiredClasses: string[]) => JSON.stringify({
+      requiredSince: '2026-07-14',
+      required: [],
+      requiredClasses,
+      excluded: [],
+    })
+    expect(() => parseTranslationPairingManifest(manifest(['guide']))).toThrow('requiredClasses must contain only')
+    expect(() => parseTranslationPairingManifest(manifest(['readme', 'readme']))).toThrow('requiredClasses must not contain duplicates')
+  })
+})
+
+describe('document-class pairing frontier', () => {
+  const manifest = parseTranslationPairingManifest(JSON.stringify({
+    requiredSince: '2026-07-14',
+    required: ['docs/legacy/README.md'],
+    requiredClasses: ['non-readme'],
+    excluded: [],
+  }))
+
+  it('classifies README basenames case-insensitively', () => {
+    expect(translationDocumentClass('packages/core/README.md')).toBe('readme')
+    expect(translationDocumentClass('missions/readme.md')).toBe('readme')
+    expect(translationDocumentClass('docs/readme-guide.md')).toBe('non-readme')
+  })
+
+  it('requires every non-README while retaining explicit README entries', () => {
+    expect(requiresTranslationPair('docs/guide.md', manifest)).toBe(true)
+    expect(requiresTranslationPair('docs/legacy/README.md', manifest)).toBe(true)
+    expect(requiresTranslationPair('docs/new/README.md', manifest)).toBe(false)
   })
 })
 

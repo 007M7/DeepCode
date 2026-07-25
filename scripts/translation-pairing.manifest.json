@@ -1,4 +1,7 @@
 {
+  "requiredClasses": [
+    "non-readme"
+  ],
   "requiredSince": "2026-07-14",
   "required": [
     ".agents/notes/README.md",
@@ -215,6 +218,7 @@
   "excluded": [
     ".agents/notes/AGENTS.md",
     ".agents/notes/implemented/AGENTS.md",
+    ".agents/notes/implemented/CLAUDE.md",
     "docs/AGENTS.md",
     "docs/agent-lifecycle.md",
     "docs/capability-seams.md",

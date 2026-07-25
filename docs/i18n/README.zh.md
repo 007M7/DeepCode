@@ -23,7 +23,7 @@
 
 `pnpm run verify-translation-pairing`（`doc-sync`（文档同步门禁）的一环，贡献者会针对文档变更在本地运行，CI 则会完整运行）机械地强制执行这份契约：
 
-1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个文件都有完整配对。
+1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个文件，以及所属文档类别出现在 `requiredClasses` 中的每篇文档，都有完整配对。类别分为 `non-readme` 和 `readme`；判断类别时，basename 不区分大小写，因此 `missions/readme.md` 也属于 README。
 2. 任何已存在的配对（无论是否 required）都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致：标题深度、逐字节一致的代码块（信息字符串与内容）、表格行列数、列表类型、有序列表起始编号、列表项数量，以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md`，也没有 `.i18n.yaml`。
 4. 凡文件名符合 `yyyy-mm-dd-*.md` 且日期不早于 manifest（元数据清单）中 `requiredSince` 分界日期的文档，都必须有完整配对；新建的日期命名 Agent Note 从创建起便须配齐中英文。
@@ -41,11 +41,11 @@
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md` 或 `.i18n.yaml`）：
 
 - `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/config-catalog.md`、`docs/persistence-catalog.md`、`docs/module-graph.md`、`docs/agent-lifecycle.md`、`docs/capability-seams.md`、`docs/event-producer-consumer.md`、`docs/graph-atlas.md` 与 `docs/tool-execution-pipeline.md`：生成文件；生成器目前只输出英文，手写译文在每次重新生成时必然陈旧。计划中的后续工作是让生成器同时输出中文，届时这些文件移出排除清单。
-- `docs/AGENTS.md` 与 `.agents/notes/**/AGENTS.md`：agent 指令，与根 `AGENTS.md` 一样只以英文维护。
+- `docs/AGENTS.md`、`.agents/notes/**/AGENTS.md` 以及指向它们的 `CLAUDE.md` 指令符号链接：agent 指令，与根 `AGENTS.md` 一样只以英文维护。
 - `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)：二者本身即为中英对照文档。
 - [translation-prompt.md](translation-prompt.md)：自动翻译流水线的提示词模板；正文逐字进入模型请求，配对翻译会改变流水线行为。
 
-**推进**：以日期命名的文档（`yyyy-mm-dd-*.md`，即 Agent Note），只要标注日期等于或晚于 manifest 的 `requiredSince` 分界日期，合并时就必须配齐双语文件。更早日期的文件属于 backlog（待翻清单），包括分界前夜创建的文件。Agent Note 文件名记录首次提出日期，因此倒填日期绕过分界属于评审可见的违规。manifest 中的 `required` 列表是当前执行红线，并非全量覆盖这一最终目标。翻译批次将路径加入 `required`，使门禁只向前收紧。未列入的文档仍可通过 `--list` 查看，而任何已存在的配对都受完整契约约束。后续修改必须同步更新两侧，因此 `required` 的扩展速度不能超过翻译评审的承载能力。
+**执行红线**：某个文档类别的存量文档全部翻译完成后，`requiredClasses` 会将整个类别纳入强制范围。`non-readme` 已纳入强制范围：当前及今后所有纳入范围的非 README 文档，合并时都必须配齐双语文件。README 覆盖仍按显式文件逐步推进，直到 `readme` 加入这一强制范围。manifest 的 `required` 列表保留已纳入的文件；以日期命名的文档（`yyyy-mm-dd-*.md`，即 Agent Note）只要日期不早于 `requiredSince`，就无论所属类别都必须与对侧文件一同合并。`--list` 会报告尚未纳入强制范围的类别中的任何 backlog（待翻清单），而每个已存在的配对仍受完整契约约束。
 
 ## 分工
 

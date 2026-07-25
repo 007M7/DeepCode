@@ -70,9 +70,9 @@
 
 ## ⑦ 推进策略（长段拆分示范）
 
-> **Rollout**: date-named Agent Notes don't wait for a batch — one dated on or after the manifest's `requiredSince` cutoff must merge with its pair, so each new date-named Agent Note is bilingual from birth. For the back-catalog, the `required` list in the manifest is the enforcement frontier, not the goal. […] Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
+> **Enforcement frontier**: a document class enters the manifest's `requiredClasses` set only after its back-catalog has been translated and reviewed. The `non-readme` class is closed, so every current or future in-scope non-README document must merge bilingual; README coverage remains an explicit-file rollout until that class is ready to close. […] Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so close a class only when translation review can sustain it.
 
-**推进**：日期命名的 Agent Note 无需等待批量翻译。只要文件名中的日期不早于 manifest（元数据清单）的 `requiredSince` 分界日期，合入时就必须配齐中英文，因此此类 Agent Note 从创建起就要求双语齐备。对于存量文档，manifest 中的 `required` 列表只是当前的执行红线，并非最终目标。（……）一旦文档完成配对，后续修改任一侧都必须同步更新另一侧。因此，应根据实际可投入的翻译评审能力逐步扩展执行红线，不能超前。
+**执行红线**：只有在某个文档类别的存量文档全部完成翻译和评审后，该类别才会进入 manifest（元数据清单）的 `requiredClasses` 集合。`non-readme` 类别已纳入强制范围，因此当前及今后所有纳入范围的非 README 文档，合入时都必须配齐双语文件；README 覆盖仍按显式文件逐步推进，直到该类别具备整体纳入强制范围的条件。（……）一旦文档完成配对，后续修改任一侧都必须同步更新另一侧。因此，只有在翻译评审能力足以持续支撑时，才应将整个类别纳入强制范围。
 
 ## 从样例提炼的要点
 

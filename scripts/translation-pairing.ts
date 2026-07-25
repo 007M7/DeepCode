@@ -12,10 +12,17 @@ import type { Nodes } from 'mdast'
 /** Validated shape of `scripts/translation-pairing.manifest.json`. */
 export interface TranslationPairingManifest {
   required: string[]
+  /** Document classes whose complete in-scope population must be paired. */
+  requiredClasses: TranslationDocumentClass[]
   excluded: string[]
   /** Date-named documents on or after this day must merge bilingual. */
   requiredSince: string
 }
+
+/** Stable classes used to close one translation rollout without enumerating files. */
+export type TranslationDocumentClass = 'readme' | 'non-readme'
+
+const TRANSLATION_DOCUMENT_CLASSES: TranslationDocumentClass[] = ['readme', 'non-readme']
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const DATED_DOCUMENT = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
@@ -40,6 +47,19 @@ function stringArrayField(record: Record<string, unknown>, field: 'required' | '
   return entries
 }
 
+/** Read and validate the manifest's closed document-class set. */
+function requiredClassesField(record: Record<string, unknown>): TranslationDocumentClass[] {
+  const value = record.requiredClasses
+  if (!Array.isArray(value) || !value.every((entry): entry is TranslationDocumentClass =>
+    typeof entry === 'string' && TRANSLATION_DOCUMENT_CLASSES.includes(entry as TranslationDocumentClass))) {
+    throw new Error('translation-pairing.manifest.json: requiredClasses must contain only "readme" and "non-readme"')
+  }
+  if (new Set(value).size !== value.length) {
+    throw new Error('translation-pairing.manifest.json: requiredClasses must not contain duplicates')
+  }
+  return value
+}
+
 /** Parse and validate the checked-in bilingual manifest. */
 export function parseTranslationPairingManifest(content: string): TranslationPairingManifest {
   const value: unknown = JSON.parse(content)
@@ -53,9 +73,22 @@ export function parseTranslationPairingManifest(content: string): TranslationPai
   }
   return {
     required: stringArrayField(record, 'required'),
+    requiredClasses: requiredClassesField(record),
     excluded: stringArrayField(record, 'excluded'),
     requiredSince,
   }
+}
+
+/** Classify a Markdown source by whether its basename is README, case-insensitively. */
+export function translationDocumentClass(file: string): TranslationDocumentClass {
+  return /(?:^|\/)readme\.md$/i.test(file) ? 'readme' : 'non-readme'
+}
+
+/** Whether the manifest requires this in-scope source to have a complete pair. */
+export function requiresTranslationPair(file: string, manifest: TranslationPairingManifest): boolean {
+  return manifest.required.includes(file)
+    || manifest.requiredClasses.includes(translationDocumentClass(file))
+    || requiresPairByDate(file, manifest.requiredSince)
 }
 
 /** Return the leading date of a `yyyy-mm-dd-*.md` basename, if present. */

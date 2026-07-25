@@ -1,9 +1,10 @@
 /**
  * Enforce complete English/Chinese pairs, matching structure, and recorded git
  * blob hashes under the bilingual manifest. Required files and date-named docs
- * at or after `requiredSince` must be paired; excluded docs may have neither a
- * counterpart nor sidecar. `--list` reports state and `--write` records both
- * sides after human review. Translation quality remains a review responsibility.
+ * at or after `requiredSince`, plus every source in a required document class,
+ * must be paired; excluded docs may have neither a counterpart nor sidecar.
+ * `--list` reports state and `--write` records both sides after human review.
+ * Translation quality remains a review responsibility.
  * See `docs/i18n/README.md` for the owning contract.
  */
 
@@ -11,11 +12,11 @@ import { createHash } from 'node:crypto'
 import { existsSync, globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve, sep } from 'node:path'
 import {
-  datedDocumentDate,
   linksTo,
   parseTranslationMarkdown,
   parseTranslationPairingManifest,
-  requiresPairByDate,
+  requiresTranslationPair,
+  translationDocumentClass,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -118,29 +119,21 @@ if (writeMode) {
 const errors: string[] = []
 const state = new Map<string, 'ok' | 'out-of-sync' | 'missing'>()
 
-// 1. Required pairs exist.
+// 1. Explicit manifest entries name existing source documents.
 for (const req of manifest.required) {
   if (!existsSync(join(root, req))) {
     errors.push(`${req}: listed in translation-pairing.manifest.json \`required\` but the file does not exist`)
-    continue
-  }
-  const { zh } = pairPaths(req)
-  if (!existsSync(join(root, zh))) {
-    errors.push(`${req}: required to have a translation, but ${zh} does not exist`)
-    state.set(req, 'missing')
   }
 }
 
-// 2. Date-named documents (Agent Notes) dated on/after the requiredSince cutoff merge
-// bilingual: a new Agent Note lands with its pair or not at all. Deterministic from
-// the filename alone — no git history, so it holds on shallow CI checkouts.
+// 2. Every source selected explicitly, by document class, or by the dated-document
+// cutoff merges bilingual. Class enforcement closes a rollout for future files too.
 for (const source of sources) {
   if (isExcluded(source)) continue
-  const date = datedDocumentDate(source)
-  if (!requiresPairByDate(source, manifest.requiredSince) || date === undefined) continue
+  if (!requiresTranslationPair(source, manifest)) continue
   const { zh } = pairPaths(source)
   if (!existsSync(join(root, zh))) {
-    errors.push(`${source}: dated ${date} — documents dated on/after ${manifest.requiredSince} merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
+    errors.push(`${source}: required to merge bilingual as a ${translationDocumentClass(source)} document (docs/i18n/README.md); add the counterpart and record the pair`)
     state.set(source, 'missing')
   }
 }
@@ -214,8 +207,8 @@ if (listMode) {
   const order = { 'out-of-sync': 0, missing: 1, ok: 2 } as const
   const rows = [...state.entries()].sort((a, b) => order[a[1]] - order[b[1]] || a[0].localeCompare(b[0]))
   for (const [file, status] of rows) {
-    const required = manifest.required.includes(file)
-    const tag = required ? '  (required)' : requiresPairByDate(file, manifest.requiredSince) ? '  (required by date)' : '  (backlog)'
+    const required = requiresTranslationPair(file, manifest)
+    const tag = required ? `  (required ${translationDocumentClass(file)})` : '  (backlog)'
     console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? tag : ''}`)
   }
   const counts = { 'ok': 0, 'out-of-sync': 0, 'missing': 0 }
@@ -225,7 +218,7 @@ if (listMode) {
 }
 
 if (errors.length === 0) {
-  console.log(`verify-translation-pairing: ${pairAnchors.size} pair(s) checked against ${manifest.required.length} required, all consistent.`)
+  console.log(`verify-translation-pairing: ${pairAnchors.size} pair(s) checked against ${manifest.required.length} explicit requirements and required classes [${manifest.requiredClasses.join(', ')}], all consistent.`)
   process.exit(0)
 }
 

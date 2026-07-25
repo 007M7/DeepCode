@@ -23,7 +23,7 @@ This repo's documentation is read by people and agents both inside and outside t
 
 `pnpm run verify-translation-pairing` (part of `doc-sync`, which contributors run locally for documentation changes and CI runs exhaustively) enforces the contract mechanically:
 
-1. Every file listed as `required` in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair.
+1. Every file listed as `required`, and every document whose class appears in `requiredClasses`, in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair. The classes are `non-readme` and `readme`; class matching is case-insensitive on the basename, so `missions/readme.md` is a README.
 2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table row and column counts, list kinds, ordered-list starts, item counts, and every link target apart from the switcher.
 3. Files listed as `excluded` have no `.zh.md` and no `.i18n.yaml` at all.
 4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new date-named Agent Notes merge bilingual from birth.
@@ -41,11 +41,11 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 **Excluded** (never paired, and the gate rejects a `.zh.md` or `.i18n.yaml` for them):
 
 - `docs/cordis-catalog/`, `docs/tool-catalog/`, `docs/config-catalog.md`, `docs/persistence-catalog.md`, `docs/module-graph.md`, `docs/agent-lifecycle.md`, `docs/capability-seams.md`, `docs/event-producer-consumer.md`, `docs/graph-atlas.md`, and `docs/tool-execution-pipeline.md` — generated files; their generators emit English only today, so a hand-written translation would go stale on every regeneration. The planned follow-up is to teach the generators to emit Chinese alongside English, at which point these leave the exclusion list.
-- `docs/AGENTS.md` and `.agents/notes/**/AGENTS.md` — agent instructions, maintained in English only like the root `AGENTS.md`.
+- `docs/AGENTS.md`, `.agents/notes/**/AGENTS.md`, and their `CLAUDE.md` instruction symlinks — agent instructions, maintained in English only like the root `AGENTS.md`.
 - `docs/i18n/terminology.md` and [style-samples.md](style-samples.md) — both are bilingual by construction.
 - [translation-prompt.md](translation-prompt.md) — the automated pipeline's prompt template; its body is machine-consumed verbatim, so a paired translation would change pipeline behavior.
 
-**Rollout**: a date-named document (`yyyy-mm-dd-*.md`, i.e. an Agent Note) dated on or after the manifest's `requiredSince` cutoff must merge with its pair. Earlier dates are backlog, including files created on the cutoff's eve. An Agent Note filename records its first-proposed date, so backdating past the cutoff is a review-visible violation. The manifest's `required` list is the current enforcement frontier, not the goal of full coverage. Translation batches add paths to `required`, ratcheting the gate forward. Unlisted documents remain visible in `--list`, while every existing pair is governed by the full contract. Because later edits must update both sides, expand `required` only as fast as translation review can support.
+**Enforcement frontier**: `requiredClasses` closes a whole document class after its back-catalog has been translated. `non-readme` is closed: every current or future in-scope non-README document must merge bilingual. README coverage remains an explicit-file rollout until `readme` joins the closed set. The manifest's `required` list retains already-admitted files, and a date-named document (`yyyy-mm-dd-*.md`, i.e. an Agent Note) dated on or after `requiredSince` must merge with its pair regardless of class. `--list` reports any unclosed-class backlog while every existing pair remains governed by the full contract.
 
 ## Division of labor
 
