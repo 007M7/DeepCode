@@ -38,7 +38,7 @@
 
 ## 范围、排除与推进
 
-**范围**：根 `README.md`，以及 `.agents/notes/**`、`docs/**` 与 `python/**` 下的全部内容。包（package）README（`packages/**`）在后续批次加入范围。
+**范围**：除 vendor 源码外的全部 README，以及 `.agents/notes/**`、`docs/**` 与 `python/**` 下的全部文档。匹配 README 时只看文件名且不区分大小写，因此今后新增的目录无需再修改 manifest。依赖目录和被忽略的构建产物目录只在发现阶段排除，并非源文档。
 
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md` 或 `.i18n.yaml`）：
 
@@ -47,7 +47,7 @@
 - `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)：二者本身即为中英对照文档。
 - [translation-prompt.md](translation-prompt.md)：自动翻译流水线的提示词模板；正文逐字进入模型请求，配对翻译会改变流水线行为。
 
-**执行红线**：某个文档类别的存量文档全部翻译完成后，`requiredClasses` 会将整个类别纳入强制范围。`non-readme` 已纳入强制范围：当前及今后所有纳入范围的非 README 文档，合并时都必须配齐双语文件。README 覆盖仍按显式文件逐步推进，直到 `readme` 加入这一强制范围。manifest 的 `required` 列表保留已纳入的文件；以日期命名的文档（`yyyy-mm-dd-*.md`，即 Agent Note）只要日期不早于 `requiredSince`，就无论所属类别都必须与对侧文件一同合并。`--list` 会报告尚未纳入强制范围的类别中的任何 backlog（待翻清单），而每个已存在的配对仍受完整契约约束。
+**执行红线**：某个文档类别的存量文档全部翻译完成后，`requiredClasses` 会将整个类别纳入强制范围。`non-readme` 与 `readme` 均已纳入强制范围：当前及今后所有纳入范围的文档，合并时都必须配齐双语文件。manifest 的 `required` 列表保留已纳入的文件；以日期命名的文档（`yyyy-mm-dd-*.md`，即 Agent Note）只要日期不早于 `requiredSince`，就无论所属类别都必须与对侧文件一同合并。`--list` 会报告尚未纳入强制范围的类别中的任何 backlog（待翻清单），而每个已存在的配对仍受完整契约约束。
 
 ## 分工
 
