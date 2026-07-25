@@ -111,7 +111,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
 - **Keep PRs coherent and merge with merge commits.** Split an independently meaningful feature or design decision into a separate or stacked PR when combining it obscures ownership, intent, or verification. Never squash/rebase or rewrite pushed branches; put a review fix on its introducing PR, then merge down the stack ([guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
-- **Label PRs appropriately.** Apply labels required by each PR's changes, including labels that trigger optional CI workflows.
+- **Label PRs appropriately.** Apply labels required by each PR's changes, including optional CI-trigger labels.
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --cached --check` (pre-commit) gates it.
 
