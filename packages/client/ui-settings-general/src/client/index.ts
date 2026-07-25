@@ -79,7 +79,14 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => {
     let dispose: (() => void) | undefined
-    const register = (): void => {
+    // Presence is judged on the ledger, not on the local disposer: an HMR
+    // collapse of the declaring entry removes this entry from the slot core
+    // while `dispose` stays set (the stale disposer is a no-op), so a local
+    // guard would block the re-registration when the declaration returns.
+    const registered = (): boolean =>
+      ctx.slots.entries('settings.section').some(e => e.component === GeneralSection)
+    const tryRegister = (): void => {
+      if (ctx.slots.spec('settings.section') === undefined || registered()) return
       dispose = ctx.slots.register({
         name: 'settings.section',
         id: 'general',
@@ -89,16 +96,13 @@ export function apply(ctx: ClientContext): void {
         inject: injected,
       }, GeneralSection)
     }
-    const tryRegister = (): void => {
-      if (ctx.slots.spec('settings.section') === undefined || dispose !== undefined) return
-      register()
-    }
     // Nav labels are registrant-localized: re-register on locale change so
     // the ledger carries fresh text (the version bump re-renders the shell).
     const offLocale = ctx.on('locale/change', () => {
-      if (dispose === undefined) return
-      dispose()
-      register()
+      if (!registered()) return
+      dispose?.()
+      dispose = undefined
+      tryRegister()
     })
     const unsubscribe = ctx.slots.subscribe('settings.section', () => { tryRegister() })
     tryRegister()

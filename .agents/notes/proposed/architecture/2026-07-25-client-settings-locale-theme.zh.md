@@ -2,6 +2,8 @@
 
 Status: proposed
 
+[English](2026-07-25-client-settings-locale-theme.md) | 中文
+
 ## Problem
 
 浏览器端已有的 Settings 直接写在 Sidebar 内，语言和主题也由组件本地状态直接改 DOM。这使 Settings 无法由独立插件扩展，偏好状态没有稳定的跨插件服务契约，主题 registry 同时承担状态与呈现职责。
@@ -49,11 +51,22 @@ section contribution 使用 declaration-aware deferral，不依赖 client manife
 ```ts
 type ThemePreference = 'light' | 'dark' | 'system'
 
+interface ThemeDefinition {
+  id: string
+  colorScheme: 'light' | 'dark'
+  tokens: Record<string, string>
+}
+
 interface ThemeSnapshot {
   preference: ThemePreference
   active: ThemeDefinition            // system 已解析为具体 light/dark 定义
   themes: readonly ThemeDefinition[]
   revision: number
+}
+
+interface LocaleDefinition {
+  id: 'zh' | 'en'
+  label: string
 }
 
 interface LocaleSnapshot {

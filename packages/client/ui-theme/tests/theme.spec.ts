@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { STORAGE_KEY, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -86,5 +86,54 @@ describe('ThemeService', () => {
     const dispose = theme.register({ id: 'sepia', colorScheme: 'dark', tokens: {} })
     dispose()
     expect(events.map(e => e.revision)).toEqual([1, 2, 3, 4])
+  })
+
+  describe('prefers-color-scheme resolution (stubbed matchMedia)', () => {
+    type Listener = () => void
+    const stubMedia = (initialMatches: boolean) => {
+      const listeners = new Set<Listener>()
+      const media = {
+        matches: initialMatches,
+        addEventListener: (_: 'change', fn: Listener) => { listeners.add(fn) },
+        removeEventListener: (_: 'change', fn: Listener) => { listeners.delete(fn) },
+        flip() {
+          this.matches = !this.matches
+          for (const fn of listeners) fn()
+        },
+        listenerCount: () => listeners.size,
+      }
+      vi.stubGlobal('matchMedia', () => media)
+      return media
+    }
+
+    afterEach(() => { vi.unstubAllGlobals() })
+
+    it('system resolves against the media query and follows OS flips', () => {
+      const media = stubMedia(true)
+      const { theme, events } = make()
+      expect(theme.getTheme().preference).toBe('system')
+      expect(theme.getTheme().active.id).toBe('dark')
+      media.flip()
+      expect(theme.getTheme().active.id).toBe('light')
+      expect(events).toHaveLength(1)
+    })
+
+    it('OS flips do not republish while a concrete preference is set', () => {
+      const media = stubMedia(false)
+      const { theme, events } = make()
+      theme.setTheme('light')
+      expect(events).toHaveLength(1)
+      media.flip()
+      expect(events).toHaveLength(1)
+      expect(theme.getTheme().active.id).toBe('light')
+    })
+
+    it('context dispose releases the media listener', async () => {
+      const media = stubMedia(false)
+      const { ctx } = make()
+      expect(media.listenerCount()).toBe(1)
+      await ctx.fiber.dispose()
+      expect(media.listenerCount()).toBe(0)
+    })
   })
 })

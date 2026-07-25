@@ -157,6 +157,7 @@ export class ThemeService {
       : this.preference
     // Both built-ins always exist; a registered preference id resolves or has
     // been reset by its disposer, so the lookup cannot miss.
+    /* v8 ignore next -- the ?? arm needs a registry without light/dark, which register()/dispose() cannot produce */
     const active = this.themes.find(t => t.id === resolvedId) ?? this.themes[0]!
     return Object.freeze({
       preference: this.preference,
