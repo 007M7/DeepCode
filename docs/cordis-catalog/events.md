@@ -489,6 +489,26 @@ A command was registered or unregistered. This is an unfiltered registry notific
 
 Source: [`packages/ui/commands/src/index.ts:103`](../../packages/ui/commands/src/index.ts)
 
+## `domain/*`
+
+### `domain/changed` — emit
+
+A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability. Events of one domain arrive in its write-chain order.
+
+```ts cordis-catalog
+/**
+ * A domain record or the global singleton changed, emitted once per write
+ * strictly after the backend acknowledged durability. Events of one
+ * domain arrive in its write-chain order.
+ * @param change - domain, table (`''` for global), key (`''` for global),
+ * operation discriminant, and on `put` the new snapshot.
+ * @mode emit
+ */
+'domain/changed'(change: DomainChanged): void
+```
+
+Source: [`packages/storage/storage-domain/src/events.ts:46`](../../packages/storage/storage-domain/src/events.ts)
+
 ## `fs/*`
 
 ### `fs/edit-intent` — waterfall

@@ -75,7 +75,7 @@ Dynamic Cordis mounting follows the same rule: `cordis_mount` returns `{ id, plu
 
 Nested dispatch keeps the existing bounded `tool/code-dispatch.resultSummary` for diagnostics but does not persist canonical values. `tool/result` continues to persist only rendered content, error, and optional metadata. This is deliberately not a session-format change, so `SESSION_FORMAT_VERSION` remains unchanged and replay cannot recreate intermediate program values.
 
-The opaque `exec.parent` token marks nested calls. Presentation metadata and generic or tool-owned spill projections skip those calls because they have no direct result card and their canonical values never enter context. The outer `run_code` call alone produces one card and may spill its final post-policy presentation; `run_code` intentionally declares neither a result presenter nor presentation metadata, so ACP and TUI complete the card through their generic raw-content fallback using durable `tool/result.content`.
+The opaque `exec.parent` token marks nested calls. Presentation metadata and generic or tool-owned spill projections skip those calls because they have no direct result card and their canonical values never enter context. The outer `run_code` call alone produces one card and may spill its final post-policy presentation; `run_code` intentionally declares neither a result presenter nor presentation metadata, so UI adapters complete the card through their generic raw-content fallback using durable `tool/result.content`.
 
 ## Testing
 
@@ -95,7 +95,7 @@ Keyless real-worker integration tests pin the two handle workflows that prose re
 
 ## Consequences
 
-Code programs can compose tools through stable values instead of reverse-engineering Native prose. Native and Both Mode retain their existing text and editor presentation, while Code Mode receives output-schema types and exact runtime JSON. Tool authors must treat the canonical value as their programmatic API and put display-only formatting in the renderer.
+Code programs can compose tools through stable values instead of reverse-engineering Native prose. Native and Both Mode retain their existing text and UI presentation, while Code Mode receives output-schema types and exact runtime JSON. Tool authors must treat the canonical value as their programmatic API and put display-only formatting in the renderer.
 
 The worker performs bounded-depth flat-wire transport and lossless validation but does not make intermediate values cheap or durable. Outer overflow is an explicit failed run, and error handling remains intentionally human-guided rather than a versioned code union.
 

@@ -45,7 +45,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 工具执行前输入重写是一个独立的一致性决策
 
-`PreToolDecision` 不能重写参数。历史和审计调用在执行前记录，ACP 展示读取相同的输入，因此注册表在策略之前封存参数。有效的重写必须在身份创建之前同时更新历史、审计、展示和执行；该契约属于[输入重写提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)。
+`PreToolDecision` 不能重写参数。历史和审计调用在执行前记录，UI 展示读取相同的输入，因此注册表在策略之前封存参数。有效的重写必须在身份创建之前同时更新历史、审计、展示和执行；该契约属于[输入重写提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)。
 
 ### 边界
 

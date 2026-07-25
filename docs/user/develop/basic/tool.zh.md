@@ -158,7 +158,7 @@ async execute(args) {
 
 ## 展示层 (Presentation)
 
-Tool 可以定义 UI 渲染方法，用于在终端或 ACP 客户端中展示 tool call 和 result：
+Tool 可以定义与传输方式无关的展示方法，供终端和 Web 客户端使用：
 
 ```ts ignore-check
 defineTool({

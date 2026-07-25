@@ -12,8 +12,8 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`goal/`](goal/README.md) | Persisted same-session goal state and lifecycle | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
-| [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |
-| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
+| [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local impl, model-facing tools | Product — stable surface |
+| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: runtime seam for model-written programs + worker-thread backend | Product — stable surface |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: seam, local impl, model-facing file tools, bash-backed discovery tools | Product — stable surface |
 | [`lsp/`](lsp/README.md) | LSP capability family: seam, generic stdio provider, and the `lsp` tool | Product — stable surface |
@@ -32,14 +32,17 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
-| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, SQLite full-text search | Product — stable surface |
+| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, relationships, semantic filtering, SQLite full-text search | Product — stable surface |
 | [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service, shared LLM policy, and opt-in providers | Product — stable surface |
 | [`telemetry/`](telemetry/README.md) | Session reporting: capture/redact seam, OTel backend | Product — stable surface |
+| [`storage/`](storage/README.md) | Non-session storage hub + backends + domain form | Product — stable surface |
+| [`workspace/`](workspace/README.md) | Workspace entity | Product — stable surface |
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
-| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, user-approval/user-interaction seams, ask-user tool | Product — stable surface |
-| [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/one-shot CLI/ACP/JSON-RPC bins) the leaves load | Support — example infra |
+| [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server | Product — stable surface |
+| [`ui/`](ui/README.md) | Human/client integrations: TUI and JSON-RPC, approval/interaction seams, ask-user tool | Product — stable surface |
+| [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
-| [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
+| [`util/`](util/README.md) | Zero-dependency utilities shared across groups (`Branded<B>`, home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 
 Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
 
