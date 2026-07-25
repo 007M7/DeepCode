@@ -298,7 +298,7 @@ describe('LocalPtySession readiness and output', () => {
     void operation.done.then(() => { settled = true })
     inspector.pgid = 789
     terminal.emitData('\x1b]133;D;0\x07dsh> ')
-    await vi.advanceTimersByTimeAsync(40)
+    await vi.advanceTimersByTimeAsync(50)
     expect(settled).toBe(false)
 
     inspector.pgid = 456
