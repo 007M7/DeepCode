@@ -80,9 +80,16 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       // legal — the chunk-event assertions below carry incrementality.
     })
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
-    // World state, not self-report: bash really ran and the turn closed clean.
-    const toolCalls = sessionEvents.filter(e => e.type === 'tool/call')
-    expect(toolCalls.map(e => (e as SessionEvent & { data: { name: string } }).data.name)).toContain('bash')
+    // World state, not self-report: the real bash executor returned the exact
+    // command output, and the turn closed cleanly.
+    const bashCall = sessionEvents.find(event => event.type === 'tool/call' && event.data.name === 'bash')
+    if (bashCall?.type !== 'tool/call') throw new Error('the replayed turn did not call the bash tool')
+    const bashResult = sessionEvents.find(event =>
+      event.type === 'tool/result' && event.data.callId === bashCall.data.callId)
+    if (bashResult?.type !== 'tool/result') throw new Error('the bash tool call produced no durable result')
+    expect(bashResult.data.isError).toBe(false)
+    expect(bashResult.data.content.filter(block => block.type === 'text').map(block => block.text).join(''))
+      .toBe('WEB_E2E_OK\n')
     const turnEnds = sessionEvents.filter(e => e.type === 'turn/end')
     expect(turnEnds.length).toBe(1)
     expect((turnEnds[0] as SessionEvent & { data: { reason: { kind: string } } }).data.reason.kind).toBe('completed')

@@ -1,6 +1,6 @@
 {"type":"session","version":0,"id":"{{sessionId}}","createdAt":1784973850091,"cwd":"{{cwd}}/workspace"}
-{"type":"turn/start","seq":0,"time":1784973850102,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user","rpcId":"c4e068dc-c277-46ae-9713-6a2694027fb5"}}}}
-{"type":"user/message","seq":1,"time":1784973850103,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."}],"source":{"kind":"user","rpcId":"c4e068dc-c277-46ae-9713-6a2694027fb5"}},"surfaceOp":"append"}
+{"type":"turn/start","seq":0,"time":1784973850102,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user","rpcId":"{{rpcId}}"}}}}
+{"type":"user/message","seq":1,"time":1784973850103,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."}],"source":{"kind":"user","rpcId":"{{rpcId}}"}},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1784973850105,"data":{"title":"Use the bash tool to","messageSeqs":[1],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":3,"time":1784973850164,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":4,"time":1784973850165,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}","messagePrefix":["{{messagePrefix}}"]},"reason":"initial"}}

@@ -1,25 +1,49 @@
 #!/usr/bin/env node
 /**
- * dsh — command-line entry. Coarse dispatch only; each surface module owns its
- * argument handling. Dynamic imports keep unrelated surfaces out of each
- * dispatch path; everything except `web` and headless prompts opens the TUI.
+ * dsh — command-line entry. Dynamic imports per mode keep unrelated modes out
+ * of each dispatch path; the adapter prints and exits for
+ * `--help`/`--version`/a parse error, so only a valid mode reaches the switch.
  * @module @deepseek-ai/dsh/bin
  */
 
 /* v8 ignore file -- built-bin and PTY tests exercise this self-executing dispatch. */
 
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { loadEnv } from '@deepseek-ai/dsh-app-boot'
+import { parseDshArgs } from './args.ts'
+
+// Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
+// one directory under apps/cli, so the checked-in manifest resolves with the
+// same relative hop from either artifact.
+/** This app's version, read from its checked-in package.json. */
+function readVersion(): string {
+  const manifest = JSON.parse(
+    readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+  ) as { version?: unknown }
+  return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
+}
 
 loadEnv('dsh')
-const argv = process.argv.slice(2)
+const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
-if (argv[0] === 'web') {
-  const { runWeb } = await import('./web.ts')
-  await runWeb(argv.slice(1))
-} else if (argv.includes('-p') || argv.includes('--prompt')) {
-  const { runHeadless } = await import('./headless.ts')
-  await runHeadless(argv)
-} else {
-  const { runTui } = await import('./tui.ts')
-  await runTui(argv)
+switch (invocation.mode) {
+  case 'web': {
+    const { runWeb } = await import('./web.ts')
+    await runWeb(invocation.host, invocation.port, invocation.dev, invocation.workspaceRoot)
+    break
+  }
+  case 'headless': {
+    const { runHeadless } = await import('./headless.ts')
+    await runHeadless(invocation.prompt)
+    break
+  }
+  case 'tui': {
+    const { runTui } = await import('./tui.ts')
+    await runTui(invocation.config, invocation.resume)
+    break
+  }
+  default:
+    invocation satisfies never
+    throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)
 }
