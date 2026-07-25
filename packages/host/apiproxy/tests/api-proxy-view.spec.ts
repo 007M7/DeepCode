@@ -156,7 +156,7 @@ describe('mux live view computation', () => {
 
   it('tail page carries the full-log todo projection; older pages and todo-less sessions omit it', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
     const session = ctx.sessions.create()
     ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
     // Superseded write early in the log, latest write later; enough messages to page.

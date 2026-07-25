@@ -6,7 +6,7 @@
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hookOf } from './hook.ts'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
@@ -19,7 +19,7 @@ afterEach(cleanup)
 
 function sessionWith(todos: readonly TodoItem[]) {
   const store = createSnapshotStore<{ todos: readonly TodoItem[] }>({ todos })
-  return { store, useSession: hookOf(store) as unknown as UseSession }
+  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession }
 }
 
 const LIST: TodoItem[] = [
