@@ -227,7 +227,8 @@ function buildSearch(g: Group, visible: ReadonlySet<SessionId>): SessionNode[] {
  *
  * Normal mode: every group shows; sessions populate under expanded groups,
  * descending only into expanded sessions. A frontend Session Intent targeting
- * a real Workspace marks that group `intentHere` (rendered only while the group is expanded; expansion stays viewer-owned). Search mode (non-blank query,
+ * a real Workspace marks that group `intentHere` (rendered only while the
+ * group is expanded; expansion stays viewer-owned). Search mode (non-blank query,
  * case-insensitive display-title substring): expansion state is ignored —
  * matched sessions and their ancestor chains are forced visible, groups
  * without a display-title or label hit are dropped, a label-only hit keeps
