@@ -112,7 +112,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
 - **Keep PRs coherent; use merge commits.** Split independent features or design decisions when combining them obscures ownership, intent, or verification. Never squash, rebase, or rewrite pushed branches; fix the introducing PR, then merge down its stack ([guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
-- **Label PRs:** exactly one kind (`feature`/`bug-fix`/`doc`/`testing`/`cleanup`), all matching areas; the taxonomy remains extensible for recurring distinctions.
+- **Label PRs:** exactly one kind (`feature`/`bug-fix`/`doc`/`testing`/`cleanup`), all matching areas; the [taxonomy](.agents/notes/implemented/process/2026-07-25-semantic-pr-label-taxonomy.md) remains extensible for recurring distinctions.
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --cached --check` (pre-commit) gates it.
 
