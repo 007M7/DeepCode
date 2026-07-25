@@ -15,6 +15,18 @@ export type { StorageErrorCode } from './error.ts'
 export { UNIT_NAME_RE } from './backend.ts'
 export type { StorageBackend, KvFacet, KvUnit, KvUnitDescriptor } from './backend.ts'
 
+/**
+ * Derive the Cordis lifecycle service that one named backend plugin provides.
+ * Domain-form providers inject these keys so activation cannot race backend
+ * registration even though callers continue resolving backends through the
+ * storage registry.
+ * @param name - Backend registry name.
+ * @returns the corresponding lifecycle-only service key.
+ */
+export function storageBackendServiceKey(name: string): string {
+  return `storage.backend.${name}`
+}
+
 declare module 'cordis' {
   interface Context {
     storage: Storage

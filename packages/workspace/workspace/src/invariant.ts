@@ -19,19 +19,22 @@ export const inject = ['invariants']
  * Owned relationship: the registry's entity cache mirrors the workspace
  * domain's durable table. Every `domain/changed` for the `workspaces` table
  * must name a record the cache already holds an entity for (the registry
- * caches before the durable put and mutates only through cached entities),
- * and no `deleted` operation may appear at all — this phase ships no delete
- * entry point, so a deletion proves a write path outside the registry.
+ * caches before the durable put and mutates only through cached entities).
+ * A delete is valid only for create rollback, after the provisional cache
+ * entry has been removed; deleting a published entity proves a bypass.
  */
 const install: InvariantInstaller = Object.assign(
   (ctx: Context, fail: (message: string) => never) => {
     ctx.on('domain/changed', (change: DomainChanged) => {
       if (change.domain !== 'workspace' || change.table !== 'workspaces') return
       if (change.operation === 'deleted') {
-        fail(
-          `workspace record '${change.key}' emitted a deleted change, but the registry `
-          + 'exposes no delete entry point — some write path bypassed ctx.workspace',
-        )
+        if (ctx.workspace.get(WorkspaceId(change.key)) !== undefined) {
+          fail(
+            `workspace record '${change.key}' was deleted while the registry cache still `
+            + 'publishes it — some write path bypassed ctx.workspace',
+          )
+        }
+        return
       }
       if (ctx.workspace.get(WorkspaceId(change.key)) === undefined) {
         fail(

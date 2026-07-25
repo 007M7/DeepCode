@@ -1,0 +1,55 @@
+/**
+ * workspace domain contract. Wire projection of the host-side workspace
+ * entity (@deepseek-ai/dsh-workspace): a stable id over a directory path,
+ * a display title, and the ordered session account. Method signatures are the
+ * source of truth, same as the sessions domain.
+ */
+
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { RpcRequest, RpcResponse } from './rpc.ts'
+
+/**
+ * Wire-side workspace id brand. Deliberately re-declared here rather than
+ * imported from dsh-workspace: api/ must stay browser-importable with zero
+ * host-package dependencies, and the brand string matches, so both sides
+ * agree structurally.
+ */
+export type WorkspaceId = Branded<'WorkspaceId'>
+
+/** One workspace row: the record projection every workspace.* value carries. */
+export interface WorkspaceView {
+  workspaceId: WorkspaceId
+  /** Canonical directory path (host-side realpath canon). */
+  path: string
+  /** Unique display title (defaults to the path basename at create). */
+  title: string
+  /** Sessions accounted under this workspace, newest-first for display. */
+  sessionIds: SessionId[]
+  /** ISO-8601 creation instant. */
+  createdAt: string
+  /** ISO-8601 last-mutation instant. */
+  updatedAt: string
+}
+
+/** Workspace-domain unary methods (the map keys workspace.* of RpcMethodMap). */
+export interface WorkspaceApi {
+  /** Lists all workspaces in the registry's durable display order. */
+  list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: WorkspaceView[] }>>
+
+  /**
+   * Creates (or idempotently resolves) a workspace. Exactly one of `path` /
+   * `name` (schema-enforced): `path` registers an EXISTING directory (no
+   * mkdir — a missing or non-directory path fails with `workspace-invalid-path`);
+   * `name` is a single path segment the host mkdirs under its default project
+   * root before registering. Either spelling resolving to a directory already
+   * owned by a workspace returns that workspace (`created: false`) for the
+   * existing-folder spelling. Create-by-name rejects an existing title with
+   * `workspace-name-conflict`; a new path whose basename duplicates another
+   * Workspace title is rejected by the registry with the same code.
+   * A new name-created workspace uses `name` as both directory name and title;
+   * a path-created workspace uses the registry's basename title default.
+   */
+  create(request: RpcRequest<{ path?: string; name?: string }>):
+  Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>>
+}

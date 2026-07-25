@@ -11,9 +11,18 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type { HistoryEntry, SessionSummary } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
+import type { WorkspaceId } from './workspace.ts'
 
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
+
+/**
+ * WorkspaceId: the workspace domain's one brand cast. Hosted here rather
+ * than in workspace.schema because session.create references it while
+ * workspace.schema references sessionIdSchema — schema modules must stay a
+ * DAG (both casts used at module top level; a cycle is a load-time TDZ).
+ */
+export const workspaceIdSchema = z.string().min(1) as unknown as z.ZodType<WorkspaceId>
 
 /** SessionEvent passthrough: strict envelope, wide data (the client fold handles unknown types via its documented default). */
 export const sessionEventSchema = z.object({
@@ -44,10 +53,15 @@ export const sessionListValueSchema = z.object({
   items: z.array(sessionSummarySchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.list'>>>
 
-/** session.create request payload. */
+/** session.create request payload (at most one of workspaceId / cwd). */
 export const sessionCreateRequestSchema = z.object({
+  workspaceId: workspaceIdSchema.optional(),
   cwd: z.string().optional(),
-}) satisfies z.ZodType<Wire<RequestPayload<'session.create'>>>
+  sessionId: sessionIdSchema.optional(),
+}).refine(
+  payload => payload.workspaceId === undefined || payload.cwd === undefined,
+  { message: 'session.create accepts workspaceId or cwd, not both' },
+) satisfies z.ZodType<Wire<RequestPayload<'session.create'>>>
 
 /** session.create response value. */
 export const sessionCreateValueSchema = z.object({

@@ -38,6 +38,7 @@ const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
+const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -112,6 +113,14 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
+  // Keyless, authored (like error-finish): a live provider cannot be coaxed
+  // into a degenerate empty completion, so the fixture scripts the adapters'
+  // EMPTY_RESPONSE error finish (step 1) followed by the recovered reply
+  // (step 2), proving the default retry policy end to end: the durable
+  // llm/retry event, no ACP output for the discarded attempt, the recovered
+  // reply, and a clean completed turn. Its overlay only pins a deterministic
+  // 1 ms zero-jitter delay, so it shares the default header class.
+  { name: 'empty-response-retry', hasModelTurn: true, recorded: false, configPath: RETRY_CONFIG },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
   // LIVE model to repeat one call three times is not a stable recording, so
   // the fixture scripts five identical todo_write calls and pins BOTH reminder

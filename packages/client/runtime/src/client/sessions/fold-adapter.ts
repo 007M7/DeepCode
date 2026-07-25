@@ -24,10 +24,10 @@ export interface CallIndexEntry {
   callView: ToolCallView | null
 }
 
-/** Non-surface-eligible sentinel event (safely skipped by surfaceOpOf's undefined branch).
- *  'noop/padding' is not a real event type on purpose: a genuine type with fake data would
- *  surface as garbage the day anyone adds handling for it (design §D.1; the cast is the one
- *  place a synthetic event enters the window). */
+/** Non-surface sentinel used to preserve paged-window sequence offsets.
+ * `noop/padding` is deliberately not a real event type, so it cannot acquire
+ * surface behavior; this cast is the only synthetic event entry point.
+ */
 function paddingEvent(seq: number): SessionEvent {
   return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
 }

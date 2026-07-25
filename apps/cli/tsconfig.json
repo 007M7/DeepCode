@@ -15,9 +15,6 @@
       "path": "../../packages/host/apiproxy"
     },
     {
-      "path": "../../packages/host/runtime"
-    },
-    {
       "path": "../../packages/host/webserver"
     },
     {

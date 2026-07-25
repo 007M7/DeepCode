@@ -29,8 +29,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     // The 'root' entry itself is the runtime's built-in slot (declared
     // there); these four are the frame's children, declared by the same
-    // register() call that contributes AppFrame. Session slots carry no
-    // owner share: the framework injects sessionId as a standard prop.
+    // register() call that contributes AppFrame. Session owners never pass
+    // sessionId: the framework injects it as a standard prop.
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
     'conversation': { kind: 'single'; scope: 'session'; owner: ConvOwnerProps }
     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
@@ -41,12 +41,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 // OwnerShare contracts — the render-side share the slot owner supplies at
 // renderSlot. Registrants IMPORT these and compose their full component props
 // through the four-share intersection (PropsRuntime & PropsRenderSlots &
-// PropsStore & I). Session owner shares stay literally empty: a phantom
-// `sessionId?: never` would intersect with the framework's mandatory
-// SessionStandardProps.sessionId and collapse the composed props to never —
-// the anti-smuggling guard is mutually exclusive with standard injection, so
-// the standard member's own type is the only guard on standard keys. Phantom
-// members remain fine on keys the standards never claim (EmptyOwnerProps).
+// PropsStore & I). Conversation business state and actions arrive through
+// framework-standard hooks and each registrant's inject face, not owner props.
 
 /** Sidebar owner share: live column state from the frame's concession solve. */
 export interface SidebarOwnerProps {
@@ -56,13 +52,13 @@ export interface SidebarOwnerProps {
   width: number
 }
 
-/** Conversation owner share: empty — sessionId arrives as a framework-standard prop. */
+/** Conversation owner share: business state and actions belong to the registrant. */
 export interface ConvOwnerProps {}
 
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
-/** Empty-state owner share (ui-conversation registers EmptyState here). */
+/** Empty-state owner share: business state and actions belong to the registrant. */
 export interface EmptyOwnerProps { children?: never }
 
 /** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
@@ -89,9 +85,8 @@ export function apply(ctx: ClientContext): void {
       // Exclusive store: the factory itself — the framework instantiates per
       // entry and delivers useStore/actions to AppFrame as standard props.
       store: createLayoutStore,
-      // No business face for the frame (I = {}): the hook's job is the
-      // assembly side effect wiring the entry's bound actions into the
-      // cross-plugin service seam.
+      // The hook's only side effect connects the root store to ctx.layout;
+      // conversation business actions belong to their registrants.
       inject: (actions: PanelActions) => {
         layout.attachPanels(actions)
         return {}

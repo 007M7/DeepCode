@@ -8,6 +8,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { ToolEventView } from './events.ts'
+import type { WorkspaceId } from './workspace.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -49,8 +50,16 @@ export interface SessionsApi {
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
   list(request: RpcRequest<{ cursor?: string }>): Promise<RpcResponse<{ items: SessionSummary[] }>>
 
-  /** Creates a new session (and its agent, idle and standing by). */
-  create(request: RpcRequest<{ cwd?: string }>): Promise<RpcResponse<{ sessionId: SessionId }>>
+  /**
+   * Creates a real session and its idle agent. At most one of `workspaceId` /
+   * `cwd` is accepted; an omitted project uses the Host cwd. A caller may
+   * preallocate `sessionId`: retries with the same id and cwd return the same
+   * session, while a different cwd fails with `session-conflict`.
+   * Workspace creation attaches the session after publication; an attach
+   * failure returns `workspace-attach-failed` with the published session id.
+   */
+  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId }>):
+  Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
    * Reads a window of history events; page boundaries align to message boundaries: one page =
