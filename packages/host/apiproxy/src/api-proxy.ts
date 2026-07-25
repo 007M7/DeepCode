@@ -172,7 +172,7 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
   }
 }
 
-/** Host-level default agent routing (same shape as dsh-host-runtime's HostDefaults, kept structural to avoid a reverse dependency). */
+/** Host-level default agent routing: provider/model from the gateway config, cwd from the host process. */
 export interface ApiProxyDefaults {
   provider: string
   model: string
