@@ -79,4 +79,10 @@ describe('TaskService seam', () => {
     class SecondTaskService extends StubTaskService {}
     await expect(ctx.plugin(SecondTaskService)).rejects.toThrow(/service "tasks" has been registered/)
   })
+
+  it('mounting the abstract seam directly fails loudly at load (stale-composition fence)', async () => {
+    const ctx = new Context()
+    await expect(ctx.plugin(TaskService as unknown as typeof StubTaskService))
+      .rejects.toThrow(/abstract task registry seam; load an implementation such as @deepseek-ai\/dsh-tasks-local/)
+  })
 })

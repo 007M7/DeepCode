@@ -32,4 +32,4 @@ Status: implemented
 
 换来的是：任务注册表如今与全仓库通行的 seam 形态一致；持久化、远程或带插桩的注册表将是一个实现八个抽象方法的兄弟包，这样的注册表落地时，任何生产方、控制接口或 `TaskKindMap` 扩展方都无需改动。seam 包的 README 陈述契约；生命周期簿记方面的事实归实现包的 README 所有。注册表行为测试套件（所有者清理、结算、等待、拆除）随 `dsh-tasks-local` 存放；seam 包保留一个桩子类（stub subclass）测试，固定 `ctx.tasks` 下的注册行为与单一服务的重复注册行为，外加基于探针的不变式测试套件。
 
-代价是：多出一个包，即多一份 manifest（元数据清单）、tsconfig、README 与不变式配套插件；同时各组合必须点名实现包。若某次启动只加载 `@deepseek-ai/dsh-tasks`，`ctx.tasks` 将保持挂起，生产方会按标准的服务缺失行为失败，而不会收到一条专门定制的消息。若日后另一个后端成为推荐的默认选择，点名 `dsh-tasks-local` 的配置错误诊断信息将随之陈旧；这一点已被接受。
+代价是：多出一个包，即多一份 manifest（元数据清单）、tsconfig、README 与不变式配套插件；同时各组合必须点名实现包。`abstract` 在运行时会被擦除，而这个包名过去正是可挂载的具体注册表，因此 seam 的构造函数在被直接挂载时会响亮失败——一条过期的组合配置行会在加载时得到「load an implementation such as @deepseek-ai/dsh-tasks-local」，而不是一个方法残缺的 `ctx.tasks` 在远离错误配置处才失败。若日后另一个后端成为推荐的默认选择，点名 `dsh-tasks-local` 的配置错误诊断信息将随之陈旧；这一点已被接受。
