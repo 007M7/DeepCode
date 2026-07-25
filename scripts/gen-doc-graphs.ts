@@ -77,7 +77,10 @@ const GROUP_ORDER = [
   'session-persistence',
   'session-query',
   'session-title',
+  'storage',
+  'workspace',
   'support',
+  'acp',
   'ui',
 ]
 
@@ -129,8 +132,33 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'acp', 'session-query', 'session-query-sqlite'],
+    consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'session-query', 'session-query-sqlite'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'storage',
+    pkg: 'storage',
+    title: 'Non-session storage hub',
+    mode: 'seam',
+    implementations: ['storage-json', 'storage-sqlite'],
+    consumers: ['storage-domain'],
+    note: 'Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives.',
+  },
+  {
+    key: 'storageDomain',
+    pkg: 'storage-domain',
+    title: 'Domain data facility',
+    mode: 'core',
+    consumers: ['workspace'],
+    note: 'Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state.',
+  },
+  {
+    key: 'workspace',
+    pkg: 'workspace',
+    title: 'Workspace entity registry',
+    mode: 'core',
+    consumers: ['apiproxy'],
+    note: 'Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections.',
   },
   {
     key: 'sessionQuery',
@@ -146,7 +174,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session-reference',
     title: 'Cross-session snapshot preparation',
     mode: 'core',
-    consumers: ['tui', 'acp'],
+    consumers: ['tui'],
     note: 'Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax.',
   },
   {
@@ -170,7 +198,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'tools',
     title: 'Tool registry and guarded execution pipeline',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-pty', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-pty', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web'],
     note: 'Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation.',
   },
   {
@@ -178,8 +206,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'user-interaction',
     title: 'Human question/answer seam',
     mode: 'seam',
-    implementations: ['tui', 'acp'],
-    consumers: ['tool-ask-user', 'tui', 'acp'],
+    implementations: ['tui'],
+    consumers: ['tool-ask-user', 'tui'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
@@ -187,7 +215,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'plan-mode',
     title: 'Plan collaboration state',
     mode: 'core',
-    consumers: ['acp'],
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
@@ -195,8 +222,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'commands',
     title: 'Human command registry',
     mode: 'core',
-    consumers: ['tui', 'acp'],
-    note: 'Plugins register direct human commands; TUI and ACP consume the same effective per-agent catalog without sending invocations to the model.',
+    consumers: ['tui'],
+    note: 'Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model.',
   },
   {
     key: 'tui',
@@ -295,7 +322,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Permission presets',
     mode: 'core',
     implementations: [],
-    consumers: ['acp'],
     note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
   },
   {
@@ -360,6 +386,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['spill-local'],
     consumers: ['spill-policy'],
     note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
+  },
+  {
+    key: 'httpServer',
+    pkg: 'webserver',
+    title: 'HTTP route registration',
+    mode: 'core',
+    consumers: ['connection', 'modules', 'hmr'],
+    note: 'Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes.',
+  },
+  {
+    key: 'clientModuleHost',
+    pkg: 'modules',
+    title: 'Client plugin graph host',
+    mode: 'core',
+    consumers: ['hmr'],
+    note: 'Composes the __DSH_BOOT__ entry graph from an incremental dshClient scan, serves plugin bundles, and notifies rebuilt/graph-changed subscribers.',
   },
   {
     key: 'workflows',
@@ -531,10 +573,10 @@ const APP_EXAMPLES = [
   {
     id: 'acp',
     rel: 'examples/acp-agent/composition.md',
-    title: 'ACP Agent App Composition',
+    title: 'ACP Automation App Composition',
     label: 'examples/acp-agent',
     config: 'examples/acp-agent/cordis.yml',
-    summary: 'The ACP demo exposes the same agent spine over JSON-RPC stdio, with no stdout logger and no pre-created agent; clients create sessions through the ACP bridge.',
+    summary: 'The ACP demo exposes fresh baseline-prompt agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.',
   },
 ]
 
@@ -550,7 +592,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
   }
   lines.push(
     `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
@@ -1039,35 +1081,6 @@ function renderToolPipeline(): string {
   ].join('\n')
 }
 
-function renderSnapshotReplay(): string {
-  const maintenance = 'curated Mermaid sequence based on the snapshot test harness'
-  return [
-    ...generatedHeader('ACP Snapshot Replay'),
-    'This graph explains what a snapshot scenario proves: recorded real-model session logs are replayed keylessly, ACP stdout is normalized and diffed, and scenario workspaces preserve tool side effects that the UI stream alone cannot prove.',
-    '',
-    '```mermaid',
-    'sequenceDiagram',
-    '  participant Recorder as Real API recording',
-    '  participant Fixture as snapshot fixture',
-    '  participant Workspace',
-    '  participant Replay as llm-replay adapter',
-    '  participant ACP as acp-agent subprocess',
-    '  participant Expected as stdout expected output',
-    '  Recorder->>Fixture: session.jsonl + workspace inputs',
-    '  Fixture->>Workspace: seed files and hook configs',
-    '  Fixture->>Replay: recorded StreamChunk script',
-    `  Replay->>ACP: deterministic ${mermaidCode('llm/stream')} chunks`,
-    '  ACP->>Workspace: bash, fs, and hook side effects',
-    '  ACP->>Expected: normalized sessionUpdate stream',
-    '  Expected-->>ACP: diff must be empty',
-    '```',
-    '',
-    'The fs and hook snapshot matrix is valuable because it proves world state, hook decisions, and failed tool-card rendering, not just that replay returns text.',
-    '',
-    ...maintenanceFooter(maintenance),
-  ].join('\n')
-}
-
 function renderDocs(): GraphDoc[] {
   const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
   const docs: GraphDoc[] = [
@@ -1076,7 +1089,6 @@ function renderDocs(): GraphDoc[] {
     { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
     { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
-    { rel: 'packages/ui/acp/snapshot-replay.md', content: renderSnapshotReplay() },
   ]
   docs.unshift({ rel: 'docs/graph-atlas.md', content: renderIndex(docs) })
   return docs
@@ -1092,7 +1104,6 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
     'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
     'docs/tool-execution-pipeline.md': 'tool execution pipeline',
-    'packages/ui/acp/snapshot-replay.md': 'ACP snapshot replay',
   }
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
@@ -1103,7 +1114,6 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/event-producer-consumer.md': 'hybrid generated',
     'docs/agent-lifecycle.md': 'curated',
     'docs/tool-execution-pipeline.md': 'curated',
-    'packages/ui/acp/snapshot-replay.md': 'curated',
   }
   const rows = [
     '| [module dependency graph](module-graph.md) | `generated` |',

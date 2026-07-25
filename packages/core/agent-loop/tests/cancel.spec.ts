@@ -142,8 +142,6 @@ describe('Agent.cancel()', () => {
 
     agent.queue([{ type: 'text', text: 'quiet' }])
     const idle = agent.whenIdle()
-    // Cancel reaches quiescence with no status transition and no waking send;
-    // whenIdle must still resolve (previously it hung until the next send).
     agent.cancel({ kind: 'user' })
     await idle
     expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)

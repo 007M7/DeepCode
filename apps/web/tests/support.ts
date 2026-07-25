@@ -16,10 +16,7 @@ export function requireDist(): void {
   }
 }
 
-/**
- * OS-assigned free port, released before use. startWebServer echoes
- * options.port instead of the bound one, so passing 0 directly is unusable.
- */
+/** OS-assigned free port, released before use (the spawned `dsh web` needs a concrete --port). */
 export function probeFreePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const probe = createServer()

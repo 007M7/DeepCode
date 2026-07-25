@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-06-20-package-hierarchy.zh.md)
 
-The later [fold-stdio-helper](../simplification/2026-07-04-fold-stdio-ui-helper.md) decision superseded the original `support/ui-stdio` placement, and the [redundant-agent removal](../simplification/2026-07-20-remove-stdio-and-echo-agents.md) subsequently removed that surface entirely. The uniform depth-two hierarchy remains the decision owned here.
+The later [fold-stdio-helper](../simplification/2026-07-04-fold-stdio-ui-helper.md) decision superseded the original `support/ui-stdio` placement, and the [redundant-agent removal](../simplification/2026-07-20-remove-stdio-and-echo-agents.md) subsequently removed that surface entirely. The [automation-only ACP decision](../simplification/2026-07-23-acp-automation-only-protocol.md) places ACP under `packages/acp/acp` instead of the human-UI group. The uniform depth-two hierarchy remains the decision owned here.
 
 ## Problem
 
@@ -36,8 +36,9 @@ packages/
     session-persistence/
     session-persistence-jsonl/
     session-persistence-sqlite/
-  ui/                    (product integration)
+  acp/                   (product automation integration)
     acp/
+  ui/                    (human interaction and presentation)
   support/               (dev/test/example infrastructure)
     invariants/
     ui-stdio/
@@ -49,7 +50,7 @@ packages/
 - **Same-name nesting for capability families.** A family's interface package sits at `packages/<group>/<group>/` (`llm/llm`, `bash/bash`, `session-persistence/session-persistence`), with implementations and consumers as flat siblings. There is no extra `adapters/`/`impls/` sub-tier — every package is exactly depth 2, which keeps the workspace glob a clean `packages/*/*` and lets one `@deepseek-ai/dsh-*` tsconfig wildcard resolve every package (unique dir names make first-on-disk-wins unambiguous).
 - **`session` stays in `core/`; persistence is its own family.** The session log is core product API. Its storage backends form a parallel capability family (`session-persistence/`) mirroring `llm/` and `bash/`, rather than nesting under `core/session/`.
 - **`agent-loop` is in `core/`.** It is the one concrete implementation of the `agent` seam, but it ships as the harness's default product loop, so it lives with the core spine. Plugins still depend on the `agent` vocabulary, never on `agent-loop`, so the loop stays swappable.
-- **`invariants` and `ui-stdio` are `support/`, not product.** `invariants` is dev-mode contract checking. `ui-stdio` was extracted from the examples for reuse and the coverage gate — it is example-coupled, so it sits in `support/` alongside `llm-replay` (the snapshot-test replay adapter). `acp` is the only `ui/` member because it is a real product surface (the ACP bridge an editor drives), structurally distinct from the readline demo helper.
+- **Product automation and human UI are separate groups.** `acp` is a product transport under `acp/`, while commands, approvals, interaction, and presentation adapters live under `ui/`. Dev-only invariants and replay infrastructure remain under `support/`.
 
 ### Deduplicating the package lists
 
@@ -70,7 +71,7 @@ Two doc-sync/hygiene gates keep the structure and its references honest, so the 
 
 - **A third tier (`adapters/` / `impls/` under each family)** — rejected: uniform depth 2 keeps the workspace glob a clean `packages/*/*` and lets one `@deepseek-ai/dsh-*` tsconfig wildcard resolve every package.
 - **Nesting persistence under `core/session/`** — rejected: the storage backends form a parallel capability family mirroring `llm/` and `bash/`, while the session log itself stays core product API.
-- **`ui-stdio` under `ui/`** — rejected: it is example-coupled dev support, not a product surface; `acp` is the only `ui/` member because an editor actually drives it.
+- **`ui-stdio` under `ui/`** — rejected: it was example-coupled dev support, not a product surface.
 
 ## Consequences
 

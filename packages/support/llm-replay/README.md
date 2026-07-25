@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-llm-replay
 
-A replay LLM plugin for keyless snapshot tests. It yields model streams reconstructed from a recorded **session JSONL** fixture, so a test can boot the real agent against a fixed model transcript with no API key. With `providers` configured it registers a replay-only adapter whose catalog is visible to clients such as ACP editors; without `providers` it installs the catch-all `llm/stream` waterfall used by tests that do not need discovery.
+A replay LLM plugin for keyless snapshot tests. It yields model streams reconstructed from a recorded **session JSONL** fixture, so a test can boot the real agent against a fixed model transcript with no API key. With `providers` configured it registers a replay-only adapter whose catalog is available to scenarios that exercise model discovery; without `providers` it installs the catch-all `llm/stream` waterfall used by tests that do not need discovery.
 
 Its consumers are the ACP snapshot harness in `examples/acp-agent` and the `stream-json` snapshot in `examples/headless-agent`; each loads this plugin in place of a real LLM adapter. Keeping derivation and replay here places that logic under the per-file 100% coverage gate on `packages/*/src`.
 
@@ -8,7 +8,7 @@ Its consumers are the ACP snapshot harness in `examples/acp-agent` and the `stre
 
 The fixture IS the persisted session log (`<scenario>/session.jsonl`). Its `assistant/chunk` events carry every `StreamChunk`, so grouping them by `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model call per loop step). Recording is therefore "run the real agent once and harvest the `.jsonl`", done by the snapshot harness — this plugin does not record. A fixture may carry its `request/header` content tokenized to `{{system}}`/`{{tools}}` (the harness pins that content in one scenario and scrubs the rest); replay is indifferent — derivation reads only `assistant/chunk` events and the line-0 session header.
 
-Two failure modes are not reconstructable from `assistant/chunk` alone — a pure throw before any chunk (e.g. an HTTP 401, where the log holds only a `turn/end {error}` and no chunks) and a cancel/hang (timing, not chunk content). A scenario that needs those supplies an optional sidecar (`<scenario>/replay.override.json`: a `ReplayEntry[]`) that REPLACES the derived script.
+Two failure modes are not reconstructable from `assistant/chunk` alone — a pure throw before any chunk (e.g. an HTTP 401, where the log holds only a `turn/end {error}` and no chunks) and a cancel/hang (timing, not chunk content). A scenario that needs those supplies an optional sidecar (`<scenario>/replay.override.json`: a `ReplayEntry[]`) that REPLACES the derived script. A `hang` entry may name `readyFile`; replay writes that empty marker after its prefix chunks reach the loop and before it waits for cancellation, so an external driver can cancel deterministically without observing a presentation update.
 
 ## Nested agents: per-session keying
 

@@ -104,6 +104,18 @@
   line-height: 20px;
 }
 
+.renameInput {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+  padding: 0 2px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  background: var(--dsw-alias-button-elevated-fill);
+  color: inherit;
+  outline: none;
+}
+
 .sessionRow .title {
   flex: 1;
 }

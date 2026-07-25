@@ -12,6 +12,7 @@ import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
+import type { WorkspaceView } from './workspace.ts'
 
 // Client-side consumers take the render-intent vocabulary from the contract;
 // dsh-tools remains its owner.
@@ -62,10 +63,18 @@ export type MuxFrame =
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   | { type: 'stream/error'; error: RpcError }
 
-/** Host stream frames. session-added carries the lineage anchor; agent-error is the only outlet for live failures with no turn position. */
+/**
+ * Host stream frames. session-added carries the lineage anchor and the
+ * project cwd (the list-summary fields a client cannot wait for a refresh to
+ * learn); agent-error is the only outlet for live failures with no turn
+ * position; workspace-changed pushes the full new snapshot after every
+ * durable workspace mutation (create/attach/order change — the client
+ * upserts, while `workspace.list` provides the reconnect baseline).
+ */
 export type HostFrame =
-  | { type: 'host/session-added'; sessionId: SessionId; parentSessionId?: SessionId }
+  | { type: 'host/session-added'; sessionId: SessionId; parentSessionId?: SessionId; cwd?: string }
   | { type: 'host/session-removed'; sessionId: SessionId }
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
+  | { type: 'host/workspace-changed'; workspace: WorkspaceView }
   | { type: 'stream/error'; error: RpcError }

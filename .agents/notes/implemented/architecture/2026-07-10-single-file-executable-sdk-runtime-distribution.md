@@ -25,7 +25,7 @@ Terminology reminder: pkg's `/snapshot` VFS has nothing to do with this repo's t
 
 ### The serving surface is a plugin: the two packages ui/jsonrpc + examples/jsonrpc-demo
 
-The deterministic protocol implementation (`server.ts` / `transport.ts`) lands as two packages on the existing `ui/acp` + `examples/acp-demo` pattern — the serving surface is itself a plugin:
+The deterministic protocol implementation (`server.ts` / `transport.ts`) lands as two packages on the existing `acp/acp` + `examples/acp-demo` pattern — the serving surface is itself a plugin:
 
 - [`packages/ui/jsonrpc`](../../../../packages/ui/jsonrpc/README.md) (`@deepseek-ai/dsh-jsonrpc`): the pure protocol plugin; on apply it mounts `HarnessSdkServer` plus a line-delimited JSON-RPC transport on the process stdio, with disposal through `ctx.effect()`. Whether to serve is decided by `cordis.yml`; a yml that does not mount it is a legitimate process that does not serve. Protocol-level exit belongs to the plugin (after answering the `shutdown` request it disposes its own fiber, then `exit(0)`; an HMR-style unload only stops the service without exiting the process).
 - [`packages/examples/jsonrpc-demo`](../../../../packages/examples/jsonrpc-demo/README.md) (`@deepseek-ai/dsh-jsonrpc-demo`): a thin app bin — `installFailLoud` + `loadEnv` + config discovery + `boot()` from [`dsh-app-boot`](../../../../packages/ui/app-boot/src/index.ts), done once boot completes; the server is brought up by the `dsh-jsonrpc` entry in the yml. Its only dependency is app-boot. Process-level exit belongs to the bin (stdin EOF/SIGTERM → dispose then 0, SIGINT → 130).

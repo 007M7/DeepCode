@@ -167,7 +167,7 @@ Exceptions combine layers: LLM interface/consumer; filesystem policy; web regist
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own the TUI, one-shot CLI, and ACP/JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies a default only without explicit config ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own TUI, CLI, ACP automation, and JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies a default only without explicit config ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

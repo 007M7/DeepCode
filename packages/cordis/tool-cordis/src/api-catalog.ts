@@ -189,6 +189,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'clientModuleHost',
+    summary: 'The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap.',
+    methods: [
+      {
+        signature: 'graph(): WebBootGraph',
+        jsDoc: '/**\n * Current composed entry graph (stable object between changes).\n * @returns the graph served as `window.__DSH_BOOT__`.\n */',
+      },
+      {
+        signature: 'clientPath(id: string): string | undefined',
+        jsDoc: '/**\n * Absolute path of an entry\'s client bundle.\n * @param id - entry id (package name).\n * @returns the path, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'rebuilt(id: string): string | undefined',
+        jsDoc: '/**\n * Re-hash one bundle (the HMR watch\'s registration hook — the only entry\n * point through which bundle content changes reach the graph).\n * @param id - entry id (package name).\n * @returns the new rev, or undefined for an unknown id.\n */',
+      },
+      {
+        signature: 'onRebuilt(listener: (id: string, rev: string) => void): () => void',
+        jsDoc: '/**\n * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.\n * @param listener - receives the entry id and its new bundle rev.\n * @returns the unsubscriber.\n */',
+      },
+      {
+        signature: 'onGraphChanged(listener: () => void): () => void',
+        jsDoc: '/**\n * Fires after any flush that recomposed the graph (row added/removed, or a\n * rebuilt rev change). Pull model: listeners re-read {@link graph}.\n * @param listener - notified with no payload.\n * @returns the unsubscriber.\n */',
+      },
+    ],
+  },
+  {
     key: 'codeRuntime',
     summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
@@ -311,6 +337,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
         jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
+      },
+    ],
+  },
+  {
+    key: 'httpServer',
+    summary: 'The web-shape HTTP carrier service.',
+    methods: [
+      {
+        signature: 'register(route: WebRoute): () => void',
+        jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
+      },
+      {
+        signature: 'tapIndex(transform: (html: string) => string): () => void',
+        jsDoc: '/**\n * Register an index.html transform, applied to every index response in\n * registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
       },
     ],
   },
@@ -651,6 +691,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'storage',
+    summary: 'The storage hub service.',
+    methods: [
+      {
+        signature: 'mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void',
+        jsDoc: '/**\n * Mount a data-form facility on the hub. Mounting is an effect: the\n * returned disposer unmounts the form.\n * @param form - Form key declared in {@link StorageForms}.\n * @param facility - The facility instance to expose.\n * @returns the disposer that unmounts the form.\n */',
+      },
+      {
+        signature: 'form<K extends keyof StorageForms>(form: K): StorageForms[K]',
+        jsDoc: '/**\n * Resolve a mounted data form.\n * @param form - Form key declared in {@link StorageForms}.\n * @returns the mounted facility.\n */',
+      },
+    ],
+  },
+  {
+    key: 'storageDomain',
+    summary: 'The mounted domain facility.',
+    methods: [
+      {
+        signature: 'async open<S extends DomainSpec>(spec: S): Promise<Domain<S>>',
+        jsDoc: '/**\n * Open one declared domain. Steps, each failing the whole call: reject a\n * name that is already open (`already-open`); resolve the backend route\n * (`backend-not-found` passes through from the hub); require its `kv` facet\n * (`facet-unsupported`); open the unit projected from the spec (backend\n * `version-mismatch`/`malformed-medium` pass through); load and validate\n * every stored record against the spec\'s zod schemas (`invalid-record`\n * with the offending table and key); construct the domain.\n *\n * Lifecycle: the CALLER owns the returned handle and closes it via\n * `Domain.close()` (typically as its own `ctx.effect` disposer) — the\n * facility does not tie the domain to any consumer fiber. Domains still\n * open when the facility unmounts are closed by the plugin disposer.\n * @param spec - The domain declaration, typically from `defineDomain`.\n * @returns the opened domain handle, typed by the spec.\n */',
+      },
+      {
+        signature: 'get(name: string): DomainImpl | undefined',
+        jsDoc: '/**\n * Look up an open domain by name, untyped. Diagnostic surface (the package\n * invariant cross-checks change events against live domain state); typed\n * consumers hold the handle returned by {@link open}.\n * @param name - Domain name.\n * @returns the open domain runtime, or `undefined` when not open.\n */',
+      },
+      {
+        signature: 'async closeAll(): Promise<void>',
+        jsDoc: '/**\n * Close every domain still open on this facility. The unmount path for\n * consumers that never called `Domain.close()` themselves; closing is\n * idempotent, so double-closing an already-closed domain is harmless.\n * @returns resolution after every unit is released.\n */',
+      },
+    ],
+  },
+  {
     key: 'subagents',
     summary: 'Named provider registry and capability-checked start surface.',
     methods: [
@@ -854,6 +926,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
     ],
   },
+  {
+    key: 'workspace',
+    summary: 'Durable workspace registry.',
+    methods: [
+      {
+        signature: 'async create(path: string, title?: string): Promise<Workspace>',
+        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * A different canonical path cannot create a duplicate display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
+      },
+      {
+        signature: 'get(id: WorkspaceId): Workspace | undefined',
+        jsDoc: '/**\n * Look up a workspace by id.\n * @param id - Workspace id.\n * @returns the workspace, or `undefined` when unknown.\n */',
+      },
+      {
+        signature: 'list(): Workspace[]',
+        jsDoc: '/**\n * Synchronous workspace projection in durable registry order. Every\n * entity\'s `sessionIds` getter is already filtered by the startup/live\n * canonical-cwd header index; this method performs no persistence reads.\n * @returns a fresh ordered array of workspace entities.\n */',
+      },
+      {
+        signature: 'async touchSession(sessionId: SessionId): Promise<void>',
+        jsDoc: '/**\n * Move one accounted, cwd-validated session to the front of its workspace.\n * Ungrouped sessions and candidates filtered by the header check are\n * no-ops. The owning workspace\'s relative position never changes.\n * @param sessionId - Session whose activity was observed.\n * @returns resolution after the possible record write.\n */',
+      },
+      {
+        signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
+        jsDoc: '/**\n * Resolve by canonical directory path without creating or mutating a\n * workspace. A missing path rejects during `realpath`; an existing unowned\n * directory returns `undefined`.\n * @param path - Existing directory path in any spelling.\n * @returns the workspace owning the canonical path, when one exists.\n */',
+      },
+    ],
+  },
 ]
 
 /** Every harness event, sorted by name. */
@@ -1004,6 +1102,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'commands/change\'(): void',
     jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'A command was registered or unregistered.',
+  },
+  {
+    name: 'domain/changed',
+    mode: 'emit',
+    signature: '\'domain/changed\'(change: DomainChanged): void',
+    jsDoc: '/**\n * A domain record or the global singleton changed, emitted once per write\n * strictly after the backend acknowledged durability. Events of one\n * domain arrive in its write-chain order.\n * @param change - domain, table (`\'\'` for global), key (`\'\'` for global),\n * operation discriminant, and on `put` the new snapshot.\n * @mode emit\n */',
+    summary: 'A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability.',
   },
   {
     name: 'fs/edit-intent',
@@ -1416,6 +1521,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
   },
   {
+    name: 'Domain',
+    declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'DomainGlobal',
+    declaration: 'export interface DomainGlobal<G> {\n    get(): G;\n    set(value: G): Promise<void>;\n}',
+  },
+  {
+    name: 'DomainGlobalHandleOf',
+    declaration: 'export type DomainGlobalHandleOf<S extends DomainSpec> = S extends {\n    readonly global: DomainGlobalSpec<infer G>;\n} ? DomainGlobal<G> : never;',
+  },
+  {
+    name: 'DomainGlobalSpec',
+    declaration: 'export interface DomainGlobalSpec<G> {\n    readonly schema: ZodType<G>;\n    readonly initial: G;\n}',
+  },
+  {
+    name: 'DomainImpl',
+    declaration: 'export class DomainImpl {\n    readonly name: string;\n    constructor(private readonly ctx: Context, spec: DomainSpec, private readonly unit: KvUnit, records: Map<string, Map<string, unknown>>, globalValue: unknown, private readonly onClosed: () => void);\n    get global(): DomainGlobal<unknown>;\n    table(name: string): KvTable<string, unknown>;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'DomainSpec',
+    declaration: 'export interface DomainSpec {\n    readonly name: string;\n    readonly version: number;\n    readonly global?: DomainGlobalSpec<unknown>;\n    readonly tables: Record<string, DomainTableSpec>;\n}',
+  },
+  {
+    name: 'DomainTableSpec',
+    declaration: 'export interface DomainTableSpec<K extends string = string, V = unknown> {\n    readonly valueSchema: ZodType<V>;\n    readonly __key?: K;\n}',
+  },
+  {
     name: 'DshEnvironment',
     declaration: 'export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>;',
   },
@@ -1558,6 +1691,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'KvTable',
+    declaration: 'export interface KvTable<K extends string, V> {\n    get(key: K): V | undefined;\n    entries(): IterableIterator<[\n        K,\n        V\n    ]>;\n    keys(): IterableIterator<K>;\n    readonly size: number;\n    put(key: K, value: V): Promise<void>;\n    delete(key: K): Promise<boolean>;\n    update(key: K, fn: (current: V) => V): Promise<V>;\n}',
+  },
+  {
+    name: 'KvUnit',
+    declaration: 'export interface KvUnit {\n    loadAll(): Promise<{\n        tables: Record<string, Record<string, unknown>>;\n        global: unknown;\n    }>;\n    putRecord(table: string, key: string, value: unknown): Promise<void>;\n    deleteRecord(table: string, key: string): Promise<void>;\n    setGlobal(value: unknown): Promise<void>;\n    close(): Promise<void>;\n}',
   },
   {
     name: 'LlmAdapter',
@@ -2020,6 +2161,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
+    name: 'StorageForms',
+    declaration: 'export interface StorageForms {\n}',
+  },
+  {
     name: 'StreamChunk',
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
@@ -2066,6 +2211,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SurfaceOp',
     declaration: 'export type SurfaceOp = \'append\' | {\n    op: \'replace\';\n    start: number;\n    end: number;\n};',
+  },
+  {
+    name: 'TableKeyOf',
+    declaration: 'export type TableKeyOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<infer K> ? K : never;',
+  },
+  {
+    name: 'TableValueOf',
+    declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
   },
   {
     name: 'TaskDoneListener',
@@ -2312,6 +2465,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'WebRoute',
+    declaration: 'export interface WebRoute {\n    kind: WebRouteKind;\n    path: string;\n    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;\n}',
+  },
+  {
+    name: 'WebRouteKind',
+    declaration: 'export type WebRouteKind = \'exact\' | \'prefix\';',
+  },
+  {
     name: 'WebSearchProvider',
     declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
@@ -2354,6 +2515,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'Workspace',
+    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
   },
 ]
 

@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-06-18-acp-terminal-and-tool-rendering.zh.md)
 
+> Superseded for ACP by [ACP as an automation-only protocol](../simplification/2026-07-23-acp-automation-only-protocol.md). Tool render intents remain available to UI transports, but ACP no longer projects them into terminal cards.
+
 ## Problem
 
 The ACP bridge lets each tool own its call rendering via `presentCall`/`presentResult` (see [tool-call UI presentation](2026-06-14-acp-agent-client-protocol.md) and `packages/core/tools`). For `bash` we surface the exact command as the `tool_call` title, the model's `description` as a content text block, `kind: 'execute'`, and the completed output wrapped in a fenced ` ```console ` text block.

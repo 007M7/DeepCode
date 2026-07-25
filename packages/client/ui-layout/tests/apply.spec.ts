@@ -22,12 +22,12 @@ async function bench() {
 
 describe('ui-layout client apply', () => {
   it('declares its service dependencies', () => {
-    expect(inject).toContain('slots')
+    expect(inject).toEqual(['slots'])
   })
 
   it('provides ctx.layout and registers AppFrame into root with the four child declarations', async () => {
     const { ctx, slots } = await bench()
-    const fiber = ctx.plugin({ inject: ['slots'], apply })
+    const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.get('layout')).toBeInstanceOf(LayoutService)
     // The one register() call occupied 'root'…
@@ -39,9 +39,23 @@ describe('ui-layout client apply', () => {
     expect(slots.spec('conversation.empty')).toEqual({ kind: 'single', scope: 'root' })
   })
 
+  it('injects no business face and attaches the layout actions', async () => {
+    const { ctx, slots } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const actions = {
+      setSidebar: vi.fn(), setDetails: vi.fn(), toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
+    }
+    const injected = (slots.entries('root')[0]!.inject as (actions: never) => object)(actions as never)
+    expect(injected).toEqual({})
+    const layout = ctx.get('layout') as LayoutService
+    layout.toggleSidebar()
+    expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+  })
+
   it('teardown unwinds the service, the root registration, and the child declarations', async () => {
     const { ctx, slots } = await bench()
-    const fiber = ctx.plugin({ inject: ['slots'], apply })
+    const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     await fiber.dispose()
     expect(ctx.get('layout')).toBeUndefined()

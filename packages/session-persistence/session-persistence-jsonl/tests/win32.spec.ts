@@ -151,6 +151,15 @@ describe('Windows durable namespace helpers', () => {
     expect(existsSync(raced)).toBe(true)
   })
 
+  it('keeps staging names valid for a maximum-length target component', async () => {
+    const { ensureDurableDirectoryWin32 } = await importWithFilesystemMove()
+    const root = await tempRoot()
+    const target = join(root, 'x'.repeat(255))
+
+    await ensureDurableDirectoryWin32(target)
+    expect(existsSync(target)).toBe(true)
+  })
+
   it('surfaces directory publication failures other than an existing-target race', async () => {
     const { ensureDurableDirectoryWin32 } = await importWithError(ERROR_ACCESS_DENIED)
     const root = await tempRoot()

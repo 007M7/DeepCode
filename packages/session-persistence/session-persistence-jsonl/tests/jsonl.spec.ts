@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { encodeSegment, eventLines, logPath, scanLog, sessionDir, toHeaderLine } from '../src/format.ts'
+import {
+  encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, toHeaderLine,
+} from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -125,6 +127,16 @@ describe('SessionPersistenceJsonl: format helpers', () => {
     expect(() => encodeSegment('')).toThrow(/empty/)
   })
 
+  it('projectKey normalizes project paths into bounded readable names', () => {
+    expect(projectKey('/Users/qyj/work/deepseek-harness')).toBe('--Users-qyj-work-deepseek-harness--')
+    expect(projectKey('/a/b-c')).toBe(projectKey('/a-b/c'))
+    expect(projectKey('C:\\work\\agent')).toBe('--C-work-agent--')
+    expect(projectKey('/开发/~agent')).toBe('--~5F00~53D1-~007Eagent--')
+    expect(projectKey('/')).toBe('--root--')
+    expect(projectKey('/' + 'x'.repeat(1_000))).toHaveLength(255)
+    expect(() => projectKey('')).toThrow(/empty project path/)
+  })
+
   it('resolves a relative custom root before locating a session', async () => {
     const absoluteRoot = await freshRoot()
     const ctx = new Context()
@@ -161,15 +173,15 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.create(m)
     // locate() is a pure target-path calculation: neither it nor create()
     // materializes a file before the first append.
-    const dir = sessionDir(root, '/work')
+    const dir = sessionDir(root, '/work', m.id)
     await expect(stat(rawLogPath(root, '/work', m.id))).rejects.toThrow()
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
 
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     // now materialized
+    expect((await stat(dir)).isDirectory()).toBe(true)
     expect((await stat(rawLogPath(root, '/work', m.id))).isFile()).toBe(true)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
-    void dir
   })
 
   it('keeps the same location on resume and gives a fork its own location', async () => {
@@ -266,7 +278,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
   it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
     const m = meta('legacy-header-delta', '/legacy')
     const path = rawLogPath(root, m.cwd, m.id)
-    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await mkdir(sessionDir(root, m.cwd, m.id), { recursive: true })
     await writeFile(path, [
       JSON.stringify(toHeaderLine(m)),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
@@ -281,7 +293,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
   it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
     const m = meta('legacy-header-fallback', '/legacy')
     const path = rawLogPath(root, m.cwd, m.id)
-    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await mkdir(sessionDir(root, m.cwd, m.id), { recursive: true })
     await writeFile(path, [
       JSON.stringify(toHeaderLine(m)),
       JSON.stringify({
@@ -711,7 +723,7 @@ describe('SessionPersistenceJsonl: packed chunk rows (packChunks: true)', () => 
     const log = chunkRunLog()
     // First turn written line-per-event by an unpacked-config writer (an old
     // file, hand-planted so this packed-config backend adopts it on load).
-    await mkdir(sessionDir(root, '/work'), { recursive: true })
+    await mkdir(sessionDir(root, '/work', m.id), { recursive: true })
     await writeFile(rawLogPath(root, '/work', m.id), [
       JSON.stringify({ type: 'session', version: 0, id: 'mixed', createdAt: 1000, cwd: '/work', delegationDepth: 0 }),
       ...log.map(e => JSON.stringify(e)),
@@ -807,34 +819,93 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await expect(stat(rawLogPath(root, '/mutated', SessionId('create-snap')))).rejects.toThrow()
   })
 
-  it('list discovers sessions across multiple cwd buckets', async () => {
+  it('list discovers sessions across multiple project directories', async () => {
     await ctx.sessionPersistence.create(meta('p1', '/projA'))
     await ctx.sessionPersistence.append(SessionId('p1'), oneTurnLog())
     await ctx.sessionPersistence.create(meta('p2', '/projB'))
     await ctx.sessionPersistence.append(SessionId('p2'), oneTurnLog())
-    await ctx.sessionPersistence.create(meta('p3')) // no cwd → _no-cwd bucket
+    await ctx.sessionPersistence.create(meta('p3')) // no cwd → _no-cwd project directory
     await ctx.sessionPersistence.append(SessionId('p3'), oneTurnLog())
 
     const ids = (await ctx.sessionPersistence.list()).map(x => x.id).sort()
     expect(ids).toEqual(['p1', 'p2', 'p3'])
   })
 
+  it('groups sessions whose cwd paths normalize to the same project directory', async () => {
+    const first = meta('normalized-first', '/a/b-c')
+    const second = meta('normalized-second', '/a-b/c')
+    await ctx.sessionPersistence.create(first)
+    await ctx.sessionPersistence.append(first.id, oneTurnLog())
+    await ctx.sessionPersistence.create(second)
+    await ctx.sessionPersistence.append(second.id, oneTurnLog())
+
+    expect(projectDir(root, first.cwd)).toBe(projectDir(root, second.cwd))
+    expect(await readdir(projectDir(root, first.cwd))).toEqual(expect.arrayContaining([
+      encodeSegment(first.id),
+      encodeSegment(second.id),
+    ]))
+    expect((await ctx.sessionPersistence.list()).map(header => header.id).sort())
+      .toEqual([first.id, second.id].sort())
+  })
+
   it('list on an empty root returns nothing', async () => {
     expect(await ctx.sessionPersistence.list()).toEqual([])
   })
 
-  it('list skips empty and non-header .jsonl files (metadata-only read)', async () => {
+  it('keeps the transcript in an extensible session-owned directory', async () => {
+    const m = meta('owned-directory', '/project')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const dir = sessionDir(root, m.cwd, m.id)
+    await writeFile(join(dir, 'metadata.json'), '{}\n')
+    await writeFile(join(projectDir(root, m.cwd), 'README'), 'project metadata\n')
+    await mkdir(join(projectDir(root, m.cwd), 'reserved-session'), { recursive: true })
+
+    expect(await readdir(dir)).toEqual(expect.arrayContaining(['metadata.json', 'session.jsonl']))
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toContain(m.id)
+    expect((await ctx.sessionPersistence.load(m.id)).events).toEqual(oneTurnLog())
+  })
+
+  it('rejects the obsolete flat-file layout instead of ignoring stored sessions', async () => {
+    const m = meta('legacy-flat', '/legacy')
+    const project = projectDir(root, m.cwd)
+    const path = join(project, `${encodeSegment(m.id)}.jsonl`)
+    await mkdir(project, { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      ...oneTurnLog().map(event => JSON.stringify(event)),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported flat-file layout/)
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/unsupported flat-file layout/)
+  })
+
+  it('rejects a compressed obsolete flat-file artifact during targeted lookup', async () => {
+    const m = meta('legacy-compressed-flat', '/legacy')
+    const project = projectDir(root, m.cwd)
+    expect(await ctx.sessionPersistence.list()).toEqual([])
+    await mkdir(project, { recursive: true })
+    await writeFile(join(project, `${encodeSegment(m.id)}.jsonl.zstd`), 'legacy')
+
+    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported flat-file layout/)
+  })
+
+  it('list skips empty and non-header session logs (metadata-only read)', async () => {
     // A real session…
     await ctx.sessionPersistence.create(meta('real', '/p'))
     await ctx.sessionPersistence.append(SessionId('real'), oneTurnLog())
-    // …alongside two junk files in the _no-cwd bucket: an EMPTY file (readFirstLine
-    // returns undefined) and a file whose first line is not a session header
-    // (parseHeaderMeta returns undefined). Both are skipped, not listed.
-    const bucket = join(root, '_no-cwd')
-    await mkdir(bucket, { recursive: true })
-    await writeFile(join(bucket, 'empty.jsonl'), '')
-    await writeFile(join(bucket, 'notheader.jsonl'), '{"type":"turn/start"}\n')
-    await writeFile(join(bucket, 'badjson.jsonl'), 'not json at all\n')
+    // …alongside junk session directories whose fixed transcript is empty or
+    // lacks a header. Both remain unmaterialized and are skipped.
+    for (const [id, content] of [
+      ['empty', ''],
+      ['notheader', '{"type":"turn/start"}\n'],
+      ['badjson', 'not json at all\n'],
+    ] as const) {
+      const path = rawLogPath(root, undefined, SessionId(id))
+      await mkdir(sessionDir(root, undefined, SessionId(id)), { recursive: true })
+      await writeFile(path, content)
+    }
 
     const ids = (await ctx.sessionPersistence.list()).map(x => x.id).sort()
     expect(ids).toEqual(['real'])
@@ -843,10 +914,10 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   it('list reads a header line longer than the 8KB read chunk', async () => {
     // A tolerated extra field makes this valid header exceed the 8192-byte read buffer, proving
     // `readFirstLine` accumulates chunks before `list()` parses it.
-    const bucket = join(root, '_no-cwd')
-    await mkdir(bucket, { recursive: true })
+    const id = SessionId('big')
+    await mkdir(sessionDir(root, undefined, id), { recursive: true })
     const bigHeader = JSON.stringify({ type: 'session', version: 0, id: 'big', createdAt: 1, delegationDepth: 0, pad: 'x'.repeat(9000) })
-    await writeFile(join(bucket, 'big.jsonl'), bigHeader + '\n')
+    await writeFile(rawLogPath(root, undefined, id), bigHeader + '\n')
     const ids = (await ctx.sessionPersistence.list()).map(x => x.id)
     expect(ids).toContain('big')
   })
@@ -857,30 +928,47 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     await rewriteHeader(rawLogPath(root, m.cwd, m.id), (header) => { header.cwd = '/elsewhere' })
 
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/and cwd belong at/)
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/and cwd identify/)
+  })
+
+  it('accepts an alternate project path only when it identifies the same physical log', async () => {
+    const m = meta('physical-alias', '/stored')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const path = rawLogPath(root, m.cwd, m.id)
+    const aliasCwd = '/alias'
+    await symlink(
+      projectDir(root, m.cwd),
+      projectDir(root, aliasCwd),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
+    await rewriteHeader(path, (header) => { header.cwd = aliasCwd })
+
+    expect((await ctx.sessionPersistence.load(m.id)).meta.cwd).toBe(aliasCwd)
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toContain(m.id)
   })
 
   it('list rejects a session header whose id cannot name a storage path', async () => {
-    const bucket = sessionDir(root, undefined)
-    await mkdir(bucket, { recursive: true })
-    await writeFile(join(bucket, 'invalid-id.jsonl'), JSON.stringify({
+    const dir = join(projectDir(root, undefined), 'invalid-id')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'session.jsonl'), JSON.stringify({
       type: 'session', version: 0, id: '', createdAt: 1, delegationDepth: 0,
     }) + '\n')
 
     await expect(ctx.sessionPersistence.list()).rejects.toThrow(/header id cannot name a storage path/)
   })
 
-  it('load and list reject one id materialized in multiple cwd buckets', async () => {
+  it('load and list reject one id materialized in multiple project directories', async () => {
     const id = SessionId('duplicate')
     for (const cwd of ['/a', '/b']) {
       const m = meta(id, cwd)
-      await mkdir(sessionDir(root, cwd), { recursive: true })
+      await mkdir(sessionDir(root, cwd, id), { recursive: true })
       const content = [JSON.stringify(toHeaderLine(m)), ...oneTurnLog().map(event => JSON.stringify(event))].join('\n') + '\n'
       await writeFile(rawLogPath(root, cwd, id), content)
     }
 
-    await expect(ctx.sessionPersistence.load(id)).rejects.toThrow(/appears in multiple cwd buckets/)
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/appears in multiple cwd buckets/)
+    await expect(ctx.sessionPersistence.load(id)).rejects.toThrow(/appears in multiple project directories/)
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/appears in multiple project directories/)
   })
 
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {
@@ -1003,12 +1091,12 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await expect(backend.exists(join(blocker, 'child.jsonl'))).rejects.toThrow(/ENOTDIR/)
   })
 
-  it('materialization surfaces a cwd-bucket storage fault', async () => {
+  it('materialization surfaces a project-directory storage fault', async () => {
     const cwd = '/x'
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
-    await writeFile(sessionDir(root, cwd), 'x') // bucket path is now a FILE
+    await writeFile(projectDir(root, cwd), 'x') // project path is now a file
     let s!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
       s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
@@ -1056,14 +1144,14 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
 
-  it('createCore rejects an id already on disk under a DIFFERENT cwd bucket', async () => {
+  it('createCore rejects an id already on disk under a different project directory', async () => {
     // Persist the id under cwd A.
     const a = meta('dup-id', '/projA')
     await ctx.sessionPersistence.create(a)
     await ctx.sessionPersistence.append(a.id, oneTurnLog())
     // A fresh backend creating the SAME id under cwd B must still refuse: load
-    // identifies by id across all buckets, so a second log would make resume
-    // nondeterministic. create scans every bucket, not just meta.cwd's.
+    // identifies by id across all projects, so a second log would make resume
+    // nondeterministic. create scans every project, not just meta.cwd's.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
