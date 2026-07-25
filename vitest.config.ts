@@ -123,6 +123,7 @@ export default defineConfig({
         'packages/client/connection/src/http-bridge.ts',
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
+        'packages/host/apiproxy/src/api-proxy.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

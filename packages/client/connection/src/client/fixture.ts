@@ -10,7 +10,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
-  ToolCallView, ToolEventView, ToolResultView,
+  ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId } from './api.ts'
@@ -242,6 +242,20 @@ interface StreamConn<F> {
   push(envelope: RpcRequest<F>): void
 }
 
+/** Deterministic fixture branches used by keyless Web assembly tests. */
+export interface FixtureOptions {
+  /** Start with no real Workspace or Session. */
+  empty?: boolean
+  /** Reject every prompt before appending its user event. */
+  rejectPrompt?: boolean
+  /** Publish the Session but fail its Workspace account write. */
+  failWorkspaceAttach?: boolean
+  /** Publish and frame the Session, then throw instead of returning create. */
+  dropSessionCreateResponse?: boolean
+  /** Order of the two successful create frames. */
+  createFrameOrder?: 'session-first' | 'workspace-first'
+}
+
 /** Inbox pump shared by both stream generators (FrameQueue pattern: ONE abort listener hung
  *  outside the loop — a per-iteration {once:true} listener never fires for non-final rounds and
  *  piles up for the stream's lifetime, audit C5). breakNow force-ends the stream without the
@@ -286,10 +300,11 @@ class FxInbox<F> implements StreamConn<F> {
 
 /**
  * In-memory fake host: fx-alpha carries history and replay scripts; fx-beta is fx-alpha's child session (lineage indent material).
+ * @param options - fixture branches for empty state and failure timing.
  * @returns an ApiProxy backed entirely by in-memory state — no host process, no network.
  */
-export function createFixtureApi(): ApiProxy {
-  const sessions: SessionSummary[] = [
+export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
+  const sessions: SessionSummary[] = options.empty ? [] : [
     { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, cwd: '/tmp/fixture' },
     { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, cwd: '/tmp/fixture' },
@@ -298,6 +313,20 @@ export function createFixtureApi(): ApiProxy {
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
+  let attachedSessions = options.empty ? 0 : 1
+  // Workspace entities mirroring the host registry: the fixture sessions all
+  // live under one workspace, whose account carries them in attach order.
+  const wid = (raw: string): WorkspaceId => raw as WorkspaceId
+  const fixtureEpoch = new Date(Date.now() - 300_000).toISOString()
+  const workspaces: WorkspaceView[] = options.empty ? [] : [{
+    workspaceId: wid('fx-ws-fixture'),
+    path: '/tmp/fixture',
+    title: 'fixture',
+    sessionIds: [sid('fx-alpha'), sid('fx-beta'), sid('fx-gamma')],
+    createdAt: fixtureEpoch,
+    updatedAt: fixtureEpoch,
+  }]
+  let nextWorkspace = 1
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
   /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
@@ -464,12 +493,71 @@ export function createFixtureApi(): ApiProxy {
   return {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
-      create: (request) => {
+      create: async (request) => {
+        const workspace = request.payload.workspaceId === undefined
+          ? undefined
+          : workspaces.find(w => w.workspaceId === request.payload.workspaceId)
+        if (request.payload.workspaceId !== undefined && workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${request.payload.workspaceId}`,
+            details: { workspaceId: request.payload.workspaceId },
+          })
+        }
+        const cwd = workspace?.path ?? request.payload.cwd ?? '/tmp/fixture'
+        const requestedId = request.payload.sessionId
+        const attachWorkspace = (sessionId: SessionId): void => {
+          /* v8 ignore next -- callers enter only when a target Workspace exists. */
+          if (workspace === undefined || workspace.sessionIds.includes(sessionId)) return
+          workspace.sessionIds = [sessionId, ...workspace.sessionIds]
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        const attachFailure = (
+          sessionId: SessionId,
+          workspaceId: WorkspaceId,
+        ): Promise<RpcResponse<{ sessionId: SessionId }>> => err(request, {
+          code: 'workspace-attach-failed' as const,
+          message: `fixture rejected Workspace attachment for ${sessionId}`,
+          details: { sessionId, workspaceId },
+        })
+        if (requestedId !== undefined) {
+          const existing = summaryOf(requestedId)
+          if (existing !== undefined) {
+            if (existing.cwd !== cwd) {
+              return err(request, {
+                code: 'session-conflict',
+                message: `session ${requestedId} already uses ${existing.cwd ?? 'no cwd'}`,
+                details: { sessionId: requestedId, requestedCwd: cwd, ...existing.cwd === undefined ? {} : { existingCwd: existing.cwd } },
+              })
+            }
+            if (workspace !== undefined && !workspace.sessionIds.includes(requestedId)) {
+              if (options.failWorkspaceAttach) return attachFailure(requestedId, workspace.workspaceId)
+              attachWorkspace(requestedId)
+            }
+            return ok(request, { sessionId: requestedId })
+          }
+        }
         const created: SessionSummary = {
-          sessionId: sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, cwd: '/tmp/fixture',
+          sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, cwd,
         }
         sessions.push(created)
-        emitHost({ type: 'host/session-added', sessionId: created.sessionId })
+        attachedSessions += 1
+        const emitSession = (): void => {
+          emitHost({ type: 'host/session-added', sessionId: created.sessionId, cwd })
+        }
+        if (workspace !== undefined && options.failWorkspaceAttach) {
+          emitSession()
+          return attachFailure(created.sessionId, workspace.workspaceId)
+        }
+        if (workspace !== undefined && options.createFrameOrder === 'workspace-first') {
+          attachWorkspace(created.sessionId)
+          emitSession()
+        } else {
+          emitSession()
+          if (workspace !== undefined) attachWorkspace(created.sessionId)
+        }
+        if (options.dropSessionCreateResponse) throw new Error('fixture: dropped session.create response after publication')
         return ok(request, { sessionId: created.sessionId })
       },
       history: async (request) => {
@@ -488,6 +576,13 @@ export function createFixtureApi(): ApiProxy {
         const summary = summaryOf(id)
         if (summary === undefined) {
           return err(request, { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
+        }
+        if (options.rejectPrompt) {
+          return err(request, {
+            code: 'agent-busy',
+            message: 'fixture: prompt rejected before acceptance',
+            details: { reason: 'fixture-prompt-rejection' },
+          })
         }
         summary.updatedAt = Date.now()
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
@@ -524,7 +619,28 @@ export function createFixtureApi(): ApiProxy {
       },
     },
     host: {
-      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),
+      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
+    },
+    workspace: {
+      list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
+      create: (request) => {
+        const { path, name } = request.payload
+        const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
+        const existing = workspaces.find(w => w.path === target)
+        if (existing !== undefined) return ok(request, { workspace: { ...existing }, created: false })
+        const now = new Date().toISOString()
+        const created: WorkspaceView = {
+          workspaceId: wid(`fx-ws-${nextWorkspace++}`),
+          path: target,
+          title: name ?? target.split('/').filter(Boolean).at(-1) ?? target,
+          sessionIds: [],
+          createdAt: now,
+          updatedAt: now,
+        }
+        workspaces.unshift(created)
+        emitHost({ type: 'host/workspace-changed', workspace: { ...created } })
+        return ok(request, { workspace: { ...created }, created: true })
+      },
     },
     events: {
       async *mux(_request, signal) {
@@ -606,7 +722,12 @@ export function createFixtureApi(): ApiProxy {
  * to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
  */
 export class FixtureApiClient extends AbstractApiClient {
-  private readonly api = createFixtureApi()
+  private readonly api: ApiProxy
+
+  constructor() {
+    super()
+    this.api = createFixtureApi(fixtureOptionsFromLocation())
+  }
 
   protected doFetch(): Promise<Response> {
     throw new Error('FixtureApiClient overrides all protocol paths; doFetch must be unreachable')
@@ -634,6 +755,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
+      case 'workspace.list': return this.api.workspace.list(request)
+      case 'workspace.create': return this.api.workspace.create(request)
     }
   }
 
@@ -676,5 +799,18 @@ export class FixtureApiClient extends AbstractApiClient {
   override async respond(message: ClientResponse): Promise<RpcReceipt> {
     this.onEnvelope(message)
     return this.api.respond(message)
+  }
+}
+
+/** Browser query mapping; direct unit callers pass FixtureOptions explicitly. */
+function fixtureOptionsFromLocation(): FixtureOptions {
+  if (typeof location === 'undefined') return {}
+  const query = new URLSearchParams(location.search)
+  return {
+    empty: query.get('fixture') === 'empty',
+    rejectPrompt: query.get('fixturePrompt') === 'reject',
+    failWorkspaceAttach: query.get('fixtureAttach') === 'fail',
+    dropSessionCreateResponse: query.get('fixtureSessionCreate') === 'drop-response',
+    createFrameOrder: query.get('fixtureFrames') === 'workspace-first' ? 'workspace-first' : 'session-first',
   }
 }

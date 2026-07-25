@@ -7,6 +7,8 @@
  * r12, inverted hairline border, shadow-lv3, 4px inset padding. */
 .list,
 .submenu {
+  /* min-widths below are the design's outer card widths — include the pad. */
+  box-sizing: border-box;
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -17,12 +19,22 @@
   box-shadow: var(--dsw-shadow-lv3);
 }
 
+/* Primary card is 218 wide in the design across both hosts. */
 .list {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 100;
-  min-width: 130px;
+  min-width: 218px;
+}
+
+/* Portal mode: fixed in the viewport, coordinates supplied inline from the
+ * anchor rect (side/align resolved in JS, the in-place offset rules above
+ * don't apply). */
+.portal {
+  position: fixed;
+  top: auto;
+  left: auto;
 }
 
 /* Open above the anchor (empty-state workspace chip: figma 122:9481). */
@@ -116,7 +128,7 @@
   bottom: -4px;
   left: calc(100% + 10px);
   z-index: 101;
-  min-width: 160px;
+  min-width: 163px;
 }
 
 .submenu::before {

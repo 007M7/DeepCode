@@ -1,23 +1,24 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-host-runtime`.
- * @module @deepseek-ai/dsh-host-runtime/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-client-ui-workspace`.
+ * @module @deepseek-ai/dsh-client-ui-workspace/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-host-runtime'
+const PACKAGE_NAME = '@deepseek-ai/dsh-client-ui-workspace'
 
 /** Cordis companion plugin name. */
-export const name = 'host-runtime-invariant'
+export const name = 'client-ui-workspace-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this assembly layer only composes plugins owned
- * elsewhere; the event/data relations it touches (session events, agent
- * lifecycle, wire frames) are asserted by their owning packages' companions.
+ * No runtime invariant: a pure-consumer plugin registering one presentational
+ * component into two host-declared slots — its inject face is two stateless
+ * RPC wrappers plus a create-and-open call; it emits no cordis events and
+ * owns no cross-plugin mutable state.
  */
 const install: InvariantInstaller = () => {}
 

@@ -11,7 +11,7 @@ Status: implemented
 该层最初为每个进程只有一个会话而构建，这一假设硬编码在两处：
 
 - **`dsh-llm-replay` 没有做任何键控。** 它用一个全局游标，将第 N 次 `llm/stream` 调用对应到单一录制序列的第 N 条。当父 agent（智能体）和一个进程内 subagent 在同一个上下文上同时流式输出时，调用交错，单一游标会把子 agent 的脚本发给父 agent（反之亦然）。
-- **harness 只收集一份日志。** `findSessionLog` 遍历 sessions 根目录，返回找到的第一个 `.jsonl`。subagent 作为第二个 `Session` 运行，在同一个 cwd bucket 下有自己的日志，因此子 agent 的 transcript（文本记录）被静默丢弃。
+- **harness 只收集一份日志。** `findSessionLog` 遍历 sessions 根目录，返回找到的第一个 `.jsonl`。subagent 作为第二个 `Session` 运行并拥有自己的日志，因此子 agent 的 transcript（文本记录）被静默丢弃。
 
 这就是 [subagent seam Agent Note（agent 决策记录）](../feature/2026-06-21-subagent-capability-seam.md)中通过 `TODO(subagent-snapshots)` 推迟的工作：进程内后端（PR2）落地时已有单元 + e2e 覆盖，但在这套基础设施落地前，完整 transcript 快照层无法表达嵌套 agent 形状。本 Agent Note 就是该堆叠式后续工作。
 
@@ -39,7 +39,7 @@ Status: implemented
 
 ### 3. harness 收集所有日志，主会话优先
 
-`harvestSessionLogs` 收集 sessions 根目录下每个 cwd bucket 中的所有 `.jsonl`（JSONL 后端将父会话与同 cwd 的子会话放在同一个 bucket），解析各自的 header，并按主会话优先排序：顶层会话（无 `parentSession`）在前，各子会话按 `createdAt` 升序排列。`RunResult.sessionLogs` 是复数结果；spec 在录制时将每份日志写回对应 fixture（`session.jsonl` + `session.<n>.jsonl`），在回放时将每份收集到的日志与其 fixture 做 diff。归一化器已支持复数会话 id 并会折叠任何游离 UUID，因此无需修改归一化器。
+`harvestSessionLogs` 递归收集 sessions 根目录下所有固定命名为 `session.jsonl` 的 transcript（JSONL 后端为每个父会话和子会话分别提供独立的项目/会话目录），解析各自的 header，并按主会话优先排序：顶层会话（无 `parentSession`）在前，各子会话按 `createdAt` 升序排列。`RunResult.sessionLogs` 是复数结果；spec 在录制时将每份日志写回对应 fixture（`session.jsonl` + `session.<n>.jsonl`），在回放时将每份收集到的日志与其 fixture 做 diff。归一化器已支持复数会话 id 并会折叠任何游离 UUID，因此无需修改归一化器。
 
 ### 4. 场景
 

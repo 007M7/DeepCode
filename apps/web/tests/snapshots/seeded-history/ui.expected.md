@@ -1,5 +1,5 @@
 - banner:
-  - navigation "会话层级":
+  - navigation "Session hierarchy":
     - button "Use the read tool twice" [disabled]
     - text: · 1 turns
   - tablist:
@@ -7,22 +7,22 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop."
-- button "Think The user wants me to read two files (a.txt and b.txt) and then reply with \"DONE\". Let me read both files simultaneously.":
+- button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
-  - text: Think The user wants me to read two files (a.txt and b.txt) and then reply with "DONE". Let me read both files simultaneously.
+  - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
 - button:
   - img
 - text: Read a.txt
 - button:
   - img
 - text: Read b.txt
-- button "Think Both files have been read. a.txt contains \"alpha\" and b.txt contains \"beta\". I'll reply with \"DONE\" as instructed.":
+- button "Think Both files have been read. a.txt contains \"alpha\" and b.txt contains \"beta\". I'll now reply with DONE as instructed.":
   - img
-  - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". I'll reply with "DONE" as instructed.
+  - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". I'll now reply with DONE as instructed.
 - paragraph: DONE
-- text: cache hit 98% · 15,967 tokens · 1 turns · 2 steps
-- textbox "输入消息，Enter 发送，Shift+Enter 换行"
-- button "添加":
+- text: cache hit 98% · 15,962 tokens · 1 turns · 2 steps
+- textbox "Message the agent"
+- button "Add attachment":
   - img
 - combobox "Plan mode":
   - option "Plan" [selected]
@@ -33,4 +33,4 @@
 - combobox "Model":
   - option "DeepSeek-V4-Pro High" [selected]
   - option "DeepSeek-V4-Pro"
-- button "发送" [disabled]
+- button "Send message" [disabled]

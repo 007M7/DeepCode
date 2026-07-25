@@ -7,7 +7,7 @@
 // same record discipline as every other: DSH_SNAPSHOT=record drives the turn
 // live through the composer (real read tool against seeded workspace files)
 // and harvests seed.jsonl; replay/refresh seed it cold and only render.
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -35,11 +35,14 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    // The read-tool targets exist in both modes: record needs them for the
-    // live turn; replay's seeded log carries their recorded contents but the
-    // workspace stays consistent for any user poking the scaffold.
-    await writeFile(join(scaffold.workspaceCwd, 'a.txt'), 'alpha\n')
-    await writeFile(join(scaffold.workspaceCwd, 'b.txt'), 'beta\n')
+    // The workspace-aware flow runs sessions in <workspaceRoot>/workspace
+    // (the composer's default draft name); the read-tool targets must live in
+    // that session cwd. Pre-creating the directory is safe: create-by-name
+    // adopts an existing directory.
+    const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
+    await mkdir(sessionCwd, { recursive: true })
+    await writeFile(join(sessionCwd, 'a.txt'), 'alpha\n')
+    await writeFile(join(sessionCwd, 'b.txt'), 'beta\n')
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])

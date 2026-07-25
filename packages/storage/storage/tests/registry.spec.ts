@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import Storage, { BackendRegistry } from '../src/index.ts'
+import Storage, { BackendRegistry, storageBackendServiceKey } from '../src/index.ts'
 import type { StorageBackend } from '../src/index.ts'
 
 const fakeBackend = (): StorageBackend => ({ close: async () => {} })
@@ -25,6 +25,11 @@ describe('BackendRegistry', () => {
 })
 
 describe('Storage service', () => {
+  it('derives stable lifecycle service keys for named backends', () => {
+    expect(storageBackendServiceKey('json')).toBe('storage.backend.json')
+    expect(storageBackendServiceKey('tenant-a')).toBe('storage.backend.tenant-a')
+  })
+
   it('mounts on the context and exposes registry plus form mounting', async () => {
     const ctx = new Context()
     await ctx.plugin(Storage)

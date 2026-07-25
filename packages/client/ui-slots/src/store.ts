@@ -1,12 +1,4 @@
-/**
- * Store-seat type family (slot terminal design §4): a registrant declares its
- * shared/exclusive business store as data — schema (`init`), optional
- * persistence key, and the complete write set (`actions`) — and the framework
- * owns instance lifecycle (scope derives from the mounting entry's slot).
- * ui-slots ships the contract types only; the engine-backed `defineStore`
- * value lives in web-react (the snapshot-store engine's home) and must
- * satisfy {@link DefineStore}.
- */
+/** Framework-neutral store contracts for slot registrations and the runtime engine. */
 
 /**
  * Typed selector hook over a snapshot source. Canonical shape for the whole
@@ -41,11 +33,8 @@ export type BakedActions<T, A extends ActionsDecl<T>> = {
  * and the actions write set.
  */
 export interface StoreSpec<T, A extends ActionsDecl<T>> {
-  /** Initial-state factory; called once per framework-created instance. */
   init: () => T
-  /** Opt-in persistence key (storage mechanics belong to the engine). */
   persist?: string
-  /** Complete write set: pure draft transforms. */
   actions: A
 }
 
@@ -58,9 +47,7 @@ export interface StoreSpec<T, A extends ActionsDecl<T>> {
  * call create() themselves — instance lifecycle is the framework's.
  */
 export interface StoreInstance<T, A extends ActionsDecl<T>> {
-  /** Baked write callbacks (delivered to components as `actions`). */
   readonly actions: BakedActions<T, A>
-  /** Current state snapshot (uSES getSnapshot side; test assertions). */
   getSnapshot(): T
   /**
    * Subscribe to state changes (uSES subscribe side).
@@ -84,7 +71,6 @@ export interface StoreInstance<T, A extends ActionsDecl<T>> {
  * identity is a disguised singleton across plugin reloads.
  */
 export interface StoreHandle<T, A extends ActionsDecl<T>> {
-  /** The inert declaration this handle was defined from. */
   readonly spec: StoreSpec<T, A>
   /**
    * Create a live engine instance (framework machinery and tests only).

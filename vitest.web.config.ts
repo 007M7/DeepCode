@@ -1,10 +1,11 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Web browser lane (GUI, gate-exempt — not part of the CI sequence yet):
-// built page + real chromium, so it lives outside the unit/e2e includes. The
-// real-host smoke self-skips without DEEPSEEK_API_KEY; the fixture smoke and
-// the replayed e2e scenarios are keyless and deterministic.
+// Web browser lane (GUI, gate-exempt — not part of the CI sequence yet): real
+// host entry points, built-client interaction snapshots, and the replayed
+// keyless e2e scenarios, outside the unit/e2e includes. Real-model cases
+// self-skip without DEEPSEEK_API_KEY; fixture branches and replay stay
+// keyless and deterministic.
 // TODO(ci-browser): running this lane in CI requires chromium provisioning
 // and reverses the no-browser-in-CI ruling — staged criteria in
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md.
@@ -21,7 +22,10 @@ export default defineConfig({
   // workspace imports to source like every other lane.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] })],
   test: {
-    include: ['apps/web/tests/**/*.e2e.ts'],
+    include: [
+      'apps/web/tests/**/*.e2e.ts',
+      'apps/web/tests/**/*.snapshot.ts',
+    ],
     // Browser boot + real-model turns are slow; files share one browser, run serial.
     testTimeout: 180_000,
     hookTimeout: 120_000,

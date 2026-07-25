@@ -127,6 +127,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // stops matching a row fails the boot sweep loudly instead of drifting).
   const patches: PatchOptions[] = [
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
+    // storage-json's './.storages' yml default is cwd-relative and resolves
+    // per write; the scaffold restores the original cwd after boot, so the
+    // row gets an absolute temp root (removed with the workspace at close).
+    { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
     // fs/bash cwd default to process.cwd(); the gateway injects the same
     // value into session.cwd — chdir below anchors all three to the temp
     // workspace, keeping the composition untouched.

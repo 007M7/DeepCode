@@ -487,19 +487,21 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-c
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
-Requires: `agents` · `sessions` · `tools` · `userInteraction`
+Requires: `agents` · `sessions` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/** Gateway plugin config: the host-level default agent routing. */
+/** Gateway plugin config: host-level agent routing and Workspace creation root. */
 export interface Config {
   /** Default provider route for created/resumed agents. */
   provider: string
   /** Default model id. */
   model: string
+  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
+  workspaceRoot?: string
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:32`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:33`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-webserver`
 
@@ -755,12 +757,12 @@ Source: [`packages/lsp/lsp-local/src/index.ts:85`](../packages/lsp/lsp-local/src
 Requires: `tools`
 
 ```ts config-catalog
-/** Discriminated union of all supported MCP transport configurations. */
+/** Configuration for one stdio or Streamable HTTP MCP server. */
 export type Config = StdioConfig | StreamableHttpConfig
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
-  /** Transport type: spawn a child process and communicate over stdio. */
+  /** Selects child-process stdio transport. */
   transport: 'stdio'
   /**
    * Stable local namespace for this server's model-facing tool names
@@ -768,21 +770,21 @@ export interface StdioConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
-  /** Executable to spawn. */
+  /** Executable used to start the server. */
   command: string
-  /** Arguments passed to the command. */
+  /** Arguments passed directly, without shell interpolation. */
   args: string[]
   /** Extra env vars merged on top of scrubbed ambient env. */
   env: Record<string, string>
   /** Working directory for the child process. */
   cwd: string
-  /** Timeout per callTool invocation (ms). */
+  /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
 export interface StreamableHttpConfig {
-  /** Transport type: connect to an MCP server over Streamable HTTP (SSE). */
+  /** Selects Streamable HTTP transport. */
   transport: 'streamable-http'
   /**
    * Stable local namespace for this server's model-facing tool names
@@ -790,11 +792,11 @@ export interface StreamableHttpConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
-  /** MCP server URL. */
+  /** MCP endpoint URL. */
   url: string
-  /** Extra headers (e.g. auth tokens). */
+  /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
-  /** Timeout per callTool invocation (ms). */
+  /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
 }
 ```
@@ -980,9 +982,9 @@ export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories. An
-   * existing root must be a readable directory; an absent root is created on
-   * first materialization.
+   * (bash calls, subprocesses). Sessions group under human-readable project
+   * directories, then per-session directories. An existing root must be a
+   * readable directory; an absent root is created on first materialization.
    */
   root: string
   /**
@@ -1219,7 +1221,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/storage/storage-domain/src/index.ts:45`](../packages/storage/storage-domain/src/index.ts)
+Source: [`packages/storage/storage-domain/src/index.ts:52`](../packages/storage/storage-domain/src/index.ts)
 
 ## `@deepseek-ai/dsh-storage-json`
 
@@ -2026,6 +2028,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-theme` ([`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
@@ -2042,7 +2045,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
-- `@deepseek-ai/dsh-workspace` — requires `storage` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
+- `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 
 ## Seam packages (not directly loadable)
 
@@ -2073,7 +2076,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
-- `@deepseek-ai/dsh-host-runtime` ([`packages/host/runtime/src/index.ts`](../packages/host/runtime/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))
