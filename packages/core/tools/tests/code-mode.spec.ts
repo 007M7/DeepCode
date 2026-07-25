@@ -42,6 +42,7 @@ class FakeRuntime extends CodeRuntime {
 
 interface SetupOptions {
   mode?: Config['mode']
+  maxParallelSubCalls?: number
   runtime?: false | { language?: string }
   toolOrder?: string[]
 }
@@ -49,7 +50,7 @@ interface SetupOptions {
 async function setup(options: SetupOptions = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { ...options.toolOrder ? { toolOrder: options.toolOrder } : {} })
-  await ctx.plugin(ToolRegistry, { mode: options.mode ?? 'code' })
+  await ctx.plugin(ToolRegistry, { mode: options.mode ?? 'code', ...options.maxParallelSubCalls !== undefined ? { maxParallelSubCalls: options.maxParallelSubCalls } : {} })
   let runtime: FakeRuntime | undefined
   if (options.runtime !== false) {
     await ctx.plugin(FakeRuntime, options.runtime ?? {})
@@ -355,6 +356,155 @@ describe('mode-aware wire contribution', () => {
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.tools).toEqual([])
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+  })
+})
+
+describe('the sub-dispatch scheduler (native concurrency contract)', () => {
+  /** Register a tool whose calls resolve only when the test releases them; returns live-call telemetry. */
+  function registerGated(ctx: Context, name: string, concurrencySafe: boolean) {
+    const gates: (() => void)[] = []
+    let live = 0
+    let peak = 0
+    const order: string[] = []
+    ctx.tools.register(defineTool({
+      name,
+      description: `Gated tool ${name}.`,
+      parameters: { id: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      ...concurrencySafe ? { isConcurrencySafe: () => true } : {},
+      async execute(args, exec) {
+        order.push(`start:${args.id}`)
+        live++
+        peak = Math.max(peak, live)
+        // Abort-observing like a real tool: the run-scoped abort releases the
+        // gate so the bridge's drain reaches quiescence.
+        await new Promise<void>((release) => {
+          gates.push(release)
+          exec.signal.addEventListener('abort', () => { release() }, { once: true })
+        })
+        live--
+        order.push(`end:${args.id}`)
+        return `${name}:${args.id}`
+      },
+    }))
+    const release = (): void => { gates.shift()?.() }
+    const releaseAll = (): void => { while (gates.length > 0) gates.shift()!() }
+    return { order, release, releaseAll, peakLive: () => peak, pending: () => gates.length }
+  }
+
+  it('overlaps concurrency-safe calls under Promise.all and logs a start event per dispatch', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'safe_read', true)
+    const { agent, events } = fakeAgent()
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const all = Promise.all([
+        tools.safe_read!({ id: 'a' }),
+        tools.safe_read!({ id: 'b' }),
+        tools.safe_read!({ id: 'c' }),
+      ])
+      // All three must be START-able without any completion (overlap proof).
+      await expect.poll(() => gated.pending()).toBe(3)
+      gated.releaseAll()
+      return { logs: [], value: (await all).map(String).join(',') }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    expect(gated.peakLive()).toBe(3)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: 'safe_read:a,safe_read:b,safe_read:c' })
+    // One start per dispatch, paired with its settle by subCallId, starts in submission order.
+    const starts = events.filter(event => event.type === 'tool/code-dispatch-start').map(event => event.data as { subCallId: string })
+    const settles = events.filter(event => event.type === 'tool/code-dispatch').map(event => event.data as { subCallId: string })
+    expect(starts.map(start => start.subCallId)).toEqual(['call-1:code:1', 'call-1:code:2', 'call-1:code:3'])
+    expect(new Set(settles.map(settle => settle.subCallId))).toEqual(new Set(starts.map(start => start.subCallId)))
+  })
+
+  it('an exclusive call bars overlap: safe calls drain first, it runs alone, later calls wait', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const safe = registerGated(ctx, 'safe_read', true)
+    const unsafe = registerGated(ctx, 'writer', false)
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const reads = [tools.safe_read!({ id: 'r1' }), tools.safe_read!({ id: 'r2' })]
+      const write = tools.writer!({ id: 'w' })
+      const tail = tools.safe_read!({ id: 'r3' })
+      await expect.poll(() => safe.pending()).toBe(2)
+      // The exclusive call must NOT have started while the pool is live.
+      expect(unsafe.pending()).toBe(0)
+      safe.releaseAll()
+      await expect.poll(() => unsafe.pending()).toBe(1)
+      // The trailing safe call must NOT start while the exclusive one runs.
+      expect(safe.pending()).toBe(0)
+      unsafe.release()
+      await expect.poll(() => safe.pending()).toBe(1)
+      safe.releaseAll()
+      await Promise.all([...reads, write, tail])
+      return { logs: [], value: 'ordered' }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(safe.order.slice(0, 2)).toEqual(['start:r1', 'start:r2'])
+    expect(unsafe.order).toEqual(['start:w', 'end:w'])
+    // r3 started only after w ended.
+    expect(safe.order.indexOf('start:r3')).toBeGreaterThan(safe.order.indexOf('end:r1'))
+  })
+
+  it('maxParallelSubCalls caps the overlap window', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code', maxParallelSubCalls: 2 })
+    const gated = registerGated(ctx, 'safe_read', true)
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const all = Promise.all([
+        tools.safe_read!({ id: 'a' }),
+        tools.safe_read!({ id: 'b' }),
+        tools.safe_read!({ id: 'c' }),
+      ])
+      await expect.poll(() => gated.pending()).toBe(2)
+      // The third call waits for a slot.
+      expect(gated.pending()).toBe(2)
+      gated.release()
+      await expect.poll(() => gated.pending()).toBe(2)
+      gated.releaseAll()
+      await all
+      return { logs: [], value: 'capped' }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(gated.peakLive()).toBe(2)
+  })
+
+  it('a queued-unstarted call abandoned by run settlement logs no start event', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'writer', false)
+    const { agent, events } = fakeAgent()
+    const abandoned: string[] = []
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      // First exclusive call occupies the pool; the second queues unstarted.
+      // Both rejections are captured (abandonment fires only at settlement,
+      // AFTER this program has already failed — awaiting it here would deadlock).
+      tools.writer!({ id: 'w1' }).catch(() => 'settled-under-abort')
+      tools.writer!({ id: 'w2' }).catch((error: unknown) => {
+        abandoned.push(error instanceof Error ? error.message : String(error))
+      })
+      await expect.poll(() => gated.pending()).toBe(1)
+      // Fail the program while w1 is in flight and w2 is queued unstarted.
+      throw new Error('program failed with a queued call')
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(true)
+    const starts = events.filter(event => event.type === 'tool/code-dispatch-start').map(event => (event.data as { subCallId: string }).subCallId)
+    const settles = events.filter(event => event.type === 'tool/code-dispatch').map(event => (event.data as { subCallId: string }).subCallId)
+    // w1 started and settled under the abort; w2 never started and never
+    // settled — no start event, no settle event, binding rejected with the
+    // abandonment message at drain time.
+    expect(starts).toEqual(['call-1:code:1'])
+    expect(settles).toEqual(['call-1:code:1'])
+    expect(abandoned).toEqual(['run_code run is over (run_code settled); writer tool call abandoned'])
   })
 })
 

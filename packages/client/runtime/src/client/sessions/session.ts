@@ -616,14 +616,36 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
-    // `tool/code-dispatch` is declared by the host-side dsh-tools plugin whose
-    // types cannot enter the client program (its host Context merges collide
-    // with the client's), so this wire consumer narrows it structurally —
-    // the same posture as every other cross-wire event payload.
+    // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
+    // the host-side dsh-tools plugin whose types cannot enter the client
+    // program (its host Context merges collide with the client's), so this
+    // wire consumer narrows them structurally — the same posture as every
+    // other cross-wire event payload.
+    if ((event.type as string) === 'tool/code-dispatch-start') {
+      // A started sub-dispatch enters the index as a RunningToolCall — the
+      // exact shape a native in-flight call renders from — under its parent
+      // run_code callId; it never joins the surface flow.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+      }
+      const running: CodeSubCall = {
+        callId: data.subCallId, name: data.name,
+        argsRaw: JSON.stringify(data.arguments),
+        turn: 0, step: 0, time: event.time, callView: null,
+      }
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      this.codeDispatches.set(data.parentCallId, [...siblings, running])
+      this.dispatchesRev++
+      return
+    }
     if ((event.type as string) === 'tool/code-dispatch') {
-      // A sub-dispatch becomes a ToolResultNode so rows and the details
-      // panel reuse the native rendering path verbatim; it indexes under its
-      // parent run_code callId and never joins the surface flow.
+      // Settlement replaces the running entry in place (same array position,
+      // so parallel sub-calls keep their start order) with the
+      // ToolResultNode form; a settle with no observed start (history window
+      // cut mid-pair, or a pre-start-event log) appends directly.
       const data = event.data as unknown as {
         parentCallId: string
         subCallId: string
@@ -632,17 +654,22 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         isError: boolean
         content: ContentBlock[]
       }
-      const parent = data.parentCallId
-      const siblings = this.codeDispatches.get(parent) ?? []
-      const sub: CodeSubCall = {
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      const at = siblings.findIndex(sub => sub.callId === data.subCallId)
+      const started = at === -1 ? undefined : siblings[at]
+      const settled: CodeSubCall = {
         kind: 'tool-result', seq: event.seq, time: event.time,
         callId: data.subCallId,
         call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
-        callTime: event.time,
+        // Duration source: the paired start's time when observed.
+        callTime: started === undefined ? event.time : started.time,
         content: data.content, isError: data.isError,
         callView: null, resultView: null,
       }
-      this.codeDispatches.set(parent, [...siblings, sub])
+      this.codeDispatches.set(
+        data.parentCallId,
+        at === -1 ? [...siblings, settled] : siblings.map((sub, index) => (index === at ? settled : sub)),
+      )
       this.dispatchesRev++
       return
     }

@@ -534,6 +534,14 @@ export interface Config {
    * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
+  /**
+   * Concurrency cap for a `run_code` program's overlapping sub-calls
+   * (default 10, the loop scheduler's own default). Sub-calls follow the
+   * native scheduling contract — only calls whose tools classify
+   * concurrency-safe overlap; exclusive calls form barriers — so `1`
+   * restores strictly serial dispatch. Must be a positive integer.
+   */
+  maxParallelSubCalls?: number
 }
 
 /**
@@ -636,6 +644,7 @@ export class ToolRegistry extends Service {
 
   static Config: z<Config> = z.object({
     mode: z.union(['native', 'code', 'both'] as const).default('native'),
+    maxParallelSubCalls: z.natural().min(1).default(10),
   })
 
   /** Internal staged view consumed by `dsh-agent-loop`'s parallel scheduler. */
@@ -672,7 +681,7 @@ export class ToolRegistry extends Service {
     // the filterable global/scoped capability layers.
     this.codeTransport = this.mode === 'native'
       ? undefined
-      : createRunCodeTool(this, () => this.requireCodeRuntime())
+      : createRunCodeTool(this, () => this.requireCodeRuntime(), config.maxParallelSubCalls ?? 10)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
       ctx.systemPrompt.section({

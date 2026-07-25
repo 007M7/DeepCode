@@ -7,19 +7,19 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop."
-- button "Think The user wants me to write a single run_code program that:":
+- 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
-  - text: "Think The user wants me to write a single run_code program that:"
+  - text: "Think The user wants me to write a single `run_code` program that:"
 - button:
   - img
-- text: Code Run bash echo and read missing.txt with error handling Echo CODE_ROUND_OK
+- text: Code Run bash echo and catch missing file read Echo CODE_ROUND_OK
 - button
 - text: Read missing.txt
-- button "Think The program ran successfully. Both outcomes are captured:":
+- button "Think The program ran successfully. Let me now reply DONE as instructed.":
   - img
-  - text: "Think The program ran successfully. Both outcomes are captured:"
+  - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
-- text: cache hit 50% · 17,536 tokens · 1 turns · 2 steps
+- text: cache hit 52% · 17,490 tokens · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

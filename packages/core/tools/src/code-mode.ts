@@ -1,7 +1,8 @@
 /**
  * Code Mode `run_code` transport. Programs call the registry's agent-visible
- * tools through nested, sequential executions; each sub-dispatch is logged for
- * reconstruction, while only the outer curated result enters model history.
+ * tools through nested executions scheduled under the native concurrency
+ * contract; each sub-dispatch is logged for reconstruction, while only the
+ * outer curated result enters model history.
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
@@ -16,18 +17,33 @@ import type { ToolDefinition, ToolRegistry } from './index.ts'
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
-     * One bridged sub-dispatch from a `run_code` program: the parent
-     * `run_code` call id, the deterministic sub-call id
-     * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
-     * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
-     * so this append can never fail on payload shape — and the sub-call's
-     * complete model-facing outcome in `tool/result`'s own vocabulary
+     * One sub-dispatch STARTING inside a `run_code` program: the parent
+     * `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`,
+     * numbered in submission order), and the tool `name` with its
+     * JSON-normalized `arguments` — the exact value dispatched, normalized
+     * BEFORE dispatch, so this append can never fail on payload shape.
+     * Appended when the scheduler actually starts the call (not at
+     * submission), so a start means the tool body pipeline was entered; a
+     * call abandoned in the queue logs nothing. Log-only: `deriveMessages()`
+     * ignores it; UIs use it for live per-sub-call running state and pair it
+     * with `tool/code-dispatch` by `subCallId` (timing = the two events'
+     * `time` fields).
+     */
+    'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
+    /**
+     * One bridged sub-dispatch SETTLING: the pairing ids (matching the
+     * `tool/code-dispatch-start` with the same `subCallId`), the tool `name`
+     * with the same JSON-normalized `arguments`, and the sub-call's complete
+     * model-facing outcome in `tool/result`'s own vocabulary
      * (`content` + `isError`), so UIs render a sub-call through the exact
-     * code path that renders a native call.
+     * code path that renders a native call. Every started sub-call settles
+     * with exactly one of these (abort included: the aborted pipeline result
+     * is an `isError` outcome).
      * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
      * model context; persistence and UIs get every call. Appended inside the
-     * parent `run_code`'s execution (the bridge drains its queue before
-     * returning), so the turn-enclosure invariant holds by construction.
+     * parent `run_code`'s execution (the bridge drains in-flight dispatches
+     * before returning), so the turn-enclosure invariant holds by
+     * construction.
      */
     'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
   }
@@ -178,9 +194,11 @@ type RunCodeOutput = { logs: string[]; result?: JsonValue }
  *   bindings cover its registered tools).
  * @param requireRuntime - resolves `ctx.codeRuntime` or throws the loud
  *   misconfiguration error (shared with the registry's assembly-time checks).
+ * @param maxParallel - the run's overlap cap for parallel-classified
+ *   sub-calls (the registry passes its validated `maxParallelSubCalls`).
  * @returns the registry-ready definition.
  */
-export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => CodeRuntime): ToolDefinition {
+export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => CodeRuntime, maxParallel: number): ToolDefinition {
   return defineTool({
     name: RUN_CODE_NAME,
     description:
@@ -228,19 +246,49 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
-      // The per-run serialization queue: every binding call chains onto the tail, so even
-      // `Promise.all` executes the underlying tool calls one at a time in submission order (the
-      // tool contract carries no concurrency-safety metadata yet).
-      let queue: Promise<void> = Promise.resolve()
-      const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
-        const turn = queue.then(() => {
+      // The per-run scheduler, reusing the NATIVE concurrency contract
+      // (isConcurrencySafe classification through registry.executionMode):
+      // submitted calls start strictly in submission order; consecutive
+      // parallel-classified calls overlap up to maxParallel; an
+      // exclusive-classified call waits for the pool to drain, runs alone,
+      // and bars later calls until it settles — exactly the loop scheduler's
+      // group semantics, adapted to calls that arrive over time.
+      interface PendingDispatch {
+        run(): Promise<void>
+        mode: 'parallel' | 'exclusive'
+        abandon(): void
+      }
+      const pendingQueue: PendingDispatch[] = []
+      const inFlight = new Set<Promise<void>>()
+      let exclusiveActive = false
+      const pump = (): void => {
+        for (;;) {
+          const head = pendingQueue[0]
+          if (head === undefined) return
           if (runController.signal.aborted) {
-            throw new Error(`run_code run is over (${String(runController.signal.reason)}); tool call abandoned`)
+            pendingQueue.shift()
+            head.abandon()
+            continue
           }
-          return task()
-        })
-        queue = turn.then(() => undefined, () => undefined)
-        return turn
+          if (exclusiveActive || inFlight.size >= (head.mode === 'exclusive' ? 1 : maxParallel)) return
+          if (head.mode === 'exclusive') {
+            if (inFlight.size > 0) return
+            exclusiveActive = true
+          }
+          pendingQueue.shift()
+          const flight = head.run().finally(() => {
+            inFlight.delete(flight)
+            if (head.mode === 'exclusive') exclusiveActive = false
+            pump()
+          })
+          inFlight.add(flight)
+        }
+      }
+      /** Every in-flight dispatch settled and nothing can start (the run is aborted at call time). */
+      const drainDispatches = async (): Promise<void> => {
+        // Abandon queued-unstarted tasks first, then await the live set until quiescent.
+        pump()
+        while (inFlight.size > 0) await Promise.allSettled([...inFlight])
       }
 
       // Read through a call, not a bare property: the abort state genuinely
@@ -253,36 +301,55 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} not dispatched`)
         }
         const normalized = jsonNormalizeArgs(rawArgs)
-        const outcome = await enqueue(async () => {
-          const n = ++dispatches
-          const subCallId = CallId(`${String(exec.callId)}:code:${n}`)
-          const result = await registry.execute({
-            callId: subCallId,
-            name,
-            arguments: normalized.dispatched,
-            ...exec.agent ? { agent: exec.agent } : {},
-            parent: exec.token,
-            signal: runController.signal,
+        const n = ++dispatches
+        const subCallId = CallId(`${String(exec.callId)}:code:${n}`)
+        const input = {
+          callId: subCallId,
+          name,
+          arguments: normalized.dispatched,
+          ...exec.agent ? { agent: exec.agent } : {},
+          parent: exec.token,
+          signal: runController.signal,
+        }
+        type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue }
+        const outcome = await new Promise<DispatchOutcome>((resolve, reject) => {
+          pendingQueue.push({
+            // Classified at submission against the same agent view the SDK
+            // declared; fail-closed exclusive when undeclared/invalid.
+            mode: registry.executionMode(input).kind,
+            abandon: () => {
+              reject(new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} tool call abandoned`))
+            },
+            run: async () => {
+              exec.agent?.session.append('tool/code-dispatch-start', {
+                parentCallId: exec.callId,
+                subCallId,
+                name,
+                arguments: normalized.logged,
+              })
+              const result = await registry.execute(input)
+              for (const context of result.additionalContexts ?? []) {
+                exec.deferContext(context)
+              }
+              exec.agent?.session.append('tool/code-dispatch', {
+                parentCallId: exec.callId,
+                subCallId,
+                name,
+                // The SIBLING parse of the dispatched value: byte-identical JSON,
+                // but a separate object — a tool mutating its args cannot desync
+                // this record from what it actually received.
+                arguments: normalized.logged,
+                isError: result.isError,
+                // The registry deep-froze this projection at result finalization;
+                // append snapshots it again, so the log copy stays detached.
+                content: result.content,
+              })
+              resolve(result.isError
+                ? { isError: true, message: result.error.message }
+                : { isError: false, value: result.value })
+            },
           })
-          for (const context of result.additionalContexts ?? []) {
-            exec.deferContext(context)
-          }
-          exec.agent?.session.append('tool/code-dispatch', {
-            parentCallId: exec.callId,
-            subCallId,
-            name,
-            // The SIBLING parse of the dispatched value: byte-identical JSON,
-            // but a separate object — a tool mutating its args cannot desync
-            // this record from what it actually received.
-            arguments: normalized.logged,
-            isError: result.isError,
-            // The registry deep-froze this projection at result finalization;
-            // append snapshots it again, so the log copy stays detached.
-            content: result.content,
-          })
-          return result.isError
-            ? { isError: true as const, message: result.error.message }
-            : { isError: false as const, value: result.value }
+          pump()
         })
         // A budget expiry or outer cancel that lands while this call was in
         // flight already aborted the dispatch; stop the program now rather
@@ -325,10 +392,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             signal: runController.signal,
           })
         } finally {
-          // Abort sub-dispatches and drain the folded queue before closing the turn.
+          // Abort sub-dispatches and drain every in-flight dispatch before
+          // closing the turn (queued-unstarted ones are abandoned unlogged).
           // Binding failures remain observable through their individual promises.
           runController.abort('run_code settled')
-          await queue
+          await drainDispatches()
         }
 
         if (result.error) {
