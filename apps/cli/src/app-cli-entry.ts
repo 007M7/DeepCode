@@ -1,8 +1,8 @@
 /**
- * AppCLIEntry — the pre-cordis boot glue every dsh surface shape shares
- * (config-tree boot wired for `dsh web` this round; TUI/headless migrate
- * later). Everything here is what must exist before the Loader runs: layered
- * env, the patch composition over the shipped cordis.yml (profile json + CLI
+ * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
+ * (`dsh web` and `dsh -p` boot the one composition; TUI migrates later).
+ * Everything here is what must exist before the Loader runs: layered env,
+ * the patch composition over the shipped cordis.yml (profile json + CLI
  * flags + the resolved frontend dist), and the fail-loud triple after the
  * tree settles.
  */
@@ -62,22 +62,28 @@ const includeYamlSchema = yaml.JSON_SCHEMA.extend(jsExprType)
 const FIBER_ACTIVE = 2 as FiberState.ACTIVE
 const FIBER_PENDING = 0 as FiberState.PENDING
 
-/** Constructor facts for one `dsh web` invocation (argv already parsed by web.ts). */
+/** Constructor facts for one dsh invocation over the shared composition (argv already parsed by the surface bin). */
 export interface AppCLIEntryOptions {
   /** Absolute path of the shipped cordis.yml. */
   configPath: string
-  /** Whether to append the HMR row (the whole prod/dev difference). */
+  /** Whether to append the HMR row (the whole prod/dev difference; web surface only). */
   dev: boolean
   /** --host when explicitly passed; undefined keeps the yml engineering default. */
   host?: string
-  /** --port when explicitly passed; undefined keeps the yml engineering default. */
+  /**
+   * Listen port override onto the webserver row. Web passes the --port flag
+   * value; headless passes 0 (an OS-assigned port, so parallel `dsh -p` runs
+   * never collide — and the printed URL still opens the live session in a
+   * browser).
+   */
   port?: number
 }
 
 /**
- * Boot driver for the config-tree `dsh web` shape: holds only what exists
- * independently of (and prior to) cordis — argv facts, the composed patch
- * set, and finally the root ctx.
+ * Boot driver for the config-tree dsh surfaces (web and headless share the
+ * one composition; the surfaces differ only in constructor facts): holds only
+ * what exists independently of (and prior to) cordis — argv facts, the
+ * composed patch set, and finally the root ctx.
  */
 export class AppCLIEntry {
   /** The root context, set by {@link run}. */
@@ -99,13 +105,13 @@ export class AppCLIEntry {
     this.assertBoot()
     const port = this.ctx.get('httpServer')?.port
     /* v8 ignore next -- the sweep above guarantees an ACTIVE webserver row */
-    if (port === undefined) throw new Error('dsh web: httpServer service missing after settled boot')
+    if (port === undefined) throw new Error('dsh: httpServer service missing after settled boot')
     return { ctx: this.ctx, port }
   }
 
   /** Layered .env: ambient > cwd (bin already loaded) > $DSH_HOME (loadEnvFile never overrides). */
   private loadEnvLayers(): void {
-    loadEnv('dsh web', resolveDshHome())
+    loadEnv('dsh', resolveDshHome())
   }
 
   /**
@@ -127,7 +133,7 @@ export class AppCLIEntry {
     for (const [key, value] of Object.entries(this.readProfile())) {
       const mapping = PROFILE_MAPPINGS.find(m => m.jsonPath === key)
       if (mapping === undefined) {
-        throw new Error(`dsh web: profile key "${key}" has no mapping (known: ${PROFILE_MAPPINGS.map(m => m.jsonPath).join(', ')})`)
+        throw new Error(`dsh: profile key "${key}" has no mapping (known: ${PROFILE_MAPPINGS.map(m => m.jsonPath).join(', ')})`)
       }
       put(mapping.entryId, mapping.configKey, value)
     }
@@ -142,7 +148,7 @@ export class AppCLIEntry {
 
     this.patches = [...overrides.entries()].map(([id, bag]) => {
       const yml = rows.get(id)
-      if (yml === undefined) throw new Error(`dsh web: patch target row "${id}" not found in ${this.options.configPath}`)
+      if (yml === undefined) throw new Error(`dsh: patch target row "${id}" not found in ${this.options.configPath}`)
       return { id, config: { ...(yml.config ?? {}) as Record<string, unknown>, ...bag } }
     })
   }
@@ -173,8 +179,8 @@ export class AppCLIEntry {
    * below catches PENDING fibers (cordis inject waiting has no timeout).
    */
   private assertBoot(): void {
-    installFailLoud('dsh web')
-    assertEntriesLoaded(this.ctx, 'dsh web')
+    installFailLoud('dsh')
+    assertEntriesLoaded(this.ctx, 'dsh')
     const failures: string[] = []
     for (const entry of this.ctx.loader.entries()) {
       if (entry.fiber === undefined || entry.disabled) continue
@@ -188,14 +194,14 @@ export class AppCLIEntry {
       }
     }
     if (failures.length > 0) {
-      throw new Error(`dsh web: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
+      throw new Error(`dsh: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
     }
   }
 
   /** Bypass parse of the shipped yml (id → row) for patch-merge inputs; Loader still reads the file itself. */
   private parseYmlRows(): Map<string, { config?: unknown }> {
     const doc = yaml.load(readFileSync(this.options.configPath, 'utf8'), { schema: includeYamlSchema })
-    if (!Array.isArray(doc)) throw new Error(`dsh web: ${this.options.configPath} is not a top-level entry list`)
+    if (!Array.isArray(doc)) throw new Error(`dsh: ${this.options.configPath} is not a top-level entry list`)
     const rows = new Map<string, { config?: unknown }>()
     for (const row of doc as { id?: string; config?: unknown }[]) {
       if (typeof row.id === 'string') rows.set(row.id, row)
@@ -214,7 +220,7 @@ export class AppCLIEntry {
     }
     const parsed: unknown = JSON.parse(raw)
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error(`dsh web: ${PROFILE_DIR}/${PROFILE_FILE} must hold a JSON object`)
+      throw new Error(`dsh: ${PROFILE_DIR}/${PROFILE_FILE} must hold a JSON object`)
     }
     return parsed as Record<string, unknown>
   }
@@ -225,7 +231,7 @@ export class AppCLIEntry {
     try {
       return require.resolve('@deepseek-ai/dsh-frontend/dist/index.html')
     } catch {
-      throw new Error('dsh web: frontend dist not built; run pnpm --filter @deepseek-ai/dsh-frontend build first')
+      throw new Error('dsh: frontend dist not built; run pnpm --filter @deepseek-ai/dsh-frontend build first')
     }
   }
 }

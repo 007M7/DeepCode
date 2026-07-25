@@ -10,8 +10,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { act, useSyncExternalStore } from 'react'
-// Engine home: runtime/client since the store migration; the engine carries
-// no hook (runtime is React-free), so the spec binds the selector locally.
+// Runtime is React-free, so the spec binds its selector locally.
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'

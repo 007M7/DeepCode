@@ -1,17 +1,11 @@
 /**
- * ConversationService implementation: scope-addressed send/cancel and the
- * empty-state startSession chain. Contract: api-contracts v3 section 7.
- * Selection/draft state moved to the declared chat store (slot terminal
- * design §4); the view registry moved to the 'conversation.view' slot (slot
- * ledger owns registration, ordering, and disposal) — what remains is the
- * send/stop orchestration face.
+ * Scope-addressed conversation send, cancel, and empty-state session startup.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
- * read the session tag with scopeOf (same mechanism as the host tool
- * registry). Mutable state lives in plain objects reached by one property
- * read — field assignment through the tracker's shadow proxy is off-limits,
- * as are `#` hard-private fields.
+ * read the session tag with `scopeOf`. Mutable state must remain reachable
+ * through one property read; assignment through the tracker proxy and `#`
+ * private fields bypass that rebinding.
  */
 import { Service } from 'cordis'
 import type { Context } from 'cordis'

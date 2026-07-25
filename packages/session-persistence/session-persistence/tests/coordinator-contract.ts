@@ -683,7 +683,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
-        // Ownerless state created WITHOUT a cwd (the no-cwd bucket).
+        // Ownerless state created WITHOUT a cwd (the `_no-cwd` project directory).
         await ctx.sessionPersistence.create(meta('no-cwd-state'))
         // A live session reusing the id but WITH cwd WORK is a cwd mismatch
         // (undefined vs WORK) and must be rejected.

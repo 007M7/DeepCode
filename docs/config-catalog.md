@@ -753,12 +753,12 @@ Source: [`packages/lsp/lsp-local/src/index.ts:85`](../packages/lsp/lsp-local/src
 Requires: `tools`
 
 ```ts config-catalog
-/** Discriminated union of all supported MCP transport configurations. */
+/** Configuration for one stdio or Streamable HTTP MCP server. */
 export type Config = StdioConfig | StreamableHttpConfig
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
-  /** Transport type: spawn a child process and communicate over stdio. */
+  /** Selects child-process stdio transport. */
   transport: 'stdio'
   /**
    * Stable local namespace for this server's model-facing tool names
@@ -766,21 +766,21 @@ export interface StdioConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
-  /** Executable to spawn. */
+  /** Executable used to start the server. */
   command: string
-  /** Arguments passed to the command. */
+  /** Arguments passed directly, without shell interpolation. */
   args: string[]
   /** Extra env vars merged on top of scrubbed ambient env. */
   env: Record<string, string>
   /** Working directory for the child process. */
   cwd: string
-  /** Timeout per callTool invocation (ms). */
+  /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
 export interface StreamableHttpConfig {
-  /** Transport type: connect to an MCP server over Streamable HTTP (SSE). */
+  /** Selects Streamable HTTP transport. */
   transport: 'streamable-http'
   /**
    * Stable local namespace for this server's model-facing tool names
@@ -788,11 +788,11 @@ export interface StreamableHttpConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
-  /** MCP server URL. */
+  /** MCP endpoint URL. */
   url: string
-  /** Extra headers (e.g. auth tokens). */
+  /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
-  /** Timeout per callTool invocation (ms). */
+  /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
 }
 ```
@@ -978,9 +978,9 @@ export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories. An
-   * existing root must be a readable directory; an absent root is created on
-   * first materialization.
+   * (bash calls, subprocesses). Sessions group under human-readable project
+   * directories, then per-session directories. An existing root must be a
+   * readable directory; an absent root is created on first materialization.
    */
   root: string
   /**
@@ -2071,7 +2071,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
-- `@deepseek-ai/dsh-host-runtime` ([`packages/host/runtime/src/index.ts`](../packages/host/runtime/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))

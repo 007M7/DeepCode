@@ -1,10 +1,4 @@
-/**
- * Renderer install seam (slot terminal design §8): the SlotRenderer interface
- * web-react's machinery implements, the host surface the runtime SlotsService
- * presents to the installed renderer, and the render-path authorization
- * errors. Pure types plus two error classes — this package stays React-free
- * at runtime (React types only).
- */
+/** React-free contracts between the slot host and an installed renderer. */
 import type { ReactNode } from 'react'
 import type { SlotEntryDef, SlotSpec, StoredEntry } from './index.ts'
 
@@ -22,7 +16,6 @@ export interface HostObservable<T> {
  * typing lands at the component seam via {@link PropsStore}.
  */
 export interface StoreInstanceLike {
-  /** Current state snapshot (uSES getSnapshot side). */
   getSnapshot(): unknown
   /**
    * Subscribe to state changes (uSES subscribe side).
@@ -30,7 +23,6 @@ export interface StoreInstanceLike {
    * @returns unsubscribe.
    */
   subscribe(fn: () => void): () => void
-  /** Baked write callbacks (delivered to components as `actions`). */
   readonly actions: Record<string, (...params: never[]) => void>
 }
 
@@ -97,7 +89,7 @@ export interface SlotRendererHost {
   sessions: {
     /** Session list source backing the useSessions standard hook. */
     list: HostObservable<unknown>
-    /** Current-session source backing SessionProvider's self-wiring (design fiat ①). */
+    /** Current-session source used by SessionProvider. */
     current: HostObservable<string | undefined>
     /**
      * Resolve the session standard kit.
