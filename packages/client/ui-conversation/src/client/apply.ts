@@ -1,14 +1,4 @@
-/**
- * Client plugin body: register the conversation/details slot occupants and
- * the no-session empty state, contribute the chat entry into the
- * 'conversation.view' ring that the conversation registration declares, then
- * mount the conversation service (class plugin) and the bash toolview sample.
- * Assembly only — components receive everything through props: the framework
- * standard kit and store faces arrive automatically from the declarations
- * below; the inject factories contribute the plain-data-and-callbacks
- * business face (design §5). Tool rows are ordinary keyed-slot registrations
- * into 'conversation.chat.toolview' — no dedicated registry exists.
- */
+/** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
@@ -25,8 +15,8 @@ import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { EmptyState } from './skeleton/EmptyState.tsx'
 
-/** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
-export const inject = ['slots', 'layout', 'sessions']
+/** Services required by the conversation plugin. */
+export const inject = ['slots', 'layout', 'sessions', 'workspaces']
 
 /** Resolve the session-scoped conversation service (scope-addressed send/cancel), failing loud. */
 function scopedConversation(sessions: SessionsService, id: SessionId): ConversationService {
@@ -37,24 +27,18 @@ function scopedConversation(sessions: SessionsService, id: SessionId): Conversat
   return conversation
 }
 
-/**
- * Client plugin body.
- * @param ctx - client root context.
+/** Mounts the conversation plugin.
+ * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
   const sessions = ctx.sessions
+  const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
 
-  // Shared store handle, constructed here so its identity lives and dies with
-  // this fiber (a module-level handle would be a de-facto singleton). The
-  // conversation, chat-view, and details registrations all declare it; same
-  // scope key = same instance, so chat-view selection writes and details
-  // reads meet in one store.
+  // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
 
-  // Tab projection over the view ring's ledger (list entries carry id/order/
-  // label as registration options; the ledger keeps them order-sorted).
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
     for (const entry of slots.entries('conversation.view')) {
@@ -122,7 +106,9 @@ export function apply(ctx: Context): void {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
-        open: (target: SessionId) => { sessions.open(target) },
+        open: (sessionId) => { sessions.open(sessionId) },
+        updateSessionPrompt: (text) => { scoped.updatePendingPrompt(text) },
+        retrySessionPrompt: () => { scoped.retryPendingPrompt() },
       }
     },
   }, ConversationRoot)
@@ -142,12 +128,13 @@ export function apply(ctx: Context): void {
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
       const conversation = ctx.get('conversation')
       if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
+      const scoped = scopedConversation(sessions, sessionId)
       return {
         openDetails: (target) => {
           actions.select(target)
           layout.openDetails()
         },
-        loadOlder: () => { void sessions.manager.get(sessionId).loadOlder() },
+        loadOlder: () => { void scoped.loadOlder() },
         loadImage: attachment => conversation.resolveImage(sessionId, attachment),
       }
     },
@@ -174,24 +161,24 @@ export function apply(ctx: Context): void {
 
   slots.register({
     name: 'conversation.empty',
+    children: { 'conversation.empty.workspace': { kind: 'single', scope: 'root' } },
     inject: (): EmptyStateInjected => {
-      // ctx.get, not ctx.conversation: the service mounts on this plugin's
-      // own child fiber, so it is not in the inject topology the property
-      // proxy enforces; resolve lazily so a torn boot remains fail-loud when
-      // an already-mounted empty state invokes one of these callbacks.
+      // The service lives on this plugin's child fiber; resolve lazily from
+      // the root store so an incomplete boot still fails at first use.
       const conversation = (): ConversationService => {
         const service = ctx.get('conversation')
         if (service === undefined) throw new Error('ui-conversation: conversation service unavailable')
         return service
       }
       return {
+        startSession: (workspaceId, prompt) => { workspaces.startSession(workspaceId, prompt) },
+        updateSessionPrompt: (text) => { sessions.updateIntent(text) },
         createDraftImages: (files, current) => conversation().createDraftImages(files, current, true),
         releaseDraftImage: (id) => { conversation().releaseDraftImage(id) },
         releaseDraftImages: (attachments) => { conversation().releaseDraftImages(attachments) },
-        startSession: opts => conversation().startSession(opts),
-        createWorkspaceSession: async (name) => {
-          const id = await sessions.createWorkspace(name)
-          sessions.open(id)
+        sendSession: async (images) => {
+          await conversation().prepareIntentImages(images.map(image => image.file))
+          workspaces.sendSession()
         },
       }
     },

@@ -1,17 +1,11 @@
 /**
- * ConversationService implementation: scope-addressed send/cancel and the
- * empty-state startSession chain. Contract: api-contracts v3 section 7.
- * Selection/draft state moved to the declared chat store (slot terminal
- * design §4); the view registry moved to the 'conversation.view' slot (slot
- * ledger owns registration, ordering, and disposal) — what remains is the
- * send/stop orchestration face.
+ * Scope-addressed conversation send, cancel, history, and retained-prompt orchestration.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
- * read the session tag with scopeOf (same mechanism as the host tool
- * registry). Mutable state lives in plain objects reached by one property
- * read — field assignment through the tracker's shadow proxy is off-limits,
- * as are `#` hard-private fields.
+ * read the session tag with `scopeOf`. Mutable state must remain reachable
+ * through one property read; assignment through the tracker proxy and `#`
+ * private fields bypass that rebinding.
  */
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
@@ -156,8 +150,9 @@ export class ConversationService extends Service {
     const cached = this.imageUrls.get(key)
     if (cached !== undefined) return cached.pending
     const generation = this.imageGenerations.get(sessionId) ?? 0
-    const pending = this.requireSessions().manager.get(sessionId)
-      .readAttachment(attachment.attachmentId)
+    const session = this.requireSessions().binding(sessionId)?.session
+    if (session === undefined) return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`))
+    const pending = session.readAttachment(attachment.attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
         if (typeof URL.createObjectURL !== 'function') {
@@ -207,44 +202,42 @@ export class ConversationService extends Service {
     if (!result.ok) throw new Error(`conversation.cancel failed: ${result.error.code}: ${result.error.message}`)
   }
 
+  /** Pull one older history page for the scoped Session. */
+  async loadOlder(): Promise<void> {
+    await this.scopedSession('loadOlder').loadOlder()
+  }
+
   /**
-   * Empty-state first-send chain (root-context method; does not read scope):
-   * create the session, send through the new scope, and navigate only after
-   * the send is accepted. Navigation is the publication point — opening
-   * earlier would unmount the empty state (releasing its draft previews)
-   * while the send can still fail, leaving the failure with no surface and
-   * the user with a lost draft; on rejection here the still-mounted empty
-   * state keeps the draft and shows the error locally.
-   * @param opts - project directory, prompt text, images, and send mode.
+   * Copy browser-owned images into the current Session Intent before its
+   * workspace/session materialization starts.
+   * @param images - temporary files selected in the empty-state composer.
    */
-  async startSession(opts: {
-    cwd?: string
-    text: string
-    images?: readonly File[]
-    mode: 'queue' | 'steer'
-  }): Promise<void> {
-    const sessions = this.requireSessions()
-    const id = await sessions.create(opts.cwd === undefined ? {} : { cwd: opts.cwd })
-    // The manager notifier flushes per microtask; one await guarantees the
-    // list-store projection landed before sessions.open validates against it
-    // (the manager merges the new summary synchronously before create()
-    // resolves; batching is microtask-based).
-    await Promise.resolve()
-    const scoped = sessions.scope(id)
-    if (scoped === undefined) throw new Error(`conversation.startSession: created session "${id}" resolved no scope`)
-    // ctx.get, not scoped.conversation: property access walks the fiber
-    // topology (a scope fiber never injects services), while get reads the
-    // global store and still binds this service to the scoped ctx.
-    const scopedConversation = scoped.get('conversation')
-    if (scopedConversation === undefined) throw new Error('conversation.startSession: conversation service unavailable through the new scope')
-    await scopedConversation.send(opts.text, opts.mode, opts.images ?? [])
-    sessions.open(id)
+  async prepareIntentImages(images: readonly File[]): Promise<void> {
+    this.validateImages(images, [], true)
+    const session = this.requireSessions().intent()
+    if (session === undefined) throw new Error('conversation.prepareIntentImages: no active Session intent')
+    session.updatePendingImages(await this.serializeImages(images))
+  }
+
+  /**
+   * Update the scoped Session's retained pending prompt.
+   * @param text - exact controlled-input value to retain.
+   */
+  updatePendingPrompt(text: string): void {
+    this.scopedSession('updatePendingPrompt').updatePendingPrompt(text)
+  }
+
+  /** Retry the scoped Session's retained pending prompt. */
+  retryPendingPrompt(): void {
+    this.scopedSession('retryPendingPrompt').retryPendingPrompt()
   }
 
   /** Resolve the caller scope's Session or throw on root contexts. */
   private scopedSession(op: string): Session {
     const id = this.scopeId(op)
-    return this.requireSessions().manager.get(id)
+    const binding = this.requireSessions().binding(id)
+    if (binding === undefined) throw new Error(`conversation.${op}: session "${id}" resolved no binding`)
+    return binding.session
   }
 
   /** Read the caller's session scope tag via the sessions service; root contexts fail loud. */
@@ -271,6 +264,7 @@ export class ConversationService extends Service {
     current: readonly ComposerAttachment[],
     checkDefaultModel = false,
   ): void {
+    if (files.length === 0 && current.length === 0) return
     const description = this.requireSessions().hostDescription()
     const modalities = description?.activeModel?.inputModalities
     if (checkDefaultModel && modalities !== undefined && !modalities.includes('image')) {
@@ -295,6 +289,16 @@ export class ConversationService extends Service {
     if (limits !== undefined && totalBytes > limits.maxMessageImageBytes) {
       throw new Error('图片总大小超过单条消息限制')
     }
+  }
+
+  /** Convert browser files to the prompt wire's canonical base64 image parts. */
+  private serializeImages(images: readonly File[]): Promise<Parameters<Session['updatePendingImages']>[0]> {
+    return Promise.all(images.map(async file => ({
+      type: 'image' as const,
+      mediaType: imageMediaType(file.type),
+      data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
+      ...(file.name === '' ? {} : { name: file.name }),
+    })))
   }
 }
 

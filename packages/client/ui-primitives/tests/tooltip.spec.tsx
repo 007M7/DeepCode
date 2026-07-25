@@ -104,6 +104,26 @@ describe('Tooltip', () => {
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
+  it('forwards the anchor element to the child ref (object and callback)', () => {
+    const objectRef = { current: null as HTMLButtonElement | null }
+    const callbackRef = vi.fn()
+    const { rerender } = render(
+      <Tooltip label="Add">
+        <button type="button" ref={objectRef}>anchor</button>
+      </Tooltip>,
+    )
+    expect(objectRef.current).toBe(screen.getByText('anchor'))
+    // Tooltip's own positioning still works through the merged ref.
+    fireEvent.mouseEnter(screen.getByText('anchor'))
+    expect(screen.getByRole('tooltip')).toBeTruthy()
+    rerender(
+      <Tooltip label="Add">
+        <button type="button" ref={callbackRef}>anchor</button>
+      </Tooltip>,
+    )
+    expect(callbackRef).toHaveBeenCalledWith(screen.getByText('anchor'))
+  })
+
   it('drops an already-visible bubble when disabled flips mid-hover', () => {
     const { rerender } = render(
       <Tooltip label="Rail">

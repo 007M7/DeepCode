@@ -188,15 +188,12 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // Simulate an OPEN turn in the log while the agent is idle (status is not a
-    // reliable open-turn signal). inject must append into that open turn, NOT
-    // wrap a new one.
+    // Status is idle while the log has an open turn; enclosure must follow the log.
     agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     agent.inject([{ type: 'text', text: 'mid' }], { source: { kind: 'plugin', plugin: 'p' } })
     expect(agent.session.events.filter(e => e.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events.at(-1)!.type).toBe('user/message')
 
-    // Close the turn; now inject must wrap its own one-shot injection turn.
     agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     agent.inject([{ type: 'text', text: 'after' }], { source: { kind: 'plugin', plugin: 'p' } })
     const starts = agent.session.events.filter(e => e.type === 'turn/start')
@@ -342,11 +339,9 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // steer while idle delegates to send
     agent.steer([{ type: 'text', text: 'steer idle' }], { source: { kind: 'plugin', plugin: 'test' } })
     await waitForIdle(ctx, agent)
 
-    // The message was recorded as a user-level message (send path)
     expect(agent.session.events.some(e => e.type === 'user/message')).toBe(true)
     expect(adapter.requests).toHaveLength(1)
   })
@@ -369,12 +364,10 @@ describe('Agent', () => {
     prepared.markPublished()
     const dispose = prepared.startDriver()
 
-    // First dispose
     const firstDisposal = dispose()
     expect(agent.status).toBe('disposed')
     await firstDisposal
 
-    // Second dispose — idempotent, no throw
     await expect(dispose()).resolves.toBeUndefined()
     expect(agent.status).toBe('disposed')
   })

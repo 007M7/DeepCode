@@ -10,7 +10,7 @@ The TUI surface:
 - tells the agent where its own source lives: after boot it adds a prompt section naming this harness checkout, resolved from the launcher's real path so it holds under a PATH symlink and an arbitrary cwd, so the self-referential `cordis` toolset can read and modify it;
 - applies the personal overlay from `~/.dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `.env` fills environment gaps (ambient > project `.env` > personal `.env`), `config.yaml` patches the booted tree.
 
-The Web surface treats its invoking directory as the default project, loads applicable `AGENTS.md`/`CLAUDE.md` instructions into each agent-loop request prefix with a 65,536-byte render budget, and opts into first-message model titles. `dsh web --provider <name> --model <id>` selects the default agent route; a non-`deepseek` provider additionally mounts that pi-ai catalog route with the provider's ambient credentials (e.g. `ANTHROPIC_API_KEY`), which is how image input reaches a visual-capable model, and requires an explicit `--model`. The headless surface retains deterministic fallback titles without making the auxiliary title-model request.
+The Web and headless surfaces boot one shared composition (`cordis.yml`): both treat the invoking directory as the default project and Workspace root, create named Workspaces beneath that root unless `--workspace-root <path>` overrides it, load applicable `AGENTS.md`/`CLAUDE.md` instructions into each agent-loop request prefix with a 65,536-byte render budget, and opt into first-message model titles. `dsh web --provider <name> --model <id>` mounts that pi-ai catalog route with provider-native ambient credentials; the default DeepSeek route remains text-only. Headless differs only in listening on an OS-assigned port (parallel `dsh -p` runs never collide; the stderr-printed URL opens the live session in a browser). Both need the frontend dist and client bundles built (`pnpm run build && pnpm run build:web`).
 
 ## Install (developer machine)
 
@@ -20,4 +20,4 @@ Symlink the source-running launcher onto your PATH; it resolves the checkout thr
 ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
 ```
 
-`pnpm run demo:tui` runs the same entry from the repo root. The built form (`lib/bin.js`, via `pnpm run build`) boots the same config under plain Node.
+`pnpm run dsh` runs the same entry from the repo root and forwards arguments directly, for example `pnpm run dsh -p "task"`. The built form (`lib/bin.js`, via `pnpm run build`) boots the same config under plain Node.

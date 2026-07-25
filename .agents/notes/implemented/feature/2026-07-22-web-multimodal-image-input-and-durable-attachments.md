@@ -134,7 +134,7 @@ Composer thumbnails and each `MessageImage` own ephemeral original-preview state
 
 ### Limits and trust boundaries
 
-Version one accepts PNG, JPEG, WebP, and GIF only. SVG and remote URLs are excluded. Default limits are 5 MiB per image, 10 images and 20 MiB aggregate image bytes per message, and 40 million intrinsic pixels per image. These deployment-varying limits are validated backend configuration and are projected to the client for fast-path guidance; host validation remains authoritative. The Web carrier independently caps buffered API request bodies, with `dsh web` deriving its default from the aggregate image limit plus base64/envelope expansion and allowing an explicit override; a body without a declared length is rejected the moment it crosses the cap rather than drained to its end.
+Version one accepts PNG, JPEG, WebP, and GIF only. SVG and remote URLs are excluded. Default limits are 5 MiB per image, 10 images and 20 MiB aggregate image bytes per message, and 40 million intrinsic pixels per image. These deployment-varying limits are validated backend configuration and are projected to the client for fast-path guidance; host validation remains authoritative. The client connection carrier independently caps buffered API request bodies, deriving the cap from the aggregate image limit plus base64 and envelope expansion; a body without a declared length is rejected the moment it crosses the cap rather than drained to its end.
 
 Malformed base64, unsupported or mismatched media, truncated headers, excess bytes, excess image count, excess pixels, missing objects, and integrity mismatches return stable structured failures. Original filenames are reduced to a display basename, control characters are removed, and no local path is logged or returned to the browser.
 
@@ -148,11 +148,10 @@ Malformed base64, unsupported or mismatched media, truncated headers, excess byt
 | `packages/llm/llm-pi-ai` | Resolve durable supported image input into native provider content. |
 | `packages/llm/llm-deepseek` | Reject image content explicitly. |
 | `packages/compact/compact-basic` | Preserve images in summary input and reject non-text checkpoint output explicitly. |
-| `packages/host/apiproxy` and `packages/host/runtime` | Narrow upload wire, persist-before-event ordering, session-authorized reads, limits, and model preflight. |
-| `packages/host/webserver` | Bound buffered API request bodies before the fetch carrier. |
-| `packages/client/connection` and `packages/client/runtime` | Wire types, fixture images, prompt uploads, attachment reads, and durable-reference folding. |
+| `packages/host/apiproxy` and `apps/cli` | Narrow upload wire, persist-before-event ordering, session-authorized reads, limits and model preflight, plus config-tree assembly. |
+| `packages/client/connection` and `packages/client/runtime` | Bounded request buffering, wire types, fixture images, prompt uploads, attachment reads, and durable-reference folding. |
 | `packages/client/ui-conversation` | Per-session draft images, attachment rail, user and assistant image controls, and original preview. |
-| `packages/ui/acp` | Explicit fallback rendering for image blocks. |
+| `packages/acp/acp` | Explicit fallback rendering for image blocks. |
 
 The attachment packages form the interface/implementation side of one capability seam. Composer behavior stays in the conversation object layer, provider conversion stays in adapters, and no change is required in `agent-loop`.
 

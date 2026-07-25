@@ -6,14 +6,7 @@ import type { Context } from 'cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { fsHarness, waitForIdle } from './harness.ts'
 
-/**
- * With-key smoke for the filesystem tools: a REAL model drives the REAL
- * read/write/edit tools (over the real local backend + policy gate), and we
- * verify the WORLD — the file on disk — not the agent's self-report. This is the
- * "green units, broken product" guard: mocks prove the plumbing, only a real
- * model proves the tools actually work end-to-end. Key-gated (self-skips without
- * DEEPSEEK_API_KEY).
- */
+/** Key-gated smoke for a real model driving the local read/write/edit tools. */
 
 let ctx: Context | undefined
 let workdir: string | undefined
@@ -42,7 +35,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
       + 'Tell me when done.' }])
     await waitForIdle(ctx, agent)
 
-    // Verify the WORLD: the edit landed on disk.
+    // Assert the filesystem effect independently of the model response.
     const content = await readFile(join(workdir, 'note.txt'), 'utf8')
     expect(content).toContain('status: final')
     expect(content).not.toContain('draft')

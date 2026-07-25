@@ -217,19 +217,33 @@ describe('paging', () => {
 })
 
 describe('prompt and cancel errors', () => {
-  it('sends content through session.prompt with the mode passed through', async () => {
+  it('sends content through session.prompt; composerPhase steps blank → engaging synchronously at send entry', async () => {
     const { api, session } = makeSession()
-    const result = await session.prompt([{ type: 'text', text: '要发的' }], 'queue')
+    // The blank → engaging edge fires before the RPC settles: the first-send
+    // flow reads the phase on the session area's first frame to keep the
+    // guidance hero from flashing back in.
+    expect(session.getSnapshot().composerPhase).toBe('blank')
+    const inFlight = session.prompt([{ type: 'text', text: '要发的' }], 'queue')
+    expect(session.getSnapshot().composerPhase).toBe('engaging')
+    const result = await inFlight
     expect(result.ok).toBe(true)
+    // Monotone: settlement alone does not step the phase anywhere.
+    expect(session.getSnapshot().composerPhase).toBe('engaging')
     expect(api.callsOf('session.prompt')).toMatchObject([{ sessionId: SID, mode: 'queue', content: [{ type: 'text', text: '要发的' }] }])
+    // First content lands (running turn): engaging → active.
+    session.handleRunning(true)
+    expect(session.getSnapshot().composerPhase).toBe('active')
   })
 
-  it('business failure lands in promptError with op=send', async () => {
+  it('business failure lands in promptError with op=send; the phase stays engaging (retry, no hero bounce)', async () => {
     const { api, session } = makeSession()
     api.onPrompt = () => Promise.resolve(err({ code: 'agent-busy', message: 'busy', details: { reason: 'x' } }))
     const result = await session.prompt([{ type: 'text', text: '失败的' }], 'queue')
     expect(result.ok).toBe(false)
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'send', error: { code: 'agent-busy' } })
+    // Failed first prompt: composer + error strip is the retry surface —
+    // blank is unreachable once a send was initiated.
+    expect(session.getSnapshot().composerPhase).toBe('engaging')
   })
 
   it('lands cancel failures in promptError with op=stop', async () => {

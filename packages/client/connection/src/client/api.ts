@@ -8,7 +8,7 @@
 export type {
   ApiProxy, SessionsApi, SessionSummary, PromptContentPart, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
-  ResponseValue,
+  ResponseValue, WorkspaceApi, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 export type {

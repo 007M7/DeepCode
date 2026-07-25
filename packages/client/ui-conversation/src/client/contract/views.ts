@@ -1,14 +1,4 @@
-/**
- * Shared conversation contract primitives: the view tab projection (slot
- * entries in 'conversation.view' surface as tabs), the chat store state
- * shared through the declared store, and the selection primitives every
- * domain consumes. Shared face between the skeleton domain (tab strip +
- * view outlet) and the chat domain; domain implementation files import this,
- * never each other. The view ring itself IS the 'conversation.view' slot
- * (contract in slots.ts) — the package-local view registry is retired, and
- * so is the hand-threaded translate channel (framework-level per-slot i18n
- * injection is the planned replacement).
- */
+/** Shared conversation view, selection, and store-state contracts. */
 
 /** Tool call identity as carried on the wire (branded upstream in connection). */
 export type CallId = string
@@ -23,11 +13,8 @@ export interface SelectionTarget { turnSeq: number; stepSeq?: number; callId?: C
 export interface ViewTab { id: string; label: string }
 
 /**
- * Chat store state (slot terminal design §4): the per-session store shared by
- * the conversation, chat-view, and details registrations. `createChatStore`
- * implements this shape. `view` may carry a stale persisted id after a view
- * plugin unloads — the slot ledger is the runtime validator (unknown ids fall
- * back to the first registered view).
+ * Per-session state shared by conversation, chat-view, and details slots.
+ * Unknown persisted view ids fall back to the first registered view.
  */
 export interface ChatStoreState {
   /** Details-linkage channel (conversation writes, details reads). */

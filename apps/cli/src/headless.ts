@@ -1,18 +1,20 @@
 /**
- * `dsh -p "task"` — the headless assembly: startHost + in-process isomorphic
- * injection (InProcessApiClient over the host handler, so the full carrier
- * chain — wire serialization, zod, SSE framing — really runs; this is the
- * protocol's second real consumer). No HTTP server, no port, no dist
- * resolution. Runs one task turn, prints the final assistant text, exits
- * (completed → 0, else 1).
+ * `dsh -p "task"` — headless over the one shared composition: AppCLIEntry
+ * boots the same cordis.yml as `dsh web` (port 0, so parallel runs never
+ * collide), then in-process isomorphic injection (InProcessApiClient over
+ * toFetchHandler(ctx.apiProxy), so the full carrier chain — wire
+ * serialization, zod, SSE framing — really runs). The printed URL opens the
+ * live session in a browser while the task runs. Runs one task turn, prints
+ * the final assistant text, exits (completed → 0, else 1).
  */
 
 import { parseArgs } from 'node:util'
-import { startHost } from '@deepseek-ai/dsh-host-runtime'
-import { InProcessApiClient } from '@deepseek-ai/dsh-host-apiproxy'
+import { fileURLToPath } from 'node:url'
+import { InProcessApiClient, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { AppCLIEntry } from './app-cli-entry.ts'
 
 /** Outcome of one headless turn: aggregated final text plus the turn-end reason kind. */
 interface TurnOutcome {
@@ -78,15 +80,18 @@ export async function runHeadless(argv: string[]): Promise<void> {
   }
 
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
-  const host = await startHost({
-    boot: {
-      persistenceRoot: './.sessions',
-      workspaceContext: false,
-    },
+  const entry = new AppCLIEntry({
+    configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+    dev: false,
+    port: 0,
   })
-  const api = new InProcessApiClient(host.handler)
+  const { ctx, port } = await entry.run()
+  const dispose = async (): Promise<void> => { await ctx.fiber.dispose() }
+  // The headless session is web-observable while it runs (same composition).
+  process.stderr.write(`dsh: observing at http://127.0.0.1:${String(port)}\n`)
+  const api = new InProcessApiClient(toFetchHandler(ctx.apiProxy))
 
-  const created = await unwrap(await api.sessions.create({}), () => host.dispose())
+  const created = await unwrap(await api.sessions.create({}), dispose)
 
   // Open the stream before prompting so no frame is lost — kept in this order
   // even though in-process delivery has no race, so the code survives a move
@@ -99,11 +104,11 @@ export async function runHeadless(argv: string[]): Promise<void> {
     sessionId: created.sessionId,
     mode: 'queue',
     content: [{ type: 'text', text: task }],
-  }), () => host.dispose())
+  }), dispose)
 
   const outcome = await done
   process.stdout.write(outcome.text + '\n')
   abort.abort()
-  await host.dispose()
+  await dispose()
   process.exit(outcome.reason === 'completed' ? 0 : 1)
 }

@@ -9,13 +9,25 @@
   ],
   "references": [
     {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../util/brand"
     },
     {
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../attachment/attachment-local"
+    },
+    {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/agent"
     },
     {
       "path": "../../core/session"
@@ -24,10 +36,19 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../ui/user-approval"
     },
     {
       "path": "../../ui/user-interaction"
+    },
+    {
+      "path": "../../workspace/workspace"
     },
     {
       "path": "../../support/invariants"

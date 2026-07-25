@@ -3,22 +3,14 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib/types",
-    "lib": [
-      "ES2024",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": []
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"]
   },
-  "include": [
-    "src"
-  ],
+  "include": ["src"],
   "references": [
-    {
-      "path": "../../../vendor/cordis"
-    },
-    {
-      "path": "../../support/invariants"
-    }
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/loader" },
+    { "path": "../../host/webserver" },
+    { "path": "../../support/invariants" }
   ]
 }

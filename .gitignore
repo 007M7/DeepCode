@@ -8,6 +8,7 @@ pnpm-debug.log
 .cache/
 examples/*/*.jsonl
 .sessions/
+.storages/
 examples/*/.sessions/
 coverage/
 .doc-typecheck-*/

@@ -23,6 +23,10 @@ import {
   sessionPromptRequestSchema,
 } from '../api/sessions.schema.ts'
 import { hostDescribeRequestSchema } from '../api/host.schema.ts'
+import {
+  workspaceCreateRequestSchema,
+  workspaceListRequestSchema,
+} from '../api/workspace.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -46,6 +50,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.attachment': { schema: sessionAttachmentRequestSchema, invoke: (api, r) => api.sessions.attachment(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
+  'workspace.list': { schema: workspaceListRequestSchema, invoke: (api, r) => api.workspace.list(r) },
+  'workspace.create': { schema: workspaceCreateRequestSchema, invoke: (api, r) => api.workspace.create(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */

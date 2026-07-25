@@ -12,7 +12,7 @@
  */
 
 import { mkdtemp, rm, stat } from 'node:fs/promises'
-import { basename, join, parse, resolve, toNamespacedPath } from 'node:path'
+import { join, parse, resolve, toNamespacedPath } from 'node:path'
 
 type MoveFileExW = (existing: string, replacement: string, flags: number) => number
 type GetLastError = () => number
@@ -139,7 +139,9 @@ export async function ensureDurableDirectoryWin32(target: string): Promise<void>
 }
 
 async function createLeafDirectoryWin32(parent: string, target: string): Promise<void> {
-  const staging = await mkdtemp(join(parent, `.dsh-mkdir-${basename(target)}-`))
+  // Keep the staging component independent of the target basename so a legal
+  // 255-byte target component does not make mkdtemp's sibling name too long.
+  const staging = await mkdtemp(join(parent, '.dsh-mkdir-'))
   try {
     await publishNewFileWin32(staging, target)
   } catch (error) {

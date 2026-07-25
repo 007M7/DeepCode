@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-04-fold-stdio-ui-helper.zh.md)
+
 The later [redundant-agent removal](2026-07-20-remove-stdio-and-echo-agents.md) supersedes this package-placement decision and removes the folded package, app, and line-oriented surface entirely.
 
 ## Problem
@@ -20,7 +22,7 @@ The earlier support helper package was removed: its manifest, tsconfig reference
 
 ### Why not promote it to `ui/` instead?
 
-Promotion would have resolved the support-vs-product mismatch while keeping the boundary — the right call only if the readline UI were an independently swappable integration or had a second composer, and the consumer census said neither. The structured ACP bridge stays its own package because it is the product protocol surface with its own contract and snapshot tiers; the readline helper is scaffolding for one app's front door. Re-extraction stays cheap pre-release: if a second product app wants the readline UI, split it back out then, with that consumer shaping the package contract.
+Promotion would have resolved the support-vs-product mismatch while keeping the boundary — the right call only if the readline UI were an independently swappable integration or had a second composer, and the consumer census said neither. The structured ACP bridge stays its own package because it is an automation protocol surface with its own contract and snapshot tiers; the readline helper is scaffolding for one app's front door. Re-extraction stays cheap pre-release: if a second product app wants the readline UI, split it back out then, with that consumer shaping the package contract.
 
 ## Consequences
 

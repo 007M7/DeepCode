@@ -1,10 +1,36 @@
-/**
- * Connection plugin, node half. The package IS a dshClient plugin: the wire
- * consumer layer lives in its client half in full (src/client/ — contract:
- * api-contracts v3 section 3, inventory §3.2); consumers import the /client
- * subpath. The empty apply exists so the plugin appears in the host Loader
- * (lifecycle governance + dshClient discovery).
- */
+/** Host HTTP bridge for browser-client RPC. */
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-attachment'
+// Activates the httpServer Context merge used below.
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import { API_PATH } from './api-path.ts'
+import { bridge } from './http-bridge.ts'
 
-/** Host plugin body — no host-side behavior for the connection plugin. */
-export function apply(_ctx: unknown): void {}
+export { API_PATH } from './api-path.ts'
+
+/** Stable Cordis plugin name. */
+export const name = 'client-connection'
+
+/** Headroom for RPC JSON fields around the aggregate base64 image payload. */
+const REQUEST_ENVELOPE_HEADROOM_BYTES = 1024 * 1024
+
+/** Services required before mounting the route. */
+export const inject = ['httpServer', 'apiProxy', 'attachments']
+
+/**
+ * Mounts the API gateway under the browser transport prefix.
+ * @param ctx - Host plugin context.
+ */
+export function apply(ctx: Context): void {
+  const apiHandler = toFetchHandler(ctx.apiProxy)
+  const maxRequestBodyBytes = Math.ceil(
+    ctx.attachments.imageLimits.maxMessageImageBytes * 4 / 3,
+  ) + REQUEST_ENVELOPE_HEADROOM_BYTES
+  const route: WebRoute = {
+    kind: 'prefix',
+    path: API_PATH,
+    handler: (req, res) => bridge(req, res, apiHandler, maxRequestBodyBytes),
+  }
+  ctx.effect(() => ctx.httpServer.register(route), 'client-connection: /api route')
+}

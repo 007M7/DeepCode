@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-30-session-store-fork-api.zh.md)
+
 ## Problem
 
 The event-sourced session log already has the primitive a fork needs: create a new session with a seed event prefix, then derive model history from that seeded log exactly as replay does. That primitive is intentionally low-level: `ctx.sessions.create(id, { seed, meta })` accepts any valid seed, but ordinary live-session branching needs policy around which prefix can be copied, which metadata is stamped on the child, and how errors are classified.
@@ -38,4 +40,4 @@ An empty prefix is forkable; any non-empty boundary must be a safe existing sequ
 
 The public surface stays small and discoverable: live session branching is part of `ctx.sessions`, next to `create({ seed })`, rather than a standalone service or a two-step helper pair. Persistence continues to work through existing `session/created` and `session/flush` behavior: a forked child starts life with seeded events, so existing backends persist that seed once and preserve `parentSession` / `seedLength` in the header.
 
-The v1 scope still excludes ACP `session/fork`, unloaded persisted-session forking, model-facing tools, and subagent refactors. If a future ACP method is added, it should advertise the capability only after it has transcript/snapshot coverage; this Agent Note adds no editor-facing updates, so no ACP snapshot is required now. Fork-child replay remains covered by the existing [seed-boundary testing Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md), while this API gets focused `dsh-session` unit tests plus JSONL persistence coverage.
+The v1 scope still excludes ACP `session/fork`, unloaded persisted-session forking, model-facing tools, and subagent refactors. If a future ACP method is added, it should advertise the capability only after it has protocol and snapshot coverage; this Agent Note adds no ACP wire behavior, so no ACP snapshot is required. Fork-child replay remains covered by the existing [seed-boundary testing Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md), while this API gets focused `dsh-session` unit tests plus JSONL persistence coverage.

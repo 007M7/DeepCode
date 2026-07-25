@@ -1,10 +1,5 @@
 // @vitest-environment jsdom
-/**
- * createChatStore unit account (slot terminal design §4): the declared
- * actions write set, persist round-trip through the scope-suffixed key, and
- * factory purity (every create() is an independent instance; the factory
- * itself holds no singleton state).
- */
+/** Chat-store actions, scoped persistence, and instance isolation. */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createChatStore } from '../src/client/stores.ts'
 
