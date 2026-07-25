@@ -10,7 +10,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 决策
 
-`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放，断言规范化后的会话区 aria 预期输出加进程内世界状态。不新增包（package）；产品侧增量只有 `dsh-llm-replay` 的两处增量接口（`paceMs`、`ReplayHandle`）。
+`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放，断言规范化后的会话区 aria 预期输出加进程内世界状态。不新增包（package）；产品侧增量为 `dsh-llm-replay` 的增量接口（`paceMs`、`ReplayHandle`，以及 `{ patches }` 覆写形式：对派生脚本按索引增补，使一份 sidecar 无需复制已录分片即可表达「第 N 次调用抛错/挂起，其余照录回放」），一处由重试场景暴露的 `dsh-llm` 修复（携带的 `failure` 快照对任何 Error 都生效——此前的 `instanceof` 判定会在两份包副本并存时丢弃提供方错误码，即源码平面回放叠在 lib 平面 boot 之上的情形），以及 web 组合此前缺失的 `llm-retry` 行。
 
 ### Scaffold：`apps/web/tests/scaffold.ts`
 
@@ -38,12 +38,15 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### 模式与 fixture
 
-`DSH_SNAPSHOT` 以内联 spec 分支选择 replay（默认，无密钥）、record（带密钥）或 refresh（无密钥）——TUI 的形态，不是套件工厂：两个场景撑不起 acp-snapshot 工厂机制，且真正共享的部分已被导出（`scrubRequestHeaders`、`parseSessionLog`、`installLlmReplay`）。每个 spec 切分为驱动步骤（输入、发送、`whenTurnSettled`——所有模式都执行，绝不等待模型内容选择器，因此 record 不会因真实模型答法不同而挂起）与断言步骤（仅 replay/refresh）。Record = 经真实输入框实时驱动 + 采收内存中的 `session.header`/`session.events`（TUI 的 `rawSessionLog` 形态——无需文件解压）+ `scrubRequestHeaders` + `{{sessionId}}`/`{{cwd}}` token 化；随后一次无密钥 refresh 重新生成 `ui.expected.md`。两个场景的 fixture 都经此流程对本组装录制。一条漂移防线把每个 spec 的驱动提示词与 fixture 录制的 `user/message` 绑定。fixture 清单防线保持每个场景目录封闭（精确文件集合，每个 JSONL 都是脱敏不动点）。Web fixture 全部脱敏请求头且不钉任何头类别，沿用 TUI 先例而非[钉住请求头](2026-07-06-pin-request-header-content-in-one-scenario.md)的严格读法——见「暂缓」。
+`DSH_SNAPSHOT` 以内联 spec 分支选择 replay（默认，无密钥）、record（带密钥）或 refresh（无密钥）——TUI 的形态，不是套件工厂：两个场景撑不起 acp-snapshot 工厂机制，且真正共享的部分已被导出（`scrubRequestHeaders`、`parseSessionLog`、`installLlmReplay`）。每个 spec 切分为驱动步骤（输入、发送、`whenTurnSettled`——所有模式都执行，绝不等待模型内容选择器，因此 record 不会因真实模型答法不同而挂起）与断言步骤（仅 replay/refresh）。Record = 经真实输入框实时驱动 + 采收内存中的 `session.header`/`session.events`（TUI 的 `rawSessionLog` 形态——无需文件解压）+ `scrubRequestHeaders` + `{{sessionId}}`/`{{cwd}}` token 化；随后一次无密钥 refresh 重新生成 `ui.expected.md`。每个发起提示的场景，其 fixture 都经此流程对本组装录制。一条漂移防线把每个 spec 的驱动提示词与 fixture 录制的 `user/message` 绑定。fixture 清单防线保持每个场景目录封闭（精确文件集合，每个 JSONL 都是脱敏不动点）。Web fixture 全部脱敏请求头且不钉任何头类别，沿用 TUI 先例而非[钉住请求头](2026-07-06-pin-request-header-content-in-one-scenario.md)的严格读法——见「暂缓」。
 
 ### 场景
 
 1. **`replay-round-trip`**——新会话，经真实输入框发送提示词，回放流式输出推理（reasoning）+ 一次在临时工作区真实执行的 `bash` 工具调用 + 最终文本（15ms 节奏）。断言安定后的 markdown、aria 预期输出与内联世界状态（bash `tool/call`、完成的 `turn/end`、>10 个分片事件）。
 2. **`seeded-history`**——冷播种一份已录会话；侧栏列出它（分组行 → 会话行，默认折叠），打开后纯凭日志经 `session.history` 内的隐式冷恢复挂载渲染工具卡片与文本——replay 下零模型调用，因此没有任何绑定约束；record 模式实时驱动同一轮（真实 `read` 工具读取播种的工作区文件）来产出种子。
+3. **`live-interactions`**——一段不含工具调用的已录轮次经覆写 sidecar 承载三个仅回放的场景：sidecar 的内容本身写在 spec 里，每次运行时在 spec 自有的临时目录中生成文件（重试追加所用的派生成功条目经 `deriveReplayScript` 从 fixture 重新派生，绝不复制进已提交的 sidecar）。取消：一个带 `readyFile` 标记的 `{ patches }` `hang`——标记文件的存在证明流在测试点击 Stop 之前已停驻在轮次中途，使流中取消按构造即确定（`turn/end` 原因为 `aborted`，输入框重新启用）。AUTH 错误：一次落在 llm-retry 可重试集合之外的分片前 `throw`（`turn/end` 原因为 `error`，零条 `llm/retry` 事件，输入框恢复可用）。SERVER 重试：第 0 次调用 `throw` + 在第 1 次调用处追加 fixture 自身的成功条目，凭持久的 `llm/retry` 记录在浏览器中端到端证明 llm-retry（`request/header` 仅在变化时记录，因此尝试次数在那里不可见）。
+4. **`question-composer`**——已交付组合中常驻的 `ask_user_question` 接管：一段已录轮次在真实的 userInteraction seam 上阻塞于步骤中途，提问输入框（`[data-question-key]`）在浏览器中渲染，测试经它作答（这是驱动步骤对模型内容作出反应的唯一获准之处：没有这个回答，轮次无法完成，record 与 replay 皆然），工具结果携带所选的 label。预期输出：提问输入框稳定的等待态。
+5. **`steering`**——在提问输入框阻塞该步骤时做轮次中途 steering（中途引导），此即确定性的轮次中途窗口，不依赖任何时序。输入框在运行期间锁定，因此这一 steer 由页面经客户端所用的同一条同源 `/api` wire POST `session.prompt` `mode:'steer'`（`TODO(web-steer-composer)`：待有输入框手势后改为驱动它）；下游的一切都是产品路径——gateway → `Agent.steer` → 步骤边界排空 → 持久的 `steering/message` → SSE → 带徽标的插话气泡。record 模式的 fixture 诚实性：除非真实模型的最终回复遵循了一条只有 steering 消息才携带的指令，否则该次录制被拒绝。
 
 ### CI 立场
 
@@ -77,13 +80,15 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## Testing
 
-车道自身：`pnpm run test:web` 与既有冒烟对一起无密钥运行两个场景；`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型重录某场景的 fixture；`DSH_SNAPSHOT=refresh` 无密钥重写两份 aria 预期输出。`paceMs` 校验、节奏下限、节奏中中止、`assertConsumed` 的两种失败形态钉在 `packages/support/llm-replay/tests/llm-replay.spec.ts`。
+车道自身：`pnpm run test:web` 与既有冒烟对一起无密钥运行所有场景；`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型重录某场景的 fixture；`DSH_SNAPSHOT=refresh` 无密钥重写各份 aria 预期输出。`paceMs` 校验、节奏下限、节奏中中止、`assertConsumed` 的两种失败形态，以及 `{ patches }` 的接受/拒绝路径（按索引换入保留邻项、`at == length` 追加、越界/非整数大声失败）钉在 `packages/support/llm-replay/tests/llm-replay.spec.ts`。
 
 ## 暂缓
 
 - **Web 头类别钉住**：web fixture 处处 token 化 `{{system}}`/`{{tools}}`，没有场景钉住 bootHost 组装的提示词/工具 schema（`TODO(web-header-pin)`——scaffold 的 `recordFixture` JSDoc 有标记）。沿用 TUI 处处脱敏先例；当 web 组装的请求头与其镜像的 repl 组合进一步分叉时重审。
 - **CI 浏览器供给**：推翻 CI 无浏览器裁定，分阶段标准见上（`TODO(ci-browser)`）。
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
+- **Web 错误表面**：客户端不消费任何 `agent/error` 帧，分片前的失败也没有可冻结的部分输出，因此不可重试的提供方失败不渲染任何错误文案——用户看到的只是发送就此停住。AUTH 场景钉住当前契约（不崩溃、输入框恢复可用、轮次记录为 `error`），`FIXME(web-error-surface)` 标记了待 UI 长出错误渲染后断言可见错误文本的位置。
+- **输入框 steering 手势**：输入在运行期间锁定（只能停止或等待），因此 steering 场景从页面走 wire 做 steer；`TODO(web-steer-composer)` 待产品长出真实的输入框手势后，把驱动步骤升级为该手势。
 
 ## 后果
 
