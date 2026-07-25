@@ -11,11 +11,6 @@
 
 import { Command, CommanderError } from 'commander'
 
-/** The loopback host `dsh web` binds by default. */
-export const LOOPBACK_HOST = '127.0.0.1'
-/** The all-interfaces host `dsh web` accepts to expose the UI on the LAN. */
-export const ALL_INTERFACES_HOST = '0.0.0.0'
-
 /** Interactive TUI: the default mode. `--config` swaps the tree; `--resume <id>` rehydrates a session. */
 interface TuiInvocation {
   mode: 'tui'
@@ -31,9 +26,12 @@ interface HeadlessInvocation {
 
 /**
  * Browser UI: `dsh web`. `host`/`port` are present only when the flag was
- * passed (validated: host is loopback/all-interfaces, port a 0–65535 integer);
- * absent means the shipped `cordis.yml` default stands, so the yml is the sole
- * source of the default. `dev` mounts the client HMR driver.
+ * passed — pass-through overrides with no CLI default and no CLI validation:
+ * the `dsh-host-webserver` schema (`host` a loopback/all-interfaces literal,
+ * `port` a natural ≤ 65535) is the single source of both the default (the
+ * shipped `cordis.yml` value stands when a flag is absent) and validity (a bad
+ * value fails loud at boot). `port` is `Number`-coerced only because the schema
+ * wants a number, not a string. `dev` mounts the client HMR driver.
  */
 interface WebInvocation {
   mode: 'web'
@@ -45,29 +43,24 @@ interface WebInvocation {
 /** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
 export type DshInvocation = TuiInvocation | HeadlessInvocation | WebInvocation
 
-/** Raw web-subcommand options before validation. */
+/** Raw web-subcommand options straight from Commander. */
 interface WebOptions {
   host?: string
   port?: string
   dev?: boolean
 }
 
-/** Validate and narrow the raw `web` options; a bad value fails loud via `command.error`. */
-function resolveWeb(command: Command, options: WebOptions): WebInvocation {
-  if (options.host !== undefined && options.host !== LOOPBACK_HOST && options.host !== ALL_INTERFACES_HOST) {
-    command.error(`error: --host must be ${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST}`)
-  }
-  let port: number | undefined
-  if (options.port !== undefined) {
-    port = Number(options.port)
-    if (!/^\d+$/.test(options.port) || !Number.isInteger(port) || port > 65535) {
-      command.error('error: --port must be an integer in 0-65535')
-    }
-  }
+/**
+ * Narrow the raw `web` options into a {@link WebInvocation}. No host/port
+ * validation: both flow to the webserver schema, which is the sole gate. `port`
+ * is coerced to a number (the schema rejects a string) but not range-checked
+ * here — `NaN`/out-of-range fail loud at the schema on boot.
+ */
+function resolveWeb(options: WebOptions): WebInvocation {
   return {
     mode: 'web',
     ...options.host !== undefined && { host: options.host },
-    ...port !== undefined && { port },
+    ...options.port !== undefined && { port: Number(options.port) },
     dev: options.dev === true,
   }
 }
@@ -116,10 +109,10 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
 
   const web = program.command('web').description('serve the browser UI (host/port default to the shipped config)')
   web
-    .option('--host <host>', `bind host (${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST})`)
-    .option('--port <port>', 'listen port (0 requests an OS-assigned port)')
+    .option('--host <host>', 'override the config bind host (127.0.0.1 or 0.0.0.0)')
+    .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
     .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
-    .action((options: WebOptions) => { resolved = resolveWeb(web, options) })
+    .action((options: WebOptions) => { resolved = resolveWeb(options) })
 
   try {
     program.parse(argv, { from: 'user' })

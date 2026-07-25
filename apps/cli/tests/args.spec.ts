@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ALL_INTERFACES_HOST, parseDshArgs } from '../src/args.ts'
+import { parseDshArgs } from '../src/args.ts'
 
 const parse = (argv: string[]) => parseDshArgs(argv, '1.2.3')
 
@@ -31,18 +31,18 @@ describe('parseDshArgs', () => {
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
     // Bare `web` carries no host/port: the shipped cordis.yml owns the default.
     expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
-    expect(parse(['web', '--host', ALL_INTERFACES_HOST, '--port', '8080', '--dev']))
-      .toEqual({ mode: 'web', host: ALL_INTERFACES_HOST, port: 8080, dev: true })
+    // Host/port are unvalidated pass-throughs (the webserver schema gates them
+    // at boot); the adapter only coerces the port string to a number.
+    expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev']))
+      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true })
   })
 
-  it('exits nonzero instead of silently starting fresh, serving, or dropping inputs', () => {
-    // Empty resume/prompt would be swallowed downstream; bad host/port must not
-    // reach the listener; --prompt mixed with TUI inputs must not lose them.
+  it('exits nonzero instead of silently starting fresh or dropping inputs', () => {
+    // Empty resume/prompt would be swallowed downstream; --prompt mixed with
+    // TUI inputs must not lose them. (Bad host/port are gated by the webserver
+    // schema at boot, not here.)
     expect(exitCode(['--resume='])).toBe(1)
     expect(exitCode(['-p', ''])).toBe(1)
-    expect(exitCode(['web', '--host', '10.0.0.1'])).toBe(1)
-    expect(exitCode(['web', '--port', 'abc'])).toBe(1)
-    expect(exitCode(['web', '--port='])).toBe(1)
     expect(exitCode(['-p', 'x', '--config', 'c.yml'])).toBe(1)
     expect(exitCode(['-p', 'x', '--resume', 's'])).toBe(1)
     expect(exitCode(['--bogus'])).toBe(1)
