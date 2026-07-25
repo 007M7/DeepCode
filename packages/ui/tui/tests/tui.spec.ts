@@ -1345,10 +1345,20 @@ describe('pi-tui chat lifecycle and transcript', () => {
       delayMs: 1_000,
       failure: { message: 'failed before chunks', code: 'SERVER', status: 503 },
     })
+    result.session.append('llm/retry', {
+      turn: 1,
+      step: 3,
+      provider: 'mock',
+      mode: 'always',
+      retry: 1,
+      delayMs: 2_000,
+      failure: { message: 'retry without limit', code: 'AUTH', status: 401 },
+    })
     await tick()
 
     expect(result.terminal.output).toContain('Retrying model request (1/2) in 500ms: rate limited')
     expect(result.terminal.output).toContain('Retrying model request (2/2) in 1000ms: failed before chunks')
+    expect(result.terminal.output).toContain('Retrying model request (1/∞) in 2000ms: retry without limit')
     await dispose(result)
   })
 
