@@ -12,8 +12,8 @@ Status: implemented
 
 共享的进程内驱动器（`packages/subagent/subagent-inprocess` 中的 `startInProcessRun`）在委派时快照父级的策略覆盖项，并在子 agent 的第一个轮次内把它们作为普通日志事件盖章写入子会话：
 
-- **创建时读取，首个 `agent/prompt-submit` 时写入。**驱动器在创建事务的 setup 窗口内安装一个一次性的、限定子 agent 作用域的 `agent/prompt-submit` 监听器。prompt-submit 阶段在 `turn/start` 之后、提示词组装之前运行，因此盖章事件被包围在轮次内（具备持久性：轮次之间的裸事件在重新加载时只是崩溃残留的尾部垃圾），并且对子 agent 的第一次请求可见（继承来的 `'never'` 能进入子 agent 的第一份系统提示词）。ACP（Agent Client Protocol）桥接器处理空闲时预设切换所用的正是同一种锚定方式。
-- **只复制覆盖链，且全部走规范写入路径。**`SandboxPolicyService.inheritOverride(parent, child)` 与 `ApprovalService.inheritOverride(parent, child)` 各自折叠父级的完整实时日志（而非 fork 种子），只在父级持有子 agent 尚未折叠出的覆盖项时才通过 `setSandboxMode`/`setApprovalPolicy` 追加，并且从不复制部署默认值：未切换过的父级不盖任何章，因此恢复后的子 agent 继续跟随实时默认值。驱动器以可选方式消费这两个服务（`ctx.get`，仅类型导入）：未挂载它们的组合照旧进行无策略委派，行为不变。
+- **委派时同步捕获，首个 `agent/prompt-submit` 时盖章。**驱动器在自己的第一个 await 之前就为两个策略旋钮读取 `overrideOf(parent.session)`——委派时刻即快照点，因此与异步的子 agent 创建过程赛跑的父级切换属于父级的未来，而非子 agent——并在创建事务的 setup 窗口内安装一个一次性的、限定子 agent 作用域的 `agent/prompt-submit` 监听器，且采用前置安装，使得具备否决能力的监听器（会作出拒绝的 UserPromptSubmit 钩子）无法在未盖章的情况下结束第一个轮次。prompt-submit 阶段在 `turn/start` 之后、提示词组装之前运行，因此盖章事件被包围在轮次内（具备持久性：轮次之间的裸事件在重新加载时只是崩溃残留的尾部垃圾），并且对子 agent 的第一次请求可见（继承来的 `'never'` 能进入子 agent 的第一份系统提示词）。ACP（Agent Client Protocol）桥接器处理空闲时预设切换所用的正是同一种锚定方式。
+- **只复制覆盖链，且全部走规范写入路径。**`overrideOf(session)` 只是折叠本身——从不包含部署／配置默认值——因此未切换过的父级不盖任何章，恢复后的子 agent 继续跟随实时默认值；`stampOverride(child, value)` 通过 `setSandboxMode`/`setApprovalPolicy` 追加，除非子 agent 已折叠出该值。驱动器以可选方式消费这两个服务（`ctx.get`，仅类型导入）：未挂载它们的组合照旧进行无策略委派，行为不变。
 - **fork 陈旧种子的优先级由日志顺序自然得出。**盖章事件落在种子携带的任何切换之后，因此既有的「最后一个事件生效」折叠即可解析出子 agent 的模式，无需新增优先级机制；种子已携带相同覆盖项时会去重，而不会重复盖章。
 - **嵌套按构造即可组合。**孙代 agent 盖章时折叠的是其父级（即上一层的子 agent）的日志，而该日志已经包含这个子 agent 被盖章（或自行切换）的覆盖项：这条链在每层委派处收拢一级，任意深度均成立。一次性的 `allowed-once` 升级授权从不进入任何日志，因此永远不可能沿链向下泄漏。
 
@@ -31,7 +31,7 @@ Status: implemented
 
 ## 后果
 
-- 父级收紧后的沙箱模式与 `'never'` 审批立场现在会约束 spawn 子 agent、fork 子 agent（无论种子时机如何）与孙代 agent；委派旁路在每一层深度都已封死。该行为由 `packages/subagent/subagent-inprocess/tests/inheritance.spec.ts` 中的真实围栏测试套件钉住（脚本化模型驱动的子 agent 通过真实 `write` 工具撞上真实的 `dsh-fs-sandbox` 围栏，按落盘状态与拒绝标记断言），并由两个服务各自测试套件中的 `inheritOverride` 契约测试钉住。
+- 父级收紧后的沙箱模式与 `'never'` 审批立场现在会约束 spawn 子 agent、fork 子 agent（无论种子时机如何）与孙代 agent；委派旁路在每一层深度都已封死。该行为由 `packages/subagent/subagent-inprocess/tests/inheritance.spec.ts` 中的真实围栏测试套件钉住（脚本化模型驱动的子 agent 通过真实 `write` 工具撞上真实的 `dsh-fs-sandbox` 围栏，按落盘状态与拒绝标记断言——其中包括委派与延迟切换之间的竞态用例，以及一个具备否决能力的 prompt-submit 监听器用例），并由两个服务各自测试套件中的 `overrideOf`/`stampOverride` 契约测试钉住。
 - 盖章写入的覆盖项是子 agent 自己的持久记录：恢复时它像任何一次切换一样被回放；子 agent 之后仍可被独立切换，驱动器不会重新盖章覆盖它（一次性监听器加折叠去重）。
 - 已接受的限制：子 agent 已在运行时父级再做的切换不会传播（快照语义）；子 agent 在第一个 `turn/end` 前被强制杀死后，恢复时会丢失盖章（恢复无价值的边角场景，上文已记录）；进程外后端（`subagent-acp`、子进程形态的子 agent）在这里不继承任何内容：它们的策略归子 harness 自身的部署所有，属于沙箱 Agent Note 中延后的阶段。
 - `dsh-subagent-inprocess` 现在将 `dsh-sandbox-policy` 与 `dsh-user-approval` 声明为对等依赖（peer dependency），以支撑 `ctx.get` 的类型；两者在运行时仍然可选。

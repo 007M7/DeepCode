@@ -100,6 +100,17 @@ export async function startInProcessRun(
     subagentDepth: childDepth,
   }
 
+  // Policy inheritance, read half: capture the parent's sandbox/approval
+  // OVERRIDES synchronously, before the first await — the delegation moment
+  // is the semantic snapshot point, and a parent switch racing the child's
+  // asynchronous creation must belong to the parent's future, not the child.
+  // Both services are consumed opportunistically — without them, delegation
+  // stays policy-free.
+  const sandboxPolicy = parent.ctx.get('sandboxPolicy')
+  const approval = parent.ctx.get('approval')
+  const inheritedMode = sandboxPolicy?.overrideOf(parent.session)
+  const inheritedPolicy = approval?.overrideOf(parent.session)
+
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
     if (request.persona !== undefined) {
@@ -109,20 +120,23 @@ export async function startInProcessRun(
     if (request.outputSchema !== undefined) {
       structured = attachStructuredRuntime(childCtx, request.outputSchema)
     }
-    // Policy inheritance: stamp the parent's sandbox/approval OVERRIDES onto
-    // the child once, anchored inside the child's FIRST turn (prompt-submit
-    // runs after turn/start, before prompt assembly) — a bare between-turn
-    // append would be crash-tail garbage on reload, and stamping here also
-    // orders the override after any stale switch a fork seed carried, so the
-    // ordinary last-event-wins fold resolves it. One-shot: later turns must
-    // not re-stamp over a switch the child made itself. Both services are
-    // consumed opportunistically — without them, delegation stays policy-free.
-    const disposeInherit = childCtx.on('agent/prompt-submit', (childAgent, _content, _source, _signal, next) => {
-      disposeInherit()
-      parent.ctx.get('sandboxPolicy')?.inheritOverride(parent.session, childAgent.session)
-      parent.ctx.get('approval')?.inheritOverride(parent.session, childAgent.session)
-      return next()
-    })
+    // Write half: stamp the captured overrides once, anchored inside the
+    // child's FIRST turn (prompt-submit runs after turn/start, before prompt
+    // assembly) — a bare between-turn append would be crash-tail garbage on
+    // reload, and stamping here also orders the override after any stale
+    // switch a fork seed carried, so the ordinary last-event-wins fold
+    // resolves it. PREPENDED so a veto-capable listener (a denying
+    // UserPromptSubmit hook) cannot close the first turn without the stamp —
+    // the stamp must be durable even for a blocked first prompt. One-shot:
+    // later turns must not re-stamp over a switch the child made itself.
+    if (inheritedMode !== undefined || inheritedPolicy !== undefined) {
+      const disposeInherit = childCtx.on('agent/prompt-submit', (childAgent, _content, _source, _signal, next) => {
+        disposeInherit()
+        if (inheritedMode !== undefined) sandboxPolicy?.stampOverride(childAgent.session, inheritedMode)
+        if (inheritedPolicy !== undefined) approval?.stampOverride(childAgent.session, inheritedPolicy)
+        return next()
+      }, { prepend: true })
+    }
   }
 
   const flags = { cancelled: false }

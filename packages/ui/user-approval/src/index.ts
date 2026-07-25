@@ -327,21 +327,31 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * Stamp the parent's approval-policy OVERRIDE onto a child session through
-   * the canonical write path — the delegation-inheritance step: a `'never'`
+   * A session's approval-policy OVERRIDE — the fold alone, never the
+   * configured default. The read half of delegation inheritance: the subagent
+   * driver captures this synchronously at delegation, so a parent switch
+   * racing the child's asynchronous creation belongs to the parent's future,
+   * not to the child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+   * @param session - the session whose override chain to fold.
+   * @returns the last switched policy, or `undefined` for a never-switched session.
+   */
+  overrideOf(session: Session): ApprovalPolicy | undefined {
+    return effectiveApprovalPolicy(session.events)
+  }
+
+  /**
+   * Stamp a captured override onto a child session through the canonical
+   * write path — the write half of delegation inheritance: a `'never'`
    * (headless/CI) parent must not mint children that fall back to a prompting
-   * default. Only the override chain is copied: an unswitched parent stamps
-   * nothing, so the child keeps following the LIVE configured default. A
-   * child whose log (e.g. a fork seed) already folds to the inherited policy
+   * default. A child whose log (e.g. a fork seed) already folds to the policy
    * is left untouched. Callers must append inside an open child turn — a bare
    * between-turn event is crash-tail garbage on reload.
-   * @param parent - the delegating session whose effective override is read.
    * @param child - the child session the override is appended to.
+   * @param policy - the captured {@link overrideOf} value to stamp.
    */
-  inheritOverride(parent: Session, child: Session): void {
-    const inherited = effectiveApprovalPolicy(parent.events)
-    if (inherited === undefined || effectiveApprovalPolicy(child.events) === inherited) return
-    setApprovalPolicy(child, inherited)
+  stampOverride(child: Session, policy: ApprovalPolicy): void {
+    if (effectiveApprovalPolicy(child.events) === policy) return
+    setApprovalPolicy(child, policy)
   }
 
   /**

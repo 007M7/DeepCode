@@ -102,9 +102,11 @@ async function setupBare(script: Script) {
  * "user switched while idle, model delegates in the very next turn" fork
  * timing constructible (the post-seed switch lives in the still-open turn).
  * `fork: true` seeds the child with the caller's completed-turn prefix,
- * mirroring the fork provider's slice.
+ * mirroring the fork provider's slice. `raceSwitch` flips the CALLER's mode
+ * synchronously after `startInProcessRun`'s synchronous prologue but before
+ * its creation transaction resolves — the delegation-vs-late-switch race.
  */
-function registerDelegate(ctx: Context, captured: Agent[]): void {
+function registerDelegate(ctx: Context, captured: Agent[], raceSwitch?: 'danger-full-access'): void {
   ctx.tools.register(defineTool({
     name: 'delegate',
     description: 'delegate a task to an in-process child (test scaffold)',
@@ -115,10 +117,15 @@ function registerDelegate(ctx: Context, captured: Agent[]): void {
       const events = caller.session.events
       const lastEnd = events.findLast(e => e.type === 'turn/end')
       const seed = lastEnd === undefined ? [] : events.slice(0, lastEnd.seq + 1)
-      const run = await startInProcessRun(
+      const starting = startInProcessRun(
         { prompt: [{ type: 'text', text: 'delegated task' }], parent: caller, signal: exec.signal },
         args.fork === true && seed.length > 0 ? { seed } : {},
       )
+      // The caller's turn is still open, so this switch is legal — and it lands
+      // while the child's creation transaction is pending, strictly before the
+      // child's first prompt-submit could ever run.
+      if (raceSwitch !== undefined) setSandboxMode(caller.session, raceSwitch)
+      const run = await starting
       captured.push(run.localAgent as Agent)
       const result = await run.result
       await run.dispose()
@@ -264,6 +271,38 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
     expect(overrideEvents(child).sandbox).toBe(1)
   })
 
+  it('inherits the mode AT delegation, not a parent switch racing child creation', async () => {
+    const script: Script = []
+    const captured: Agent[] = []
+    const { ctx, parent } = await setupWalled(script)
+    // The delegate scaffold flips the parent to danger-full-access AFTER
+    // startInProcessRun's synchronous prologue, while the child's creation
+    // transaction is still pending — the value at delegation is read-only.
+    registerDelegate(ctx, captured, 'danger-full-access')
+    const blocked = join(workspace, 'race-blocked.txt')
+    script.push(
+      () => {
+        setSandboxMode(parent.session, 'read-only')
+        return textResponse('staged')
+      },
+      toolCallResponse('d-race', 'delegate', { fork: false }),
+      toolCallResponse('c-write', 'write', { file_path: blocked, content: 'escaped' }),
+      textResponse('race child done'),
+      textResponse('turn two done'),
+    )
+    parent.send([{ type: 'text', text: 'stage' }])
+    await parent.whenIdle()
+    parent.send([{ type: 'text', text: 'delegate' }])
+    await parent.whenIdle()
+
+    const child = captured[0] as Agent
+    // The child runs under the snapshot taken at delegation — the racing
+    // wider switch belongs to the parent's own future, not to the child.
+    await expect(readFile(blocked, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(toolResultTexts(child).join('\n')).toContain(READ_ONLY_DENIAL)
+    expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).toBe('read-only')
+  })
+
   it('a GRANDCHILD inherits through the chain (child delegates again)', async () => {
     const script: Script = []
     const captured: Agent[] = []
@@ -294,6 +333,43 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
     await expect(readFile(blocked, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(toolResultTexts(grandchild).join('\n')).toContain(READ_ONLY_DENIAL)
     expect(ctx.sandboxPolicy.resolve({ session: grandchild.session }).mode).toBe('read-only')
+  })
+})
+
+describe('inheritance survives prompt vetoes', () => {
+  it('stamps the child even when an earlier-registered prompt-submit listener vetoes without next()', async () => {
+    const script: Script = []
+    const { ctx, parent } = await setupWalled(script)
+    // A veto-capable listener registered BEFORE the child exists — the
+    // Claude/Codex UserPromptSubmit hook shape: it blocks the child's prompt
+    // and never delegates. Inheritance must still run for the first turn.
+    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
+      if (agent.session.header.parentSession !== undefined) {
+        return Promise.resolve({ kind: 'block' as const, reason: 'vetoed by test hook' })
+      }
+      return next()
+    })
+    script.push(
+      () => {
+        setSandboxMode(parent.session, 'read-only')
+        return textResponse('staged')
+      },
+      // No child model entries: the blocked prompt closes a zero-step turn.
+    )
+    parent.send([{ type: 'text', text: 'stage' }])
+    await parent.whenIdle()
+
+    const run = await startInProcessRun(spawnRequest(parent), {})
+    await run.result
+    const child = run.localAgent as Agent
+
+    // The veto closed the first turn promptless, but the stamp is inside that
+    // turn regardless — a later resume must not fall back to the deployment
+    // default just because the first prompt was blocked.
+    expect(overrideEvents(child)).toEqual({ sandbox: 1, approval: 0 })
+    expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).toBe('read-only')
+
+    await run.dispose()
   })
 })
 

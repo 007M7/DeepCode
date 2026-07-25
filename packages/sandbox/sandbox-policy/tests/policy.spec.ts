@@ -143,45 +143,40 @@ describe('the sandbox/mode session kit', () => {
   })
 })
 
-describe('inheritOverride (parent → child stamping)', () => {
+describe('delegation inheritance (overrideOf + stampOverride)', () => {
   const modeEvents = (session: Session) => session.events.filter(e => e.type === 'sandbox/mode')
 
-  it('stamps the parent LAST override onto the child through the canonical write path', async () => {
-    const ctx = await mounted()
+  it('overrideOf folds to the LAST override and never falls back to the deployment default', async () => {
+    const ctx = await mounted({ mode: 'workspace-write' })
     const parent = session('sess-inherit-parent')
-    const child = session('sess-inherit-child')
     setSandboxMode(parent, 'workspace-write')
     setSandboxMode(parent, 'read-only')
 
-    ctx.sandboxPolicy.inheritOverride(parent, child)
+    expect(ctx.sandboxPolicy.overrideOf(parent)).toBe('read-only')
+    // undefined, NOT the deployment default — a child stamped with the
+    // default would stop following the LIVE default across resumes.
+    expect(ctx.sandboxPolicy.overrideOf(session('sess-inherit-unswitched'))).toBeUndefined()
+  })
+
+  it('stampOverride appends the captured mode through the canonical write path', async () => {
+    const ctx = await mounted()
+    const child = session('sess-inherit-child')
+
+    ctx.sandboxPolicy.stampOverride(child, 'read-only')
 
     const stamped = modeEvents(child)
     expect(stamped).toHaveLength(1)
     expect(stamped[0]?.data).toEqual({ mode: 'read-only' })
   })
 
-  it('appends NOTHING when the parent never switched (the deployment default must stay live)', async () => {
-    const ctx = await mounted({ mode: 'workspace-write' })
-    const parent = session('sess-inherit-default-parent')
-    const child = session('sess-inherit-default-child')
-
-    ctx.sandboxPolicy.inheritOverride(parent, child)
-
-    // No event — a resumed child keeps following whatever the deployment
-    // default is THEN, instead of a frozen copy of today's default.
-    expect(child.events).toHaveLength(0)
-  })
-
-  it('skips the append when the child already folds to the inherited mode (fork-seed dedup)', async () => {
+  it('stampOverride skips a child already folding to the mode (fork-seed dedup)', async () => {
     const ctx = await mounted()
-    const parent = session('sess-inherit-dedup-parent')
     const child = session('sess-inherit-dedup-child')
-    setSandboxMode(parent, 'read-only')
     // A fork seed can already carry the parent's switch; stamping again would
     // append a redundant event on every delegation.
     setSandboxMode(child, 'read-only')
 
-    ctx.sandboxPolicy.inheritOverride(parent, child)
+    ctx.sandboxPolicy.stampOverride(child, 'read-only')
 
     expect(modeEvents(child)).toHaveLength(1)
   })

@@ -106,21 +106,32 @@ export class SandboxPolicyService extends Service {
   }
 
   /**
-   * Stamp the parent's sandbox-mode OVERRIDE onto a child session through the
-   * canonical write path — the delegation-inheritance step: a child agent runs
-   * under the policy its delegating parent was switched to, not under the
-   * (possibly wider) deployment default. Only the override chain is copied: an
-   * unswitched parent stamps nothing, so the child keeps following the LIVE
-   * deployment default. A child whose log (e.g. a fork seed) already folds to
-   * the inherited mode is left untouched. Callers must append inside an open
-   * child turn — a bare between-turn event is crash-tail garbage on reload.
-   * @param parent - the delegating session whose effective override is read.
-   * @param child - the child session the override is appended to.
+   * A session's sandbox-mode OVERRIDE — the fold alone, never the deployment
+   * default. The read half of delegation inheritance: the subagent driver
+   * captures this synchronously at delegation, so a parent switch racing the
+   * child's asynchronous creation belongs to the parent's future, not to the
+   * child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+   * @param session - the session whose override chain to fold.
+   * @returns the last switched mode, or `undefined` for a never-switched session.
    */
-  inheritOverride(parent: Session, child: Session): void {
-    const inherited = effectiveSandboxMode(parent.events)
-    if (inherited === undefined || effectiveSandboxMode(child.events) === inherited) return
-    setSandboxMode(child, inherited)
+  overrideOf(session: Session): SandboxMode | undefined {
+    return effectiveSandboxMode(session.events)
+  }
+
+  /**
+   * Stamp a captured override onto a child session through the canonical
+   * write path — the write half of delegation inheritance: a child agent runs
+   * under the policy its delegating parent was switched to, not under the
+   * (possibly wider) deployment default. A child whose log (e.g. a fork seed)
+   * already folds to the mode is left untouched. Callers must append inside
+   * an open child turn — a bare between-turn event is crash-tail garbage on
+   * reload.
+   * @param child - the child session the override is appended to.
+   * @param mode - the captured {@link overrideOf} value to stamp.
+   */
+  stampOverride(child: Session, mode: SandboxMode): void {
+    if (effectiveSandboxMode(child.events) === mode) return
+    setSandboxMode(child, mode)
   }
 }
 
