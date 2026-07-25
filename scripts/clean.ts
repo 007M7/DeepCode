@@ -2,19 +2,9 @@ import { lstat, readdir, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { repositoryConfigHost } from './ts-project.ts'
 
 const knownOrphanEntries = new Set(['node_modules', 'lib', '.typecheck'])
-
-const configHost: ts.ParseConfigFileHost = {
-  useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
-  readDirectory: (...args) => ts.sys.readDirectory(...args),
-  fileExists: fileName => ts.sys.fileExists(fileName),
-  readFile: fileName => ts.sys.readFile(fileName),
-  getCurrentDirectory: () => ts.sys.getCurrentDirectory(),
-  onUnRecoverableConfigFileDiagnostic(diagnostic) {
-    throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
-  },
-}
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -45,7 +35,7 @@ function repositoryPath(root: string, path: string): string {
 }
 
 function parseConfig(configPath: string): ts.ParsedCommandLine {
-  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, configHost)
+  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, repositoryConfigHost)
   if (!parsed) throw new Error(`clean: cannot parse TypeScript config ${configPath}`)
   if (parsed.errors.length > 0) {
     throw new Error(parsed.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, '\n')).join('\n'))
