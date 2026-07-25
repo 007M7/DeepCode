@@ -52,8 +52,6 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
-  /** Invalid at app level; configure `retryPolicy` under each provider. */
-  llmRetry?: never
 }
 
 // Each front door keeps a complete Loader schema so its deployment contract is
@@ -75,8 +73,6 @@ export const Config: z<Config> = z.object({
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
-  // Provider retryPolicy makes a top-level llmRetry invalid.
-  llmRetry: z.never(),
 })
 /* jscpd:ignore-end */
 

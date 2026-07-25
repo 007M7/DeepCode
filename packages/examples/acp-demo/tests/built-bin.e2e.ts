@@ -208,19 +208,6 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     expect(stderr).toContain('config file not found')
   }, 30_000)
 
-  it('rejects legacy app-level llmRetry through the published Loader path', async () => {
-    consumer = await makeConsumer()
-    const configPath = join(consumer, 'cordis.yml')
-    const config = await readFile(configPath, 'utf8')
-    await writeFile(configPath, config.replace(
-      '    workspaceContext: false',
-      '    workspaceContext: false\n    llmRetry:\n      maxTransientRetries: 2',
-    ))
-
-    const { code, stderr } = await runBinExpectingExit('./cordis.yml', consumer)
-    expect(code).not.toBe(0)
-    expect(stderr).toContain('llmRetry')
-  }, 30_000)
 })
 
 /** Spawn the built acp bin against `configArg` and resolve with its exit code + stderr. */

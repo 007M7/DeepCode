@@ -112,8 +112,6 @@ export interface Config {
   invariants?: InvariantConfig
   /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
   goals?: GoalConfig | false
-  /** Invalid at bundle level; configure `retryPolicy` under each provider. */
-  llmRetry?: never
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
@@ -154,9 +152,6 @@ export const Config = z.intersect([
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
     invariants: InvariantService.Config,
     goals: z.union([z.const(false), GoalConfigSchema]),
-    // Schemastery preserves unknown object properties. A top-level llmRetry is
-    // known-but-impossible because provider retryPolicy owns this configuration.
-    llmRetry: z.never(),
   }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'sessionTitle' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants' | 'goals'>>,
 ]) as unknown as z<Config>
 

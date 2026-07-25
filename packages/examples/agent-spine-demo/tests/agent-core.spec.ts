@@ -594,14 +594,6 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(agentCore.name).toBe('agent-spine-demo')
   })
 
-  it('rejects bundle-level llmRetry config through plugin validation', async () => {
-    const ctx = new Context()
-    await expect(ctx.plugin(agentCore, {
-      workspaceContext: false,
-      llmRetry: { maxTransientRetries: 2 },
-    } as never)).rejects.toThrow(/llmRetry/)
-  })
-
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
     // A default export would make `unwrapExports` collapse this inject-less namespace and silently
     // drop `name`/`Config`. Apps import the bundle directly, so this is its Loader-shape guard.

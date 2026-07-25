@@ -21,16 +21,6 @@ function recordingContext(): { readonly ctx: Context; readonly calls: PluginCall
 }
 
 describe('dsh-tui-demo app', () => {
-  it('rejects app-level llmRetry config through plugin validation', async () => {
-    const ctx = new Context()
-    await expect(ctx.plugin(tuiAgent, {
-      provider: 'mock',
-      model: 'mock',
-      workspaceContext: false,
-      llmRetry: { maxTransientRetries: 2 },
-    } as never)).rejects.toThrow(/llmRetry/)
-  })
-
   it('composes the TUI cluster around one fresh exact session identity', () => {
     const { ctx, calls } = recordingContext()
     tuiAgent.composeTuiApp(ctx, {

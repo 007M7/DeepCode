@@ -173,16 +173,6 @@ afterEach(async () => {
 })
 
 describe('parseCliArgs', () => {
-  it('rejects app-level llmRetry config through plugin validation', async () => {
-    const ctx = new Context()
-    await expect(ctx.plugin(cliDemo, {
-      provider: 'mock',
-      model: 'mock',
-      workspaceContext: false,
-      llmRetry: { maxTransientRetries: 2 },
-    } as never)).rejects.toThrow(/llmRetry/)
-  })
-
   it('parses defaults, explicit options, spaces, and an option-like task after --', () => {
     expect(parseCliArgs(['task with spaces'])).toEqual({
       kind: 'run', configPath: './cordis.yml', outputFormat: 'text', task: 'task with spaces',
