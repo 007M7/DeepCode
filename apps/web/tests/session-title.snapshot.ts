@@ -93,8 +93,9 @@ it('projects initial and revised durable titles through the built nine-plugin fi
     unmount = () => { entry.dispose() }
   })
 
-  const projectLabel = await screen.findByText('fixture', {}, { timeout: 10_000 })
-  const projectRow = projectLabel.closest<HTMLElement>('[role="treeitem"]')
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  const projectCount = await within(tree).findByText('4 sessions')
+  const projectRow = projectCount.closest<HTMLElement>('[role="treeitem"]')
   if (projectRow === null) throw new Error('fixture project row missing')
   fireEvent.click(projectRow)
 
