@@ -20,13 +20,13 @@ harness 通过 Cordis 事件分类体系扩展 agent loop（智能体循环）�
 
 **三个域，各司其职，以一条边界规则统一。**
 
-- **`session/*`——持久的、可回放的事实日志。** 拥有 `SessionEventMap`；每条记录仅含 JSON（无活对象）。每次追加触发一次 `session/event` emit，加上 `session/flush` 并行持久性检查点。它同时也是实时 transcript（文本记录）源：想渲染或响应已发生事件的消费方在此订阅，因此实时渲染与 `session/load` 回放共享同一路径。
+- **`session/*`——持久的、可回放的事实日志。** 拥有 `SessionEventMap`；每条记录仅含 JSON（无活对象）。每次追加触发一次 `session/event` emit，加上 `session/flush` 并行持久性检查点。它同时也是实时 transcript（文本记录）源：想渲染或响应已发生事件的消费方在此订阅，因此实时渲染与回放投影共享同一路径。
 - **`agent/*`——运行时实时表面。** 始终携带活的 `Agent`。两种形态：拦截 waterfall（瀑布式事件）（`agent/request`、`agent/step-result`、`agent/turn-continuation`）可变更或否决；瞬态 emit（`agent/status`、`agent/error`、`agent/created`/`agent/disposed`、`agent/queued`）在持有 `Agent` 的情况下通知。轮次和步骤边界不在此处——它们是持久的会话事件，从 `session/event` 读取；token 流（`assistant/chunk`）和中途 steering（中途引导）（`steering/message`）同理。
 - **`tools/*`——工具注册表与执行 seam。**
 
 **边界规则：** 持久的、可回放的事实是 `SessionEvent`；实时拦截或瞬态/活对象信号是 `agent`/`tools` Cordis 事件。轮次或步骤边界是持久事实，因此存在于会话日志中并从 `session/event` 源读取——不会被镜像为 `agent/*` emit。
 
-**将规则应用于边界镜像：** 全部四个边界镜像——`agent/turn-start`、`agent/turn-end`、`agent/step-start`、`agent/step-end`——被**移除**。没有生产消费方需要在边界处获取活的 `Agent`：ACP 桥接从 `session/event` 的 `turn/end` 加 `agent/status` 结算；唯一的轮次镜像消费方（`dsh-ui-stdio`，一个一次性测试 REPL）从 `session/event` 渲染边界，同时保留其实时目标对象用于固定的 `main` 标签。步骤镜像先被移除（它们完全没有消费方）；轮次镜像在 ui-stdio 迁移后随之移除，见[移除边界镜像事件 Agent Note](../simplification/2026-06-20-remove-agent-boundary-mirror-events.md)，该决策由它负责。移除 emit 也简化了循环的 `closeStep`/`closeTurn`（各只需一次 append，无需配对 emit）。
+**将规则应用于边界镜像：** 全部四个边界镜像——`agent/turn-start`、`agent/turn-end`、`agent/step-start`、`agent/step-end`——被**移除**。没有生产消费方需要在边界处获取活的 `Agent`：ACP 桥接将其进行中的提示词与精确对应的 `session/event` `turn/start`/`turn/end` 事件对关联，其他 transcript 消费方同样从持久流派生边界。见[移除边界镜像事件 Agent Note](../simplification/2026-06-20-remove-agent-boundary-mirror-events.md)，该决策由它负责。移除 emit 也简化了循环的 `closeStep`/`closeTurn`（各只需一次 append，无需配对 emit）。
 
 ## 后果
 

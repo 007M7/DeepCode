@@ -65,15 +65,6 @@ export interface BootHostOptions {
   persistenceRoot: string
   /** Workspace-instruction byte budget/config, or false to disable AGENTS.md/CLAUDE.md loading. */
   workspaceContext: workspaceContext.Config | false
-  /**
-   * LLM adapter selection: `'deepseek'` (default) mounts the DeepSeek adapter
-   * (requires an API key at load), `false` mounts no adapter and leaves the
-   * `llm` capability seam open for the embedder to fill on the returned ctx
-   * (e.g. the keyless web e2e scaffold installing a replay backend). With
-   * `false` and nothing filled, the first stream fails loud with NO_ADAPTER —
-   * the earliest resolvable point for an open capability seam.
-   */
-  llm?: 'deepseek' | false
   /** Default provider route for created/resumed agents (defaults to 'deepseek', the only adapter bootHost registers). */
   provider?: string
   /** Default model id (defaults to 'deepseek-v4-flash', matching the demos). */
@@ -138,7 +129,7 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TaskService)
   await ctx.plugin(AgentLoop, { agents: [] })
-  if (options.llm !== false) await ctx.plugin(LlmDeepSeek, {})
+  await ctx.plugin(LlmDeepSeek, {})
   await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
   await ctx.plugin(LocalBashExecutor, {})
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +

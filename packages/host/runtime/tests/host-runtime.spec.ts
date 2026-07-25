@@ -205,42 +205,6 @@ describe('bootHost / startHost', () => {
     expect((await ctx.sessionTitle.refresh(agent.session))?.source).toEqual({ kind: 'fallback' })
     expect(agent.session.events.some(event => event.type === 'session/title-llm-request')).toBe(false)
   })
-
-  it('llm: false boots keyless with no adapter and fails loud at the first stream', async () => {
-    vi.stubEnv('DEEPSEEK_API_KEY', '')
-    const handle: HostHandle = await bootHost({
-      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-keyless-')),
-      workspaceContext: false,
-      llm: false,
-    })
-    // The seam is open: nothing routes 'deepseek', so misuse surfaces at the
-    // earliest resolvable point instead of silently doing provider I/O.
-    await expect(async () => {
-      for await (const chunk of handle.ctx.llm.stream({
-        provider: 'deepseek',
-        model: 'deepseek-v4-flash',
-        messages: [],
-      })) void chunk
-    }).rejects.toThrow(/NO_ADAPTER|no adapter/i)
-    // The embedder can fill the open seam on the returned ctx (the sanctioned
-    // RunningHost.ctx use) and streams route through the filled adapter.
-    class ProbeAdapter extends LlmAdapter {
-      async * stream(): AsyncIterable<StreamChunk> {
-        yield * textResponse('keyless-ok')
-      }
-    }
-    handle.ctx.llm.registerAdapter(['deepseek'], new ProbeAdapter())
-    const collected: string[] = []
-    for await (const chunk of handle.ctx.llm.stream({
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
-      messages: [],
-    })) {
-      if (chunk.type === 'text-delta') collected.push(chunk.text)
-    }
-    expect(collected.join('')).toBe('keyless-ok')
-    await handle.dispose()
-  })
 })
 
 describe('host.describe', () => {

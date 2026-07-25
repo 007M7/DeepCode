@@ -69,7 +69,7 @@ task id 在运行时全局可见且可预测，因此注册表会授权每次访
 
 ## 面向模型的控制接口
 
-`dsh-tool-tasks` 注册三个与 kind 无关的工具，并使用通用 ACP（Agent Client Protocol）卡片：
+`dsh-tool-tasks` 注册三个与 kind 无关的工具，并使用通用 UI 卡片：
 
 - `task_output(task_id, wait?, timeout_ms?)` 读取输出，并始终追加 `[status: ...]`。流式任务只返回上次读取以来的输出；最终输出任务在结算后返回结果。除非指定 `wait: true`，否则读取不会阻塞；等待超时由插件配置提供默认值并限定上限。等待超时会报告仍在运行的状态，不会停止任务。
 - `task_list()` 将调用方可见的任务返回为 `<id> [<kind>] <status> — <label>`，没有任务时返回 `(no background tasks)`。

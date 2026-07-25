@@ -7,15 +7,15 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."
-- button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
+- button "Think The user wants me to run a specific bash command and then reply with \"DONE\".":
   - img
-  - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- text: Print WEB_E2E_OK to stdout
-- button "Think The command executed successfully and printed \"WEB_E2E_OK\". I should now reply with \"DONE\".":
+  - text: Think The user wants me to run a specific bash command and then reply with "DONE".
+- text: Echo test string
+- button "Think The command output \"WEB_E2E_OK\" as expected. Now I need to reply with just the single word \"DONE\".":
   - img
-  - text: Think The command executed successfully and printed "WEB_E2E_OK". I should now reply with "DONE".
+  - text: Think The command output "WEB_E2E_OK" as expected. Now I need to reply with just the single word "DONE".
 - paragraph: DONE
-- text: cache hit 49% · 15,823 tokens · 1 turns · 2 steps
+- text: cache hit 99% · 15,822 tokens · 1 turns · 2 steps
 - textbox "输入消息，Enter 发送，Shift+Enter 换行"
 - button "添加":
   - img

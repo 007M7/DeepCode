@@ -38,6 +38,7 @@ const GROUP_ORDER = [
   'session-query',
   'session-title',
   'support',
+  'acp',
   'ui',
 ]
 

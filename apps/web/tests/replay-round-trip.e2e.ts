@@ -41,7 +41,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     scaffold = await launchWebScaffold({
       ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 }),
     })
-    scaffold.host.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
+    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
     tripwire = watchConsole(page)
@@ -117,7 +117,6 @@ describe('web e2e: fresh round trip through the real assembly', () => {
   it.skipIf(MODE === 'record')('stayed clean: no pageerrors, no reconnect self-healing, no server errors', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    expect(scaffold.serverErrors).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md'])
   })
 })

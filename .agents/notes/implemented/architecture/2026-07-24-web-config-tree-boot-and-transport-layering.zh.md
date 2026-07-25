@@ -1,0 +1,42 @@
+# Agent Note：dsh web 的 config-tree boot 与 web 传输分层
+
+Status: implemented
+
+[English](2026-07-24-web-config-tree-boot-and-transport-layering.md) | 中文
+
+> 范围：`dsh web` 如何组合（cordis.yml + cordis 之前的 boot 类 + 配置源），以及 web 传输如何跨包分层（网关 / 载体 / 绑定 / 图 / 开发期重载）。浏览器侧装载链归 [client 插件装载 note](2026-07-23-client-plugin-loading-model.md) 所有，本组合只是它的供给方。
+
+## 问题
+
+`dsh web` 曾是仅剩的手工装配面：`bootHost` 逐个挂 32 个插件、config 钉死在代码里（违反 no-hardcoded-tunables），client roster 是 `web.ts` 常量，而 TUI/headless 早已是 yml 组合。传输层的职责错位与之配套：webserver 自称哑载体却认识 `__DSH_BOOT__` 图、拥有 SSE 通道、硬编码 `/api/*` 前缀；dev 的 bundle watch 寄居在 prod registry 里靠 `watch?` 参数开关、生命周期无主；图 registry 对每次 `internal/plugin` 全量重扫；单请求失败与致命 server 错误共用一个一律退进程的 sink。还有一个用户可见缺陷：web 路径不装 `$DSH_HOME/.env`，`DSH_HOME=… dsh web` 读不到自定义 home 下的 API key。
+
+## 决策
+
+**组合是一棵平铺 config tree。** `apps/cli/cordis.yml` 持有全部行——host runtime（32 行）、`api-gateway` 行、`webserver` 行、十个 `dshClient` 行（浏览器 roster；modules 行同时是 host 行）。不做 spine bundle：每插件一行、每个 config 字段 yml 可改。`--dev` 在 settle sweep 之前由代码追加 `dsh-client-hmr` 行——prod 与 dev 的全部差异就是这一行。行序无装载语义；激活由服务可用性驱动，boot 以 fail-loud 三件套补偿：`assertEntriesLoaded`（import 失败）、`installFailLoud`（迟到的 apply 拒绝）、all-ACTIVE sweep（PENDING fiber——cordis inject 等待没有超时）。
+
+**boot 胶水是一对 class。** `AppCLIEntry`（apps/cli）与 `AppWebEntry`（壳内核）只持有独立于 cordis 必须提前存在的东西：argv 事实、合成的 patch 集、解析出的 boot manifest、模块系统实例、loading 页句柄——其余一律进插件。`AppCLIEntry.run()` 三段：分层 env（ambient > cwd `.env` > `$DSH_HOME/.env`，顺手关掉上述缺陷）→ patch 合成 → Loader include boot 加三件套。`AppWebEntry.run()` 在浏览器侧镜像它：把 `window.__DSH_BOOT__` 解析成 `BootManifest`（双视角：npm 包行给模块表、cordis 插件行给 entry 组合；畸形 wire 大声抛）、建模块系统、渲染 loading 页、immediately 层预取与 Context/Loader 准备并行、**create entry 之前等预取齐**（物化是 `tree.import` 的同步 require，不受 fiber inject 等待保护；i18n → runtime/client 这类跨包 require 边要求 immediately 层工厂全部注册完——否则有实测 10–25% 的 boot 竞态）、收编 modules entry、逐图行 create、settle、sweep。
+
+**每个配置源有唯一声明位置。** yml 静态值是工程默认；profile json（`./.dsh-tmp-profile/config.json`，只读、绝不创建、暂锚 cwd 直至 `$DSH_HOME` 迁移）是用户配置，经静态 `PROFILE_MAPPINGS` 表映射到目标行（`provider`/`model` → `api-gateway` 行，`persistenceRoot` → jsonl 行）；CLI flags 映射到 `webserver` 行、字段集与 json 不相交；env 值经 yml `!!js` 表达式进入，绝不进映射表。patch 整体替换行 config，故 entry 类旁路 parse 重读 yml 行静态值再叠加覆盖。未映射的 json 键 fail loud。解析出的前端 `distIndex` 走同一 patch 通道——装配事实，不是用户配置。
+
+**传输五分。** `dsh-host-apiproxy` 升格网关插件（`api-gateway` 行）：默认导出 `ApiProxyService`，config `{provider, model}`，provide `ctx.apiProxy`，传输无关、不注册路由——`createApiProxy` 从 runtime 迁入（依赖方向允许；runtime 保留 `bootHost`/`startHost` 供 headless）。`dsh-host-webserver` 缩成朴素路由注册插件：`HttpServerService` provide `ctx.httpServer`（`register(route) → disposer`、重复 pattern 即抛、`tapIndex` 按注册序应用、`port`），激活即 listen，单请求失败答 400 并记日志不退进程，不认识任何 harness 概念。connection node 半拥有绑定：inject 两个服务，把 `toFetchHandler(ctx.apiProxy)` 注册在 `/api` 前缀下——将来 IPC 载体只换 connection 的传输，网关零改动。modules node 半（`ClientModuleHostService`，provide `ctx.clientModuleHost`）拥有图：单包增量扫描（无全量重扫路径——`internal/plugin` 把 fiber 的 entry 名标脏，flush 逐名对账 live entries，包元数据含否定结论永久缓存，重哈希唯一入口 `rebuilt(id)`）、bundle 路由、index tap、`onRebuilt`/`onGraphChanged` 通知。hmr node 半拥有开发期重载：`fs.watchFile` stat 轮询、watch 集合跟随 `onGraphChanged`、`/plugins/events` SSE 路由。
+
+**包出口纪律。** modules 包只暴露 `.`（node 半）与 `./client`（完整浏览器半：`ClientModuleSystem`、`parseBootManifest`、收编插件面）——不设特设子路径；wire 类型经根出口 re-export 给 host 侧消费方。收编握手：内核在 cordis 之前把建好的实例写入 `window.__DSH_MODULES__`；`./client` 的 apply 读槽（缺槽大声抛）并 provide `ctx.modules`。
+
+## 后果
+
+- 重组一个 web 部署 = 改 yml/patch；退役件（`mountWebPlugins`、`CLIENT_PACKAGES`、`createHostWebPluginRegistry`、`startWebServer`、webserver 的图/SSE/api 知识）全部删除。
+- headless 本轮仍走 `bootHost`；它的迁移、profile 写入路径、profile 迁 `$DSH_HOME`、IPC 载体，均为设计台账中的挂账项。
+- 一个值得记住的 TypeScript 坑：`declare module 'cordis'` augmentation 所在文件若**没有任何 cordis import**，会被降级成独立 module declaration，无声打散全程序的 `Context` merge（`ctx.on`/`ctx.effect` 全程序消失）。用 `import type {} from 'cordis'` 锚定。
+
+## Alternatives considered
+
+| 弃案 | 一行理由 |
+|---|---|
+| 专门的 `dsh-host-profile` 受体包 | profile json 在 patch 阶段消费完；`{provider, model}` 的唯一运行时消费方是网关自己——受体即网关 config |
+| runtime 里的 `assembly` 垫层插件（provide `apiHandler`） | 它的存在只因 `createApiProxy` 住 runtime；本体迁入 apiproxy 后网关自持插件身份，且 `toFetchHandler` 是绑定方自己调的纯函数 |
+| 全量重扫与增量扫描并存 | 两条实现两份语义；单包路径足以覆盖激活初扫 |
+| modules 包特设 `./impl` 出口 | 出口面不统一；标准 `./client` 承载完整浏览器半 |
+| dev overlay / `cordis.dev.yml` | 一套 yml；`!!js` 无法条件化行存在性，`--dev` 追加一行就是全部差异 |
+| env 进映射表 | 同一字段将出现 env/json 双源，需再发明优先级 |
+| create 不等预取（以 `arrive()` 去重为安全依据） | 被 10–25% boot 竞态证伪：在途去重只覆盖同包双拉，不覆盖跨包同步 require 边 |
+| json 直接当 loader patches 文件 | json 键名将耦合 yml 行结构，写入方要懂 cordis |

@@ -1,35 +1,42 @@
 // Shared scaffold for the keyless browser e2e lane (Agent Note:
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
-// Boots the REAL web assembly in-process from the exported production
-// functions — startHost (bootHost spine) + mountWebPlugins + registry +
-// startWebServer — so a real chromium exercises the real HTTP/SSE wire,
-// apiproxy, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
-// replay (default, keyless: `llm: false` + dsh-llm-replay in providers mode),
-// record (real DeepSeek adapter + key, harvests fixtures from live session
-// memory), refresh (keyless replay that rewrites the committed goldens).
+// Boots the REAL web composition — the shipped apps/cli/cordis.yml through
+// the vendored Loader (the same include boot AppCLIEntry drives), patched the
+// snapshot way — so a real chromium exercises the real HTTP/SSE wire, the
+// api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
+// replay (default, keyless: llm-deepseek row disabled, dsh-llm-replay row
+// inserted in providers mode), record (real adapter + key, harvests fixtures
+// from live session memory), refresh (keyless replay that rewrites goldens).
 //
-// Assembly divergence from `dsh web` (apps/cli/src/web.ts), deliberate: the
-// shipped shell opts into sessionTitleLlm, whose fire-and-forget title call
-// shares the session's replay cursor — nondeterministic ordering against the
-// loop's own calls — so this lane keeps bootHost's disabled default and
-// sidebar titles come from the deterministic fallback service.
+// Composition divergences from `dsh web`, all deliberate, all via include
+// patches over the SAME tree (never a second yml): temp persistenceRoot;
+// workspace-context disabled (recorded fixtures must not embed this repo's
+// AGENTS.md); session-title-llm disabled (its fire-and-forget title call
+// would race the loop for the session's replay cursor); webserver pinned to
+// port 0 with the built dist; keyless modes disable llm-deepseek and fill
+// the open llm seam post-boot with installLlmReplay on the settled root ctx
+// (the plugin-row path discards the ReplayHandle; the direct install keeps
+// assertConsumed for the teardown fixture-consumption check).
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Page } from 'playwright'
 import { expect } from 'vitest'
+import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
+import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
-import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import { assertEntriesLoaded } from '@deepseek-ai/dsh-app-boot'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
-import { startHost, mountWebPlugins } from '@deepseek-ai/dsh-host-runtime'
-import type { RunningHost } from '@deepseek-ai/dsh-host-runtime'
-import { createHostWebPluginRegistry, startWebServer } from '@deepseek-ai/dsh-host-webserver'
+import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { Context } from 'cordis'
+// Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-agent'
 import { DIST_INDEX, REPO_ROOT, requireDist } from './support.ts'
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the ACP/TUI suites). */
@@ -46,27 +53,15 @@ export function webSnapshotMode(): WebSnapshotMode {
   throw new Error(`DSH_SNAPSHOT must be replay, record, or refresh; got ${JSON.stringify(value)}`)
 }
 
-// Replay must run in providers mode (never catch-all): with `llm: false` no
-// adapter exists, so a catch-all would leave resolveModelContext unroutable
-// and compact-basic's post-step pressure check would warn every step. The
-// published contextWindow keeps that pressure path provably inert for small
-// fixtures.
-const PROVIDERS = [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
+/** The shipped composition under test: apps/cli's config tree. */
+const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/cordis.yml')
 
-// The shipped client roster (apps/cli/src/web.ts CLIENT_PACKAGES, sans the
-// --dev HMR row). apps/web depends on every entry, so its URL anchors the
-// Loader's bare-specifier resolution.
-const CLIENT_PACKAGES = [
-  '@deepseek-ai/dsh-client-connection',
-  '@deepseek-ai/dsh-client-runtime',
-  '@deepseek-ai/dsh-client-ui-theme',
-  '@deepseek-ai/dsh-client-i18n',
-  '@deepseek-ai/dsh-client-ui-layout',
-  '@deepseek-ai/dsh-client-ui-sidebar',
-  '@deepseek-ai/dsh-client-ui-conversation',
-  '@deepseek-ai/dsh-client-ui-question',
-  '@deepseek-ai/dsh-client-ui-trajectory',
-] as const
+// Replay publishes the provider catalog the gateway routes to (providers
+// mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
+// catch-all would leave resolveModelContext unroutable and compact-basic's
+// post-step pressure check would warn every step). The published
+// contextWindow keeps that pressure path provably inert for small fixtures.
+const REPLAY_PROVIDERS = [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
 
 /** Repo-root .env → process.env for record mode (never overrides set vars); the smoke-real convention. */
 function loadRootEnv(): void {
@@ -78,20 +73,18 @@ function loadRootEnv(): void {
   }
 }
 
-/** A booted web scaffold: real assembly, mode-selected model backend, temp world. */
+/** A booted web scaffold: real composition, mode-selected model backend, temp world. */
 export interface WebScaffold {
   /** The active snapshot mode this scaffold booted under. */
   mode: WebSnapshotMode
   /** Browser-facing origin (http://127.0.0.1:<bound port>). */
   baseUrl: string
-  /** The running host (ctx is the documented in-process barrier seam). */
-  host: RunningHost
+  /** Settled root context (the in-process barrier seam; headless event subscription is its sanctioned use). */
+  ctx: Context
   /** Temp project directory sessions run in (bash/fs tool cwd). */
   workspaceCwd: string
   /** Temp persistence root (seeded sessions land here through the real API). */
   persistenceRoot: string
-  /** Errors the web server reported asynchronously; assert empty at scenario end. */
-  serverErrors: string[]
   /** Await a settled turn end: in-process turn/end, then the agent's idle flip (which follows the persistence flush). */
   whenTurnSettled(timeoutMs?: number): Promise<SessionId>
   /** Tear everything down; asserts the replay fixture was fully consumed first (replay/refresh). */
@@ -101,10 +94,11 @@ export interface WebScaffold {
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
   /**
-   * Replay fixture (session.jsonl) served by dsh-llm-replay in replay/refresh
-   * modes; ignored in record mode (the real adapter answers). Omit for
-   * scenarios issuing no model calls — a stray stream then fails loud with
-   * NO_ADAPTER on the open seam.
+   * Replay fixture (session.jsonl) served by the inserted dsh-llm-replay row
+   * in replay/refresh modes; ignored in record mode (the real adapter
+   * answers). Omit for scenarios issuing no model calls — a stray stream then
+   * fails loud with NO_ADAPTER (llm-deepseek is disabled and no replay row
+   * mounts).
    */
   replayFixture?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
@@ -112,7 +106,7 @@ export interface LaunchOptions {
 }
 
 /**
- * Boot the real web assembly under the current snapshot mode.
+ * Boot the real web composition under the current snapshot mode.
  * @param options - replay fixture selection and pacing.
  * @returns the running scaffold.
  */
@@ -127,83 +121,90 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   }
   const workspaceCwd = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-'))
   const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
-  const serverErrors: string[] = []
-  let host: RunningHost | undefined
-  let server: Awaited<ReturnType<typeof startWebServer>> | undefined
-  let replay: ReplayHandle | undefined
+
+  // The include patch set — the same mechanism AppCLIEntry and the ACP
+  // snapshot overlay use, applied over the SAME shipped tree (a patch id that
+  // stops matching a row fails the boot sweep loudly instead of drifting).
+  const patches: PatchOptions[] = [
+    { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
+    // fs/bash cwd default to process.cwd(); the gateway injects the same
+    // value into session.cwd — chdir below anchors all three to the temp
+    // workspace, keeping the composition untouched.
+    { id: 'workspace-context', disabled: true },
+    { id: 'session-title-llm', disabled: true },
+    { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    ...mode === 'record' ? [] : [{ id: 'llm-deepseek', disabled: true }],
+  ]
+
+  // Sessions inherit the gateway's process.cwd() default; run the boot from
+  // the temp workspace so tool cwd, session cwd, and fixtures agree.
+  const originalCwd = process.cwd()
+  process.chdir(workspaceCwd)
+  const ctx = new Context()
   try {
-    host = await startHost({
-      boot: {
-        persistenceRoot,
-        // Keep the request header free of ambient AGENTS.md content so
-        // recorded fixtures do not embed this repo's instructions.
-        workspaceContext: false,
-        cwd: workspaceCwd,
-        // Replay/refresh boot keyless with the llm seam open; record mounts
-        // the real adapter and performs real provider I/O.
-        ...(mode === 'record' ? {} : { llm: false as const }),
-      },
+    ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
+    await ctx.loader.create({
+      name: 'cordis:include',
+      config: { path: pathToFileURL(resolve(CONFIG_PATH)).href, patches },
     })
-    if (mode !== 'record' && options.replayFixture !== undefined) {
-      replay = installLlmReplay(host.ctx, {
-        file: options.replayFixture,
-        providers: PROVIDERS,
-        ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
-      })
-    }
-    // Anchor at apps/cli exactly as `dsh web` does: that package declares
-    // every roster entry as a dependency, so the Loader's bare-specifier
-    // resolution and the registry's package.json resolver both work.
-    const anchor = pathToFileURL(join(REPO_ROOT, 'apps/cli/src/web.ts')).href
-    const mounted = await mountWebPlugins(host.ctx, CLIENT_PACKAGES, anchor)
-    const webPlugins = createHostWebPluginRegistry({
-      ctx: host.ctx,
-      loader: mounted.loader,
-      resolvePkgJson: mounted.resolvePkgJson,
-      onError: (err: Error) => { serverErrors.push(String(err)) },
-    })
-    server = await startWebServer(
-      { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX, apiHandler: host.handler, webPlugins },
-      (err: Error) => { serverErrors.push(String(err)) },
-    )
+    await ctx.loader.await()
+    assertEntriesLoaded(ctx, 'web e2e scaffold')
   } catch (error) {
-    await server?.close().catch(() => undefined)
-    await host?.dispose().catch(() => undefined)
+    process.chdir(originalCwd)
+    await ctx.fiber.dispose()
     await rm(workspaceCwd, { recursive: true, force: true }).catch(() => undefined)
     await rm(persistenceRoot, { recursive: true, force: true }).catch(() => undefined)
     throw error
+  } finally {
+    if (process.cwd() !== originalCwd) process.chdir(originalCwd)
   }
-  const runningHost = host
-  const runningServer = server
-  const replayHandle = replay
+
+  const port = ctx.get('httpServer')?.port
+  if (port === undefined) {
+    await ctx.fiber.dispose()
+    throw new Error('web e2e scaffold: httpServer service missing after settled boot')
+  }
+  // Fill the open llm seam on the settled root ctx (llm-deepseek is disabled
+  // in keyless modes; a scenario with no fixture leaves the seam empty so a
+  // stray stream fails loud with NO_ADAPTER). The direct install, unlike the
+  // plugin row, returns the ReplayHandle for the teardown consumption check.
+  let replayHandle: ReplayHandle | undefined
+  if (mode !== 'record' && options.replayFixture !== undefined) {
+    replayHandle = installLlmReplay(ctx, {
+      file: options.replayFixture,
+      providers: REPLAY_PROVIDERS,
+      ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
+    })
+  }
 
   return {
     mode,
-    baseUrl: `http://127.0.0.1:${server.port}`,
-    host,
+    baseUrl: `http://127.0.0.1:${port}`,
+    ctx,
     workspaceCwd,
     persistenceRoot,
-    serverErrors,
     // Barrier stack: the in-process turn/end identifies the session, then
     // agent.whenIdle() covers the persistence flush (the idle flip follows
     // the flush), and the caller's browser settled-poll comes last because
     // host completion strictly precedes render.
     whenTurnSettled(timeoutMs = mode === 'record' ? 180_000 : 30_000): Promise<SessionId> {
-      return new Promise<SessionId>((resolve, reject) => {
+      return new Promise<SessionId>((resolveSettled, reject) => {
         const timer = setTimeout(() => {
           off()
           reject(new Error(`no turn/end within ${timeoutMs}ms`))
         }, timeoutMs)
-        const off = runningHost.ctx.on('session/event', (session: { id: SessionId }, event: SessionEvent) => {
+        const off = ctx.on('session/event', (session: { id: SessionId }, event: SessionEvent) => {
           if (event.type !== 'turn/end') return
           clearTimeout(timer)
           off()
-          const agent = runningHost.ctx.agents.get(session.id)
+          const agent = ctx.agents.get(session.id)
           if (agent === undefined) {
             reject(new Error(`turn/end for ${session.id} but no live agent`))
             return
           }
-          agent.whenIdle().then(() => { resolve(session.id) }, reject)
+          agent.whenIdle().then(() => { resolveSettled(session.id) }, reject)
         })
       })
     },
@@ -217,8 +218,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       } catch (error) {
         failures.push(error)
       }
-      await runningServer.close().catch((e: unknown) => failures.push(e))
-      await runningHost.dispose().catch((e: unknown) => failures.push(e))
+      await Promise.resolve(ctx.fiber.dispose()).catch((e: unknown) => failures.push(e))
       await rm(workspaceCwd, { recursive: true, force: true }).catch((e: unknown) => failures.push(e))
       await rm(persistenceRoot, { recursive: true, force: true }).catch((e: unknown) => failures.push(e))
       if (failures.length > 0) throw new AggregateError(failures, 'web scaffold teardown failed')
@@ -251,7 +251,7 @@ function rawSessionLog(session: Session): string {
  * @param fixturePath - the committed session.jsonl / seed.jsonl target.
  */
 export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId, fixturePath: string): Promise<void> {
-  const agent = scaffold.host.ctx.agents.get(sessionId)
+  const agent = scaffold.ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`record harvest: no live agent for ${sessionId}`)
   const tokenized = scrubRequestHeaders(rawSessionLog(agent.session))
     .split(sessionId).join('{{sessionId}}')
@@ -274,20 +274,18 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
 }
 
 /**
- * Seed a recorded session fixture into the scaffold's persistence root through
- * the REAL backend API (throwaway Context + SessionStore + JSONL plugin — the
- * semantic-checkpoint precedent), never raw file writes: no knowledge of
- * bucket hashing, filename encoding, or compression, and malformed shapes
- * fail loud at seed time. The fixture's recorded cwd is rewritten to the
- * scaffold workspace so header/path identity and event payload paths agree.
+ * Seed a recorded session fixture into the scaffold's persistence root
+ * through the REAL backend API (throwaway Context + SessionStore + JSONL
+ * plugin — the semantic-checkpoint precedent), never raw file writes: no
+ * knowledge of bucket hashing, filename encoding, or compression, and
+ * malformed shapes fail loud at seed time. The fixture's tokenized identity
+ * ({{sessionId}}/{{cwd}}) is realized for this world before parsing.
  * @param scaffold - the target scaffold.
  * @param fixtureText - raw recorded session.jsonl contents.
  * @param id - the seeded session id (stable for deterministic goldens).
  * @returns the seeded id.
  */
 export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
-  // Committed fixtures tokenize run-local identity ({{sessionId}}/{{cwd}},
-  // written by recordFixture); realize both for this world before parsing.
   const realized = fixtureText
     .split('{{sessionId}}').join(id)
     .split('{{cwd}}').join(scaffold.workspaceCwd)
@@ -308,22 +306,22 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
     cwd: scaffold.workspaceCwd,
     delegationDepth: 0,
   }
-  const ctx = new Context()
+  const seeder = new Context()
   try {
-    await ctx.plugin(SessionStore)
-    // Same root as the host with the plugin's own default compression, so the
-    // host's directory-scan list() sees one consistent encoding.
-    await ctx.plugin(SessionPersistenceJsonl, { root: scaffold.persistenceRoot })
-    await ctx.sessionPersistence.create(meta)
-    await ctx.sessionPersistence.append(meta.id, events)
+    await seeder.plugin(SessionStore)
+    // Same root as the booted tree with the plugin's own default compression,
+    // so the host's directory-scan list() sees one consistent encoding.
+    await seeder.plugin(SessionPersistenceJsonl, { root: scaffold.persistenceRoot })
+    await seeder.sessionPersistence.create(meta)
+    await seeder.sessionPersistence.append(meta.id, events)
     // Deterministic sidebar order: cold summaries take updatedAt from mtime.
-    const located = ctx.sessionPersistence.locate(meta)
+    const located = seeder.sessionPersistence.locate(meta)
     if (located !== undefined) {
       const backdated = new Date(meta.createdAt)
       await utimes(located.path, backdated, backdated)
     }
   } finally {
-    await ctx.fiber.dispose()
+    await seeder.fiber.dispose()
   }
   return meta.id
 }

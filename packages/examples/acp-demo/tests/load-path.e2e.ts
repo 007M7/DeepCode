@@ -17,11 +17,10 @@ import {
 } from '@agentclientprotocol/sdk'
 
 /**
- * Source-path Loader smoke through the package's own bin, covering initialize, session/new, and
- * session/load across the `unwrapExports` path implicated by postmortem 0001. Session creation and
- * unknown-id loading reach factories but not the model, so a dummy key is sufficient. The temp cwd
- * is also the session workspace, and an explicit root tsconfig keeps unbuilt path aliases resolvable
- * when the child starts outside the repository.
+ * Source-path Loader smoke through the package's own bin, covering the
+ * automation server's initialize and fresh-session path across the
+ * `unwrapExports` shape implicated by postmortem 0001. Session creation reaches
+ * the factory but not the model, so a dummy key is sufficient.
  */
 
 const binScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
@@ -107,7 +106,7 @@ async function boot(): Promise<Spawned & { cwd: string }> {
 }
 
 describe('dsh-acp-demo real-load-path smoke (bin + Loader, keyless)', () => {
-  it('boots via its bin and answers initialize → session/new → session/load', async () => {
+  it('boots via its bin and exposes only fresh text sessions', async () => {
     const { client, cwd, stderr } = await boot()
     // initialize: a broken export shape (collapsed bridge plugin, dropped inject)
     // crashes the tree on the first service read here — see postmortem 0001.
@@ -115,21 +114,13 @@ describe('dsh-acp-demo real-load-path smoke (bin + Loader, keyless)', () => {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {},
     })
-    expect(init.agentCapabilities?.loadSession).toBe(true)
+    expect(init.agentCapabilities).toEqual({
+      promptCapabilities: { image: false, audio: false, embeddedContext: false },
+    })
 
     // session/new reaches the agent FACTORY (create) without the model.
     const { sessionId } = await client.newSession({ cwd, mcpServers: [] })
     expect(sessionId).toBeTruthy()
-
-    // session/load reaches the resume FACTORY + persistence without the model: load an UNKNOWN
-    // id (loading the live `sessionId` would correctly reject as "already loaded"). Persistence
-    // and resume run from the JSON-RPC loop outside bridge injection; a healthy tree reaches
-    // not-found, while a collapsed export would fail earlier with missing injection.
-    const unknownId = '00000000-0000-4000-8000-000000000000'
-    await client.loadSession({ sessionId: unknownId, cwd, mcpServers: [] }).then(
-      () => { throw new Error('expected session/load of an unknown id to reject') },
-      (error: unknown) => { expect(String(error)).not.toContain('without inject') },
-    )
 
     expect(stderr.join('')).not.toContain('without inject')
   }, 30_000)

@@ -10,15 +10,15 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 决策
 
-`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组装回放，断言规范化后的会话区 aria 预期输出加进程内世界状态。不新增包（package）；产品侧增量只有 `BootHostOptions.llm` seam 和 `dsh-llm-replay` 的两处增量接口。
+`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放，断言规范化后的会话区 aria 预期输出加进程内世界状态。不新增包（package）；产品侧增量只有 `dsh-llm-replay` 的两处增量接口（`paceMs`、`ReplayHandle`）。
 
 ### Scaffold：`apps/web/tests/scaffold.ts`
 
 一个普通的共享 fixture 模块（[测试政策认可的形态](../../../../docs/testing.md)），不是包：值得门禁把守的逻辑——回放推导、会话解析、日志脱敏、持久化——都在已受门禁的包 `dsh-llm-replay`、`dsh-acp-snapshot`、`dsh-session-persistence-jsonl` 中；剩下的只是启动接线和浏览器胶水，而驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100% 覆盖率。
 
-`launchWebScaffold()` 用导出的生产函数在进程内启动真实 web 组装——`startHost({ boot: { …, llm: false } })`、`installLlmReplay(host.ctx, { file, providers, paceMs })`、`mountWebPlugins(host.ctx, roster, anchor)`、`createHostWebPluginRegistry`、`startWebServer({ port: 0, … })`。这是 TUI 套件进程内挂载生产 bundle 的 web 对应物（[TUI 快照](2026-07-18-tui-terminal-state-snapshots.md)）：真实入口边界（`dsh web` bin 的参数解析、dist 解析）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守，且 web 表面没有可绕过的 `cordis.yml`——按[GUI 分层决策](../architecture/2026-07-19-gui-layering-and-rpc-protocol.md)，组装写在应用里；本车道的设计评审明确重申了这一裁定（Loader 化 `dsh web` 被否决；那需要自己的提案）。与 `dsh web` shell 的两处刻意组装差异已注明在 scaffold 头部：`workspaceContext: false`（录制的 fixture 不得嵌入本仓库的 AGENTS.md），以及 `sessionTitleLlm` 保持 bootHost 的禁用默认值（其发后不管的标题调用会与循环自身的调用不确定地共享会话的回放游标）。
+`launchWebScaffold()` 启动真实 web 组合：经 vendored Loader 的 include boot 加载交付的 `apps/cli/cordis.yml`——与 `AppCLIEntry` 为 `dsh web` 驱动的是同一棵树、同一套机制（配置树 boot 于 2026-07-25 在上游落地，取代了本车道第一轮的进程内 `startHost` 组装，也把当初的 Loader 化问题裁定为「Loader 化」）。差异全部经 include patch 骑在同一棵交付树上，即 ACP `cordis.snapshot.yml` 模式的进程内表达：临时 `persistenceRoot`；禁用 `workspace-context`（录制的 fixture 不得嵌入本仓库的 AGENTS.md）；禁用 `session-title-llm`（其发后不管的标题调用会与循环争抢会话的回放游标）；webserver 行钉到端口 0 加已构建 dist；无密钥模式下禁用 `llm-deepseek`。patch 的 id 一旦不再匹配任何行，boot 扫描会大声失败而不是漂移。boot 在临时工作区 `chdir` 下运行，使 api-gateway 的 `process.cwd()` 会话默认值、工具 cwd 与 fixture 一致；`dsh web` bin 自身的胶水（argv、profile json、AppCLIEntry）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守。
 
-`llm: false` seam 是无密钥启动问题经评审后的定论：`BootHostOptions` 上的 `'deepseek' | false`，与 `workspaceContext: Config | false` 形态一致，且 `RunningHost.ctx` 的 JSDoc 把「填充刻意开放的能力 seam」列为其第三种认可用法。回放必须以提供方目录（providers-catalog）模式运行并发布 `contextWindow`（TUI 的 `PROVIDERS` 形态），绝不用 catch-all：没有注册适配器时，catch-all 会让 `resolveModelContext` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置。
+无密钥的模型替换 = 禁用适配器行的 patch 加 `installLlmReplay` 在停稳的根 ctx 上以提供方目录（providers-catalog）模式填充开放的 seam——绝不用 catch-all：适配器行被禁用后不存在任何适配器，catch-all 会让 `resolveModelContext` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置（发布的 128k `contextWindow` 使该路径对小 fixture 保持闲置）。选择直接安装而非插入回放插件行是刻意的：直接安装返回收尾消费检查所需的 `ReplayHandle`。没有 fixture 的场景让 seam 保持空置，任何离群的流式调用都会以 NO_ADAPTER 大声失败。（第一轮的 `BootHostOptions.llm: 'deepseek' | false` seam 已随配置树 boot 取代 `bootHost` 的 web 角色而移除。）
 
 `seedSession()` 通过真实持久化 API 播种冷会话——一次性 `Context` 挂载 `SessionStore` + `SessionPersistenceJsonl` 指向 host 的根目录，`create()` + `append()`，一次 `utimes` 回拨保证侧栏顺序确定（`semantic-checkpoint.snapshot.ts` 先例）——绝不裸写文件，因此播种器对桶哈希、文件名编码、压缩一无所知，host 的 zstd 默认值也无需任何启动开关。种子在播种时即校验（可解析、以 `turn/end` 结尾——未闭合的最终轮次会被恢复（resume）的崩溃修复改写）。
 
@@ -61,7 +61,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **扩展 `?fixture` 客户端。** 已否决：分层纪律——`FixtureApiClient` 的存在意义就是脱离服务器测试客户端 shell；client API seam 以下按构造即失测。
 
-**用占位 `DEEPSEEK_API_KEY` + 回放拦截替代 `llm: false` seam。** 尽管零产品改动且树内有两处先例仍被否决：它用谎言满足 `llm-deepseek` 的快速失败密钥检查，还留下一个挂载却被拦截的死适配器；seam 方案与既有选项形态一致，并在最早可解析点快速失败。
+**用占位 `DEEPSEEK_API_KEY` + 回放拦截替代禁用适配器行。** 尽管零组合改动且树内有两处先例仍被否决：它用谎言满足 `llm-deepseek` 的快速失败密钥检查，还留下一个挂载却被拦截的死适配器；禁用行（ACP overlay 的同款做法）是诚实的无密钥，并在最早可解析点快速失败。
 
 **`packages/support/web-snapshot` 包 + `defineWebSnapshotSuite` 工厂。** 已否决：驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100%，且两个场景就上工厂是从单一消费方过度泛化，真正共享的逻辑已从受门禁的包中导出。重启条件：出现第二个 web 形态消费方，或 ≥6 个场景的内联分支被证实各自漂移；届时包边界将画在无浏览器一侧。
 
@@ -77,7 +77,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## Testing
 
-车道自身：`pnpm run test:web` 与既有冒烟对一起无密钥运行两个场景；`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型重录某场景的 fixture；`DSH_SNAPSHOT=refresh` 无密钥重写两份 aria 预期输出。`llm: false` seam 由 `packages/host/runtime/tests/host-runtime.spec.ts` 钉住（无密钥启动、首次流式调用 NO_ADAPTER、嵌入方经 ctx 填充）；`paceMs` 校验、节奏下限、节奏中中止、`assertConsumed` 的两种失败形态钉在 `packages/support/llm-replay/tests/llm-replay.spec.ts`。
+车道自身：`pnpm run test:web` 与既有冒烟对一起无密钥运行两个场景；`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型重录某场景的 fixture；`DSH_SNAPSHOT=refresh` 无密钥重写两份 aria 预期输出。`paceMs` 校验、节奏下限、节奏中中止、`assertConsumed` 的两种失败形态钉在 `packages/support/llm-replay/tests/llm-replay.spec.ts`。
 
 ## 暂缓
 

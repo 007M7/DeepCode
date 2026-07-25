@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[带标签的 render-intent 联合类型](2026-07-02-tool-render-intent-union.md)为 `dsh-tool-fs` 的 write/edit 在调用时刻提供了 `card:'diff'`，纯粹从工具参数推导：write ⇒ `{oldText:null, newText:content}`（整个新文件），edit ⇒ `{oldText:old_string, newText:new_string}`（裸替换片段）。编辑器将其渲染为行内 diff，但这是一个**无上下文**的 diff：裸的 `old_string`→`new_string` 没有周围行，而一次触及五个分散位置的 `replace_all` 仍然渲染为一对片段。
+[带标签的 render-intent 联合类型](2026-07-02-tool-render-intent-union.md)为 `dsh-tool-fs` 的 write/edit 在调用时刻提供 `card:'diff'`，纯粹从工具参数推导：write ⇒ `{oldText:null, newText:content}`（整个新文件），edit ⇒ `{oldText:old_string, newText:new_string}`（裸替换片段）。UI 可以将其渲染为行内 diff，但这是一个**无上下文**的 diff：裸的 `old_string`→`new_string` 没有周围行，而一次触及五个分散位置的 `replace_all` 仍然渲染为一对片段。
 
 在对接 `claude-agent-acp` 自身的 ACP（Agent Client Protocol） bridge 时可以看到完整编辑器 diff 的样子：变更应用后，它发出第二个 `tool_call_update`，其 diff 是**带 ±3 行上下文的 applied hunk**（`replace_all` 的每个变更位置各一个 hunk），由工具的 `structuredPatch` 重建。这个结果时刻的 hunk 正是让 Zed 在文件中*原位*显示变更（而非浮动片段）的关键。我们的工具止步于调用时刻的片段；完成后的结果只携带纯文本「updated successfully」，没有 diff。
 
@@ -29,11 +29,11 @@ Status: implemented
 按照 [capability-seam 拆分](2026-06-13-capability-seams.md)，存储后端只返回**存储事实**，面向模型的工具拥有**展示**：
 
 - `dsh-fs` 将 `FsEditOutcome` 扩展为包含 `{ before: string; after: string }`，将 `FsWriteOutcome` 扩展为包含 `{ before: string | null; after: string }`（`before: null` 表示创建，或已存在但不可 diff 的二进制/非 UTF-8 文件）。本地后端在写入时已持有两份文本；它以原始 LF 规范化文本返回，**不让任何 diff/UI 概念进入 seam**。
-- `dsh-tool-fs` 返回规范的变更前／后事实，并将上下文 hunk 投影为 `meta: { diffs: FileDiff[] }`。成功的变更始终以 diff 卡片完成，因为 ACP 结果内容会替换待定卡片：创建或无变化的覆写回退到由参数推导的整文件 diff，而编辑使用 applied hunk。失败的变更不携带 diff 元数据，正常渲染其错误信息。
+- `dsh-tool-fs` 返回规范的变更前／后事实，并将上下文 hunk 投影为 `meta: { diffs: FileDiff[] }`。成功的变更以 diff 视图完成：创建或无变化的覆写回退到由参数推导的整文件 diff，而编辑使用 applied hunk。失败的变更不携带 diff 元数据，正常渲染其错误信息。
 
-### 3. Bridge 渲染 `diff` 结果卡片
+### 3. UI 传输层渲染 `diff` 结果视图
 
-`ToolResultView` 新增 `DiffResultView { card:'diff'; title?; diffs: FileDiff[] }`；bridge 结果侧的 `switch (view.card)` 增加 `diff` 分支，发出 `{type:'diff'}` 的 `ToolCallContent` 块（与调用侧分支对称）。ACP 的 `tool_call_update.content` 在编辑器中替换调用时的内容，因此结果 diff **取代**调用时刻的片段（并防止面向模型的结果文本覆盖它）——两次更新序列（先调用片段，再结果 diff）与 `claude-agent-acp` 完全一致。
+`ToolResultView` 包含 `DiffResultView { card:'diff'; title?; diffs: FileDiff[] }`。TUI 与 JSON-RPC/Web 消费方在同一个带标签的视图上做 switch，用 applied 结果 hunk 替换待定调用的无上下文片段。[仅面向自动化的 ACP 桥接层](../simplification/2026-07-23-acp-automation-only-protocol.md)不承载工具展示。
 
 ## 曾考虑的替代方案
 

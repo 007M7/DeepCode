@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-host-runtime
 
-Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence and immediate fallback titles, optional first-message model summaries, system prompt, tools, agents, agent loop, workspace instructions, local bash, and the provider-neutral user-interaction service), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
+Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence and immediate fallback titles, optional first-message model summaries, system prompt, tools, agents, agent loop, workspace instructions, local bash, and the provider-neutral user-interaction service), and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }` (its `api` comes from [`dsh-host-apiproxy`](../apiproxy/README.md)'s `createApiProxy` over that composition).
 
-Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly three sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`), headless session-event subscription, and filling a capability seam the boot options deliberately left open (`llm: false` → the embedder installs its own LLM backend, e.g. the keyless web e2e scaffold's replay); consuming clients must not bypass `api` through it.
+Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly two sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`) and headless session-event subscription; consuming clients must not bypass `api` through it.
 
 ## Configuration
 
@@ -10,7 +10,6 @@ Which plugins mount and with what defaults is decided only here — shells must 
 |---|---:|---|
 | `persistenceRoot` | (required) | Root directory for JSONL session persistence. |
 | `workspaceContext` | (required) | [`AGENTS.md`/`CLAUDE.md` loader](../../context/workspace-context/README.md) config with an explicit `maxBytes`, or `false` to disable it. |
-| `llm` | `'deepseek'` | LLM adapter selection: `'deepseek'` mounts the DeepSeek adapter (API key required at load); `false` mounts none, boots keyless, and leaves the `llm` seam open for the embedder — an unfilled seam fails loud with `NO_ADAPTER` at the first stream. |
 | `provider` | `'deepseek'` | Default provider route injected as agentOptions on create/resume and reported by `host.describe`. |
 | `model` | `'deepseek-v4-flash'` | Default model id, same single source as `provider`. |
 | `cwd` | `process.cwd()` | Default project directory for a session whose create request omits `cwd`. |

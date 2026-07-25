@@ -6,7 +6,7 @@ English | [中文](2026-07-02-result-time-applied-hunk-diffs.zh.md)
 
 ## Problem
 
-The [tagged render-intent union](2026-07-02-tool-render-intent-union.md) gave `dsh-tool-fs` write/edit a `card:'diff'` at CALL time, derived purely from the tool's args: write ⇒ `{oldText:null, newText:content}` (the whole new file), edit ⇒ `{oldText:old_string, newText:new_string}` (the bare replaced snippet). An editor renders that as an inline diff, but it is a **context-free** diff — the bare `old_string`→`new_string` with no surrounding lines, and a `replace_all` that touched five scattered sites still renders as one snippet pair.
+The [tagged render-intent union](2026-07-02-tool-render-intent-union.md) gives `dsh-tool-fs` write/edit a `card:'diff'` at call time, derived purely from the tool's args: write ⇒ `{oldText:null, newText:content}` (the whole new file), edit ⇒ `{oldText:old_string, newText:new_string}` (the bare replaced snippet). A UI can render that as an inline diff, but it is a **context-free** diff — the bare `old_string`→`new_string` with no surrounding lines, and a `replace_all` that touched five scattered sites still renders as one snippet pair.
 
 Driving `claude-agent-acp`'s own ACP bridge shows what a full editor diff looks like: after the mutation applies, it emits a SECOND `tool_call_update` whose diff is the **applied hunk with ±3 context lines** (and one hunk per changed site for `replace_all`), reconstructed from the tool's `structuredPatch`. That result-time hunk is what makes Zed show the change *in place* in the file rather than as a floating snippet. Our tools stopped at the call-time snippet; the completed result carried only the plain "updated successfully" text, no diff.
 
@@ -29,11 +29,11 @@ This remains the general shape ("a tool projects durable result presentation"), 
 Per the [capability-seam split](2026-06-13-capability-seams.md), the storage backend returns only **storage facts** and the model-facing tool owns **presentation**:
 
 - `dsh-fs` widens `FsEditOutcome` with `{ before: string; after: string }` and `FsWriteOutcome` with `{ before: string | null; after: string }` (`before: null` ⇒ a create, or an existing-but-undiffable binary/non-UTF-8 file). The local backend already holds both texts at write time; it returns them as raw LF-normalized text, with **no diff/UI concept** entering the seam.
-- `dsh-tool-fs` returns canonical before/after mutation facts and projects contextual hunks as `meta: { diffs: FileDiff[] }`. Successful mutations always complete with a diff card because ACP result content replaces the pending card: creates or unchanged overwrites fall back to an args-derived whole-file diff, while edits use applied hunks. Failed mutations carry no diff metadata and render their error normally.
+- `dsh-tool-fs` returns canonical before/after mutation facts and projects contextual hunks as `meta: { diffs: FileDiff[] }`. Successful mutations complete with a diff view: creates or unchanged overwrites fall back to an args-derived whole-file diff, while edits use applied hunks. Failed mutations carry no diff metadata and render their error normally.
 
-### 3. The bridge renders a `diff` result card
+### 3. UI transports render a `diff` result view
 
-`ToolResultView` gains a `DiffResultView { card:'diff'; title?; diffs: FileDiff[] }`; the bridge's result-side `switch (view.card)` gets a `diff` arm emitting the `{type:'diff'}` `ToolCallContent` blocks (mirroring the call-side arm). An ACP `tool_call_update.content` REPLACES the call's content in an editor, so the result diff **supersedes** the call-time snippet (and keeps the model-facing result text from clobbering it) — the two-update sequence (call snippet, then result diff) matches `claude-agent-acp` exactly.
+`ToolResultView` includes `DiffResultView { card:'diff'; title?; diffs: FileDiff[] }`. TUI and JSON-RPC/Web consumers switch on the same tagged view and replace the pending call's context-free snippet with the applied result hunk. The [automation-only ACP bridge](../simplification/2026-07-23-acp-automation-only-protocol.md) does not carry tool presentation.
 
 ## Alternatives considered
 

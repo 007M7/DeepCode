@@ -59,7 +59,7 @@ The table is the developer-visible support set for this phase. A `required` feat
 | `hooks` | optional | `claude` (default) / `codex`, multiple | Each feature option creates a separate editable configuration file |
 | `guard` | optional | `repeat-tool` | Provides repeated-tool-call reminders |
 | `timeout-policy` | optional | `default` | Applies a uniform policy to tools that declare timeout budgets |
-| `ask-user` | optional | `default` | Provides the `ask_user_question` tool; only `acp` and `tui` can select it because those two feature options provide the injected user-interaction service |
+| `ask-user` | optional | `default` | Provides the `ask_user_question` tool; only `tui` can select it because ACP is an automation transport and embed provides no human-interaction service |
 
 Both `bash` feature options apply to ACP, TUI, and embed and are not selected by the run interface. The sandbox feature option writes no active config key and therefore keeps `dsh-bash-sandbox`'s `read-only` default. Generated `cordis.yml` includes a commented example that developers can change explicitly to `workspace-write`:
 
@@ -107,7 +107,7 @@ Generated `package.json` provides the following scripts. `dev`, `build`, `start`
 `dsh-sdk start` and `dsh-sdk dev` accept a module target and forward arguments after `--` unchanged to the project entrypoint. Generic argument parsing uses Node `parseArgs()` with zero schema: valued flags use `--key=value`, bare flags become `true`, and `--no-*` becomes `false`.
 
 - TUI projects pass the selected model through `--model=<name>` and create or resume an agent according to optional `--resume=<session-id>`;
-- ACP uses protocol `session/load`
+- ACP clients create fresh sessions through protocol `session/new`;
 - Embed uses the model written into the generated code.
 
 Each feature-owned Cordis config entry keeps its developer-editable Cordis plugin config and explanatory comments in `cordis.yml`. When `dsh-sdk config` changes other features, it preserves unknown fields, formatting on untouched nodes, and comments. HMR is an ordinary leaf config entry: when the feature is selected, dev and start load the same watcher, and the command does not change the plugin tree implicitly.
