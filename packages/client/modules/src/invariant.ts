@@ -15,14 +15,25 @@ export const name = 'client-modules-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the module loader is pre-plugin kernel machinery —
- * it emits no cordis events (the vendored Loader owns entry lifecycle events)
- * and its mutable state (loadCache, handoff slot) lives below the plugin
- * layer where invariant observers cannot mount before it runs; resolve branch
- * order and handoff discipline are asserted by the web boot specs against the
- * real execution path.
+ * Owned relation: the node half's boot entry graph must stay self-consistent
+ * — every row must resolve a clientPath under the same id (the
+ * /plugins/<id>/client.js URL it advertises would otherwise 404 on a browser
+ * that just received the graph). Checked on every scan trigger (cordis
+ * 'internal/plugin'): graph() and clientPath() read the same table object,
+ * so the relation holds at any instant — no need to wait out the node half's
+ * own microtask-debounced flush.
  */
-const install: InvariantInstaller = () => {}
+const install: InvariantInstaller = (ctx, fail) => {
+  ctx.on('internal/plugin', () => {
+    const host = ctx.get('clientModuleHost')
+    if (host === undefined) return // browser side / host without the node half: nothing to audit
+    for (const row of host.graph().entries) {
+      if (host.clientPath(row.id) === undefined) {
+        fail(`web plugin graph row "${row.id}" advertises ${row.url} but resolves no client bundle path — the served __DSH_BOOT__ would 404 on fetch`)
+      }
+    }
+  }, { global: true })
+}
 
 /**
  * Register this package's invariant companion.

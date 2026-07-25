@@ -108,8 +108,21 @@ export default defineConfig({
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
         'packages/host/webserver/src/*',
-        'packages/client/modules/src/loader.ts',
+        'packages/client/modules/src/client/system.ts',
         'packages/client/hmr/src/client/index.ts',
+        // Web config-tree boot round: the new host-side web-transport halves
+        // whose remaining branches need real-composition/process harnesses.
+        // TODO(gui): cover and remove with the client test lane above.
+        'packages/client/modules/src/index.ts',
+        'packages/client/modules/src/invariant.ts',
+        'packages/client/modules/src/client/index.ts',
+        'packages/client/modules/src/client/manifest.ts',
+        'packages/client/hmr/src/index.ts',
+        'packages/client/hmr/src/invariant.ts',
+        'packages/client/connection/src/index.ts',
+        'packages/client/connection/src/http-bridge.ts',
+        'packages/host/apiproxy/src/index.ts',
+        'packages/host/apiproxy/src/invariant.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

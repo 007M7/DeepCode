@@ -273,6 +273,20 @@ Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) ·
 
 Source: [`packages/examples/cli-demo/src/index.ts:26`](../packages/examples/cli-demo/src/index.ts)
 
+## `@deepseek-ai/dsh-client-hmr`
+
+Requires: `clientModuleHost` · `httpServer`
+
+```ts config-catalog
+/** Plugin config, validated by the same-named schemastery schema. */
+export interface Config {
+  /** Bundle stat-poll interval in milliseconds (default 500, the build-side watcher's polling default). */
+  pollIntervalMs?: number
+}
+```
+
+Source: [`packages/client/hmr/src/index.ts:30`](../packages/client/hmr/src/index.ts)
+
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
 ```ts config-catalog
@@ -470,6 +484,38 @@ export interface Config {
 ```
 
 Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
+
+## `@deepseek-ai/dsh-host-apiproxy`
+
+Requires: `agents` · `sessions` · `tools` · `userInteraction`
+
+```ts config-catalog
+/** Gateway plugin config: the host-level default agent routing. */
+export interface Config {
+  /** Default provider route for created/resumed agents. */
+  provider: string
+  /** Default model id. */
+  model: string
+}
+```
+
+Source: [`packages/host/apiproxy/src/index.ts:32`](../packages/host/apiproxy/src/index.ts)
+
+## `@deepseek-ai/dsh-host-webserver`
+
+```ts config-catalog
+/** Gateway config: listen address plus the static dist anchor (injected by the composing app, never self-resolved). */
+export interface Config {
+  /** Listen host; the two supported values are loopback and all-interfaces. */
+  host: '127.0.0.1' | '0.0.0.0'
+  /** Listen port; zero requests an OS-assigned port. */
+  port: number
+  /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
+  distIndex: string
+}
+```
+
+Source: [`packages/host/webserver/src/index.ts:39`](../packages/host/webserver/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
@@ -1151,6 +1197,84 @@ export interface Config {
 ```
 
 Source: [`packages/spill/spill-policy/src/index.ts:51`](../packages/spill/spill-policy/src/index.ts)
+
+## `@deepseek-ai/dsh-storage-domain`
+
+Requires: `storage`
+
+```ts config-catalog
+/**
+ * Plugin config. Which backend serves which domain is decided here, not
+ * globally on the hub: `backend` is the default route and `routes` overrides
+ * it per domain name. A route naming an unregistered backend fails loud at
+ * `open` with `backend-not-found`.
+ */
+export interface Config {
+  /** Default backend name for every domain without an explicit route. Required: there is no universally correct medium. */
+  backend: string
+  /** Per-domain overrides: domain name → backend name. */
+  routes?: Record<string, string>
+}
+```
+
+Source: [`packages/storage/storage-domain/src/index.ts:45`](../packages/storage/storage-domain/src/index.ts)
+
+## `@deepseek-ai/dsh-storage-json`
+
+Requires: `storage`
+
+```ts config-catalog
+/**
+ * Plugin configuration.
+ * `root` has NO default on purpose: a `process.cwd()` fallback would scatter
+ * unit files wherever the process happens to start; assemblies state the
+ * location explicitly.
+ */
+export interface Config {
+  /** Directory holding one `<unit>.json` file per unit. */
+  root: string
+}
+```
+
+Source: [`packages/storage/storage-json/src/index.ts:27`](../packages/storage/storage-json/src/index.ts)
+
+## `@deepseek-ai/dsh-storage-sqlite`
+
+Requires: `storage`
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /**
+   * Filesystem path to the SQLite database file. The special value `:memory:`
+   * opens an in-process database (tests). On filesystems with POSIX modes,
+   * missing directories and databases are created owner-only; existing path
+   * modes are preserved. Filesystem setup errors other than an existing
+   * database fail the open. The backend does not protect confidentiality or
+   * integrity when another principal can replace the database entry in its
+   * parent directory.
+   */
+  path: string
+  /**
+   * SQLite `journal_mode` pragma. `wal` (the default) suits local disks; pick
+   * a rollback-journal mode (`delete`/`truncate`/`persist`) on filesystems
+   * where WAL's shared-memory files do not work (network mounts). See
+   * {@link JournalMode}.
+   */
+  journalMode?: JournalMode
+}
+
+/**
+ * Journal modes the backend will run under. `wal` is the default; the
+ * rollback-journal modes (`delete`/`truncate`/`persist`) exist for
+ * filesystems where WAL's shared-memory files do not work (network mounts).
+ * `memory`/`off` are excluded: dropping journal durability silently
+ * contradicts the durability clause of the KV backend contract.
+ */
+export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
+```
+
+Source: [`packages/storage/storage-sqlite/src/index.ts:24`](../packages/storage/storage-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -1890,9 +2014,9 @@ Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/cont
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
-- `@deepseek-ai/dsh-client-connection` ([`packages/client/connection/src/index.ts`](../packages/client/connection/src/index.ts))
-- `@deepseek-ai/dsh-client-hmr` ([`packages/client/hmr/src/index.ts`](../packages/client/hmr/src/index.ts))
+- `@deepseek-ai/dsh-client-connection` — requires `httpServer` · `apiProxy` ([`packages/client/connection/src/index.ts`](../packages/client/connection/src/index.ts))
 - `@deepseek-ai/dsh-client-i18n` ([`packages/client/i18n/src/index.ts`](../packages/client/i18n/src/index.ts))
+- `@deepseek-ai/dsh-client-modules` — requires `httpServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
@@ -1909,12 +2033,14 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-pty` ([`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
+- `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
+- `@deepseek-ai/dsh-workspace` — requires `storage` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 
 ## Seam packages (not directly loadable)
 
@@ -1939,16 +2065,13 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
-- `@deepseek-ai/dsh-client-modules` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-primitives` ([`packages/client/ui-primitives/src/index.ts`](../packages/client/ui-primitives/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-slots` ([`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts))
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
-- `@deepseek-ai/dsh-host-apiproxy` ([`packages/host/apiproxy/src/index.ts`](../packages/host/apiproxy/src/index.ts))
 - `@deepseek-ai/dsh-host-runtime` ([`packages/host/runtime/src/index.ts`](../packages/host/runtime/src/index.ts))
-- `@deepseek-ai/dsh-host-webserver` ([`packages/host/webserver/src/index.ts`](../packages/host/webserver/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))
