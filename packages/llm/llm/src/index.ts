@@ -33,7 +33,7 @@ export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
-export { isLlmAdapterFailure, llmFailureOf } from './adapter-failure.ts'
+export { isLlmAdapterFailure, llmFailureOf, llmRetryPolicyOf } from './adapter-failure.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -337,7 +337,9 @@ export class LlmService extends Service {
   ): AsyncGenerator<StreamChunk> {
     let iterator: AsyncIterator<StreamChunk>
     try {
-      const adapter = this.registration(options.provider).adapter
+      const registration = this.registration(options.provider)
+      failures.retryPolicy = registration.retryPolicy
+      const adapter = registration.adapter
       const stream = adapter.stream(this.forAdapter(options, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {
@@ -386,7 +388,7 @@ export class LlmService extends Service {
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const failures: AdapterFailureScope = new WeakMap<Error, LlmFailure>()
+    const failures: AdapterFailureScope = { failures: new WeakMap<Error, LlmFailure>() }
     const stream = this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options, failures))
     return bindAdapterFailureScope(stream, failures)
   }

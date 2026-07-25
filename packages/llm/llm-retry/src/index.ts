@@ -37,13 +37,13 @@ declare module '@deepseek-ai/dsh-session' {
 }
 
 export const name = 'llm-retry'
-export const inject = ['agents', 'llm']
+export const inject = ['agents']
 
 /** This policy executor has no config; providers own `retryPolicy`. */
-export type Config = Readonly<Record<never, never>>
+export type Config = Readonly<Record<string, never>>
 
 /** Runtime schema for {@link Config}. */
-export const Config: z<Config> = z.object({})
+export const Config = z.object({}) as unknown as z<Config>
 
 function validateConfig(config: Config): void {
   const [key] = Object.keys(config)
@@ -170,6 +170,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     _error: RequestError,
     failure: LlmFailure,
     priorFailures: readonly LlmFailure[],
+    policy: ResolvedRetryPolicy | undefined,
     signal: AbortSignal,
     next: () => Promise<RequestErrorDecision>,
   ) => {
@@ -177,15 +178,15 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     // removed. Lifetime cancellation must prevent that stale callback from
     // entering a downstream policy after disposal.
     if (lifetime.signal.aborted) return Promise.resolve<RequestErrorDecision>({ action: 'fail' })
-    // Bind policy to the header in force when this step closed. Downstream
-    // recovery may append later state before an always fallback runs.
+    if (policy === undefined) return next()
+    // The call-local policy belongs to the registration that served this
+    // failure. Recover only the durable provider identity from the header;
+    // downstream recovery may append later state before an always fallback.
     const provider = providerForClosedStep(agent.session.events, turn, step)
     /* v8 ignore next 3 -- agent-loop closes only steps whose request header was recorded */
     if (provider === undefined) {
       throw new Error(`llm-retry: no request provider for closed turn ${turn}/step ${step}`)
     }
-    const policy = ctx.llm.providerRetryPolicy(provider)
-
     if (policy.mode === 'always') {
       const downstream = await downstreamUntilAbort(
         next,

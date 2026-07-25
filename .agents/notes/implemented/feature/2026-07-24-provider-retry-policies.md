@@ -12,7 +12,7 @@ Provider policy must follow the request that actually failed, including a route 
 
 ## Decision
 
-Each concrete adapter accepts an optional `retryPolicy` inside its provider configuration. The adapter validates and resolves the policy, and `ctx.llm` captures it when that exact provider route registers. `@deepseek-ai/dsh-llm-retry` reads the registered policy for the provider whose step failed. A provider without `retryPolicy` uses the normal defaults.
+Each concrete adapter accepts an optional `retryPolicy` inside its provider configuration. The adapter validates and resolves the policy, and `ctx.llm` captures it when that exact provider route registers. When a call enters its final adapter boundary, `ctx.llm` binds the serving registration's immutable policy to that call; the agent loop passes it to closed-step recovery even if the route is disposed or replaced while the request is in flight. `@deepseek-ai/dsh-llm-retry` combines that call-local policy with the failed step's durable provider identity. A call that never reaches a final adapter has no serving policy and delegates. A provider without `retryPolicy` uses the normal defaults.
 
 ```yaml
 providers:
@@ -34,7 +34,7 @@ providers:
         jitterRatio: 0.2
 ```
 
-The listener selects the policy from the durable `request/header` in force when the failed step closed, excluding later recovery mutations. Normal mode retains the bounded transient behavior: it retries configured codes up to `maxRetries`, counts retries scheduled by the same provider policy in the current consecutive failure sequence, and otherwise delegates.
+The listener reads the provider from the durable `request/header` in force when the failed step closed, excluding later recovery mutations, but never re-resolves policy from the mutable provider registry. Normal mode retains the bounded transient behavior: it retries configured codes up to `maxRetries`, counts retries scheduled by the same provider policy in the current consecutive failure sequence, and otherwise delegates.
 
 Always mode asks downstream recovery first so a specialized policy such as context-overflow compaction can make progress. A downstream retry wins. A downstream failure decision or thrown recovery error falls back to an unbounded retry of the same provider request; the thrown error is logged. Success, turn cancellation, and plugin disposal are the only termination paths.
 
@@ -56,10 +56,10 @@ Each scheduled retry appends a non-surface `llm/retry` event with the failed pro
 
 ## Verification
 
-Adapter tests validate nested policies at provider load and prove registration captures configured and default policies. Unit and real-Loader composition tests select policies from the failed request's provider, exercise always mode beyond the normal budget, pin jitter and delay caps, prove downstream recovery ordering, prove cancellation interrupts stalled downstream recovery, and prove cancellation and disposal stop active backoff waits. Request-level coverage compares the complete messages of failed and retried attempts and rejects both provider error text and discarded partial output. JSONL and SQLite tests round-trip an always event without `Infinity`; invariant tests bind its provider to the request header and its retry number to the active provider policy; ACP and TUI tests render finite and infinite limits.
+Adapter tests validate nested policies at provider load, prove registration captures configured and default policies, and retain the serving policy across in-flight route replacement. Unit and real-Loader composition tests select policies from the failed request's serving registration, exercise always mode beyond the normal budget, pin jitter and delay caps, prove downstream recovery ordering, prove cancellation interrupts stalled downstream recovery, and prove cancellation and disposal stop active backoff waits. Request-level coverage compares the complete messages of failed and retried attempts and rejects both provider error text and discarded partial output. JSONL and SQLite tests round-trip an always event without `Infinity`; invariant tests bind its provider to the request header and its retry number to the active provider policy; ACP and TUI tests render finite and infinite limits.
 
 ## Consequences
 
-Normal mode remains a finite default, while an explicit always policy can spend unbounded requests and time on permanent authentication, quota, invalid-request, protocol, or context failures. Operators must pair always mode with a cancellable caller and provider-specific cost controls. Retry state stays observable and durable without becoming model-visible, and exact-provider selection keeps one provider's exceptional policy from changing another provider's recovery behavior.
+Normal mode remains a finite default, while an explicit always policy can spend unbounded requests and time on permanent authentication, quota, invalid-request, protocol, or context failures. Operators must pair always mode with a cancellable caller and provider-specific cost controls. Retry state stays observable and durable without becoming model-visible, and serving-registration capture prevents adapter lifecycle changes from retroactively changing an in-flight request's recovery contract.
 
 This decision extends the closed-step recovery, single visible adapter attempt, structured failure, and durable status design in [bounded recovery for transient LLM request failures](../architecture/2026-06-21-bounded-llm-request-recovery.md).

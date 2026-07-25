@@ -59,7 +59,7 @@ interface LlmFailure {
 
 - **`usage` 在 `finish` 之前，`finish` 之后不再有任何分片。** 将两者都推迟到提供方的流结束标记，这样尾部的 usage-only 分片就不会违反顺序。
 - **工具调用的 `arguments` 全程保持原始 JSON 字符串。** 部分片段通过 `argumentsDelta` 流式传输；如果提供方返回的是已解析的对象，适配器在 `block-end` 时重新序列化为字符串。
-- **两条受支持的错误路径，一种事实形状。** 失败可以从 `stream()` 抛出（传输/协议错误），**或者**以 `finish {kind:'error'|'aborted', failure}` 结束流（无法在流中途抛异常的适配器用它表示提供方带内错误）。`LlmError.failure` 携带同一个 `LlmFailure`。最终适配器边界保留被抛出的确切 `Error` 对象，并将不可变事实关联到该调用；agent loop（智能体循环）关闭失败的步骤，再把错误、事实与不可变的先前已重试事实提供给 `agent/request-error`。若未恢复，结构化失败会成为轮次错误，并且该次尝试不会提交正常 assistant 消息或工具副作用。
+- **两条受支持的错误路径，一种事实形状。** 失败可以从 `stream()` 抛出（传输/协议错误），**或者**以 `finish {kind:'error'|'aborted', failure}` 结束流（无法在流中途抛异常的适配器用它表示提供方带内错误）。`LlmError.failure` 携带同一个 `LlmFailure`。最终适配器边界保留被抛出的确切 `Error` 对象，并将不可变事实以及实际提供服务的注册项所持不可变重试策略关联到该调用；agent loop（智能体循环）关闭失败的步骤，再把错误、事实、不可变的先前已重试事实与实际提供服务的策略提供给 `agent/request-error`。若未恢复，结构化失败会成为轮次错误，并且该次尝试不会提交正常 assistant 消息或工具副作用。
 - **一次适配器调用就是一次提供方尝试。** 适配器禁用库重试。agent 层恢复会打开另一个持久、带编号的步骤；直接调用 `ctx.llm.stream()` 的调用方仍然只尝试一次。
 - **提供方停顿在传输层受到时限约束。** 两个已交付的远程适配器都暴露正数且有限的 `streamIdleTimeoutMs`，默认五分钟。watchdog 只在 iterator `next()` 尚未完成时启动，整个请求使用同一个稳定 signal，把自身到期映射为 `TIMEOUT`，并把更早发生的调用方中止保留为 `ABORTED`。
 - **上下文溢出只有一个规范 code。** 两个 DeepSeek 适配器都通过 `isContextWindowExceededError()` 对提供方的显式细节分类并暴露 `CONTEXT_WINDOW_EXCEEDED`，无论失败以抛出的 HTTP `LlmError` 还是带内 finish error 到达。消费方按 code 路由，绝不依赖提供方文本。
@@ -70,7 +70,7 @@ interface LlmFailure {
 
 ## `ResolvedRetryPolicy`
 
-提供方配置会在路由注册前解析为不可变的可辨识联合类型。normal 模式包含 `mode: 'normal'`、有限的 `maxRetries`、`retryableCodes`，以及必填的 `initialDelayMs`、`maxDelayMs` 和 `jitterRatio`；always 模式包含 `mode: 'always'` 和相同的必填退避字段，但不含有限上限。`LlmService.providerRetryPolicy(provider)` 返回捕获的值；适配器未提供策略时，该方法会补上 normal 默认值。可选输入形状由[生成的配置目录](../config-catalog.md)定义。
+提供方配置会在路由注册前解析为不可变的可辨识联合类型。normal 模式包含 `mode: 'normal'`、有限的 `maxRetries`、`retryableCodes`，以及必填的 `initialDelayMs`、`maxDelayMs` 和 `jitterRatio`；always 模式包含 `mode: 'always'` 和相同的必填退避字段，但不含有限上限。`LlmService.providerRetryPolicy(provider)` 返回当前已注册的值；适配器未提供策略时，该方法会补上 normal 默认值。调用进入最终适配器边界后，`llmRetryPolicyOf(stream)` 返回实际提供服务的确切注册项所捕获的值，因此后续路由 dispose 或替换无法改变请求进行期间发生的失败所用恢复策略。可选输入形状由[生成的配置目录](../config-catalog.md)定义。
 
 ## `AppIdentity`：应用归属
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Fiber } from 'cordis'
 import LlmService, { CallId, LlmAdapter, LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
@@ -79,7 +79,7 @@ async function harness(
   policies: Readonly<Record<string, RetryPolicyConfig | undefined>> = { mock: normalConfig() },
   beforeRetry?: (ctx: Context) => void,
   internals: retry.RetryInternals = {},
-): Promise<{ ctx: Context; retryFiber: Fiber }> {
+): Promise<{ ctx: Context; retryFiber: Fiber; disposeAdapter: () => void }> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
@@ -92,8 +92,8 @@ async function harness(
     retry.apply(inner, {}, internals)
   }, { inject: retry.inject }))
   await ctx.plugin(AgentLoop, { agents: [] })
-  ctx.llm.registerAdapter(['mock', 'other'], adapter)
-  return { ctx, retryFiber }
+  const disposeAdapter = ctx.llm.registerAdapter(['mock', 'other'], adapter)
+  return { ctx, retryFiber, disposeAdapter }
 }
 
 function normalConfig(
@@ -413,6 +413,28 @@ describe('provider-routed retry policy', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('delegates when no final adapter served the failed request', async () => {
+    const adapter = new ScriptedAdapter([textResponse('must not run')])
+    const mounted = await harness(adapter, { mock: alwaysConfig() })
+    context = mounted.ctx
+    mounted.disposeAdapter()
+    const agent = context.agentLoop.create(SessionId('retry-no-serving-policy'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const idle = waitForIdle(context, agent)
+
+    agent.followup([{ type: 'text', text: 'missing route' }])
+    await idle
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', failure: { code: 'NO_ADAPTER' } } },
+    })
+  })
+
   it('selects policy by the failed request provider', async () => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([
@@ -480,6 +502,64 @@ describe('provider-routed retry policy', () => {
 
     expect(adapter.requests.map(request => request.provider)).toEqual(['other', 'other'])
   })
+
+  it.each(['thrown', 'in-band'] as const)(
+    'uses the serving registration policy when an in-flight route is replaced after a %s failure',
+    async (failureKind) => {
+      vi.useFakeTimers()
+      const entered = Promise.withResolvers<undefined>()
+      const release = Promise.withResolvers<undefined>()
+      const oldAdapter = new ScriptedAdapter([(async function * (): AsyncGenerator<StreamChunk> {
+        entered.resolve(undefined)
+        await release.promise
+        if (failureKind === 'thrown') {
+          throw new LlmError('old route auth failed', 'AUTH')
+        }
+        yield {
+          type: 'finish',
+          reason: {
+            kind: 'error',
+            failure: { message: 'old route auth failed', code: 'AUTH' },
+          },
+        }
+      })()])
+      const mounted = await harness(oldAdapter, { mock: alwaysConfig({
+        initialDelayMs: 1,
+        maxDelayMs: 1,
+      }) })
+      context = mounted.ctx
+      const agent = context.agentLoop.create(SessionId('retry-serving-registration'), {
+        provider: 'mock',
+        model: 'mock',
+      })
+      const scheduled = waitForRetry(context, agent, 1)
+      agent.followup([{ type: 'text', text: 'replace while in flight' }])
+      await entered.promise
+
+      mounted.disposeAdapter()
+      const replacement = new ScriptedAdapter([textResponse('replacement recovered')])
+      replacement.configureRetryPolicies({ mock: normalConfig({ maxRetries: 0 }) })
+      context.llm.registerAdapter(['mock'], replacement)
+      release.resolve(undefined)
+
+      expect((await scheduled).data).toMatchObject({
+        provider: 'mock',
+        mode: 'always',
+        retry: 1,
+        delayMs: 1,
+      })
+      const idle = waitForIdle(context, agent)
+      await vi.advanceTimersByTimeAsync(1)
+      await idle
+
+      expect(oldAdapter.requests).toHaveLength(1)
+      expect(replacement.requests).toHaveLength(1)
+      expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'replacement recovered' }],
+      })
+    },
+  )
 
   it('keeps always mode unbounded while preserving cancellable jittered backoff', async () => {
     vi.useFakeTimers()
@@ -719,7 +799,9 @@ describe('provider-routed retry policy', () => {
     const captured = Promise.withResolvers<undefined>()
     let invokeCaptured: (() => Promise<void>) | undefined
     const mounted = await harness(adapter, {}, (ctx) => {
-      ctx.on('agent/request-error', (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
+      ctx.on('agent/request-error', (
+        _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+      ) => {
         return new Promise<RequestErrorDecision>((resolve) => {
           invokeCaptured = async () => { resolve(await next()) }
           captured.resolve(undefined)
@@ -728,7 +810,9 @@ describe('provider-routed retry policy', () => {
     })
     context = mounted.ctx
     let downstreamCalls = 0
-    context.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
+    context.on('agent/request-error', async (
+      _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+    ) => {
       downstreamCalls += 1
       return next()
     })
@@ -782,7 +866,9 @@ describe('provider-routed retry policy', () => {
       textResponse('must not run'),
     ])
     ;({ ctx: context } = await harness(adapter, { mock: policy }, (ctx) => {
-      ctx.on('agent/request-error', async (agent, _turn, _step, _error, _failure, _history, _signal, next) => {
+      ctx.on('agent/request-error', async (
+        agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+      ) => {
         agent.cancel({ kind: 'user' })
         return next()
       })
@@ -823,14 +909,16 @@ describe('provider-routed retry policy', () => {
   })
 
   it('rejects retry policy configured on the executor instead of a provider', () => {
+    expectTypeOf<{}>().toExtend<retry.Config>()
+    expectTypeOf<{ retryPolicy: { mode: 'always' } }>().not.toExtend<retry.Config>()
     expect(() => {
-      retry.apply(new Context(), { retryPolicy: { mode: 'always' } })
+      retry.apply(new Context(), { retryPolicy: { mode: 'always' } } as unknown as retry.Config)
     }).toThrow(/retryPolicy belongs under each provider/)
   })
 
   it('rejects unknown executor config', () => {
     expect(() => {
-      retry.apply(new Context(), { retryPolciy: {} })
+      retry.apply(new Context(), { retryPolciy: {} } as unknown as retry.Config)
     }).toThrow(/unknown key "retryPolciy"/)
   })
 })

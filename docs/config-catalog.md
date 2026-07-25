@@ -646,11 +646,11 @@ Source: [`packages/support/llm-replay/src/index.ts:387`](../packages/support/llm
 
 ## `@deepseek-ai/dsh-llm-retry`
 
-Requires: `agents` · `llm`
+Requires: `agents`
 
 ```ts config-catalog
 /** This policy executor has no config; providers own `retryPolicy`. */
-export type Config = Readonly<Record<never, never>>
+export type Config = Readonly<Record<string, never>>
 ```
 
 Source: [`packages/llm/llm-retry/src/index.ts:43`](../packages/llm/llm-retry/src/index.ts)

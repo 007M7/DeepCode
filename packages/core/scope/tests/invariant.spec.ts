@@ -51,7 +51,7 @@ describe('scoped-dispatch invariants', () => {
       'agent/post-step': [agent, 1, 1, signal],
       'agent/prompt-submit': [agent, [], { kind: 'user' }, signal, () => Promise.resolve({ kind: 'allow' })],
       'agent/request': [agent, 1, 1, config, signal, () => Promise.resolve(config)],
-      'agent/request-error': [agent, 1, 1, new Error('request failed'), { message: 'request failed', code: 'UNKNOWN' }, [], signal, () => Promise.resolve({ action: 'fail' })],
+      'agent/request-error': [agent, 1, 1, new Error('request failed'), { message: 'request failed', code: 'UNKNOWN' }, [], undefined, signal, () => Promise.resolve({ action: 'fail' })],
       'agent/session-prefix': [agent, [], signal, () => Promise.resolve([])],
       'agent/step-result': [agent, 1, 1, message, signal, () => Promise.resolve(message)],
       'agent/turn-continuation': [agent, 1, { action: 'stop' }, signal, () => Promise.resolve({ action: 'stop' })],

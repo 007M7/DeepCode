@@ -83,6 +83,7 @@ function recoveryBoundary(
     new Error('request failed'),
     { message: 'request failed', code: 'SERVER' },
     [],
+    undefined,
     new AbortController().signal,
     () => Promise.resolve(decision),
   )
@@ -945,7 +946,9 @@ describe('HMR disposal', () => {
     const agent = await agentWithSession(ctx, 'disposed-in-flight-recovery')
     const recoveryEntered = Promise.withResolvers<true>()
     const releaseRecovery = Promise.withResolvers<true>()
-    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, _next) => {
+    ctx.on('agent/request-error', async (
+      _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, _next,
+    ) => {
       recoveryEntered.resolve(true)
       await releaseRecovery.promise
       return { action: 'retry' }

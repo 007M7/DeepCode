@@ -138,7 +138,9 @@ describe('plan mode through the agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('it-plan-retry-flip'), { provider: 'mock', model: 'mock' })
     const recoveryEntered = Promise.withResolvers<true>()
     const releaseRecovery = Promise.withResolvers<true>()
-    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, _history, _signal, next) => {
+    ctx.on('agent/request-error', async (
+      subject, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+    ) => {
       if (subject !== agent) return next()
       recoveryEntered.resolve(true)
       await releaseRecovery.promise

@@ -1277,7 +1277,7 @@ describe('automatic listener and loader composition', () => {
     const failure: LlmFailure = { message: error.message, code: error.code ?? 'UNKNOWN' }
     const priorFailures = Object.freeze(Array.from({ length: retryAttempt }, () => failure))
     return agentEvents(ctx, owner).waterfall(
-      'agent/request-error', 1, 1, error, failure, priorFailures, signal, next,
+      'agent/request-error', 1, 1, error, failure, priorFailures, undefined, signal, next,
     )
   }
 

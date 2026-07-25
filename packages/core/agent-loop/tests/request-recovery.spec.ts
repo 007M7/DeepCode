@@ -269,10 +269,11 @@ describe('agent post-step and request-error lifecycle', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId(`recover-${_style}`), { provider: 'mock', model: 'mock' })
     const attempts: number[] = []
-    ctx.on('agent/request-error', async (subject, turn, step, error, facts, history) => {
+    ctx.on('agent/request-error', async (subject, turn, step, error, facts, history, retryPolicy) => {
       expect(subject).toBe(agent)
       expect({ turn, step, code: error.code }).toEqual({ turn: 1, step: 1, code: CONTEXT_WINDOW_EXCEEDED_CODE })
       expect(facts.code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
+      expect(retryPolicy).toMatchObject({ mode: 'normal', maxRetries: 2 })
       attempts.push(history.length)
       subject.session.append('user/message', {
         content: [{ type: 'text', text: 'RECOVERY SURFACE MUTATION' }],
@@ -301,7 +302,9 @@ describe('agent post-step and request-error lifecycle', () => {
     const agent = ctx.agentLoop.create(SessionId(`stream-plugin-${_name.replaceAll(' ', '-')}`), { provider: 'mock', model: 'mock' })
     let recoveries = 0
     install(ctx)
-    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
+    ctx.on('agent/request-error', async (
+      _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+    ) => {
       recoveries += 1
       return next()
     })
@@ -332,7 +335,9 @@ describe('agent post-step and request-error lifecycle', () => {
     })
     const agent = ctx.agentLoop.create(SessionId('nested-stream-not-recoverable'), { provider: 'mock', model: 'mock' })
     let recoveries = 0
-    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
+    ctx.on('agent/request-error', async (
+      _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+    ) => {
       recoveries += 1
       return next()
     })
@@ -365,7 +370,9 @@ describe('agent post-step and request-error lifecycle', () => {
       }
       const agent = ctx.agentLoop.create(SessionId(`${boundary}-not-recoverable`), { provider: 'mock', model: 'mock' })
       let recoveries = 0
-      ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
+      ctx.on('agent/request-error', async (
+        _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+      ) => {
         recoveries += 1
         return next()
       })
@@ -393,7 +400,9 @@ describe('agent post-step and request-error lifecycle', () => {
       }
       const agent = ctx.agentLoop.create(SessionId(`${failure}-not-recoverable`), { provider: 'mock', model: 'mock' })
       let recoveries = 0
-      ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, next) => {
+      ctx.on('agent/request-error', async (
+        _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
+      ) => {
         recoveries += 1
         return next()
       })
@@ -412,7 +421,9 @@ describe('agent post-step and request-error lifecycle', () => {
     const ctx = await harness(makeAdapter(original))
     const agent = ctx.agentLoop.create(SessionId(`identity-${_name.replaceAll(' ', '-')}`), { provider: 'mock', model: 'mock' })
     let seen: Error | undefined
-    ctx.on('agent/request-error', async (_agent, _turn, _step, error, _failure, _history, _signal, next) => {
+    ctx.on('agent/request-error', async (
+      _agent, _turn, _step, error, _failure, _history, _retryPolicy, _signal, next,
+    ) => {
       seen = error
       return next()
     })
@@ -431,7 +442,9 @@ describe('agent post-step and request-error lifecycle', () => {
     const agent = ctx.agentLoop.create(SessionId('hostile-message-recovery'), { provider: 'mock', model: 'mock' })
     let seenError: Error | undefined
     let seenFailure: LlmFailure | undefined
-    ctx.on('agent/request-error', async (_agent, _turn, _step, error, failure, _history, _signal, next) => {
+    ctx.on('agent/request-error', async (
+      _agent, _turn, _step, error, failure, _history, _retryPolicy, _signal, next,
+    ) => {
       seenError = error
       seenFailure = failure
       return next()
@@ -462,7 +475,7 @@ describe('agent post-step and request-error lifecycle', () => {
     let seenFailure: LlmFailure | undefined
     let seenHistory: readonly LlmFailure[] | undefined
     ctx.on('agent/request-error', async (
-      _agent, _turn, _step, error, failure, history, _signal, next,
+      _agent, _turn, _step, error, failure, history, _retryPolicy, _signal, next,
     ) => {
       seenError = error
       seenFailure = failure
@@ -506,13 +519,18 @@ describe('agent post-step and request-error lifecycle', () => {
       const ctx = scenario === 'iterator' ? await harness(new IteratorConstructionFailureAdapter()) : await harness()
       const agent = ctx.agentLoop.create(SessionId(`request-boundary-${scenario}`), { provider: 'mock', model: 'mock' })
       let seen = ''
-      ctx.on('agent/request-error', async (_agent, _turn, _step, error, _failure, _history, _signal, next) => {
+      let sawServingPolicy = false
+      ctx.on('agent/request-error', async (
+        _agent, _turn, _step, error, _failure, _history, retryPolicy, _signal, next,
+      ) => {
         seen = error.code ?? ''
+        sawServingPolicy = retryPolicy !== undefined
         return next()
       })
       send(agent)
       await waitForIdle(ctx, agent)
       expect(seen).toBe(scenario === 'iterator' ? 'ITERATOR_CONSTRUCTION' : 'NO_ADAPTER')
+      expect(sawServingPolicy).toBe(scenario === 'iterator')
     }
   })
 
@@ -522,7 +540,7 @@ describe('agent post-step and request-error lifecycle', () => {
     const cappedAgent = cappedCtx.agentLoop.create(SessionId('retry-cap'), { provider: 'mock', model: 'mock' })
     const cappedHistories: string[][] = []
     cappedCtx.on('agent/request-error', async (
-      _agent, _turn, _step, _error, _failure, history, _signal, next,
+      _agent, _turn, _step, _error, _failure, history, _retryPolicy, _signal, next,
     ) => {
       const codes = history.map(entry => entry.code)
       cappedHistories.push(codes)
@@ -547,7 +565,7 @@ describe('agent post-step and request-error lifecycle', () => {
     const resetAgent = resetCtx.agentLoop.create(SessionId('retry-reset'), { provider: 'mock', model: 'mock' })
     const resetHistories: { step: number; codes: string[] }[] = []
     resetCtx.on('agent/request-error', async (
-      _agent, _turn, step, _error, _failure, history, _signal, next,
+      _agent, _turn, step, _error, _failure, history, _retryPolicy, _signal, next,
     ) => {
       resetHistories.push({ step, codes: history.map(entry => entry.code) })
       return resetHistories.length === 1 ? { action: 'retry' } : next()
@@ -578,7 +596,9 @@ describe('agent post-step and request-error lifecycle', () => {
     const agent = ctx.agentLoop.create(SessionId(`${action}-recovery`), { provider: 'mock', model: 'mock' })
     let entered!: () => void
     const recoveryEntered = new Promise<void>((resolve) => { entered = resolve })
-    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, signal) => {
+    ctx.on('agent/request-error', async (
+      _agent, _turn, _step, _error, _failure, _history, _retryPolicy, signal,
+    ) => {
       entered()
       await new Promise<void>((resolve) => {
         signal.addEventListener('abort', () => { resolve() }, { once: true })

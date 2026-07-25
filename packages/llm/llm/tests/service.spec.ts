@@ -10,6 +10,7 @@ import LlmService, {
   LlmAdapter,
   LlmError,
   llmFailureOf,
+  llmRetryPolicyOf,
   ProviderRequestId,
   resolveRetryPolicy,
   StreamChunk,
@@ -181,6 +182,51 @@ describe('LlmService', () => {
     )
   })
 
+  it('keeps the serving registration policy on an in-flight call after route replacement', async () => {
+    const oldPolicy = resolveRetryPolicy({ mode: 'always' }, 'old retryPolicy')
+    const newPolicy = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'new retryPolicy')
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const failure = new LlmError('old route failed', 'AUTH')
+    const oldAdapter = new class extends LlmAdapter {
+      override providerRetryPolicy(): typeof oldPolicy {
+        return oldPolicy
+      }
+
+      async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+        entered.resolve(undefined)
+        await release.promise
+        throw failure
+      }
+    }()
+    const newAdapter = new class extends ScriptedAdapter {
+      override providerRetryPolicy(): typeof newPolicy {
+        return newPolicy
+      }
+    }(SCRIPT)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const disposeOld = ctx.llm.registerAdapter(['route'], oldAdapter)
+    const stream = ctx.llm.stream({ provider: 'route', model: 'model', messages: [] })
+    const outcome = (async (): Promise<unknown> => {
+      try {
+        for await (const _chunk of stream) { /* drain */ }
+      } catch (error: unknown) {
+        return error
+      }
+      return undefined
+    })()
+    await entered.promise
+
+    disposeOld()
+    ctx.llm.registerAdapter(['route'], newAdapter)
+    release.resolve(undefined)
+
+    expect(await outcome).toBe(failure)
+    expect(llmRetryPolicyOf(stream)).toBe(oldPolicy)
+    expect(ctx.llm.providerRetryPolicy('route')).toBe(newPolicy)
+  })
+
   it('throws NO_ADAPTER for unregistered providers', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -195,6 +241,7 @@ describe('LlmService', () => {
     expect((caught as LlmError).code).toBe('NO_ADAPTER')
     expect((caught as LlmError).message).toContain('no adapter registered')
     expect(isLlmAdapterFailure(stream, caught)).toBe(true)
+    expect(llmRetryPolicyOf(stream)).toBeUndefined()
   })
 
   it.each(['done', 'value'] as const)('tags a throwing IteratorResult.%s getter without replacing its Error', async (field) => {

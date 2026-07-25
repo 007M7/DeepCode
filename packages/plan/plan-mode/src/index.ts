@@ -184,6 +184,7 @@ export class PlanModeService extends Service {
       _error,
       _failure,
       _priorFailures,
+      _retryPolicy,
       _signal,
       next,
     ) => {

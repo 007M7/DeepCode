@@ -7,9 +7,9 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
-import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, llmRetryPolicyOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { agentEvents, agentInterruptReasonOf, assembleContextFor, AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
@@ -33,6 +33,7 @@ class TerminalModelRequestFailure extends Error {
   constructor(
     readonly requestError: RequestError,
     readonly failure: LlmFailure,
+    readonly retryPolicy: ResolvedRetryPolicy | undefined,
   ) {
     super(failure.message, { cause: requestError })
     this.name = 'TerminalModelRequestFailure'
@@ -442,14 +443,18 @@ async function runTurn(
 
       let stepOutcome:
         | { hadToolCalls: boolean; finish: FinishReason }
-        | { requestError: RequestError; failure: LlmFailure }
+        | { requestError: RequestError; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined }
         | { error: RequestError }
       try {
         stepOutcome = await runStep(
           ctx, events, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, signal)
       } catch (error: unknown) {
         if (error instanceof TerminalModelRequestFailure) {
-          stepOutcome = { requestError: error.requestError, failure: error.failure }
+          stepOutcome = {
+            requestError: error.requestError,
+            failure: error.failure,
+            retryPolicy: error.retryPolicy,
+          }
         } else {
           stepOutcome = { error: toError(error) }
         }
@@ -470,7 +475,7 @@ async function runTurn(
         try {
           recoveryDecision = await events.waterfall(
             'agent/request-error', turn, step, stepOutcome.requestError,
-            stepOutcome.failure, requestFailureHistory, signal,
+            stepOutcome.failure, requestFailureHistory, stepOutcome.retryPolicy, signal,
             () => Promise.resolve(defaultDecision),
           )
         } catch (recoveryError: unknown) {
@@ -714,14 +719,18 @@ async function runStep(
     }
   } catch (error: unknown) {
     const failure = llmFailureOf(stream, error)
-    if (failure !== undefined && error instanceof Error) throw new TerminalModelRequestFailure(error, failure)
+    if (failure !== undefined && error instanceof Error) {
+      throw new TerminalModelRequestFailure(error, failure, llmRetryPolicyOf(stream))
+    }
     throw error
   }
   interruptionCheckpoint(signal)
 
   // Normalize failure finish chunks into the same path as thrown stream errors.
   const stepError = finishError(assembler.finish)
-  if (stepError) throw new TerminalModelRequestFailure(stepError.error, stepError.failure)
+  if (stepError) {
+    throw new TerminalModelRequestFailure(stepError.error, stepError.failure, llmRetryPolicyOf(stream))
+  }
 
   const recordAssistantMessage = (
     assembledContent: ContentBlock[],

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-24-provider-retry-policies.md: 0ff304715aa5e1bfaf296e3f53e1da28d8b4042d
-2026-07-24-provider-retry-policies.zh.md: 3b1d8f12a5fb37424e8b964f7bbb2be278263056
+2026-07-24-provider-retry-policies.md: 0b9456eb1563bfcbfa06d93403fd68124ed1f707
+2026-07-24-provider-retry-policies.zh.md: d3ef90ec739eec7300b7d0bb526cb5de958ed93f
