@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
 import type { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
@@ -60,7 +61,7 @@ describe('dsh-tui-demo app', () => {
     ])
     expect(calls[0]?.config).toBeUndefined()
     expect(calls[2]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
-    expect(calls[4]?.config).toEqual({ path: '/tmp/tui-sessions/session-query.db' })
+    expect(calls[4]?.config).toEqual({ path: join('/tmp/tui-sessions', 'session-query.db') })
     expect(calls[5]?.config).toEqual({
       maxReferences: 2,
       candidateLimit: 7,

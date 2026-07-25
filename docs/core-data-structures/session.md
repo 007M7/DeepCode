@@ -1,5 +1,7 @@
 # Sessions
 
+English | [中文](session.zh.md)
+
 The in-memory, event-sourced model of [dsh-session](../../packages/core/session). A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth for an agent's whole interaction history. The LLM message history is *derived* from the log, never stored separately; replay is re-derivation from the same events. How the log is made **durable** (the persistence seam, backends, crash recovery) is the sibling concern on [persistence.md](persistence.md).
 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
@@ -141,7 +143,7 @@ interface OutOfBandSessionEventMap {}
 
 ### `TodoItem` — one todo-list entry
 
-The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal — a `content` line and a three-state `status` (no id, priority, or `activeForm`): the list is replaced wholesale on every write, so entries need no stable identity, and the status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally requires). See the [todo_write Agent Note](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md).
+The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal — a `content` line and a three-state `status` (no id, priority, or `activeForm`): the list is replaced wholesale on every write, so entries need no stable identity. See the [todo_write Agent Note](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md).
 
 ```ts type-equiv
 /**
@@ -150,10 +152,9 @@ The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal �
  *
  * Deliberately minimal: a human-readable `content` line and a three-state
  * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity, and the
- * status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a
- * todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally
- * requires).
+ * on every write (last-write-wins), so entries need no stable identity. The
+ * three statuses describe the complete portable lifecycle needed by model and
+ * UI consumers.
  */
 interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */

@@ -65,8 +65,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
     // Verify that the denied hook left no filesystem effect.
     await expect(access(join(workdir, 'proof.txt'))).rejects.toThrow()
 
-    // A blocked call is still streamed with the hook's reason as an error.
-    const toolCalls = updates.filter(u => u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update')
-    expect(toolCalls.length).toBeGreaterThan(0)
+    // ACP publishes only the committed answer; hook/tool trace stays in the session log.
+    expect(updates.length).toBeGreaterThan(0)
+    expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
   }, 180_000)
 })

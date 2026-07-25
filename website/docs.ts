@@ -226,14 +226,53 @@ const cordisTutorial = mirroredPages(([
   ...(file === 'index.md' ? { sourceAliases: ['docs/cordis-tutorial'] } : {}),
 })))
 
+const cordisPrimerReference = pairedPages([
+  {
+    source: 'docs/cordis-primer.md',
+    route: 'reference/cordis-primer.md',
+    label: { root: 'Cordis 入门', en: 'Cordis primer' },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '概念', en: 'Concepts' },
+    order: 1,
+  },
+])
+
+const coreDataReference = pairedPages(([
+  ['core.md', '核心数据结构', 'Core data structures', 0],
+  ['scope.md', '作用域', 'Scopes', 1],
+  ['session.md', '会话', 'Sessions', 2],
+  ['system-prompt.md', '系统提示词', 'System prompts', 4],
+  ['tools.md', '工具', 'Tools', 5],
+  ['llm-streaming.md', 'LLM 流式响应', 'LLM streaming', 6],
+  ['bash.md', 'Bash 执行', 'Bash execution', 7],
+  ['filesystem.md', '文件系统', 'Filesystem', 9],
+  ['code-runtime.md', '代码运行时', 'Code runtime', 10],
+  ['compaction.md', '上下文压缩', 'Compaction', 11],
+  ['subagent.md', '子代理', 'Subagents', 12],
+  ['workflow.md', '工作流', 'Workflows', 13],
+  ['skills.md', '技能', 'Skills', 14],
+  ['approval.md', '审批', 'Approvals', 15],
+  ['user-interaction.md', '用户交互', 'User interaction', 16],
+  ['sandbox.md', '沙箱', 'Sandboxing', 18],
+  ['web.md', 'Web 访问', 'Web access', 19],
+  ['persistence.md', '会话持久化', 'Session persistence', 20],
+] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
+  source: `docs/core-data-structures/${file}`,
+  route: `reference/core-data-structures/${file}`,
+  label: { root: rootLabel, en: enLabel },
+  sidebar: { root: 'zh-reference', en: 'en-reference' },
+  section: { root: '数据结构', en: 'Data structures' },
+  order,
+  ...(file === 'core.md' ? { sourceAliases: ['docs/core-data-structures'] } : {}),
+})))
+
 const reference = mirroredPages([
   ...([
-    ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture'],
-    ['docs/cordis-primer.md', 'reference/cordis-primer.md', 'Cordis 入门', 'Cordis primer'],
-    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services'],
-    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle'],
-    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution'],
-  ] as const).map(([source, route, rootLabel, enLabel], order): MirroredPage => ({
+    ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture', 0],
+    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services', 2],
+    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle', 3],
+    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution', 4],
+  ] as const).map(([source, route, rootLabel, enLabel, order]): MirroredPage => ({
     source,
     route,
     contentLocale: 'en-US',
@@ -273,28 +312,10 @@ const reference = mirroredPages([
     order,
   })),
   ...([
-    ['core.md', '核心数据结构', 'Core data structures'],
-    ['scope.md', '作用域', 'Scopes'],
-    ['session.md', '会话', 'Sessions'],
-    ['goal.md', '目标', 'Goals'],
-    ['system-prompt.md', '系统提示词', 'System prompts'],
-    ['tools.md', '工具', 'Tools'],
-    ['llm-streaming.md', 'LLM 流式响应', 'LLM streaming'],
-    ['bash.md', 'Bash 执行', 'Bash execution'],
-    ['pty.md', 'PTY 会话', 'PTY sessions'],
-    ['filesystem.md', '文件系统', 'Filesystem'],
-    ['code-runtime.md', '代码运行时', 'Code runtime'],
-    ['compaction.md', '上下文压缩', 'Compaction'],
-    ['subagent.md', '子代理', 'Subagents'],
-    ['workflow.md', '工作流', 'Workflows'],
-    ['skills.md', '技能', 'Skills'],
-    ['approval.md', '审批', 'Approvals'],
-    ['user-interaction.md', '用户交互', 'User interaction'],
-    ['commands.md', '命令', 'Human commands'],
-    ['sandbox.md', '沙箱', 'Sandboxing'],
-    ['web.md', 'Web 访问', 'Web access'],
-    ['persistence.md', '会话持久化', 'Session persistence'],
-  ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+    ['goal.md', '目标', 'Goals', 3],
+    ['pty.md', 'PTY 会话', 'PTY sessions', 8],
+    ['commands.md', '命令', 'Human commands', 17],
+  ] as const).map(([file, rootLabel, enLabel, order]): MirroredPage => ({
     source: `docs/core-data-structures/${file}`,
     route: `reference/core-data-structures/${file}`,
     contentLocale: 'en-US',
@@ -302,7 +323,6 @@ const reference = mirroredPages([
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '数据结构', en: 'Data structures' },
     order,
-    ...(file === 'core.md' ? { sourceAliases: ['docs/core-data-structures'] } : {}),
   })),
   ...([
     ['adding-a-package.md', '新增 Package', 'Adding a package'],
@@ -325,5 +345,7 @@ export const docsPages: DocsPage[] = [
   ...homeAndGuide,
   ...develop,
   ...cordisTutorial,
+  ...cordisPrimerReference,
+  ...coreDataReference,
   ...reference,
 ]

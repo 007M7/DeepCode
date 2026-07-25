@@ -18,7 +18,7 @@ Add LSP as a three-package capability seam with one read-only model tool and one
 
 1. `@deepseek-ai/dsh-lsp` at `packages/lsp/lsp` owns `ctx.lsp`, provider registration and selection, normalized requests/results, execution control, and structured LSP errors.
 2. `@deepseek-ai/dsh-lsp-local` at `packages/lsp/lsp-local` adapts configured stdio language servers to the seam. One plugin instance accepts a named server table and registers one isolated provider for each command and extension-to-language-id mapping.
-3. `@deepseek-ai/dsh-tool-lsp` at `packages/lsp/tool-lsp` owns the model-facing `lsp` schema, prompt guidance, argument validation, result limits and formatting, and ACP presentation.
+3. `@deepseek-ai/dsh-tool-lsp` at `packages/lsp/tool-lsp` owns the model-facing `lsp` schema, prompt guidance, argument validation, result limits and formatting, and transport-neutral UI presentation.
 
 `dsh-lsp-local` is a generic host, not a language-server catalog or installer. Deployments explicitly configure commands and mappings; future presets belong in composition plugins or `cordis.yml` overlays.
 
@@ -100,7 +100,7 @@ The tool requires `workspaceRoot` from session `header.cwd`, with no fallback; a
 
 Locations render as stable, file-grouped `path:line:character` entries. A `file:` URI accepted by Node `fileURLToPath()` becomes a relative path inside the workspace or an absolute path outside it; other URIs remain verbatim. `maxLocations` defaults to `100` and reports omitted items; `maxResultChars` defaults to `16_000` and bounds every complete rendered result, including its truncation metadata. Empty locations and `null` hover are successful no-result responses; missing or malformed server payloads fail with structured `LSP_MALFORMED_RESPONSE` errors.
 
-ACP uses `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }` with an args-derived operation/cursor `title`. Because `FileLocation` has no character, follow-along focuses the input line while the title preserves the cursor; presentation remains pure.
+The transport-neutral presenter uses `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }` with an args-derived operation/cursor `title`. Because `FileLocation` has no character, follow-along focuses the input line while the title preserves the cursor; presentation remains pure.
 
 ## Timeout ownership
 
@@ -174,7 +174,7 @@ The local provider trusts its configured server and claims no sandbox confinemen
 ## Testing
 
 - Package tests pin the three-package dependency direction, runtime injections, and `ctx.lsp`-only communication.
-- Tool tests pin the four operations, coordinate validation, configured bounds and omission markers, prompt, and ACP presentation.
+- Tool tests pin the four operations, coordinate validation, configured bounds and omission markers, prompt, and UI presentation.
 - Registry tests pin atomic reservation/release, order-independent selection, and structured unavailable, disposed, conflict, and unsupported-operation errors.
 - Fake-stdio tests pin exact initialization capabilities, four protocol mappings, `Location`/`LocationLink` and hover normalization, and `findReferences` mapping to `references.includeDeclaration`.
 - Synchronization tests pin UTF-16 negotiation and conversion, supported and rejected `textDocumentSync` forms, blocked and failed open writes, balanced transient open/close, close-write failure, and malformed-response rejection.
@@ -182,7 +182,7 @@ The local provider trusts its configured server and claims no sandbox confinemen
 - Lifecycle tests pin startup single-flight, complete-lifecycle serialization with fresh queued source reads, cross-workspace parallelism, abortable queues, crash replacement without replay, failed-stdin teardown, and quiescent disposal.
 - Host-filesystem tests pin session-cwd requirements, relative and absolute source containment through symlinks, document validation, file/non-file URI rendering, unformatted source, and no `fs/observed` event.
 - A keyless pinned TypeScript real-server e2e exercises all four operations; runnable configuration uses the same explicit provider mapping.
-- Snapshots cover model-visible schema, prompt, results, omissions, and ACP rendering; a built-artifact smoke test covers framing and cleanup.
+- Snapshots cover model-visible schema, prompt, results, and omissions; a built-artifact smoke test covers framing and cleanup.
 - Package and architecture docs cover configuration, security boundaries, and search/read guidance; the new `packages/lsp/` group is added to the AGENTS.md repository-layout block, the packages/README.md group table, and architecture.md in the same change.
 
 ## Consequences

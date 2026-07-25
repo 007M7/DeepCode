@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-10-sqlite-session-query-provider.zh.md)
+
 ## Problem
 
 The exact-read `ctx.sessionQuery` service deliberately has no derived index. Large persisted histories need full-text search without scanning every event on every query, while current live sessions need an overlay newer than the last durability checkpoint. Search also needs concrete ranking, snippets, filters, pagination, cancellation, and rebuild behavior.
@@ -36,7 +38,7 @@ One serialized operation reads the provider-neutral `SessionPersistence` snapsho
 
 Persisted documents survive restarts. Live sessions use connection-local TEMP tables, shadow the persisted base for the same id, and reveal that base on detach. Closing the database drops live rows. Unmounting persistence hides durable rows without treating absence as authoritative deletion; remounting observes and reconciles the backend again. Conflicting immutable live and durable headers fail rather than combining sources.
 
-The derived schema has its own application id and monotonic schema version. A recognized incompatible version resets only this derived database. A database with a foreign application id or unrecognized user tables is refused before journal-mode mutation, which prevents an accidentally configured canonical session database from being changed. On POSIX filesystems, missing directories and database files are created owner-only so new SQLite sidecars inherit that mode; existing modes are preserved. One service in one process exclusively owns a derived-index path; cross-process writers are unsupported because generations and live TEMP shadow state are connection-owned.
+The derived schema has its own application id and monotonic schema version. Persistent and TEMP session metadata store the integer `SessionHeader.createdAt` contract in strict `INTEGER` columns. A recognized incompatible version resets only this derived database. A database with a foreign application id or unrecognized user tables is refused before journal-mode mutation, which prevents an accidentally configured canonical session database from being changed. On POSIX filesystems, missing directories and database files are created owner-only so new SQLite sidecars inherit that mode; existing modes are preserved. One service in one process exclusively owns a derived-index path; cross-process writers are unsupported because generations and live TEMP shadow state are connection-owned.
 
 Cancellation rejects queued operations promptly. Once asynchronous source observation starts, the caller waits for that backend promise to settle before rejection, without committing an aborted observation or starting more source/index work. Node's synchronous `DatabaseSync` metadata and MATCH calls cannot be interrupted once executing on the JavaScript thread, so the service checks the signal around those calls but does not promise mid-statement preemption.
 

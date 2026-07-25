@@ -53,6 +53,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: true,
     headerClass: 'main',
+    env: { DSH_PERMISSION_MODE: 'never' },
     configPath: AGENT.configPath,
     workspaceParent: tmpdir(),
   },
@@ -130,6 +131,8 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     expect(stdout).not.toContain('stale stdout')
     expect(stdout).toContain('env:{\\"mode\\":\\"replay\\"')
     expect(stdout).not.toContain('\\"mode\\":\\"refresh\\"')
+    // The scenario's own env layer reached the subprocess.
+    expect(stdout).toContain('\\"permissionMode\\":\\"never\\"')
 
     const blocked = readFileSync(join(refreshDir, 'blocked-log', 'session.jsonl'), 'utf8')
     expect(blocked).toContain('"decision":"block"')

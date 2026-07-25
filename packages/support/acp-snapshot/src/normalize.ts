@@ -11,7 +11,6 @@ const CWD = '{{cwd}}'
 const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
 const MESSAGE_PREFIX = '{{messagePrefix}}'
-const UPDATED_AT = '{{updatedAt}}'
 const EVENT_TIME = '{{eventTime}}'
 const EVENT_OMITTED_BYTES = '{{eventOmittedBytes}}'
 
@@ -52,6 +51,8 @@ export interface NormalizeContext {
   sessionIds: string[]
   /** The generated cwd the run used — replaced with `{{cwd}}`. */
   cwd: string
+  /** Other filesystem spellings of the same cwd (for example Windows short and long paths). */
+  cwdAliases?: readonly string[]
 }
 
 /** How cwd-rooted path separators are represented after the cwd is tokenized. */
@@ -66,9 +67,13 @@ export interface NormalizeOptions {
 /** Replace cwd, session ids, and any stray UUID with stable tokens in a string. */
 function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathMode): string {
   let out = value
-  // cwd first (longest, most specific), then explicit session ids, then any
-  // residual UUID (covers ids that appear in places we didn't enumerate).
-  out = out.split(ctx.cwd).join(CWD)
+  // Filesystem APIs can report one directory with several spellings. Replace
+  // every known spelling longest-first so a shorter alias cannot corrupt a
+  // longer one before it is tokenized.
+  const cwdSpellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? []])]
+    .filter(spelling => spelling.length > 0)
+    .sort((left, right) => right.length - left.length)
+  for (const spelling of cwdSpellings) out = out.split(spelling).join(CWD)
   out = out.split(`/private${CWD}`).join(CWD)
   if (cwdPathMode === 'canonical') {
     // Restrict separator conversion to paths rooted at the cwd token. A global
@@ -140,8 +145,6 @@ export function normalizeStdout(
     if ('id' in frame && frame.id !== undefined && frame.id !== null) {
       frame.id = stableId(frame.id)
     }
-    const update = (frame.params as { update?: Record<string, unknown> } | undefined)?.update
-    if (update?.sessionUpdate === 'session_info_update') update.updatedAt = UPDATED_AT
     return scrubValue(frame, ctx, cwdPathMode) as Record<string, unknown>
   })
   return frames.map(f => JSON.stringify(f)).join('\n') + '\n'

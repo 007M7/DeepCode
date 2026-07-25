@@ -1,175 +1,393 @@
 /**
- * Client module system: the browser peer of Node's internal ESM loader, built
- * as a lazy CJS table. The vendored cordis Loader consumes this object
- * through its `internal` seam (the only call site is `EntryTree.import` →
- * `internal.import`), which keeps entry governance (fiber lifecycle, inject
- * waiting, update/refresh) entirely on the vendored side while this package
- * owns code arrival.
+ * Node half of the client module system (dshClient dual-face package): scans
+ * the host Loader's entries for `dshClient` packages, composes the
+ * `window.__DSH_BOOT__` entry graph (wire single source: {@link WebBootEntry}
+ * in `./client/manifest.ts`), serves `/plugins/<id>/client.js`, taps the
+ * index render to inject the boot manifest, and provides the
+ * `clientModuleHost` service (the HMR node half's registration/notification
+ * face).
  *
- * Lazy CJS model (web2 §0): executing a plugin bundle only REGISTERS its
- * factory (`window.__ModuleLoader__.load({id, factory})`); every module body
- * side effect — including CSS injection — lives inside the factory closure
- * and runs at materialization, not at script execution. Materialization
- * (factory(require) → export surface) happens on first import/require and is
- * memoized in {@link ClientModuleLoader.loadCache}; a factory that requires
- * another registered-but-unmaterialized module materializes it recursively,
- * so load order needs no external sequencing.
- *
- * Resolution branch order (import): seed word → shell instance; memoized
- * record → surface; static registry (shell-own modules, e.g. app-shell) →
- * module; registered factory → materialize; graph row → fetch + execute +
- * materialize; anything else → throw (loud — the runtime mirror of the
- * build-time bundle purity gate). The synchronous `require` handed to
- * factories walks the same order minus the fetch branch: fetching is async,
- * so only already-executed bundles can be required — and cross-plugin value
- * imports are a build error anyway.
+ * Scanning is incremental per package — there is no full-rescan code path.
+ * Every cordis `internal/plugin` emission (fiber construction/disposal) marks
+ * the fiber's entry name dirty; a microtask flush reconciles each dirty name
+ * against the live loader entries. The activation pass seeds the same dirty
+ * set with all current entries and flushes synchronously, so first scan and
+ * steady state share one implementation. Package metadata (including the
+ * negative "not a client package" verdict) is cached per name and never
+ * expires — plugin-set changes take effect on restart per the config-source
+ * ruling; bundle content changes reach the graph only through
+ * {@link ClientModuleHostService.rebuilt}.
  * @module @deepseek-ai/dsh-client-modules
  */
 
-import { ClientModuleLoaderImpl } from './loader.ts'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { Service } from 'cordis'
+import type { Context } from 'cordis'
+import type {} from '@cordisjs/plugin-loader'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { WebBootEntry, WebBootGraph } from './client/manifest.ts'
 
-export { ClientModuleLoaderImpl }
+export type {
+  BootManifest, BootModuleRow, BootPluginRow, WebBootEntry, WebBootGraph,
+} from './client/manifest.ts'
 
 declare module 'cordis' {
   interface Context {
-    /** The client module system the web shell provides at boot (contract C5). */
-    modules: ClientModuleLoader
+    /** The web plugin table (provided by the client-modules node half). */
+    clientModuleHost: ClientModuleHostService
+  }
+}
+
+/** package.json `dshClient` declaration shape (file boundary — validated field by field). */
+interface DshClientDeclaration {
+  inject?: string[]
+  platform: string
+  /** Boot phase-one prefetch mark; absent means lazy (fetched on demand). */
+  immediately?: boolean
+}
+
+/** Resolved package metadata for one dshClient package (cached per name, never expires). */
+interface PkgMeta {
+  clientPath: string
+  inject?: string[]
+  immediately: boolean
+}
+
+/** One composed table row: the wire entry plus its bundle path. */
+interface WebPluginRecord {
+  entry: WebBootEntry
+  clientPath: string
+}
+
+/** Narrow an unknown parsed JSON value to the dshClient declaration, throwing on malformed fields. */
+function parseDshClient(pkgName: string, value: unknown): DshClientDeclaration | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`client-modules: ${pkgName} has a non-object dshClient declaration`)
+  }
+  const decl = value as Record<string, unknown>
+  if (typeof decl.platform !== 'string') {
+    throw new Error(`client-modules: ${pkgName} dshClient.platform must be a string`)
+  }
+  if (decl.inject !== undefined && (!Array.isArray(decl.inject) || decl.inject.some(i => typeof i !== 'string'))) {
+    throw new Error(`client-modules: ${pkgName} dshClient.inject must be a string array`)
+  }
+  if (decl.immediately !== undefined && typeof decl.immediately !== 'boolean') {
+    throw new Error(`client-modules: ${pkgName} dshClient.immediately must be a boolean`)
+  }
+  return {
+    platform: decl.platform,
+    ...(decl.inject !== undefined ? { inject: decl.inject as string[] } : {}),
+    ...(decl.immediately !== undefined ? { immediately: decl.immediately } : {}),
+  }
+}
+
+/** Resolve `exports["./client"]` to a relative path, accepting the string and one-level conditional forms. */
+function clientExportOf(pkgName: string, exportsField: unknown): string | undefined {
+  if (typeof exportsField !== 'object' || exportsField === null) return undefined
+  const client = (exportsField as Record<string, unknown>)['./client']
+  if (client === undefined) return undefined
+  if (typeof client === 'string') return client
+  if (typeof client === 'object' && client !== null) {
+    const fallback = (client as Record<string, unknown>).default
+    if (typeof fallback === 'string') return fallback
+  }
+  throw new Error(`client-modules: ${pkgName} exports["./client"] has an unsupported shape`)
+}
+
+/** sha1 content hash shortened to 12 hex chars (bundle rev / graph rev). */
+function shortHash(input: string | Buffer): string {
+  return createHash('sha1').update(input).digest('hex').slice(0, 12)
+}
+
+/** Graph row for one bundle rev (url carries the rev as its cache-busting query). */
+function graphRow(id: string, rev: string, injectEdges: string[] | undefined, immediately: boolean): WebBootEntry {
+  return {
+    id,
+    url: `/plugins/${id}/client.js?rev=${rev}`,
+    rev,
+    ...(injectEdges !== undefined ? { inject: injectEdges } : {}),
+    ...(immediately ? { immediately: true } : {}),
   }
 }
 
 /**
- * One composed client entry pushed by the host (web2 §0 graph row).
- * `immediately` marks stage-one prefetch; `inject` is informational graph
- * metadata (the authoritative edges live in each package's dshClient
- * declaration and reach fibers through entry creation).
- *
- * Wire contract, held on both sides: the producing peer lives in
- * `@deepseek-ai/dsh-host-webserver` (host packages keep zero workspace
- * dependencies, so neither side imports the other's shape — drift between
- * the two declarations is a bug against the web2 contract).
+ * Inject the boot entry graph into index.html: `window.__DSH_BOOT__` as the
+ * first script in <head> (before the shell bundle reads it). `<` is escaped in
+ * the JSON so plugin-controlled strings cannot break out of the script element.
+ * @param html - the index.html source.
+ * @param graph - the composed entry graph.
+ * @returns the html with the graph script injected.
  */
-export interface WebBootEntry {
-  /** Entry name == package name (or a shell-owned pseudo id, e.g. app-shell). */
-  id: string
-  /**
-   * Bundle endpoint, '/plugins/<id>/client.js?rev=<rev>'. Absent only on
-   * shell-owned pseudo rows (app-shell) whose module is statically registered
-   * — a row that is neither fetchable nor static-registered fails loud.
-   */
-  url?: string
-  /** Bundle content hash (cache-busting consistency anchor); absent with url. */
-  rev?: string
-  /** Package-name dependency edges, informational (preflight display / HMR diffing). */
-  inject?: string[]
-  /** Stage-one prefetch mark: fetch + execute (factory registration) during module-face boot. */
-  immediately?: boolean
-}
-
-/** The composed client entry graph the host injects as `window.__DSH_BOOT__` (dual-held wire contract — see {@link WebBootEntry}). */
-export interface WebBootGraph {
-  /** Consistency anchor over the whole graph (content + bundle hashes). */
-  rev: string
-  /** Composed entries; order carries no semantics (activation order is fiber inject waiting). */
-  entries: WebBootEntry[]
-}
-
-/** The shape a client bundle hands to `window.__ModuleLoader__.load` (registration handoff, contract C6). */
-export interface ClientPluginHandoff {
-  /** Plugin id (package name) — the registration key; must match the graph row being executed. */
-  id: string
-  /**
-   * Closure factory holding the whole bundle body: receives the synchronous
-   * require bound to the module table and returns the bundle's export
-   * surface. Runs once, at materialization.
-   */
-  factory: (require: (spec: string) => unknown) => Record<string, unknown>
-}
-
-/** Window surface this loader owns (bundle side of the handoff protocol) plus the host-injected graph. */
-export interface DshWindow {
-  /** Host-composed entry graph, injected before the shell bundle runs. */
-  __DSH_BOOT__?: WebBootGraph
-  /** Bundle registration sink; installed once per page by {@link createClientModuleLoader} (contract C6). */
-  __ModuleLoader__?: { load(handoff: ClientPluginHandoff): void }
-}
-
-/** Per-module bookkeeping in {@link ClientModuleLoader.loadCache} (module-graph seam, flat today). */
-export interface ClientModuleRecord {
-  /** Module id (entry name / package name). */
-  id: string
-  /** The materialized export surface (factory `module.exports`, or the shell module for static registrations). */
-  surface: unknown
-  /** Owned `<style data-plugin>` tag ids (`data-plugin-css` values) injected during materialization. */
-  styles: string[]
-  /** Observed `require()` edges (module-graph seam; only table words can appear today). */
-  edges: Set<string>
+export function injectBootManifest(html: string, graph: WebBootGraph): string {
+  const json = JSON.stringify(graph).replaceAll('<', '\\u003c')
+  const script = `<script>window.__DSH_BOOT__ = ${json}</script>`
+  const head = html.indexOf('<head>')
+  if (head !== -1) return `${html.slice(0, head + 6)}${script}${html.slice(head + 6)}`
+  // Headless fixture pages may lack <head>; prepending keeps the read-before-shell ordering.
+  return `${script}${html}`
 }
 
 /**
- * The internal-seam subset the vendored Loader and the client HMR plugin
- * consume. Mounted on `ctx.loader.internal` by the shell boot and provided
- * as `ctx.modules` (contract C5).
+ * The web plugin table service: incremental dshClient scan + wire composition
+ * + bundle route + index tap. Construction runs the activation scan
+ * synchronously — a malformed declaration or missing bundle among the
+ * already-loaded entries aggregates into one loud throw (FAILED fiber; the
+ * boot sweep reports it).
  */
-export interface ClientModuleLoader {
-  /** Discriminant against Node's internal loader shapes ('v1'/'v2'). */
-  version: 'client'
-  /** Materialized-module registry: id → record. The governance-side read face for entry export surfaces. */
-  loadCache: Map<string, ClientModuleRecord>
+export class ClientModuleHostService extends Service {
+  static inject = ['httpServer', 'loader']
+
+  private readonly table = new Map<string, WebPluginRecord>()
+  // Negative verdicts (unresolvable specifier — builtins like cordis:include,
+  // subpath rows — or a package without a web dshClient declaration) are
+  // cached as null and never expire: plugin-set changes take effect on restart.
+  private readonly pkgMeta = new Map<string, PkgMeta | null>()
+  private readonly rebuildListeners = new Set<(id: string, rev: string) => void>()
+  private readonly graphListeners = new Set<() => void>()
+  private readonly dirty = new Set<string>()
+  private readonly resolvePkgJson: (spec: string) => string
+  private flushQueued = false
+  private composed: WebBootGraph
+
   /**
-   * Internal seam consumed by the vendored Loader's `tree.import`. Resolves
-   * `specifier` through the branch order documented on the module, fetching
-   * and executing a bundle when needed.
-   * @param specifier - module specifier (entry name or table word).
-   * @param parentURL - importer URL (unused — the client module graph is flat).
-   * @param attrs - import attributes (unused; interface parity with Node's seam).
-   * @returns the module's export surface.
+   * Build the service: subscribe, seed, and run the activation flush.
+   * @param ctx - plugin context carrying httpServer and loader.
    */
-  import(specifier: string, parentURL: string, attrs: Record<string, unknown>): Promise<unknown>
+  constructor(ctx: Context) {
+    super(ctx, 'clientModuleHost')
+    // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
+    // whose package declares every composed plugin as a dependency). The
+    // modules package's own URL would miss sibling packages under pnpm's
+    // isolated node_modules.
+    if (ctx.baseUrl === undefined) {
+      throw new Error('client-modules: ctx.baseUrl is unset — the node half needs the config-tree anchor to resolve plugin packages')
+    }
+    const require = createRequire(ctx.baseUrl)
+    this.resolvePkgJson = spec => require.resolve(`${spec}/package.json`)
+
+    // Subscribe before seeding so a fiber arriving mid-activation lands in the
+    // same dirty set (Set idempotence makes the overlap harmless). An entry-less
+    // fiber is a child plugin or a manual mount — never a loader row; O(1) drop.
+    ctx.on('internal/plugin', (fiber) => {
+      const entryName = fiber.entry?.options.name
+      if (entryName === undefined) return
+      this.dirty.add(entryName)
+      if (this.flushQueued) return
+      this.flushQueued = true
+      queueMicrotask(() => {
+        this.flushQueued = false
+        this.flush((err) => { ctx.logger.warn(err) })
+      })
+    })
+
+    // Activation pass: the initial scan IS the incremental path over the
+    // current entries, flushed synchronously (nothing async between subscribe,
+    // seed, and flush).
+    for (const entry of ctx.loader.entries()) this.dirty.add(entry.options.name)
+    this.composed = this.compose()
+    const failures: Error[] = []
+    this.flush(err => failures.push(err))
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `client-modules: ${String(failures.length)} client package(s) failed to compose:\n${failures.map(e => `  - ${e.message}`).join('\n')}`,
+      )
+    }
+
+    ctx.effect(
+      () => ctx.httpServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+      'client-modules: bundle route',
+    )
+    ctx.effect(
+      () => ctx.httpServer.tapIndex(html => injectBootManifest(html, this.composed)),
+      'client-modules: boot manifest injection',
+    )
+  }
+
   /**
-   * Register a shell-own module (app-shell — code that ships inside the shell
-   * bundle and never arrives as a plugin bundle).
-   * @param id - entry name (shell-owned pseudo id).
-   * @param module - the statically imported module namespace.
+   * Current composed entry graph (stable object between changes).
+   * @returns the graph served as `window.__DSH_BOOT__`.
    */
-  registerStatic(id: string, module: unknown): void
+  graph(): WebBootGraph {
+    return this.composed
+  }
+
   /**
-   * Stage-one arrival: fetch the entry's bundle and execute it, registering
-   * its factory (no materialization — module side effects wait for import).
-   * No-op for static-registered ids and ids whose factory is already
-   * registered; concurrent calls share one in-flight task. To force a fresh
-   * fetch (HMR), {@link invalidate} first.
-   * @param id - graph entry name.
+   * Absolute path of an entry's client bundle.
+   * @param id - entry id (package name).
+   * @returns the path, or undefined for an unknown id.
    */
-  prefetch(id: string): Promise<void>
+  clientPath(id: string): string | undefined {
+    return this.table.get(id)?.clientPath
+  }
+
   /**
-   * Full reset of one module: drop its registered factory, its materialized
-   * record, and any consumed bundle text, so the next prefetch/import
-   * refetches and re-executes (the HMR invalidation hook).
-   * @param id - entry name to invalidate.
+   * Re-hash one bundle (the HMR watch's registration hook — the only entry
+   * point through which bundle content changes reach the graph).
+   * @param id - entry id (package name).
+   * @returns the new rev, or undefined for an unknown id.
    */
-  invalidate(id: string): void
+  rebuilt(id: string): string | undefined {
+    const record = this.table.get(id)
+    if (record === undefined) return undefined
+    const rev = shortHash(readFileSync(record.clientPath))
+    if (rev === record.entry.rev) return rev
+    record.entry = graphRow(id, rev, record.entry.inject, record.entry.immediately === true)
+    this.composed = this.compose()
+    for (const notify of this.rebuildListeners) {
+      // Containment: rebuilt() runs inside the HMR watch callback — a
+      // throwing subscriber must not kill the poll or skip later subscribers.
+      try {
+        notify(id, rev)
+      } catch (error) {
+        this.ctx.logger.error(error)
+      }
+    }
+    this.notifyGraphChanged()
+    return rev
+  }
+
+  /**
+   * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.
+   * @param listener - receives the entry id and its new bundle rev.
+   * @returns the unsubscriber.
+   */
+  onRebuilt(listener: (id: string, rev: string) => void): () => void {
+    this.rebuildListeners.add(listener)
+    return () => { this.rebuildListeners.delete(listener) }
+  }
+
+  /**
+   * Fires after any flush that recomposed the graph (row added/removed, or a
+   * rebuilt rev change). Pull model: listeners re-read {@link graph}.
+   * @param listener - notified with no payload.
+   * @returns the unsubscriber.
+   */
+  onGraphChanged(listener: () => void): () => void {
+    this.graphListeners.add(listener)
+    return () => { this.graphListeners.delete(listener) }
+  }
+
+  private compose(): WebBootGraph {
+    const entries = [...this.table.values()].map(record => record.entry)
+    return { rev: shortHash(JSON.stringify(entries)), entries }
+  }
+
+  private notifyGraphChanged(): void {
+    for (const listener of this.graphListeners) {
+      // A throwing subscriber must not skip later subscribers (or escape into
+      // whatever triggered the flush — possibly an fs.watchFile callback).
+      try {
+        listener()
+      } catch (error) {
+        this.ctx.logger.error(error)
+      }
+    }
+  }
+
+  private resolveMeta(pkgName: string): PkgMeta | null {
+    const cached = this.pkgMeta.get(pkgName)
+    if (cached !== undefined) return cached
+    let pkgPath: string
+    try {
+      pkgPath = this.resolvePkgJson(pkgName)
+    } catch {
+      // Not a resolvable package root: loader builtins (cordis:include) and
+      // subpath entries (…/gateway) land here — permanently not a client row.
+      this.pkgMeta.set(pkgName, null)
+      return null
+    }
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>
+    const decl = parseDshClient(pkgName, pkg.dshClient)
+    if (decl === undefined || decl.platform !== 'web') {
+      this.pkgMeta.set(pkgName, null)
+      return null
+    }
+    const clientRel = clientExportOf(pkgName, pkg.exports)
+    if (clientRel === undefined) {
+      throw new Error(`client-modules: ${pkgName} declares dshClient but exports no "./client" bundle`)
+    }
+    const meta: PkgMeta = {
+      clientPath: join(dirname(pkgPath), clientRel),
+      ...(decl.inject !== undefined ? { inject: decl.inject } : {}),
+      immediately: decl.immediately === true,
+    }
+    this.pkgMeta.set(pkgName, meta)
+    return meta
+  }
+
+  /** Reconcile one entry name against the live loader entries. @returns whether the table changed. */
+  private processOne(entryName: string): boolean {
+    let qualifies = false
+    for (const entry of this.ctx.loader.entries()) {
+      if (entry.options.name === entryName && entry.fiber !== undefined && !entry.disabled) {
+        qualifies = true
+        break
+      }
+    }
+    if (!qualifies) return this.table.delete(entryName)
+    if (this.table.has(entryName)) return false
+    const meta = this.resolveMeta(entryName)
+    if (meta === null) return false
+    // The rev rides the row from here on: a fiber restart reuses the row (and
+    // its rev) untouched; only rebuilt() re-reads the bundle.
+    const rev = shortHash(readFileSync(meta.clientPath))
+    this.table.set(entryName, { entry: graphRow(entryName, rev, meta.inject, meta.immediately), clientPath: meta.clientPath })
+    return true
+  }
+
+  private flush(onError: (err: Error) => void): void {
+    let changed = false
+    for (const entryName of [...this.dirty]) {
+      this.dirty.delete(entryName)
+      try {
+        if (this.processOne(entryName)) changed = true
+      } catch (error) {
+        // Steady state: one broken package must not poison the others; the
+        // activation pass aggregates these into a loud throw instead.
+        onError(error instanceof Error ? error : new Error(String(error)))
+      }
+    }
+    if (changed) {
+      this.composed = this.compose()
+      this.notifyGraphChanged()
+    }
+  }
+
+  private readonly serveBundle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
+    const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+    // The id may contain a scope slash. Anything else under /plugins (including
+    // /plugins/events when the HMR row is absent) is an unknown resource.
+    const path = pathname.startsWith('/plugins/') && pathname.endsWith('/client.js')
+      ? this.clientPath(pathname.slice('/plugins/'.length, -'/client.js'.length))
+      : undefined
+    if (path === undefined) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    try {
+      const body = await readFile(path)
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' })
+      res.end(body)
+    } catch {
+      // Registered but unreadable (bundle not built yet): loud 404 beats a silent SPA-fallback HTML page.
+      res.writeHead(404)
+      res.end()
+    }
+  }
 }
 
-/** Options for {@link createClientModuleLoader} (assembled by the web shell at boot). */
-export interface ClientModuleLoaderOptions {
-  /** Host-composed entry graph. */
-  graph: WebBootGraph
-  /** Module-table seed: platform-singleton specifier → shell instance. */
-  staticModules: Record<string, unknown>
-  /** Bundle fetch seam (parallelizable half). Defaults to same-origin fetch().text(). */
-  fetchBundle?: (url: string) => Promise<string>
-  /**
-   * Bundle execution seam (synchronously performs the load() registration).
-   * Defaults to a <script> element carrying the code.
-   */
-  executeBundle?: (code: string, url: string) => void
-}
-
-/**
- * Build the client module system.
- * @param options - entry graph, module-table staticModules, fetch/execute seams.
- * @returns the loader the shell mounts as `ctx.loader.internal` and provides as `ctx.modules`.
- */
-export function createClientModuleLoader(options: ClientModuleLoaderOptions): ClientModuleLoader {
-  return new ClientModuleLoaderImpl(options)
-}
+export default ClientModuleHostService

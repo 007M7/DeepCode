@@ -6,7 +6,7 @@ The model-facing `todo_write` tool: the agent's whole task list, replaced wholes
 
 Registers one tool, `todo_write(todos: [{ content, status }])`, on `ctx.tools`. The model sends the ENTIRE list every call — there are no partial updates or per-item edits. Each call appends a `todo/write` event (the full list snapshot) to the calling agent's session log via `agent.session.append('todo/write', { todos })`; the current list is the most recent such event (last-write-wins on replay).
 
-`status` is one of `pending`, `in_progress`, `completed` — exactly the ACP `PlanEntryStatus` triple.
+`status` is one of `pending`, `in_progress`, or `completed`.
 
 ## Single owner
 
@@ -18,7 +18,7 @@ Beyond the schema's type/required/enum checks, `execute` rejects an empty or dup
 
 ## Rendering
 
-The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to `session/event` and render that durable list themselves: the [TUI app](../../examples/tui-demo) shows a persistent plan, and the [ACP bridge](../../ui/acp) maps the list to a `plan` sessionUpdate (synthesizing the `priority` ACP requires).
+The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to the event stream and render that durable list themselves; the [TUI app](../../examples/tui-demo) shows it as a persistent plan.
 
 ## Export shape
 
@@ -57,5 +57,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **Single-owner scope only** — the list belongs to the one calling agent session; subagent/shared/swarm scopes are a deliberate cut (see § Single owner), and a non-agent caller is rejected.
-- **The item shape is deliberately minimal** — `content` plus three-state `status`; no id, priority, or active-form fields, and the ACP bridge synthesizes the `priority` ACP requires.
+- **The item shape is deliberately minimal** — `content` plus three-state `status`; whole-list replacement needs no stable id, priority, or active-form fields.
 - **Whole-list replacement is the only operation** — no partial updates, no read-back tool; the model must resend the entire list each call.

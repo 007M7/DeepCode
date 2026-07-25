@@ -36,7 +36,7 @@ export interface SessionHeader {
   readonly version: number
   /** The session's id (mirrors the {@link Session}'s id). */
   readonly id: SessionId
-  /** Unix epoch milliseconds when the session was created. */
+  /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
   /** Absolute working directory the session was created in (if any). */
   readonly cwd?: string
@@ -139,10 +139,9 @@ export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
  *
  * Deliberately minimal: a human-readable `content` line and a three-state
  * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity, and the
- * status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a
- * todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally
- * requires).
+ * on every write (last-write-wins), so entries need no stable identity. The
+ * three statuses describe the complete portable lifecycle needed by model and
+ * UI consumers.
  */
 export interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */
