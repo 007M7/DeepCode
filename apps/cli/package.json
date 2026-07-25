@@ -15,6 +15,7 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "@cordisjs/plugin-include": "workspace:*",
+    "@cordisjs/plugin-logger-console": "workspace:*",
     "@cordisjs/plugin-loader": "workspace:*",
     "@cordisjs/plugin-timer": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:^",
@@ -37,7 +38,6 @@
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-policy": "workspace:^",
     "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
-    "@deepseek-ai/dsh-host-runtime": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-llm-deepseek": "workspace:^",

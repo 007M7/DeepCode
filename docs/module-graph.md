@@ -171,7 +171,6 @@ flowchart TD
   end
   subgraph group_host["packages/host"]
     pkg_host_apiproxy["host-apiproxy"]
-    pkg_host_runtime["host-runtime"]
     pkg_host_webserver["host-webserver"]
   end
   subgraph group_lsp["packages/lsp"]
@@ -238,7 +237,6 @@ flowchart TD
   pkg_code_runtime --> pkg_invariants
   pkg_jsonrpc_demo --> pkg_invariants
   pkg_host_apiproxy --> pkg_invariants
-  pkg_host_runtime --> pkg_invariants
   pkg_host_webserver --> pkg_invariants
   pkg_storage --> pkg_invariants
   pkg_llm --> pkg_brand
@@ -808,7 +806,6 @@ flowchart TD
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | [`invariants`](../packages/support/invariants) |
 | [`jsonrpc-demo`](../packages/examples/jsonrpc-demo) | `examples` | [`invariants`](../packages/support/invariants) |
 | [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`invariants`](../packages/support/invariants) |
-| [`host-runtime`](../packages/host/runtime) | `host` | [`invariants`](../packages/support/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/support/invariants) |
 | [`storage`](../packages/storage/storage) | `storage` | [`invariants`](../packages/support/invariants) |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |

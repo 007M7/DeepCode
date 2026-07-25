@@ -142,7 +142,6 @@
     { "path": "./packages/hooks/hooks-codex" },
     { "path": "./packages/mcp/mcp-client" },
     { "path": "./packages/host/apiproxy" },
-    { "path": "./packages/host/runtime" },
     { "path": "./packages/host/webserver" },
     { "path": "./packages/sdk/helper" },
     { "path": "./packages/sdk/scripts" },
