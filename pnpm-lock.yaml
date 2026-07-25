@@ -5193,9 +5193,6 @@ importers:
       '@deepseek-ai/dsh-session-query':
         specifier: workspace:^
         version: link:../../session-query/session-query
-      '@deepseek-ai/dsh-session-query-sqlite':
-        specifier: workspace:^
-        version: link:../../session-query/session-query-sqlite
       '@deepseek-ai/dsh-subagent':
         specifier: workspace:^
         version: link:../subagent
