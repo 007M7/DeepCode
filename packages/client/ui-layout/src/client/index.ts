@@ -107,7 +107,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())
-    const off = ctx.on('theme/change', snapshot => { presenter.apply(snapshot) })
+    const off = ctx.on('theme/change', (snapshot) => { presenter.apply(snapshot) })
     return () => {
       off()
       presenter.dispose()

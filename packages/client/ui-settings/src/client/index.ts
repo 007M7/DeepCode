@@ -41,7 +41,7 @@ export function apply(ctx: ClientContext): void {
       return ctx.locale.bind(ref.slice(0, colon))(ref.slice(colon + 1))
     },
     sectionsVersion: () => ctx.slots.getVersion('settings.section'),
-    subscribeSections: (listener) => ctx.slots.subscribe('settings.section', listener),
+    subscribeSections: listener => ctx.slots.subscribe('settings.section', listener),
     sections: () => ctx.slots.entries('settings.section')
       .map(e => ({
         /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */

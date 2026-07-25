@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { LocaleSnapshot } from '@deepseek-ai/dsh-client-locale/client'
 import { LocaleService, STORAGE_KEY } from '@deepseek-ai/dsh-client-locale/client'
@@ -78,6 +78,18 @@ describe('LocaleService', () => {
     expect(make().svc.getLocale().active).toBe('en')
     localStorage.setItem(STORAGE_KEY, 'fr')
     expect(make().svc.getLocale().active).toBe('zh')
+  })
+
+  it('runs without localStorage (node boots): defaults on read, no-op on write', () => {
+    vi.stubGlobal('localStorage', undefined)
+    try {
+      const { svc } = make()
+      expect(svc.getLocale().active).toBe('zh')
+      svc.setLocale('en')
+      expect(svc.getLocale().active).toBe('en')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('exposes the two shipped locales with self-described labels', () => {

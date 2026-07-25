@@ -88,6 +88,18 @@ describe('ThemeService', () => {
     expect(events.map(e => e.revision)).toEqual([1, 2, 3, 4])
   })
 
+  it('runs without localStorage (node boots): defaults on read, no-op on write', () => {
+    vi.stubGlobal('localStorage', undefined)
+    try {
+      const { theme } = make()
+      expect(theme.getTheme().preference).toBe('system')
+      theme.setTheme('dark')
+      expect(theme.getTheme().preference).toBe('dark')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   describe('prefers-color-scheme resolution (stubbed matchMedia)', () => {
     type Listener = () => void
     const stubMedia = (initialMatches: boolean) => {

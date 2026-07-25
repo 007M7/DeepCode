@@ -87,7 +87,8 @@ export class ThemeService {
   constructor(ctx: Context) {
     this.ctx = ctx
     this.preference = restorePreference()
-    this.media = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
+    // Non-browser runs (node e2e booting the client tree) have no matchMedia.
+    this.media = typeof matchMedia === 'undefined' ? undefined : matchMedia('(prefers-color-scheme: dark)')
     this.snapshot = this.buildSnapshot()
     if (this.media !== undefined) {
       const media = this.media
@@ -157,8 +158,9 @@ export class ThemeService {
       : this.preference
     // Both built-ins always exist; a registered preference id resolves or has
     // been reset by its disposer, so the lookup cannot miss.
-    /* v8 ignore next -- the ?? arm needs a registry without light/dark, which register()/dispose() cannot produce */
-    const active = this.themes.find(t => t.id === resolvedId) ?? this.themes[0]!
+    const active = this.themes.find(t => t.id === resolvedId)
+    /* v8 ignore next 2 -- needs a registry without light/dark, which register()/dispose() cannot produce */
+    if (active === undefined) throw new Error(`theme registry lost "${resolvedId}"`)
     return Object.freeze({
       preference: this.preference,
       active,
@@ -176,8 +178,10 @@ export class ThemeService {
 
 /** Read the persisted preference; unknown or unreadable values fall back to the default. */
 function restorePreference(): ThemePreference {
+  // Non-browser runs (node e2e booting the client tree) have no localStorage.
+  if (typeof localStorage === 'undefined') return DEFAULT_PREFERENCE
   try {
-    const stored = globalThis.localStorage?.getItem(STORAGE_KEY)
+    const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
   } catch {
     // Storage access can throw (privacy mode); the default below covers it.
@@ -187,8 +191,9 @@ function restorePreference(): ThemePreference {
 
 /** Persist the preference; storage failures are non-fatal (preference resets next boot). */
 function persistPreference(preference: ThemePreference): void {
+  if (typeof localStorage === 'undefined') return
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, preference)
+    localStorage.setItem(STORAGE_KEY, preference)
   } catch {
     // Storage access can throw (privacy mode / quota); the preference simply
     // does not survive the session.

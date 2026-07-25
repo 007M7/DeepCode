@@ -161,8 +161,10 @@ export class LocaleService {
 
 /** Read the persisted locale id; unknown or unreadable values fall back to zh. */
 function restorePreference(): LocaleId {
+  // Non-browser runs (node e2e booting the client tree) have no localStorage.
+  if (typeof localStorage === 'undefined') return FALLBACK_LOCALE
   try {
-    const stored = globalThis.localStorage?.getItem(STORAGE_KEY)
+    const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'zh' || stored === 'en') return stored
   } catch {
     // Storage access can throw (privacy mode); the default below covers it.
@@ -172,8 +174,9 @@ function restorePreference(): LocaleId {
 
 /** Persist the locale id; storage failures are non-fatal (preference resets next boot). */
 function persistPreference(id: LocaleId): void {
+  if (typeof localStorage === 'undefined') return
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, id)
+    localStorage.setItem(STORAGE_KEY, id)
   } catch {
     // Storage access can throw (privacy mode / quota); the preference simply
     // does not survive the session.
