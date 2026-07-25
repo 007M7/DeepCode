@@ -9,6 +9,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import { DomainError } from './error.ts'
 import { descriptorOf } from './spec.ts'
 import type { DomainSpec } from './spec.ts'
@@ -28,6 +29,12 @@ export type { Domain, DomainGlobal, DomainGlobalHandleOf, KvTable } from './doma
 declare module '@deepseek-ai/dsh-storage' {
   interface StorageForms {
     domain: DomainFacility
+  }
+}
+
+declare module 'cordis' {
+  interface Context {
+    storageDomain: DomainFacility
   }
 }
 
@@ -188,16 +195,26 @@ function parseRecord<T>(domain: string, table: string, key: string, parse: () =>
  * Mount the domain data form on the storage hub.
  * @param ctx - Plugin context.
  * @param config - Validated plugin config.
+ * @returns resolution after an already-available backend set activates the form.
  */
-export function apply(ctx: Context, config: Config) {
-  const facility = new DomainFacility(ctx, config)
-  ctx.effect(() => {
-    const unmount = ctx.storage.mount('domain', facility)
-    return async () => {
-      // Close leftovers before unmounting: draining writes still emit
-      // domain/changed, whose invariant resolves the facility through the hub.
-      await facility.closeAll()
-      unmount()
-    }
+export function apply(ctx: Context, config: Config): Promise<void> {
+  const backendServices = [...new Set([
+    config.backend,
+    ...Object.values(config.routes ?? {}),
+  ])].map(storageBackendServiceKey)
+
+  const fiber = ctx.inject(backendServices, (domainCtx) => {
+    const facility = new DomainFacility(domainCtx, config)
+    domainCtx.effect(() => {
+      const unmount = domainCtx.storage.mount('domain', facility)
+      return async () => {
+        // Close leftovers before unmounting: draining writes still emit
+        // domain/changed, whose invariant resolves the facility through the hub.
+        await facility.closeAll()
+        unmount()
+      }
+    })
+    domainCtx.provide('storageDomain', facility)
   })
+  return Promise.resolve(fiber).then(() => {})
 }

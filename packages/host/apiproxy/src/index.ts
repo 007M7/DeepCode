@@ -8,6 +8,7 @@
  * routes — carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves.
  */
 
+import { resolve } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { ApiProxy } from './api/index.ts'
@@ -28,37 +29,47 @@ declare module 'cordis' {
   }
 }
 
-/** Gateway plugin config: the host-level default agent routing. */
+/** Gateway plugin config: host-level agent routing and Workspace creation root. */
 export interface Config {
   /** Default provider route for created/resumed agents. */
   provider: string
   /** Default model id. */
   model: string
+  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
+  workspaceRoot?: string
 }
 
 /**
  * The API gateway service: implements the ApiProxy contract over the composed
- * host context and provides it as `ctx.apiProxy`. The default project
- * directory for new sessions is the host process working directory (not a
- * config field this round).
+ * host context and provides it as `ctx.apiProxy`. The Host cwd is the default
+ * project directory and the fallback parent for name-created Workspaces.
  */
 export class ApiProxyService extends Service implements ApiProxy {
-  static inject = ['agents', 'sessions', 'tools', 'userInteraction']
+  static inject = ['agents', 'sessions', 'tools', 'userInteraction', 'workspace']
 
   static Config: z<Config> = z.object({
     provider: z.string().required(),
     model: z.string().required(),
+    workspaceRoot: z.string(),
   })
 
   readonly sessions: ApiProxy['sessions']
+  readonly workspace: ApiProxy['workspace']
   readonly host: ApiProxy['host']
   readonly events: ApiProxy['events']
   readonly respond: ApiProxy['respond']
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'apiProxy')
-    const api = createApiProxy(ctx, { provider: config.provider, model: config.model, cwd: process.cwd() })
+    const cwd = process.cwd()
+    const api = createApiProxy(ctx, {
+      provider: config.provider,
+      model: config.model,
+      cwd,
+      workspaceRoot: resolve(config.workspaceRoot ?? cwd),
+    })
     this.sessions = api.sessions
+    this.workspace = api.workspace
     this.host = api.host
     this.events = api.events
     // createApiProxy returns closures (no `this` capture); bind only satisfies

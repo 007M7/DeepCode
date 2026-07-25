@@ -49,6 +49,7 @@
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
+    "@deepseek-ai/dsh-workspace": "workspace:^",
     "schemastery": "^3.18.0",
     "zod": "^4.4.3"
   },
@@ -57,6 +58,8 @@
     "@deepseek-ai/dsh-invariants": "^0.0.1"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-storage": "workspace:^",
+    "@deepseek-ai/dsh-storage-domain": "workspace:^",
     "cordis": "^4.0.0-rc.7",
     "@deepseek-ai/dsh-invariants": "workspace:^"
   }

@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
+  ConversationSnapshot, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
@@ -40,8 +40,8 @@ const toolResult = (seq: number, callId: string, name: string, args = '{"command
 function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
   return {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
+    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
   } as ConversationSnapshot
 }
 
@@ -65,9 +65,11 @@ async function bench(nodes: ToolResultNode[]) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshotWith(nodes))
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', running: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, updatedAt: 1 } },
     current: SID,
-  } as SessionListState)
+    intent: undefined,
+    phase: 'ready',
+  })
   // Identity-stable cell: the renderer caches hooks per source and inject
   // results per cell, both by object identity.
   const cell = { sessionId: SID, session }
@@ -75,11 +77,20 @@ async function bench(nodes: ToolResultNode[]) {
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   ctx.provide('sessions', {
     list,
-    manager: { get: () => ({ loadOlder: vi.fn() }) },
+    binding: (id: SessionId) => ({ sessionId: id, session: { loadOlder: vi.fn() } }),
     scope: () => ({ get: () => scoped }),
     cell: (id: string) => (id === SID ? cell : undefined),
     create: vi.fn(),
     open: vi.fn(),
+    updateIntent: vi.fn(),
+  })
+  ctx.provide('workspaces', {
+    list: createSnapshotStore<WorkspaceListState>({
+      items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    }),
+    startSession: vi.fn(),
+    sendSession: vi.fn(),
   })
   ctx.provide('layout', layout)
   ctx.provide('i18n', { bind: () => (key: string) => key })
@@ -182,12 +193,23 @@ describe('registrant load-order seam', () => {
     await slotsFiber.await()
     const slots = ctx.get('slots') as SlotsService
     ctx.provide('sessions', {
-      list: createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined } as SessionListState),
-      manager: { get: vi.fn() },
+      list: createSnapshotStore<SessionListState>({
+        ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready',
+      }),
+      binding: () => undefined,
       scope: () => undefined,
       cell: () => undefined,
       create: vi.fn(),
       open: vi.fn(),
+      updateIntent: vi.fn(),
+    })
+    ctx.provide('workspaces', {
+      list: createSnapshotStore<WorkspaceListState>({
+        items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+        baselinesReady: true, recentWorkspaceId: undefined,
+      }),
+      startSession: vi.fn(),
+      sendSession: vi.fn(),
     })
     ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
     ctx.provide('i18n', { bind: () => (key: string) => key })

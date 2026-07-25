@@ -16,9 +16,9 @@ export type WorkspaceId = Branded<'WorkspaceId'>
 
 /**
  * One workspace: a stable id over an existing directory, a display title, and
- * the ordered account of sessions that belong to it. The account is the sole
- * source of ownership — sessions are never inferred from cwd. Consumers only
- * see this interface; the entity implementation stays package-private.
+ * an ordered candidate account of sessions. Membership requires both an id in
+ * that account and a session header whose canonical cwd equals the workspace
+ * path. Consumers only see this interface; the implementation stays private.
  */
 export interface Workspace {
   /** Stable record id (generated uuid). */
@@ -34,13 +34,17 @@ export interface Workspace {
   /** Display title. Defaults to `basename(path)` at create; duplicates are allowed. */
   readonly title: string
 
+  /** ISO-8601 creation instant, stamped at create and never rewritten. */
+  readonly createdAt: string
+
+  /** ISO-8601 instant of the last durable mutation (create counts as one). */
+  readonly updatedAt: string
+
   /**
-   * Sessions recorded under this workspace, in attach order (the array order
-   * is the display order). A projection: accounted ids whose session no
-   * longer exists in session persistence are filtered out here (and dropped
-   * from the durable account on the next mutation); when session persistence
-   * is absent the account is served unfiltered because membership cannot be
-   * verified.
+   * Header-validated sessions in newest-first display order. The durable
+   * candidate account is filtered synchronously: missing headers, invalid
+   * cwd values, and canonical cwd mismatches are never returned. A subsequent
+   * workspace mutation prunes those filtered candidates durably.
    */
   readonly sessionIds: readonly SessionId[]
 
@@ -52,16 +56,12 @@ export interface Workspace {
   setTitle(title: string): Promise<void>
 
   /**
-   * Record a session under this workspace. Idempotent: a session already on
-   * the account resolves without writing (membership is decided on the
-   * domain write chain, so unawaited concurrent attach/detach calls settle
-   * in call order). For a session not yet on the account, its stored header
-   * is read from session persistence and its `cwd`, normalized through the
-   * same `fs.realpath` canon as workspace paths, must equal this workspace's
-   * {@link path} — a missing persistence service, an unknown session id, a
-   * header without `cwd`, a `cwd` that no longer resolves, or a mismatched
-   * `cwd` all reject without touching the account (what cannot be validated
-   * is not recorded).
+   * Prepend a session to this workspace's candidate account. An already
+   * accounted id resolves without writing; activity-driven reordering uses
+   * `WorkspaceRegistry.touchSession` instead. A new id's live or persisted
+   * header cwd must resolve to an existing directory equal to {@link path};
+   * unknown ids, missing or invalid cwd values, and mismatches reject without
+   * writing.
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */

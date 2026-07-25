@@ -15,6 +15,7 @@ import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/d
 import type { ConversationSlotProps } from '../contract/slots.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
+import { EmptyHero, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import css from './ConversationRoot.module.css'
 
 /** Full props = the automatic shares & injected share — composed by reference
@@ -37,8 +38,8 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 }
 
 export function ConversationRoot({
-  sessionId, useSession, useSessions, useStore, actions, renderSlot, renderSlotChain,
-  views, send, stop, open,
+  sessionId, useSession, useSessions, useWorkspaces, useStore, actions, renderSlot, renderSlotChain,
+  views, send, stop, open, updateSessionPrompt, retrySessionPrompt,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -48,16 +49,60 @@ export function ConversationRoot({
   const active = tabs.find(v => v.id === activeId) ?? tabs[0]
 
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
-  const draft = useStore(s => s.draft)
-  const running = useSession(s => s.running)
+  const pendingPrompt = useSession(s => s.pendingPrompt ?? undefined)
+  const storedDraft = useStore(s => s.draft)
+  const draft = pendingPrompt?.text ?? storedDraft
+  const sessionRunning = useSession(s => s.running)
+  const running = sessionRunning || pendingPrompt?.phase === 'sending'
   const removed = useSession(s => s.removed)
   const promptError = useSession(s => s.promptError)
   const turns = useSession(s => countTurns(s))
   const pending = useSession(s => s.pending)
+  const openState = useSession(s => s.openState)
+  const composerPhase = useSession(s => s.composerPhase)
+  const cwd = useSessions(s => s.byId[sessionId]?.cwd)
+  const workspaceTitle = useWorkspaces(state =>
+    state.items.find(workspace => workspace.sessionIds.includes(sessionId))?.title)
+  const error: InputBarError | null = pendingPrompt?.error !== undefined
+    ? {
+        op: pendingPrompt.retry === 'connect' ? 'session' : 'send',
+        message: pendingPrompt.retry === 'connect'
+          ? `Workspace attach failed: ${pendingPrompt.error}`
+          : `Message send failed: ${pendingPrompt.error}`,
+      }
+    : promptError === null
+      ? null
+      : { op: promptError.op, message: `${promptError.error.message} (${promptError.error.code})` }
+  const status = pendingPrompt?.phase === 'sending'
+    ? pendingPrompt.retry === 'connect' ? 'Attaching session to workspace…' : 'Sending message…'
+    : undefined
+  const setDraft = (text: string): void => {
+    if (pendingPrompt === undefined) actions.setDraft(text)
+    else updateSessionPrompt(text)
+  }
+  const submit = (mode: 'queue' | 'steer'): void => {
+    if (pendingPrompt === undefined) send(draft, mode)
+    else retrySessionPrompt()
+  }
 
-  const error: InputBarError | null = promptError === null
-    ? null
-    : { op: promptError.op, message: `${promptError.error.message}（${promptError.error.code}）` }
+  // Blank-session guidance: phase-derived (the runtime snapshot owns the
+  // predicate — see ComposerPhase). Only `blank` renders the hero; `engaging`
+  // and `active` fall through to the conversation view, so an in-flight
+  // first send never bounces back here. Gated on the OPEN window: phase has
+  // no jurisdiction over loading/error frames (ChatView renders those).
+  if (openState === 'open' && composerPhase === 'blank') {
+    return (
+      <EmptyHero
+        workspaceRow={<WorkspaceChip label={workspaceTitle ?? workspaceLabel(cwd ?? '')} locked />}
+        draft={draft}
+        disabled={removed || pendingPrompt?.phase === 'sending'}
+        error={error}
+        {...(status === undefined ? {} : { status })}
+        onDraftChange={setDraft}
+        onSend={submit}
+      />
+    )
+  }
 
   // The default composer doubles as the chain's all-decline fallback: a
   // pending wait with no registered takeover must still leave the input usable.
@@ -67,9 +112,10 @@ export function ConversationRoot({
       running={running}
       disabled={removed}
       error={error}
+      {...(status === undefined ? {} : { status })}
       variant="composer"
-      onDraftChange={actions.setDraft}
-      onSend={(mode) => { send(draft, mode) }}
+      onDraftChange={setDraft}
+      onSend={submit}
       onStop={stop}
     />
   )
@@ -78,7 +124,7 @@ export function ConversationRoot({
     <div className={css.root}>
       <header className={css.header}>
         <div className={css.crumbRow}>
-          <nav className={css.crumbs} aria-label="会话层级">
+          <nav className={css.crumbs} aria-label="Session hierarchy">
             {ancestry.map((s, i) => {
               const last = i === ancestry.length - 1
               return (

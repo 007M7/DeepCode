@@ -164,7 +164,7 @@ class SlotErrorBoundary extends Component<
 
 /**
  * Standard-kit synthesis shared by both scope branches: the global
- * useSessions hook, the session pair, the store pair when declared, the
+ * useSessions/useWorkspaces hooks, the session pair, the store pair when declared, the
  * renderSlot binding when children are declared, and the SessionProvider
  * seat when the children declare a session-scope slot. Hosts hand out BARE
  * observable sources (hooks never cross the host contract); every hook is
@@ -174,7 +174,10 @@ class SlotErrorBoundary extends Component<
 function standardKit(host: SlotRendererHost, entry: StoredEntry, cell: SessionCell | undefined): {
   kit: InjectedProps; actions: object | undefined
 } {
-  const kit: InjectedProps = { useSessions: observableHook(host.sessions.list) }
+  const kit: InjectedProps = {
+    useSessions: observableHook(host.sessions.list),
+    useWorkspaces: observableHook(host.workspaces.list),
+  }
   if (cell !== undefined) {
     kit['useSession'] = observableHook(cell.session)
     kit['sessionId'] = cell.sessionId

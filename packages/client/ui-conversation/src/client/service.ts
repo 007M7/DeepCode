@@ -1,5 +1,5 @@
 /**
- * Scope-addressed conversation send, cancel, and empty-state session startup.
+ * Scope-addressed conversation send, cancel, history, and retained-prompt orchestration.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
@@ -44,37 +44,30 @@ export class ConversationService extends Service {
     if (!result.ok) throw new Error(`conversation.cancel failed: ${result.error.code}: ${result.error.message}`)
   }
 
+  /** Pull one older history page for the scoped Session. */
+  async loadOlder(): Promise<void> {
+    await this.scopedSession('loadOlder').loadOlder()
+  }
+
   /**
-   * Empty-state first-send chain (root-context method; does not read scope):
-   * create the session, navigate to it, then send through the new scope.
-   * The create → open ordering is safe: the manager merges the new summary
-   * synchronously before create() resolves, so the list store is projected by
-   * the time open() validates against it (manager notification batching is
-   * microtask-based; SessionsService projects on the same flush that create
-   * awaited through the RPC round trip).
-   * @param opts - project directory, prompt text, and send mode.
+   * Update the scoped Session's retained pending prompt.
+   * @param text - exact controlled-input value to retain.
    */
-  async startSession(opts: { cwd?: string; text: string; mode: 'queue' | 'steer' }): Promise<void> {
-    const sessions = this.requireSessions()
-    const id = await sessions.create(opts.cwd === undefined ? {} : { cwd: opts.cwd })
-    // The manager notifier flushes per microtask; one await guarantees the
-    // list-store projection landed before sessions.open validates against it.
-    await Promise.resolve()
-    sessions.open(id)
-    const scoped = sessions.scope(id)
-    if (scoped === undefined) throw new Error(`conversation.startSession: created session "${id}" resolved no scope`)
-    // ctx.get, not scoped.conversation: property access walks the fiber
-    // topology (a scope fiber never injects services), while get reads the
-    // global store and still binds this service to the scoped ctx.
-    const scopedConversation = scoped.get('conversation')
-    if (scopedConversation === undefined) throw new Error('conversation.startSession: conversation service unavailable through the new scope')
-    await scopedConversation.send(opts.text, opts.mode)
+  updatePendingPrompt(text: string): void {
+    this.scopedSession('updatePendingPrompt').updatePendingPrompt(text)
+  }
+
+  /** Retry the scoped Session's retained pending prompt. */
+  retryPendingPrompt(): void {
+    this.scopedSession('retryPendingPrompt').retryPendingPrompt()
   }
 
   /** Resolve the caller scope's Session or throw on root contexts. */
   private scopedSession(op: string): Session {
     const id = this.scopeId(op)
-    return this.requireSessions().manager.get(id)
+    const binding = this.requireSessions().binding(id)
+    if (binding === undefined) throw new Error(`conversation.${op}: session "${id}" resolved no binding`)
+    return binding.session
   }
 
   /** Read the caller's session scope tag via the sessions service; root contexts fail loud. */

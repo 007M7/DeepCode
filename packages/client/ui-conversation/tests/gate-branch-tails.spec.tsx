@@ -5,7 +5,7 @@ import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
@@ -19,8 +19,8 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
+    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
   } as ConversationSnapshot
 }
 
@@ -65,12 +65,17 @@ describe('render branch tails', () => {
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 1, callId: 'ghost' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined } as SessionListState)
+      { ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready' })
+    const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
+      items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    })
     const view = render(
       <DetailsPanel
         sessionId={SID}
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
         useSessions={bindSnapshotSelector(emptyList)}
+        useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}

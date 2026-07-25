@@ -1,245 +1,158 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  deriveRows, formatRelativeTime, projectLabel, UNGROUPED_KEY, UNGROUPED_LABEL,
-  type SessionRow, type TreeView,
-} from '../src/client/tree.ts'
+import type {
+  SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import { deriveGroups, formatRelativeTime, projectLabel, UNGROUPED_KEY, UNGROUPED_LABEL } from '../src/client/tree.ts'
 
-const sid = (s: string) => s as SessionId
+const sid = (id: string) => id as SessionId
+const wid = (id: string) => id as WorkspaceId
+const summary = (id: string, updatedAt: number, cwd?: string): SessionSummary => ({
+  id: sid(id), displayTitle: id, running: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
+})
+const list = (...items: SessionSummary[]): SessionListState => ({
+  ids: items.map(item => item.id),
+  byId: Object.fromEntries(items.map(item => [item.id, item])),
+  current: undefined,
+  phase: 'ready',
+  intent: undefined,
+})
+const workspace = (id: string, sessionIds: string[]): WorkspaceView => ({
+  workspaceId: wid(id), path: `/projects/${id}`, title: id,
+  sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+})
+const view = (expandedProjects: readonly string[] = [], query = '') => ({
+  expandedProjects, expandedSessions: [] as string[], query,
+})
 
-/** Bare-string init; brands ids and omits absent optional keys (exactOptionalPropertyTypes). */
-interface SummaryInit {
-  id: string
-  title?: string
-  displayTitle?: string
-  cwd?: string
-  parentId?: string
-  running?: boolean
-  updatedAt?: number
-}
+describe('deriveGroups', () => {
+  it('keeps Host Workspace and sessionIds order without Client recency sorting', () => {
+    const sessions = list(summary('newer', 20), summary('older', 10))
+    const workspaces = [workspace('first', ['older', 'newer']), workspace('empty', [])]
+    const groups = deriveGroups(sessions, workspaces, view(['first']))
+    expect(groups.map(group => group.key)).toEqual(['first', 'empty'])
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('older'), sid('newer')])
+  })
 
-function summary(init: SummaryInit): SessionSummary {
-  const s: SessionSummary = {
-    id: sid(init.id),
-    displayTitle: init.displayTitle ?? init.title ?? init.id,
-    running: init.running ?? false,
-    updatedAt: init.updatedAt ?? 0,
-  }
-  if (init.title !== undefined) s.title = init.title
-  if (init.cwd !== undefined) s.cwd = init.cwd
-  if (init.parentId !== undefined) s.parentId = sid(init.parentId)
-  return s
-}
+  it('puts only real unaccounted Sessions in the trailing Ungrouped group', () => {
+    const sessions = list(summary('owned', 1, '/projects/first'), summary('loose', 9, '/other'))
+    const groups = deriveGroups(sessions, [workspace('first', ['owned'])], view([UNGROUPED_KEY]))
+    expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
+    expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
+  })
 
-function listOf(...summaries: SessionSummary[]): SessionListState {
-  const byId: Record<SessionId, SessionSummary> = {}
-  for (const s of summaries) byId[s.id] = s
-  return { ids: summaries.map(s => s.id), byId, current: undefined }
-}
+  it('shows one frontend Session row only under a real target Workspace', () => {
+    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('first') }, prompt: '', phase: 'connecting' as const }
+    const target = workspace('first', [])
+    expect(deriveGroups({ ...list(), current: intent.sessionId, intent }, [target], view())[0]).toEqual(expect.objectContaining({
+      intentHere: true,
+      sessionCount: 1,
+      containsCurrent: true,
+    }))
+    const hiddenIntent = { sessionId: sid('zero'), target: { kind: 'workspace-intent' as const }, prompt: '', phase: 'ready' as const }
+    expect(deriveGroups({ ...list(), intent: hiddenIntent }, [target], view())[0]!.intentHere).toBe(false)
+  })
 
-const view = (partial: Partial<TreeView> = {}): TreeView => ({
-  expandedProjects: partial.expandedProjects ?? [],
-  expandedSessions: partial.expandedSessions ?? [],
-  query: partial.query ?? '',
+  it('search filters real Sessions and omits the Intent placeholder', () => {
+    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('first') }, prompt: '', phase: 'ready' as const }
+    const groups = deriveGroups({ ...list(summary('match', 1)), intent }, [workspace('first', ['match'])], view([], 'match'))
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('match')])
+    expect(groups[0]!.intentHere).toBe(false)
+    expect(groups[0]!.sessionCount).toBe(2)
+  })
+
+  it('builds, sorts, expands, and cycle-guards an ungrouped session tree', () => {
+    const parent = summary('parent', 1)
+    const oldChild = { ...summary('old-child', 10), parentId: parent.id }
+    const newChild = { ...summary('new-child', 20), parentId: parent.id }
+    const tieB = { ...summary('tie-b', 20), parentId: parent.id }
+    const tieA = { ...summary('tie-a', 20), parentId: parent.id }
+    const self = { ...summary('self', 2), parentId: sid('self') }
+    const orphan = { ...summary('orphan', 3), parentId: sid('missing') }
+    const cycleA = { ...summary('cycle-a', 4), parentId: sid('cycle-b') }
+    const cycleB = { ...summary('cycle-b', 5), parentId: sid('cycle-a') }
+    const groups = deriveGroups(
+      list(parent, oldChild, newChild, tieB, tieA, self, orphan, cycleA, cycleB),
+      [],
+      { expandedProjects: [UNGROUPED_KEY], expandedSessions: [parent.id, cycleA.id, cycleB.id], query: '' },
+    )
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.sessions.map(node => node.id)).toEqual([
+      sid('orphan'), sid('self'), parent.id, sid('cycle-a'),
+    ])
+    expect(groups[0]!.sessions[2]!.children.map(node => node.id)).toEqual([
+      newChild.id, tieA.id, tieB.id, oldChild.id,
+    ])
+
+    // Equal timestamps use ids as a deterministic tiebreak in either input order.
+    expect(deriveGroups(list(summary('tie-a', 1), summary('tie-b', 1)), [], view([UNGROUPED_KEY]))[0]!
+      .sessions.map(node => node.id)).toEqual([sid('tie-a'), sid('tie-b')])
+  })
+
+  it('tolerates Workspace membership arriving before its Session summary', () => {
+    const partial: SessionListState = {
+      ...list(),
+      ids: [sid('present')],
+      byId: { [sid('present')]: summary('present', 1) },
+    }
+    const groups = deriveGroups(partial, [workspace('project', ['missing', 'present'])], view(['project']))
+    expect(groups[0]!.sessions.map(node => node.id)).toEqual([sid('present')])
+  })
+
+  it('searches descendants with ancestors and handles cycles, self parents, and label-only hits', () => {
+    const root = { ...summary('root', 1), displayTitle: 'Ancestor' }
+    const match = { ...summary('match', 2), displayTitle: 'Needle child', parentId: root.id }
+    const sibling = { ...summary('sibling', 3), displayTitle: 'Other child', parentId: root.id }
+    const self = { ...summary('self', 4), displayTitle: 'Needle self', parentId: sid('self') }
+    const orphan = { ...summary('orphan', 5), displayTitle: 'Needle orphan', parentId: sid('absent') }
+    const cycleA = { ...summary('cycle-a', 6), displayTitle: 'Needle cycle A', parentId: sid('cycle-b') }
+    const cycleB = { ...summary('cycle-b', 7), displayTitle: 'Needle cycle B', parentId: sid('cycle-a') }
+    const sessions = list(root, match, sibling, self, orphan, cycleA, cycleB)
+    const groups = deriveGroups(sessions, [workspace('project', sessions.ids)], view([], 'needle'))
+
+    expect(groups[0]!.sessions.flatMap(node => [node.id, ...node.children.map(child => child.id)])).toEqual([
+      root.id, match.id, self.id, orphan.id, cycleA.id, cycleB.id,
+    ])
+
+    const labelOnly = deriveGroups(
+      list(summary('hidden', 1)),
+      [workspace('label-hit', ['hidden']), workspace('other', [])],
+      view([], 'label'),
+    )
+    expect(labelOnly).toEqual([
+      expect.objectContaining({ key: 'label-hit', expanded: false, sessions: [], sessionCount: 1 }),
+    ])
+  })
+
+  it('marks selected Workspace and Ungrouped sessions without relying on an Intent', () => {
+    const owned = summary('owned', 1)
+    const loose = summary('loose', 2)
+    const ws = workspace('project', ['owned'])
+    const ownedGroups = deriveGroups({ ...list(owned, loose), current: owned.id }, [ws], view())
+    expect(ownedGroups.find(group => group.key === 'project')!.containsCurrent).toBe(true)
+    const looseGroups = deriveGroups({ ...list(owned, loose), current: loose.id }, [ws], view())
+    expect(looseGroups.find(group => group.key === UNGROUPED_KEY)!.containsCurrent).toBe(true)
+  })
 })
 
 describe('projectLabel', () => {
-  it('takes the basename and survives trailing separators', () => {
-    expect(projectLabel('/home/me/proj')).toBe('proj')
-    expect(projectLabel('/home/me/proj/')).toBe('proj')
-    expect(projectLabel('C:\\work\\thing')).toBe('thing')
-  })
-
-  it('falls back for empty and root-only paths', () => {
+  it('uses the Ungrouped fallback and extracts POSIX and Windows basenames', () => {
     expect(projectLabel(undefined)).toBe(UNGROUPED_LABEL)
     expect(projectLabel('')).toBe(UNGROUPED_LABEL)
-    expect(projectLabel('///')).toBe('///')
-  })
-})
-
-describe('deriveRows grouping', () => {
-  it('groups by cwd into project rows with counts, newest group first', () => {
-    const rows = deriveRows(listOf(
-      summary({ id: 'a', cwd: '/x/alpha', updatedAt: 10 }),
-      summary({ id: 'b', cwd: '/x/beta', updatedAt: 30 }),
-      summary({ id: 'c', cwd: '/x/alpha', updatedAt: 20 }),
-    ), view())
-    expect(rows).toEqual([
-      expect.objectContaining({ type: 'project', key: '/x/beta', label: 'beta', sessionCount: 1, expanded: false }),
-      expect.objectContaining({ type: 'project', key: '/x/alpha', label: 'alpha', sessionCount: 2 }),
-    ])
-  })
-
-  it('orders equally-recent groups by label and skips ids missing from byId', () => {
-    const list = listOf(
-      summary({ id: 'b1', cwd: '/x/beta', updatedAt: 5 }),
-      summary({ id: 'a1', cwd: '/x/alpha', updatedAt: 5 }),
-      // Same basename and same recency as beta: label comparator returns 0,
-      // insertion order breaks the tie.
-      summary({ id: 'b2', cwd: '/y/beta', updatedAt: 5 }),
-    )
-    list.ids.push(sid('ghost'))
-    const rows = deriveRows(list, view())
-    expect(rows.map(r => r.type === 'project' && r.key)).toEqual(['/x/alpha', '/x/beta', '/y/beta'])
-  })
-
-  it('buckets cwd-less sessions under the ungrouped project row', () => {
-    const rows = deriveRows(listOf(summary({ id: 'a' })), view())
-    expect(rows).toEqual([
-      expect.objectContaining({ type: 'project', key: UNGROUPED_KEY, cwd: undefined, label: UNGROUPED_LABEL }),
-    ])
-  })
-
-  it('hides sessions under collapsed projects and shows them when expanded', () => {
-    const list = listOf(
-      summary({ id: 'a', cwd: '/p', updatedAt: 1 }),
-      summary({ id: 'b', cwd: '/p', updatedAt: 2 }),
-    )
-    expect(deriveRows(list, view()).filter(r => r.type === 'session')).toHaveLength(0)
-    const rows = deriveRows(list, view({ expandedProjects: ['/p'] }))
-    expect(rows.slice(1)).toEqual([
-      expect.objectContaining({ type: 'session', id: 'b', depth: 0 }),
-      expect.objectContaining({ type: 'session', id: 'a', depth: 0 }),
-    ])
-  })
-})
-
-describe('deriveRows session tree', () => {
-  const treeList = listOf(
-    summary({ id: 'root', cwd: '/p', updatedAt: 5 }),
-    summary({ id: 'kid', cwd: '/p', parentId: sid('root'), updatedAt: 4 }),
-    summary({ id: 'grandkid', cwd: '/p', parentId: sid('kid'), updatedAt: 3 }),
-    summary({ id: 'other', cwd: '/p', updatedAt: 9 }),
-  )
-
-  it('nests children under expanded parents with increasing depth', () => {
-    const rows = deriveRows(treeList, view({
-      expandedProjects: ['/p'],
-      expandedSessions: ['root', 'kid'],
-    }))
-    expect(rows.slice(1)).toEqual([
-      expect.objectContaining({ id: 'other', depth: 0, hasChildren: false }),
-      expect.objectContaining({ id: 'root', depth: 0, hasChildren: true, expanded: true }),
-      expect.objectContaining({ id: 'kid', depth: 1, hasChildren: true, expanded: true }),
-      expect.objectContaining({ id: 'grandkid', depth: 2, hasChildren: false }),
-    ])
-  })
-
-  it('collapses subtrees at unexpanded sessions', () => {
-    const rows = deriveRows(treeList, view({ expandedProjects: ['/p'] }))
-    const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
-    expect(ids).toEqual(['other', 'root'])
-  })
-
-  it('degrades a cross-group parent link to a group root', () => {
-    const rows = deriveRows(listOf(
-      summary({ id: 'p1', cwd: '/a', updatedAt: 2 }),
-      summary({ id: 'stray', cwd: '/b', parentId: sid('p1'), updatedAt: 1 }),
-    ), view({ expandedProjects: ['/a', '/b'] }))
-    expect(rows).toEqual([
-      expect.objectContaining({ type: 'project', key: '/a' }),
-      expect.objectContaining({ id: 'p1', depth: 0 }),
-      expect.objectContaining({ type: 'project', key: '/b' }),
-      expect.objectContaining({ id: 'stray', depth: 0 }),
-    ])
-  })
-
-  it('keeps cycle members visible as extra roots without looping', () => {
-    const rows = deriveRows(listOf(
-      summary({ id: 'x', cwd: '/p', parentId: sid('y'), updatedAt: 2 }),
-      summary({ id: 'y', cwd: '/p', parentId: sid('x'), updatedAt: 1 }),
-      summary({ id: 'self', cwd: '/p', parentId: sid('self'), updatedAt: 3 }),
-    ), view({ expandedProjects: ['/p'], expandedSessions: ['x', 'y', 'self'] }))
-    const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
-    expect(ids).toContain('self')
-    expect(ids).toContain('x')
-    expect(ids).toContain('y')
-    expect(ids).toHaveLength(3)
-  })
-
-  it('breaks updatedAt ties deterministically by id', () => {
-    const rows = deriveRows(listOf(
-      summary({ id: 'b', cwd: '/p', updatedAt: 7 }),
-      summary({ id: 'a', cwd: '/p', updatedAt: 7 }),
-      summary({ id: 'c', cwd: '/p', updatedAt: 7 }),
-    ), view({ expandedProjects: ['/p'] }))
-    const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
-    expect(ids).toEqual(['a', 'b', 'c'])
-  })
-
-  it('collects multiple children under one parent in recency order', () => {
-    const rows = deriveRows(listOf(
-      summary({ id: 'p', cwd: '/p', updatedAt: 9 }),
-      summary({ id: 'old', cwd: '/p', parentId: sid('p'), updatedAt: 1 }),
-      summary({ id: 'new', cwd: '/p', parentId: sid('p'), updatedAt: 5 }),
-    ), view({ expandedProjects: ['/p'], expandedSessions: ['p'] }))
-    const ids = rows.filter((r): r is SessionRow => r.type === 'session').map(r => r.id)
-    expect(ids).toEqual(['p', 'new', 'old'])
-  })
-
-  it('carries the running flag onto rows', () => {
-    const rows = deriveRows(
-      listOf(summary({ id: 'a', cwd: '/p', running: true })),
-      view({ expandedProjects: ['/p'] }))
-    expect(rows[1]).toEqual(expect.objectContaining({ id: 'a', running: true }))
-  })
-})
-
-describe('deriveRows search', () => {
-  const list = listOf(
-    summary({ id: 'root', title: 'alpha work', cwd: '/p', updatedAt: 5 }),
-    summary({ id: 'kid', title: 'deep needle here', cwd: '/p', parentId: sid('root'), updatedAt: 4 }),
-    summary({ id: 'noise', title: 'unrelated', cwd: '/p', updatedAt: 3 }),
-    summary({ id: 'q', title: 'quiet', cwd: '/other', updatedAt: 2 }),
-  )
-
-  it('forces matched sessions and their ancestor chains visible, ignoring expansion', () => {
-    const rows = deriveRows(list, view({ query: 'NEEDLE' }))
-    expect(rows).toEqual([
-      expect.objectContaining({ type: 'project', key: '/p', expanded: true }),
-      expect.objectContaining({ id: 'root', depth: 0, expanded: true }),
-      expect.objectContaining({ id: 'kid', depth: 1 }),
-    ])
-  })
-
-  it('drops groups without a hit and keeps a bare project row on label-only hits', () => {
-    const rows = deriveRows(list, view({ query: 'other' }))
-    expect(rows).toEqual([
-      expect.objectContaining({ type: 'project', key: '/other', expanded: false }),
-    ])
-  })
-
-  it('blank query means normal mode', () => {
-    const rows = deriveRows(list, view({ query: '   ' }))
-    expect(rows.every(r => r.type === 'project')).toBe(true)
-  })
-
-  it('matches the effective display title when no durable title is available', () => {
-    const fallback = listOf(summary({ id: 'raw-id', displayTitle: 'project fallback', cwd: '/elsewhere' }))
-    const rows = deriveRows(fallback, view({ query: 'fallback' }))
-    expect(rows).toEqual([
-      expect.objectContaining({ type: 'project', key: '/elsewhere' }),
-      expect.objectContaining({ type: 'session', id: 'raw-id', title: 'project fallback' }),
-    ])
+    expect(projectLabel('/projects/demo/')).toBe('demo')
+    expect(projectLabel('C:\\projects\\demo\\')).toBe('demo')
+    expect(projectLabel('/')).toBe('/')
   })
 })
 
 describe('formatRelativeTime', () => {
-  const now = 1_000_000_000_000
-  it.each([
-    [now, 'now'],
-    [now - 30_000, 'now'],
-    [now - 2 * 60_000, '2min'],
-    [now - 3_600_000, '1h'],
-    [now - 2 * 86_400_000, '2d'],
-    [now - 18 * 86_400_000, '18d'],
-    [now - 65 * 86_400_000, '2mo'],
-    [now - 400 * 86_400_000, '1y'],
-  ])('%d -> %s', (at, label) => {
-    expect(formatRelativeTime(at, now)).toBe(label)
-  })
-
-  it('clamps future timestamps to now', () => {
-    expect(formatRelativeTime(now + 5_000, now)).toBe('now')
+  it('formats current, minute, hour, day, month, and year buckets', () => {
+    const now = 400 * 24 * 60 * 60 * 1_000
+    expect(formatRelativeTime(now, now)).toBe('now')
+    expect(formatRelativeTime(now - 5 * 60_000, now)).toBe('5min')
+    expect(formatRelativeTime(now - 3 * 3_600_000, now)).toBe('3h')
+    expect(formatRelativeTime(now - 2 * 86_400_000, now)).toBe('2d')
+    expect(formatRelativeTime(now - 60 * 86_400_000, now)).toBe('2mo')
+    expect(formatRelativeTime(0, now)).toBe('1y')
   })
 })

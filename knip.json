@@ -57,11 +57,6 @@
       ]
     },
     "packages/host/webserver": {
-      "project": [
-        "src/**/*.ts"
-      ]
-    },
-    "packages/host/runtime": {
       "entry": [
         "tests/**/*.spec.ts"
       ],

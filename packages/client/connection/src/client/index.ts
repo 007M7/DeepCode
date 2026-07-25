@@ -13,7 +13,7 @@ import { WebApiClient } from './web-api-client.ts'
 export type {
   ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
-  ToolCallView, ToolResultView,
+  ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
