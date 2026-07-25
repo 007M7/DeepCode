@@ -535,39 +535,29 @@ function latestOpenTurn(content: string): number | undefined {
  * `parentSession`) leads, then each subagent child by ascending `createdAt`.
  *
  * Snapshot configs select the JSONL backend's raw mode, which lays sessions
- * out as `<root>/<cwd-bucket>/<encoded-id>.jsonl` (one bucket per cwd). A
- * parent and its same-cwd in-process child land in the SAME bucket, so
- * collecting all files across all buckets catches both. Returns `[]` if no log
- * was produced (a no-session scenario).
+ * out as `<root>/<project>/<session-id>/session.jsonl`. Recursive collection
+ * catches the primary and every child session. Returns `[]` if no log was
+ * produced (a no-session scenario).
  */
 async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
-  let cwdDirs: string[]
+  let files: string[]
   try {
-    cwdDirs = await readdir(root)
+    files = await readdir(root, { recursive: true })
   } catch {
     return []
   }
   const logs: HarvestedLog[] = []
-  for (const dir of cwdDirs) {
-    const sub = join(root, dir)
-    let files: string[]
-    try {
-      files = await readdir(sub)
-    } catch {
-      continue
-    }
-    for (const f of files) {
-      if (!f.endsWith('.jsonl')) continue
-      const content = await readFile(join(sub, f), 'utf8')
-      const firstLine = content.split('\n').find(line => line.trim().length > 0) ?? '{}'
-      const header = JSON.parse(firstLine) as { id?: unknown; createdAt?: unknown; parentSession?: unknown }
-      logs.push({
-        id: typeof header.id === 'string' ? header.id : '',
-        createdAt: typeof header.createdAt === 'number' ? header.createdAt : 0,
-        ...typeof header.parentSession === 'string' ? { parentSession: header.parentSession } : {},
-        content,
-      })
-    }
+  for (const file of files) {
+    if (basename(file) !== 'session.jsonl') continue
+    const content = await readFile(join(root, file), 'utf8')
+    const firstLine = content.split('\n').find(line => line.trim().length > 0) ?? '{}'
+    const header = JSON.parse(firstLine) as { id?: unknown; createdAt?: unknown; parentSession?: unknown }
+    logs.push({
+      id: typeof header.id === 'string' ? header.id : '',
+      createdAt: typeof header.createdAt === 'number' ? header.createdAt : 0,
+      ...typeof header.parentSession === 'string' ? { parentSession: header.parentSession } : {},
+      content,
+    })
   }
   // Primary (no parentSession) first, then children by ascending createdAt. A
   // scenario has exactly one top-level session. In the synchronous cut sibling

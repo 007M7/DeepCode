@@ -811,7 +811,6 @@ describe('tool execution — non-object args fallback', () => {
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    // Simulate model emitting `null` as tool arguments (malformed).
     await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'mcp__srv__coerce', arguments: null })
 
     expect(client.callTool).toHaveBeenCalledWith(

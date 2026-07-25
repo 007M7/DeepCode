@@ -1,19 +1,6 @@
 /**
- * createSlotRenderer(): the outlet machinery behind the runtime install seam
- * (slot terminal design §8). renderRoot mounts the host channel and renders
- * the built-in 'root' key; every deeper slot renders through a per-entry
- * renderSlot binding synthesized from the entry's children declaration.
- * Standard-kit synthesis per entry: the global useSessions hook, the session
- * pair (useSession + sessionId) under SessionProvider, the store pair
- * (useStore + actions) for store-declaring entries, the renderSlot binding
- * (entry-identity bound, stale-checked) for children-declaring entries, and
- * the renderSlotChain binding for entries declaring a chain-kind child
- * (selector-routed: first non-null select elects and its value joins the
- * props as `matched`; all-null falls to the owner fallback).
- * Inject factories run inside the entry component bodies ON PURPOSE
- * — the per-entry error boundary contains a throwing factory to its own
- * entry; parameters follow the declaration (sessionId for session slots,
- * baked actions when a store is declared).
+ * React renderer for declarative slots. Per-entry bindings enforce child
+ * authorization, and entry boundaries contain registrant failures.
  */
 import { Component, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
@@ -27,10 +14,8 @@ import {
 
 type InjectedProps = Record<string, unknown>
 
-/** Owner-facing renderSlot binding shape (typed narrowing lands on the wave-1 props seam). */
 type RenderSlotBinding = (key: string, owner: object, opts?: RenderOpts) => ReactNode
 
-/** Owner-facing renderSlotChain binding shape (typed narrowing lands on the props seam). */
 type RenderSlotChainBinding = (key: string, owner: object, opts?: ChainRenderOpts) => ReactNode
 
 /**

@@ -7,6 +7,8 @@ description: Use when writing, reviewing, restoring, trimming, or auditing prose
 
 Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates. It is guidance, not a script.
 
+Comments describe non-obvious contracts or rationale that code cannot express; they do not restate what code already implies.
+
 ## Inputs and exclusions
 
 Require an explicit `scope`. If it is missing, report the required input and stop; do not infer a repository-wide scope or begin an interview.
