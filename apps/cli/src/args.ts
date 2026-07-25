@@ -31,7 +31,10 @@ interface HeadlessInvocation {
   prompt: string
 }
 
-/** Browser UI: `dsh web`. Host constrained to {@link LOOPBACK_HOST}/{@link ALL_INTERFACES_HOST}; port already coerced and range-checked; `dev` mounts the client HMR driver and bundle watch. */
+/**
+ * Browser UI: `dsh web`. Host constrained to {@link LOOPBACK_HOST}/{@link ALL_INTERFACES_HOST};
+ * port already coerced and range-checked; `dev` mounts the client HMR driver and bundle watch.
+ */
 interface WebInvocation {
   mode: 'web'
   host: string

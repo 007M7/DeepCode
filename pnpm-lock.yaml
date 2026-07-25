@@ -1554,9 +1554,6 @@ importers:
       '@deepseek-ai/dsh-agent-spine-demo':
         specifier: workspace:^
         version: link:../agent-spine-demo
-      '@deepseek-ai/dsh-app-boot':
-        specifier: workspace:^
-        version: link:../../ui/app-boot
       '@deepseek-ai/dsh-command-goal':
         specifier: workspace:^
         version: link:../../goal/command-goal

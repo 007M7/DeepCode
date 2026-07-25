@@ -8,7 +8,6 @@ import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/d
 import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 
-const binScript = fileURLToPath(new URL('../../../packages/examples/tui-demo/src/bin.ts', import.meta.url))
 const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const codeModeConfigPath = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
@@ -87,11 +86,11 @@ async function readLoggedSystemPrompt(cwd: string): Promise<string> {
   throw new Error(`session log ${logRelPath} has no request/header event`)
 }
 
-/** Shared defaults: the keyless key, the tui-demo bin, and the live cordis.yml. */
+/** Shared defaults: the keyless key, the dsh bin, and the live cordis.yml (passed as the positional config). */
 function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Promise<string> {
   return runTuiPtySmoke({
     tempDirPrefix: 'tui-agent-smoke-',
-    binScript,
+    binScript: dshBinScript,
     configPath,
     tsconfigPath,
     env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
