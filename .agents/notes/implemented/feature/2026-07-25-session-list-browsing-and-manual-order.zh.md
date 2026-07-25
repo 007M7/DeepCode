@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[Workspace UI 完整产品流](2026-07-25-workspace-ui-product-flow.zh.md)交付了分组 session 列表的首个形态,并把 Rename、拖拽排序等操作明确划出当期范围。设计稿(figma 239-10458 及关联画面)随后补齐了这些交互:列表要能切换成不分组的平铺视图、session 行悬停要出详情卡与操作菜单、workspace 要能改名、组内 session 要能手动排序。
+[Workspace UI 完整产品流](2026-07-25-workspace-ui-product-flow.md)交付了分组 session 列表的首个形态,并把 Rename、拖拽排序等操作明确划出当期范围。设计稿(figma 239-10458 及关联画面)随后补齐了这些交互:列表要能切换成不分组的平铺视图、session 行悬停要出详情卡与操作菜单、workspace 要能改名、组内 session 要能手动排序。
 
 两条既有机制挡在前面。其一,host 在每条 `session/event` 上把活跃 session durable 地提到 workspace 账本最前(活动置顶),任何手动排序都会被下一次活动打乱——两种排序权威不可调和。其二,浏览区域被劈在两个包里:ui-sidebar 拥有列表、搜索和组头行,ui-workspace 只借一个 picker 坑放弹层;每加一个 workspace 域的对话框都要跨包接线,归属越来越拧。
 
