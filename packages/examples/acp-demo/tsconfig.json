@@ -27,6 +27,12 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../session-query/session-query-sqlite"
+    },
+    {
       "path": "../agent-spine-demo"
     },
     {
