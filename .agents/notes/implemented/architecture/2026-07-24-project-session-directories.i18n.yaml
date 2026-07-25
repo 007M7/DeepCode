@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-24-project-session-directories.md: 0aa3f513d5a1bb3e44cf33a0ae1eb791ee3a46c2
-2026-07-24-project-session-directories.zh.md: f6bb1bd0ddb1067b68d1389182ce5b3397ad81fd
+2026-07-24-project-session-directories.zh.md: 3d8d33fa9fddad010ab319ac4e1f873b69b4e1dd

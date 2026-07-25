@@ -125,7 +125,7 @@ function instantiate(value: unknown): unknown {
 
 /** Persist an open turn so cancellation tests wait on agent state, not presentation output. */
 function persistParkedTurnStart(): void {
-  parkedTurnLog = join(sessionsRoot, 'ready', 'open.jsonl')
+  parkedTurnLog = join(sessionsRoot, 'ready', sessionId, 'session.jsonl')
   mkdirSync(dirname(parkedTurnLog), { recursive: true })
   writeFileSync(parkedTurnLog, [
     JSON.stringify({ type: 'session', version: 0, id: sessionId, createdAt: 1, cwd: sessionCwd, delegationDepth: 0 }),

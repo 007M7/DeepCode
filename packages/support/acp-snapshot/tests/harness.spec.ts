@@ -565,7 +565,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 3 } },
@@ -596,7 +596,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
@@ -618,7 +618,7 @@ describe('runScenario', () => {
       prompt: 'hang-until-cancel',
       persistLogsOnCancel: true,
       logs: [{
-        file: 'bucket/session.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
@@ -642,7 +642,7 @@ describe('runScenario', () => {
         prompt: 'hang-until-cancel',
         persistLogsOnCancel: true,
         logs: [{
-          file: 'bucket/session.jsonl',
+          file: 'project/main/session.jsonl',
           lines: [
             { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
             { type: 'turn/start', seq: 0, time: 1, data: turn === undefined ? {} : { turn } },
