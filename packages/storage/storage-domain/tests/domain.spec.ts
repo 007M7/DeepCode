@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { z } from 'zod'
-import Storage from '@deepseek-ai/dsh-storage'
+import Storage, { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import { DomainFacility, defineDomain, domainTable } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import type { DomainChanged } from '../src/events.ts'
@@ -151,15 +151,26 @@ describe('DomainFacility.open', () => {
 })
 
 describe('plugin apply', () => {
-  it('mounts the facility as ctx.storage.domain through the plugin effect', async () => {
+  it('waits for routed backends, then mounts one lifecycle-bound service and form', async () => {
     const ctx = new Context()
     await ctx.plugin(Storage)
-    ctx.storage.backend.register('memory', new MemoryStorageBackend())
     const DomainPlugin = await import('../src/index.ts')
     const fiber = await ctx.plugin(DomainPlugin, { backend: 'memory' })
-    expect(ctx.storage.domain).toBeInstanceOf(DomainFacility)
-    await fiber.dispose()
+    expect(ctx.get('storageDomain')).toBeUndefined()
     expect(() => ctx.storage.form('domain')).toThrow(/not mounted/)
+
+    const backend = new MemoryStorageBackend()
+    ctx.storage.backend.register('memory', backend)
+    const disposeBackend = ctx.provide(storageBackendServiceKey('memory'), backend)
+    await vi.waitFor(() => { expect(ctx.storageDomain).toBeInstanceOf(DomainFacility) })
+    expect(ctx.storage.domain).toBe(ctx.storageDomain)
+
+    disposeBackend()
+    await vi.waitFor(() => {
+      expect(ctx.get('storageDomain')).toBeUndefined()
+      expect(() => ctx.storage.form('domain')).toThrow(/not mounted/)
+    })
+    await fiber.dispose()
   })
 })
 
@@ -295,10 +306,12 @@ describe('close and lifecycle', () => {
   it('facility unmount closes domains the consumer never closed', async () => {
     const ctx = new Context()
     await ctx.plugin(Storage)
-    ctx.storage.backend.register('memory', new MemoryStorageBackend())
+    const backend = new MemoryStorageBackend()
+    ctx.storage.backend.register('memory', backend)
+    ctx.provide(storageBackendServiceKey('memory'), backend)
     const DomainPlugin = await import('../src/index.ts')
     const fiber = await ctx.plugin(DomainPlugin, { backend: 'memory' })
-    const domain = await ctx.storage.domain.open(bareSpec)
+    const domain = await ctx.storageDomain.open(bareSpec)
     const table = domain.table('rows')
     await table.put('a', { label: 'x', count: 1 })
     await fiber.dispose()

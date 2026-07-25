@@ -7,7 +7,7 @@
  * (one icon each, same top-down order) fading in as the slide ends. Rail
  * search expands and focuses the search box.
  */
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   BrandWordmark, FishLogo,
@@ -15,9 +15,10 @@ import {
   IconProjectAddOutline16, IconSearchOutline16, IconSettingsOutline14,
   Menu, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
-import { deriveRows } from './tree.ts'
-import { ProjectRowItem, SessionRowItem } from './Rows.tsx'
+import { deriveGroups, UNGROUPED_KEY } from './tree.ts'
+import { IntentRowItem, ProjectRowItem, SessionNodeItem } from './Rows.tsx'
 import css from './SidebarRoot.module.css'
 
 /** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
@@ -27,7 +28,7 @@ const COLLAPSE_SETTLE_MS = 150
 const EXPAND_SLIDE_MS = 300
 
 const GROUP_BY_ITEMS = [
-  { id: 'workspace', label: 'WorkSpace' },
+  { id: 'workspace', label: 'Workspace' },
   // Only workspace grouping is implemented.
   { id: 'update', label: 'Update', disabled: true },
   { id: 'status', label: 'Status', disabled: true },
@@ -63,62 +64,74 @@ function GroupByMenu() {
   )
 }
 
-type SessionTreeProps = Pick<SidebarRootComponentProps, 'useSessions' | 'onOpen' | 'onCreate'> & {
+type SessionTreeProps = Pick<
+  SidebarRootComponentProps,
+  'useSessions' | 'startSession' | 'open'
+> & {
+  workspaces: readonly WorkspaceView[]
   /** Live search filter owned by the root (the query outlives the tree). */
   query: string
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
-function SessionTree({ useSessions, onOpen, onCreate, query }: SessionTreeProps) {
+function SessionTree({ useSessions, startSession, open, workspaces, query }: SessionTreeProps) {
   const list = useSessions((s) => s)
-  // Selection belongs to the sessions snapshot, not layout state.
-  const current = useSessions((s) => s.current)
+  const current = list.current
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const [expandedSessions, setExpandedSessions] = useState<string[]>([])
-  const rows = useMemo(
-    () => deriveRows(list, { expandedProjects, expandedSessions, query }),
-    [list, expandedProjects, expandedSessions, query],
+  // Re-expand when publication moves the selected intent into a real Workspace.
+  const intent = list.intent
+  const intentWorkspaceId = intent?.target.kind === 'workspace'
+    ? intent.target.workspaceId
+    : undefined
+  const currentGroup = current === undefined
+    ? undefined
+    : intent?.sessionId === current
+      ? intentWorkspaceId
+      : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
+        ?? UNGROUPED_KEY
+  useEffect(() => {
+    if (current === undefined || currentGroup === undefined) return
+    setExpandedProjects((l) => (l.includes(currentGroup) ? l : [...l, currentGroup]))
+  }, [current, currentGroup])
+  const groups = useMemo(
+    () => deriveGroups(list, workspaces, { expandedProjects, expandedSessions, query }),
+    [list, workspaces, expandedProjects, expandedSessions, query],
   )
   const now = Date.now()
-
-  // Presentational lookup (not tree derivation): the group holding the
-  // selected session gets the active folder; only expanded groups can show it.
-  let activeGroup: string | undefined
-  if (current !== undefined) {
-    for (const row of rows) {
-      if (row.type === 'session' && row.id === current) { activeGroup = row.groupKey; break }
-    }
-  }
 
   return (
     <div className={clsx(css.treeBody, css.wide)}>
       <div className={css.list} role="tree" aria-label="Sessions">
-        {rows.length === 0 && (
+        {groups.length === 0 && (
           <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
         )}
-        {rows.map((row, i) => row.type === 'project'
-          ? (
-              <Fragment key={`p:${row.key}`}>
-                {/* Batch separator: a project row closing an expanded session run (figma 133:7661). */}
-                {i > 0 && rows[i - 1]!.type === 'session' && <span className={css.batchGap} />}
-                <ProjectRowItem
-                  row={row}
-                  active={row.key === activeGroup}
-                  onToggle={() => { setExpandedProjects((l) => toggled(l, row.key)) }}
-                  onCreate={() => { onCreate(row.cwd) }}
-                />
-              </Fragment>
-            )
-          : (
-              <SessionRowItem
-                key={row.id}
-                row={row}
-                selected={row.id === current}
+        {groups.map(group => (
+          // Group section: header row + expanded session subtree. The
+          // inter-group breathing room (former flat-list batch separator)
+          // is the section's own margin (SidebarRoot.module.css).
+          <div key={group.key} className={css.groupSection}>
+            <ProjectRowItem
+              group={group}
+              onToggle={() => { setExpandedProjects((l) => toggled(l, group.key)) }}
+              onCreate={() => {
+                if (group.workspaceId !== undefined) startSession(group.workspaceId)
+              }}
+            />
+            {group.intentHere && <IntentRowItem />}
+            {group.sessions.map(node => (
+              <SessionNodeItem
+                key={node.id}
+                node={node}
+                depth={0}
+                currentId={current}
                 now={now}
-                onOpen={() => { onOpen(row.id) }}
-                onToggle={() => { setExpandedSessions((l) => toggled(l, row.id)) }}
+                onOpen={open}
+                onToggle={(id) => { setExpandedSessions((l) => toggled(l, id)) }}
               />
             ))}
+          </div>
+        ))}
       </div>
       <span className={css.fade} />
     </div>
@@ -130,11 +143,27 @@ function SessionTree({ useSessions, onOpen, onCreate, query }: SessionTreeProps)
  * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
  * @returns the sidebar element tree.
  */
-export function SidebarRoot({ collapsed, width, useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
+export function SidebarRoot({
+  collapsed,
+  width,
+  useSessions,
+  useWorkspaces,
+  startSession,
+  open,
+  toggleSidebar,
+  renderSlot,
+}: SidebarRootComponentProps) {
+  const workspaces = useWorkspaces(state => state.items)
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
   const searchInput = useRef<HTMLInputElement | null>(null)
+  // Section-header ＋ opens the workspace picker (same popover in wide and
+  // rail states; the hole sits beside the button and opens rightward).
+  const [wsPickerOpen, setWsPickerOpen] = useState(false)
+  // Placement anchor for the picker popover: the slot span renders elsewhere
+  // in the DOM, so the picker positions off this button's rect.
+  const wsPlusRef = useRef<HTMLButtonElement>(null)
 
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
@@ -188,7 +217,7 @@ export function SidebarRoot({ collapsed, width, useSessions, onOpen, onCreate, o
             type="button"
             className={clsx(css.iconButton, css.toggle)}
             aria-label={collapsed ? 'Open sidebar' : 'Collapse sidebar'}
-            onClick={() => { onToggleSidebar() }}
+            onClick={() => { toggleSidebar() }}
           >
             {!wide && <FishLogo className={css.railFish} size={24} />}
             {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
@@ -202,7 +231,7 @@ export function SidebarRoot({ collapsed, width, useSessions, onOpen, onCreate, o
           type="button"
           className={css.newSession}
           aria-label="New session"
-          onClick={() => { onCreate() }}
+          onClick={() => { startSession() }}
         >
           <IconNewChatOutline16 size={wide ? 14 : 18} />
           {wide && <span className={clsx(css.newSessionLabel, css.wide)}>New Session</span>}
@@ -210,18 +239,29 @@ export function SidebarRoot({ collapsed, width, useSessions, onOpen, onCreate, o
       </Tooltip>
 
       <div className={css.sectionHeader}>
-        {wide && <span className={clsx(css.sectionLabel, css.wide)}>WorkSpace</span>}
+        {wide && <span className={clsx(css.sectionLabel, css.wide)}>Workspaces</span>}
         {wide && <GroupByMenu />}
         <Tooltip label="New Workspace" disabled={wide}>
           <button
+            ref={wsPlusRef}
             type="button"
             className={css.iconButton}
-            aria-label="New workspace"
-            onClick={() => { onCreate() }}
+            aria-label="Create workspace"
+            onClick={() => { setWsPickerOpen(v => !v) }}
           >
             <IconProjectAddOutline16 size={wide ? 16 : 18} />
           </button>
         </Tooltip>
+        {/* Picker hole beside the ＋ (same site in wide and rail states). */}
+        {renderSlot('sidebar.workspace', {
+          open: wsPickerOpen,
+          anchorRef: wsPlusRef,
+          onPick: (workspaceId) => {
+            setWsPickerOpen(false)
+            startSession(workspaceId)
+          },
+          onClose: () => { setWsPickerOpen(false) },
+        })}
       </div>
 
       {/* Expanded: the row is a click-to-focus field (the leading icon is
@@ -233,7 +273,7 @@ export function SidebarRoot({ collapsed, width, useSessions, onOpen, onCreate, o
             className={css.searchButton}
             aria-label="Search sessions"
             tabIndex={collapsed ? 0 : -1}
-            onClick={() => { if (collapsed) { setSearchOnExpand(true); onToggleSidebar() } }}
+            onClick={() => { if (collapsed) { setSearchOnExpand(true); toggleSidebar() } }}
           >
             <IconSearchOutline16 size={wide ? 14 : 18} />
           </button>
@@ -263,7 +303,15 @@ export function SidebarRoot({ collapsed, width, useSessions, onOpen, onCreate, o
       {/* Always-mounted seat: its flex slot pins the foot to the bottom in
           both states while the tree itself is wide-only. */}
       <div className={css.listArea}>
-        {wide && <SessionTree useSessions={useSessions} onOpen={onOpen} onCreate={onCreate} query={query} />}
+        {wide && (
+          <SessionTree
+            useSessions={useSessions}
+            workspaces={workspaces}
+            startSession={startSession}
+            open={open}
+            query={query}
+          />
+        )}
       </div>
 
       <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">

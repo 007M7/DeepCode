@@ -34,6 +34,10 @@ function scriptedApi(overrides: {
       ...overrides.sessions,
     },
     host: { describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }), ...overrides.host },
+    workspace: {
+      list: r => ok(r, { items: [] }),
+      create: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' }, created: true }),
+    },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
   }
@@ -187,6 +191,23 @@ describe('unary round trip', () => {
       sessions: { list: r => Promise.resolve({ rpcId: r.rpcId, result: { ok: true, value: { items: 'not-an-array' } } }) as never },
     })
     await expect(client(api).sessions.list({})).rejects.toThrow()
+  })
+})
+
+describe('workspace domain round trip', () => {
+  it('routes both workspace methods through their handler rows and value schemas', async () => {
+    const c = client(scriptedApi())
+    const list = await c.workspace.list({})
+    expect(list.result).toEqual({ ok: true, value: { items: [] } })
+    const created = await c.workspace.create({ path: '/t' })
+    expect(created.result.ok).toBe(true)
+    if (created.result.ok) expect(created.result.value.created).toBe(true)
+  })
+
+  it('rejects a create payload violating the exactly-one refine at the handler', async () => {
+    const response = await client(scriptedApi()).workspace.create({})
+    expect(response.result.ok).toBe(false)
+    if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
   })
 })
 

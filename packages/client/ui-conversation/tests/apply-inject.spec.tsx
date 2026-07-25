@@ -3,8 +3,8 @@
 // shape: the conversation surface (views triple, send choreography incl.
 // optimistic clear + failure restore THROUGH the declared store actions,
 // openDetails = select action + layout orchestration, sessions.open
-// navigation), the injectless-but-closeDetails details surface, and the
-// one-callback empty surface. Complements chat-apply.spec.tsx (registration)
+// navigation), and the closeDetails details surface. Complements
+// chat-apply.spec.tsx (registration)
 // and selection-survival.spec.ts (store axis). History opening is NOT an
 // inject concern anymore — the runtime sessions service opens on watch
 // (sessions-service.spec.ts owns that behavior).
@@ -14,9 +14,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotsService, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  SessionId, SessionListState, WorkspaceListState,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlotRendererHost } from '@deepseek-ai/dsh-client-web-react'
-import { ConversationService, apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ChatViewInjected, ConversationInjected, DetailsInjected, EmptyStateInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -53,10 +55,14 @@ async function bench() {
     ids: [ROOT],
     byId: { [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', cwd: '/proj', running: false, updatedAt: 1 } },
     current: ROOT,
-  } as SessionListState)
+    intent: undefined,
+    phase: 'ready',
+  })
   const sessionFake = {
     open: vi.fn(() => Promise.resolve()),
     loadOlder: vi.fn(() => Promise.resolve()),
+    updatePendingPrompt: vi.fn(),
+    retryPendingPrompt: vi.fn(),
     prompt: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
       () => Promise.resolve({ ok: true, value: { accepted: true } })),
     cancel: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
@@ -73,15 +79,24 @@ async function bench() {
   }
   const sessionsFake = {
     list: listStore,
-    manager: { get: () => sessionFake },
+    binding: (id: SessionId) => ({ sessionId: id, session: sessionFake, ctx: mint(id) }),
     scope: (id: SessionId) => mint(id),
     cell: () => undefined,
     scopeOf,
-    create: vi.fn(() => Promise.resolve(ROOT)),
-    createWorkspace: vi.fn(() => Promise.resolve(ROOT)),
     open: vi.fn(),
+    updateIntent: vi.fn(),
   }
   ctx.provide('sessions', sessionsFake)
+  const workspaceStore = createSnapshotStore<WorkspaceListState>({
+    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+    baselinesReady: true, recentWorkspaceId: undefined,
+  })
+  const workspacesFake = {
+    list: workspaceStore,
+    startSession: vi.fn(),
+    sendSession: vi.fn(),
+  }
+  ctx.provide('workspaces', workspacesFake)
   const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
   ctx.provide('layout', layoutFake)
   ctx.provide('i18n', { bind: () => (key: string) => key })
@@ -124,19 +139,25 @@ async function bench() {
       id, instance.actions)
     return { instance, injected }
   }
-  return { ctx, slots, hostFace, entryOf, conversationSurface, chatViewSurface, sessionFake, sessionsFake, layoutFake, mint }
+  const emptySurface = () => {
+    const entry = entryOf('conversation.empty')
+    return (entry.inject as unknown as () => EmptyStateInjected)()
+  }
+  return {
+    ctx, slots, hostFace, entryOf, conversationSurface, chatViewSurface, emptySurface,
+    sessionFake, sessionsFake, workspacesFake, layoutFake, mint,
+  }
 }
 
 describe('conversation slot inject surface', () => {
-  it('assembles the thin surface side-effect-free, navigates via sessions.open', async () => {
+  it('assembles the thin surface side-effect-free', async () => {
     const b = await bench()
     const { injected } = b.conversationSurface(ROOT)
     // Assembly has no session side effects: opening the event window belongs
     // to the runtime watch path, not the inject factory.
     expect(b.sessionFake.open).not.toHaveBeenCalled()
     expect(injected.views.list().map(v => v.id)).toEqual(['chat'])
-    injected.open(ROOT)
-    expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
+
     const chatView = b.chatViewSurface(ROOT)
     chatView.injected.loadOlder()
     expect(b.sessionFake.loadOlder).toHaveBeenCalledTimes(1)
@@ -202,6 +223,17 @@ describe('conversation slot inject surface', () => {
     expect(conv.instance).toBe(instance)
   })
 
+  it('routes navigation through SessionsService and the retained prompt through the scoped Session', async () => {
+    const b = await bench()
+    const { injected } = b.conversationSurface(ROOT)
+    injected.open(ROOT)
+    injected.updateSessionPrompt('revised')
+    injected.retrySessionPrompt()
+    expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
+    expect(b.sessionFake.updatePendingPrompt).toHaveBeenCalledWith('revised')
+    expect(b.sessionFake.retryPendingPrompt).toHaveBeenCalledOnce()
+  })
+
   it('views read face projects the ring ledger (subscribe/version through ctx.slots)', async () => {
     const b = await bench()
     const { injected } = b.conversationSurface(ROOT)
@@ -225,7 +257,7 @@ describe('conversation slot inject surface', () => {
   })
 })
 
-describe('details and empty inject surfaces', () => {
+describe('details inject surface', () => {
   it('details injects the one layout callback; selection rides the shared store instead', async () => {
     const b = await bench()
     const entry = b.entryOf('details')
@@ -239,29 +271,18 @@ describe('details and empty inject surfaces', () => {
     expect(details).toBe(conv)
   })
 
-  it('empty injects startSession and createWorkspaceSession (no store, cwds derive in-component)', async () => {
+  it('empty state injects the runtime intent actions and remains storeless', async () => {
     const b = await bench()
     const entry = b.entryOf('conversation.empty')
     expect(entry.store).toBeUndefined()
-    const injected = (entry.inject as unknown as () => EmptyStateInjected)()
-    expect(Object.keys(injected).sort()).toEqual(['createWorkspaceSession', 'startSession'])
-    await injected.startSession({ text: 'go', mode: 'queue' })
-    expect(b.sessionsFake.create).toHaveBeenCalled()
-    expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
-    expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'go' }], 'queue')
-    b.sessionsFake.open.mockClear()
-    await injected.createWorkspaceSession('Fresh')
-    expect(b.sessionsFake.createWorkspace).toHaveBeenCalledWith('Fresh')
-    expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
-  })
-
-  it('startSession fails loud on a torn boot (conversation service fiber gone)', async () => {
-    const b = await bench()
-    const injected = (b.entryOf('conversation.empty').inject as unknown as () => EmptyStateInjected)()
-    // Tear the service's own fiber (registry keyed by the class): the slot
-    // entries survive, so the gesture-time read hits the loud branch.
-    b.ctx.registry.delete(ConversationService)
-    await vi.waitFor(() => { expect(b.ctx.get('conversation')).toBeUndefined() })
-    expect(() => injected.startSession({ text: 'go', mode: 'queue' })).toThrow(/conversation service unavailable/)
+    const injected = b.emptySurface()
+    injected.startSession(undefined, 'fresh')
+    injected.startSession('workspace-1' as never, 'retargeted')
+    injected.updateSessionPrompt('typed')
+    injected.sendSession()
+    expect(b.workspacesFake.startSession).toHaveBeenNthCalledWith(1, undefined, 'fresh')
+    expect(b.workspacesFake.startSession).toHaveBeenNthCalledWith(2, 'workspace-1', 'retargeted')
+    expect(b.sessionsFake.updateIntent).toHaveBeenCalledWith('typed')
+    expect(b.workspacesFake.sendSession).toHaveBeenCalledOnce()
   })
 })

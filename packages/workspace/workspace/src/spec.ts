@@ -10,6 +10,9 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { WorkspaceId } from './types.ts'
 
+/** Workspace id schema at the durable boundary; branding has no runtime representation. */
+const workspaceId = z.string().transform(value => value as WorkspaceId)
+
 /**
  * Durable shape of one workspace record. `path` is the `fs.realpath` canon
  * stamped at create; `sessionIds` is the ordered ownership account (array
@@ -27,13 +30,30 @@ export const workspaceRecord = z.object({
 export type WorkspaceRecord = z.infer<typeof workspaceRecord>
 
 /**
+ * Durable registry state. `initialized` distinguishes a valid empty registry
+ * from one that still needs the header-only history bootstrap;
+ * `workspaceIds` is the authoritative display order.
+ */
+export const workspaceDomainState = z.object({
+  initialized: z.boolean(),
+  workspaceIds: z.array(workspaceId),
+})
+
+/** Durable registry state inferred from {@link workspaceDomainState}. */
+export type WorkspaceDomainState = z.infer<typeof workspaceDomainState>
+
+/**
  * The workspace domain spec: one `workspaces` table keyed by
- * {@link WorkspaceId}, no global singleton. The registry opens this through
- * `ctx.storage.domain`; the spec object is the single source of the domain's
- * identity, version, and record schema.
+ * {@link WorkspaceId} plus the bootstrap/order singleton. The registry opens
+ * this through `ctx.storage.domain`; the spec object is the single source of
+ * the domain's identity, version, and schemas.
  */
 export const workspaceDomainSpec = defineDomain({
   name: 'workspace',
-  version: 1,
+  version: 2,
+  global: {
+    schema: workspaceDomainState,
+    initial: { initialized: false, workspaceIds: [] },
+  },
   tables: { workspaces: domainTable<WorkspaceId, WorkspaceRecord>(workspaceRecord) },
 })

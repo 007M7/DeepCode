@@ -77,6 +77,8 @@ export interface AppCLIEntryOptions {
    * browser).
    */
   port?: number
+  /** Parent directory for name-created Workspaces; undefined uses the gateway's cwd fallback. */
+  workspaceRoot?: string
 }
 
 /**
@@ -141,6 +143,7 @@ export class AppCLIEntry {
     // Source 2: CLI flags (field set disjoint from the json mappings).
     if (this.options.host !== undefined) put('webserver', 'host', this.options.host)
     if (this.options.port !== undefined) put('webserver', 'port', this.options.port)
+    if (this.options.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', this.options.workspaceRoot)
 
     // Source 3: the frontend dist — an assembly fact of this app, never yml
     // user config. Workspace knowledge stays here.

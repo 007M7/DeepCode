@@ -42,6 +42,9 @@ function makeHost() {
       current: { getSnapshot: () => undefined, subscribe: () => () => {} },
       cell: () => undefined,
     },
+    workspaces: {
+      list: { getSnapshot: () => ({}), subscribe: () => () => {} },
+    },
   }
   return {
     host,

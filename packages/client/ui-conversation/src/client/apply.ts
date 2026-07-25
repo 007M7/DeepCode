@@ -16,7 +16,7 @@ import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { EmptyState } from './skeleton/EmptyState.tsx'
 
 /** Services required by the conversation plugin. */
-export const inject = ['slots', 'layout', 'sessions']
+export const inject = ['slots', 'layout', 'sessions', 'workspaces']
 
 /** Resolve the session-scoped conversation service (scope-addressed send/cancel), failing loud. */
 function scopedConversation(sessions: SessionsService, id: SessionId): ConversationService {
@@ -32,6 +32,7 @@ function scopedConversation(sessions: SessionsService, id: SessionId): Conversat
  */
 export function apply(ctx: Context): void {
   const sessions = ctx.sessions
+  const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
 
@@ -86,7 +87,9 @@ export function apply(ctx: Context): void {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
-        open: (target: SessionId) => { sessions.open(target) },
+        open: (sessionId) => { sessions.open(sessionId) },
+        updateSessionPrompt: (text) => { scoped.updatePendingPrompt(text) },
+        retrySessionPrompt: () => { scoped.retryPendingPrompt() },
       }
     },
   }, ConversationRoot)
@@ -103,13 +106,16 @@ export function apply(ctx: Context): void {
     label: 'Chat',
     children: { 'conversation.chat.toolview': { kind: 'keyed', scope: 'session' } },
     store: chatStore,
-    inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => ({
-      openDetails: (target) => {
-        actions.select(target)
-        layout.openDetails()
-      },
-      loadOlder: () => { void sessions.manager.get(sessionId).loadOlder() },
-    }),
+    inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
+      const scoped = scopedConversation(sessions, sessionId)
+      return {
+        openDetails: (target) => {
+          actions.select(target)
+          layout.openDetails()
+        },
+        loadOlder: () => { void scoped.loadOlder() },
+      }
+    },
   }, ChatView)
 
   // Class-plugin mount (packages/AGENTS.md service form): the service
@@ -133,20 +139,11 @@ export function apply(ctx: Context): void {
 
   slots.register({
     name: 'conversation.empty',
+    children: { 'conversation.empty.workspace': { kind: 'single', scope: 'root' } },
     inject: (): EmptyStateInjected => ({
-      // ctx.get, not ctx.conversation: the service mounts on this plugin's
-      // own child fiber, so it is not in the inject topology the property
-      // proxy enforces; get reads the global store and stays loud on a torn
-      // boot through the optional-chain throw below.
-      startSession: (opts) => {
-        const conversation = ctx.get('conversation')
-        if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
-        return conversation.startSession(opts)
-      },
-      createWorkspaceSession: async (name) => {
-        const id = await sessions.createWorkspace(name)
-        sessions.open(id)
-      },
+      startSession: (workspaceId, prompt) => { workspaces.startSession(workspaceId, prompt) },
+      updateSessionPrompt: (text) => { sessions.updateIntent(text) },
+      sendSession: () => { workspaces.sendSession() },
     }),
   }, EmptyState)
 }
