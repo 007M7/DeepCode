@@ -7,7 +7,7 @@
  * section — the theme feature owns its own settings surface.
  */
 import type { Context } from 'cordis'
-import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { deferRegistration, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -262,28 +262,15 @@ export function apply(ctx: ClientContext): void {
       setTheme: (id) => { theme.setTheme(id) },
     }
   }
-  // Declaration-aware registration; the LEDGER is the has-registered judge
-  // (not a local flag): after an HMR collapse re-declares the slot, the
-  // cascade already removed our entry, and a stale disposer must not block
-  // the re-registration.
   ctx.effect(() => {
-    let dispose: (() => void) | undefined
-    const tryRegister = (): void => {
-      if (ctx.slots.spec('settings.general.item') === undefined) return
-      if (ctx.slots.entries('settings.general.item').some(e => e.component === AppearanceRow)) return
-      dispose = ctx.slots.register({
+    const deferred = deferRegistration(ctx.slots, 'settings.general.item', AppearanceRow, () =>
+      ctx.slots.register({
         name: 'settings.general.item',
         id: 'appearance',
         order: 10,
         store,
         inject: injected,
-      }, AppearanceRow)
-    }
-    const unsubscribe = ctx.slots.subscribe('settings.general.item', () => { tryRegister() })
-    tryRegister()
-    return () => {
-      unsubscribe()
-      dispose?.()
-    }
+      }, AppearanceRow))
+    return () => { deferred.dispose() }
   }, 'ui-theme: appearance settings row registration')
 }

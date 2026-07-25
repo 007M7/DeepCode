@@ -7,6 +7,7 @@
  * preference rows into. Export discipline: packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the locale plugin's Context/Events merges (ctx.locale,
 // 'locale/change') into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -60,60 +61,37 @@ export function apply(ctx: ClientContext): void {
       }))
       .sort((a, b) => a.order - b.order),
   })
-  // Declaration-aware registration; the LEDGER is the has-registered judge
-  // (not a local flag): after an HMR collapse re-declares the slot, the
-  // cascade already removed our entry, and a stale disposer must not block
-  // the re-registration.
   ctx.effect(() => {
-    let dispose: (() => void) | undefined
-    const tryRegister = (): void => {
-      if (ctx.slots.spec('sidebar.settings') === undefined) return
-      if (ctx.slots.entries('sidebar.settings').some(e => e.component === SettingsRoot)) return
-      dispose = ctx.slots.register({
+    const deferred = deferRegistration(ctx.slots, 'sidebar.settings', SettingsRoot, () =>
+      ctx.slots.register({
         name: 'sidebar.settings',
         children: { 'settings.section': { kind: 'list', scope: 'root' } },
         inject: injected,
-      }, SettingsRoot)
-    }
-    const unsubscribe = ctx.slots.subscribe('sidebar.settings', () => { tryRegister() })
-    tryRegister()
-    return () => {
-      unsubscribe()
-      dispose?.()
-    }
+      }, SettingsRoot))
+    return () => { deferred.dispose() }
   }, 'ui-settings: shell registration')
 
   // The shell's own General section: first page, declares the item slot the
   // feature plugins (locale, ui-theme, …) contribute preference rows into.
-  // Same ledger-judged deferral; label re-registers on locale change.
   const generalInjected = (): GeneralSectionInjected => ({
     t: ctx.locale.bind('settings'),
   })
   ctx.effect(() => {
-    let dispose: (() => void) | undefined
-    const tryRegister = (): void => {
-      if (ctx.slots.spec('settings.section') === undefined) return
-      if (ctx.slots.entries('settings.section').some(e => e.component === GeneralSection)) return
-      dispose = ctx.slots.register({
+    const deferred = deferRegistration(ctx.slots, 'settings.section', GeneralSection, () =>
+      ctx.slots.register({
         name: 'settings.section',
         id: 'general',
         order: 0,
         label: ctx.locale.bind('settings')('general.nav'),
         children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
         inject: generalInjected,
-      }, GeneralSection)
-    }
-    const offLocale = ctx.on('locale/change', () => {
-      dispose?.()
-      dispose = undefined
-      tryRegister()
-    })
-    const unsubscribe = ctx.slots.subscribe('settings.section', () => { tryRegister() })
-    tryRegister()
+      }, GeneralSection))
+    // Nav labels are registrant-localized: refresh on locale change so the
+    // ledger carries fresh text (the version bump re-renders the shell).
+    const offLocale = ctx.on('locale/change', () => { deferred.refresh() })
     return () => {
       offLocale()
-      unsubscribe()
-      dispose?.()
+      deferred.dispose()
     }
   }, 'ui-settings: general section registration')
 }

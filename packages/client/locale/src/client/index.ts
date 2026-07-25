@@ -5,7 +5,7 @@
  * its own settings surface.
  */
 import type { Context } from 'cordis'
-import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { deferRegistration, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { en } from '../locales/en.ts'
 import { zh } from '../locales/zh.ts'
@@ -233,28 +233,15 @@ export function apply(ctx: ClientContext): void {
       setLocale: (id) => { locale.setLocale(id) },
     }
   }
-  // Declaration-aware registration; the LEDGER is the has-registered judge
-  // (not a local flag): after an HMR collapse re-declares the slot, the
-  // cascade already removed our entry, and a stale disposer must not block
-  // the re-registration.
   ctx.effect(() => {
-    let dispose: (() => void) | undefined
-    const tryRegister = (): void => {
-      if (ctx.slots.spec('settings.general.item') === undefined) return
-      if (ctx.slots.entries('settings.general.item').some(e => e.component === LanguageRow)) return
-      dispose = ctx.slots.register({
+    const deferred = deferRegistration(ctx.slots, 'settings.general.item', LanguageRow, () =>
+      ctx.slots.register({
         name: 'settings.general.item',
         id: 'language',
         order: 0,
         store,
         inject: injected,
-      }, LanguageRow)
-    }
-    const unsubscribe = ctx.slots.subscribe('settings.general.item', () => { tryRegister() })
-    tryRegister()
-    return () => {
-      unsubscribe()
-      dispose?.()
-    }
+      }, LanguageRow))
+    return () => { deferred.dispose() }
   }, 'locale: language settings row registration')
 }
