@@ -30,9 +30,6 @@ async function mount(config: acpAgent.Config, withBash = false): Promise<Context
     })
   }
   await ctx.plugin(acpAgent, config)
-  // The bundle mounts its children inside apply() (not awaited there); let their
-  // fibers settle so the spine services are ready.
-  await new Promise(resolve => setTimeout(resolve, 50))
   return ctx
 }
 
@@ -89,7 +86,7 @@ describe('dsh-acp-demo composition', () => {
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
-    expect(ctx.get('sessionQuery')).toBeUndefined()
+    expect(ctx.get('sessionQuery')).toBeDefined()
     expect(ctx.get('sessionReferences')).toBeUndefined()
     expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -122,8 +119,12 @@ describe('dsh-acp-demo composition', () => {
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    acpAgent.apply(ctx, { provider: 'mock', model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await acpAgent.apply(ctx, {
+      provider: 'mock',
+      model: 'mock',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
     expect(ctx.get('sessionPersistence')).toBeDefined()
     await ctx.fiber.dispose()
   })
@@ -144,8 +145,7 @@ describe('dsh-acp-demo composition', () => {
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      acpAgent.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await acpAgent.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
       await ctx.fiber.dispose()

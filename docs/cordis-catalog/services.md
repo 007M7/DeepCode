@@ -1009,15 +1009,17 @@ abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEven
  * This read is serialized with writes for the same id and returns detached
  * values, so observers cannot mutate backend-owned state.
  * @param id - the persisted session to inspect.
+ * @param signal - optional cancellation for queued and backend read work.
  * @returns the header and valid stored event prefix exactly as observed.
  */
-abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
 /**
  * Lightweight listing from metadata, without a full-log parse.
+ * @param signal - optional cancellation for backend listing work.
  * @returns one header per materialized session.
  */
-abstract list(): Promise<SessionHeader[]>
+abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 
 /**
  * List materialized sessions with cheap per-log change tokens.
@@ -1026,9 +1028,10 @@ abstract list(): Promise<SessionHeader[]>
  * successful mutating {@link load} repair changes the next listed revision.
  * Revisions also distinguish independently backed stores so backend-local
  * counters cannot compare equal across different persistence sources.
+ * @param signal - optional cancellation for backend snapshot-listing work.
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
-abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
+abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 ```
 
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
@@ -1054,15 +1057,16 @@ abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExec
  * Search events within one live-preferred logical session.
  * @param request - target session, query text, filters, page size, and cursor.
  * @param exec - optional cancellation control.
- * @returns matching event hits in deterministic relevance order.
+ * @returns matching event hits and their target header from one indexed generation.
  */
-abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>
+abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionEventSearchPage>
 
 /**
  * List the complete logical corpus using live-preferred records.
+ * @param signal - optional cancellation for persistence listing.
  * @returns deterministic newest-first cloned session records.
  */
-listSessions(): Promise<SessionRecord[]>
+listSessions(signal?: AbortSignal): Promise<SessionRecord[]>
 
 /**
  * Read and replay-validate one complete logical session log without making it live.
@@ -1075,16 +1079,37 @@ async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>
 /**
  * Filter the complete logical corpus with provider-independent predicates.
  * @param filters - ANDed session metadata and availability clauses.
+ * @param signal - optional cancellation for persistence listing.
  * @returns matching cloned records in deterministic newest-first order.
  */
-async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>
+async filterSessions( filters: readonly SessionResultFilter[], signal?: AbortSignal, ): Promise<SessionRecord[]>
 
 /**
  * Fold the latest log-backed title from one live-preferred logical session.
  * @param sessionId - live or persisted session id to read.
+ * @param signal - optional cancellation for source resolution and title folding.
  * @returns latest title snapshot, or `undefined` when the log has no title event.
  */
-async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>
+async readTitle( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleSnapshot | undefined>
+
+/**
+ * Fold the latest title and return its source header from one corpus observation.
+ * @param sessionId - live or persisted session id to read.
+ * @param signal - optional cancellation for source resolution and title folding.
+ * @returns cloned source header and optional latest title snapshot.
+ */
+async readTitleSnapshot( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleObservation>
+
+/**
+ * Fold titles for unique sessions from one cancellable corpus observation.
+ *
+ * Results preserve first-occurrence input order. Operational failures stay
+ * isolated per session, while cancellation rejects the complete operation.
+ * @param sessionIds - live or persisted session ids to observe.
+ * @param signal - optional cancellation shared by all source reads.
+ * @returns one fulfilled or rejected result per unique requested id.
+ */
+async readTitleSnapshots( sessionIds: readonly SessionId[], signal?: AbortSignal, ): Promise<SessionTitleObservationResult[]>
 
 /**
  * List lightweight raw-log event records for one logical session.
@@ -1112,30 +1137,33 @@ async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
 /**
  * Trace known ancestry and descendants from one corpus observation.
  * @param sessionId - logical session id to trace.
+ * @param signal - optional cancellation for persistence listing.
  * @returns a complete lineage or an explicit unresolved parent boundary.
  * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
  */
-async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
+async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>
 
 /**
  * Trace one event's direct positional and provenance relationships.
  * @param request - target session id and event seq.
- * @returns direct links plus the target's positional replacement chain.
+ * @param signal - optional cancellation for persisted source resolution.
+ * @returns source header, direct links, and the target's positional replacement chain.
  * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
  */
-async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
+async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>
 
 /**
  * Read one full event plus a bounded raw-log context window.
  * @param request - target session/seq and context sizes.
+ * @param signal - optional cancellation for persisted source resolution.
  * @returns cloned target and neighboring events.
  */
-async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
+async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchHit](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleObservationResult](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:74`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:81`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessionReferences` — `SessionReferenceService`
 

@@ -34,6 +34,7 @@ const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import
 const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
+const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
@@ -88,6 +89,15 @@ const SCENARIOS: Scenario[] = [
     configPath: FS_CONFIG,
   },
   { name: 'bash-spill', hasModelTurn: true, recorded: false, configPath: FS_CONFIG },
+  {
+    name: 'session-query-spill',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'session-query',
+    configPath: SESSION_QUERY_CONFIG,
+    posixOnly: true,
+  },
   {
     name: 'pty-tools',
     hasModelTurn: true,

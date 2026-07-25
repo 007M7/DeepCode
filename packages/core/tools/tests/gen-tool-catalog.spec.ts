@@ -23,7 +23,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
   it('boots every shipped tool package and harvests its model-facing schemas', async () => {
     const catalog = await collectToolCatalog()
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
-    expect(names).toEqual(['ask_user_question', 'bash', 'cordis_inspect', 'cordis_mount', 'cordis_unmount', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'lsp', 'ralph', 'read', 'run_code', 'skill', 'subagent', 'task_kill', 'task_list', 'task_output', 'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'])
+    expect(names).toEqual(['ask_user_question', 'bash', 'cordis_inspect', 'cordis_mount', 'cordis_unmount', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'lsp', 'ralph', 'read', 'run_code', 'session_event_read', 'session_event_search', 'session_event_trace', 'session_search', 'session_trace', 'skill', 'subagent', 'task_kill', 'task_list', 'task_output', 'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
       for (const schema of entry.schemas) {

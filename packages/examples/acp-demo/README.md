@@ -9,9 +9,10 @@ ACP automation server app: the default agent spine, client-created agents throug
 | `@deepseek-ai/dsh-agent-spine-demo` | Providerless agent spine with no pre-created agents; `session/new` creates each agent. |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | Durable session logs used by checkpointing, observability, and snapshot replay. |
 | `@deepseek-ai/dsh-session-checkpoint-policy` | Durability barriers before model calls and top-level tool effects, plus completed-step checkpoints. |
+| `@deepseek-ai/dsh-session-query-sqlite` | Derived exact/FTS session-query service, opened before the ACP transport so leaf consumers are ready for the first model request. |
 | `@deepseek-ai/dsh-acp` | Automation-only ACP transport over stdin/stdout. |
 
-The app does not install commands, user interaction, session navigation, configuration pickers, or a stdout logger. It owns the four plugins through one ordered effect so ACP sessions quiesce before checkpointing and persistence detach. Leaf configurations supply LLM, executor, sandbox, approval, filesystem, and model-facing tool plugins.
+The app does not install commands, user interaction, session navigation, configuration pickers, or a stdout logger. It owns these plugins through one ordered effect so the query service is ready before ACP accepts work and ACP sessions quiesce before checkpointing and persistence detach. Leaf configurations supply LLM, executor, sandbox, approval, filesystem, and model-facing tool plugins.
 
 ## Config
 
@@ -25,7 +26,7 @@ The app does not install commands, user interaction, session navigation, configu
 | `tools` | `{ mode: 'native' }` | Native, Code Mode, or combined model tool transport. |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home shared by bash and local skill discovery. |
 | `sessionTitle` | spine example limits | Durable fallback-title limits; titles remain off the ACP wire. |
-| `persistenceRoot` | `./.sessions` | JSONL backend root. |
+| `persistenceRoot` | `./.sessions` | JSONL backend root and parent directory of the derived `session-query.db` index. |
 | `packChunks` | `false` | Pack consecutive delta-chunk events in storage. |
 | `persistenceCompression` | `zstd` | Checksummed Zstandard frames or raw `none`. |
 | `workspaceContext` | required | Workspace-instruction byte budget/config, or `false`. |
@@ -35,7 +36,7 @@ The app does not install commands, user interaction, session navigation, configu
 | `goals` | owner defaults | Persisted same-session goal domain and model tools, or `false`. |
 | `llmRetry` | owner defaults | Bounded transient model-request retry policy. |
 
-The shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) adds the DeepSeek adapter, sandboxed bash and filesystem providers, one-shot approval policy, compaction, subagents, workflows, hooks, and model-facing tools. Snapshot overlays replace only nondeterministic providers or policy values.
+The shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) adds the DeepSeek adapter, sandboxed bash and filesystem providers, one-shot approval policy, compaction, subagents, workflows, hooks, and model-facing tools. The app supplies the derived session-query index, while the model-facing query consumer remains an explicit leaf opt-in. Snapshot overlays replace only nondeterministic providers or policy values.
 
 ## Bin
 
