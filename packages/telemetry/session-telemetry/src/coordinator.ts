@@ -35,19 +35,20 @@ const handoffCursor = new WeakMap<Session, number>()
  * Registers the persistence-coordinator listener set plus the `agent/error`
  * relay, all through `ctx.effect()`/`ctx.on()` on the composing fiber, and
  * sweeps already-live sessions (a hot reload does not replay
- * `session/created`). A `session/disposed` retires the session from the
- * adopted set — a long-lived backend must not retain closed sessions (and
- * their frozen event logs) or stamp dispose-time markers for sessions that
- * already ended. Disposal emits each still-adopted session's `shutdown`
- * operational record and then awaits the backend's `shutdown()`; a failure
- * there warns instead of throwing — best-effort reporting must not fail
- * application teardown.
+ * `session/created`). A `session/disposed` emits the session's `shutdown`
+ * operational record — the marker rides the session's own termination edge,
+ * where receivers key crash detection — and retires it from the adopted set,
+ * so a long-lived backend neither retains closed sessions (and their frozen
+ * event logs) nor re-marks them at unload. Disposal marks the sessions still
+ * alive at teardown (their own edge would fire unobserved) and then awaits
+ * the backend's `shutdown()`; a failure there warns instead of throwing —
+ * best-effort reporting must not fail application teardown.
  */
 export class TelemetryCoordinator {
   /**
-   * Sessions adopted by THIS fiber and still live, for dispose-time
-   * `shutdown` records and double-adoption protection; `session/disposed`
-   * retires entries.
+   * Sessions adopted by THIS fiber and still live, for double-adoption
+   * protection and the teardown sweep of unmarked sessions;
+   * `session/disposed` marks and retires entries.
    */
   private readonly adopted = new Set<Session>()
   /** Per session, the `turn:step` keys whose first chunk already shipped; rebuilt from the log on re-adoption. */
@@ -64,10 +65,17 @@ export class TelemetryCoordinator {
     ctx.on('session/created', (session) => {
       this.adopt(session)
     })
-    // Retirement is observe-only: the projection/cursor WeakMaps die with the
-    // Session object; only the strong adopted set needs the explicit release.
+    // The session's own termination edge: emit the shutdown marker HERE —
+    // receivers classify a session with activity and no marker as crashed,
+    // so a normally closed session in a long-running host must get its
+    // marker at disposal, not never. Then retire: the projection/cursor
+    // WeakMaps die with the Session object; only the strong adopted set
+    // needs the explicit release.
     ctx.on('session/disposed', (session) => {
-      this.adopted.delete(session)
+      this.contain(() => {
+        if (!this.adopted.delete(session)) return
+        this.handOff(shutdownRecord(session))
+      })
     })
     ctx.on('session/event', (session, event) => {
       this.contain(() => {
@@ -87,6 +95,10 @@ export class TelemetryCoordinator {
       })
     })
     ctx.effect(() => async () => {
+      // Sessions still adopted here are alive through a whole-application
+      // teardown (their own disposal edge will fire after telemetry is gone,
+      // unobserved) — mark them now so the receiver sees a clean stop of
+      // observation rather than a crash-shaped silence.
       for (const session of this.adopted) {
         this.contain(() => {
           this.handOff(shutdownRecord(session))
@@ -214,7 +226,10 @@ export class TelemetryCoordinator {
   }
 }
 
-/** Build the per-session clean-exit marker emitted at dispose, before the backend's `shutdown()`. */
+/**
+ * Build the per-session clean-exit marker: emitted at the session's own
+ * disposal edge, or at coordinator dispose for sessions still alive then.
+ */
 function shutdownRecord(session: Session): TelemetryRecord {
   return {
     channel: 'ops',

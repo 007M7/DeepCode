@@ -275,6 +275,26 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     expect(backend.flush).not.toHaveBeenCalled()
   })
 
+  it('emits no marker for a session whose announcement was vetoed before adoption', async () => {
+    const backend = new FakeBackend()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    // A listener registered BEFORE the coordinator vetoes publication: the
+    // store still emits the paired `session/disposed` for rollback, but the
+    // coordinator never saw `session/created` — a marker for a session the
+    // receiver saw no activity from would be noise, not signal.
+    ctx.on('session/created', () => {
+      throw new Error('vetoed by an earlier listener')
+    })
+    await ctx.plugin({
+      name: 'fake-telemetry',
+      inject: ['sessions'],
+      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+    })
+    expect(() => ctx.sessions.create(SessionId('vetoed'), { meta: {} })).toThrow('vetoed')
+    expect(backend.records.filter(r => r.channel === 'ops')).toHaveLength(0)
+  })
+
   it('emits each adopted session’s shutdown record before awaiting backend shutdown', async () => {
     const { ctx, backend, fiber } = await setup()
     liveSession(ctx, 's1')
@@ -288,21 +308,25 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     expect(ops.every(r => !('event.seq' in r.attributes) && !('event.type' in r.attributes))).toBe(true)
   })
 
-  it('retires a disposed session: no retention, no stale shutdown marker at unload', async () => {
+  it('emits the shutdown marker at the session’s own disposal edge, then retires it', async () => {
     const { ctx, backend, fiber } = await setup()
     liveSession(ctx, 'survivor')
     // A session owned by its own fiber: disposing the fiber detaches it from
-    // the store and emits `session/disposed` — the authoritative retirement
-    // signal a long-lived telemetry backend must honor, or every closed
-    // session (and its full event log) stays strongly held for the backend's
-    // lifetime and final unload emits shutdown markers for dead sessions.
+    // the store and emits `session/disposed` — the authoritative termination
+    // edge. The marker must ride THAT edge (receivers classify a session with
+    // activity and no marker as crashed, so a normally closed session in a
+    // long-running host must not look like a crash), and the session retires
+    // from the adopted set so unload neither retains it nor re-marks it.
     const owner = await ctx.plugin(Object.assign((inner: Context) => {
       inner.sessions.create(SessionId('ephemeral'), { meta: {} })
     }, { inject: ['sessions'] }))
     await owner.dispose()
+    const atEdge = backend.records.filter(r => r.channel === 'ops')
+    expect(atEdge.map(r => r.attributes['session.id'])).toEqual(['ephemeral'])
+    expect(atEdge[0]!.attributes['telemetry.op']).toBe('shutdown')
     await fiber.dispose()
     const ops = backend.records.filter(r => r.channel === 'ops')
-    expect(ops.map(r => r.attributes['session.id'])).toEqual(['survivor'])
+    expect(ops.map(r => r.attributes['session.id'])).toEqual(['ephemeral', 'survivor'])
   })
 
   it('warns instead of throwing when backend shutdown fails', async () => {
