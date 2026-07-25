@@ -1,6 +1,6 @@
 ---
 name: dsh-find-simplifications
-description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates and write proposed Agent Notes or inline TODO/FIXME/XXX notes for dead, duplicated, speculative, or over-built code surfaces; especially for requests like "find simplification Agent Notes", "look for unnecessary complexity", "audit for removal-style cleanups", or "fold worthwhile simplification ideas from another PR".'
+description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates, write proposed Agent Notes or inline TODO/FIXME/XXX notes, audit or coalesce superseded Agent Notes, or fold worthwhile simplification ideas from another PR; especially for dead, duplicated, speculative, over-built, or added-then-removed surfaces.'
 ---
 
 # Finding DeepSeek Harness Simplifications
@@ -66,6 +66,22 @@ Reject or downgrade a candidate when:
 - The removal would force unrelated churn without actually making the contract smaller.
 - The idea is correct but tiny. Add a targeted TODO/FIXME/XXX instead, using the urgency semantics in [docs/development.md](../../../docs/development.md).
 
+## Coalesce Superseded Agent Notes
+
+Audit the Agent Note tree when the user asks to reduce or coalesce it, or when the simplification being implemented makes an owning note obsolete. Do not expand every code-simplification survey into a repository-wide note audit.
+
+Follow the deletion rule in the [Agent Note contract](../../notes/README.md#when-to-write-one); do not duplicate or weaken it here. For each candidate chain:
+
+1. Identify the current owner from shipped code, configuration, generated catalogs, package docs, newer Agent Notes, and inbound links; dates and titles are discovery hints, not proof.
+2. Classify the old note as fully or partially superseded. Any surviving behavior, current contract, durable format, compatibility obligation, or independently current rejected alternative makes it partial. Rationale that can be transferred to the current owner does not by itself make supersession partial.
+3. For full supersession, move every unique rationale, alternative, consequence, shipped verification contract, and named coverage gap into the current owner. An inventory that only describes deleted implementation mechanics is not one of those decision facts.
+4. Repair every inbound link, then delete the English note, Chinese counterpart, consistency record, and required-pair manifest entry together.
+5. Search exact filenames, symbols, config keys, event names, and wire strings after the edit. Keep partial supersessions cross-linked and current.
+
+An added-then-removed feature is a common full-supersession case. Let the removal note own the history only when the feature is absent from production code, configuration, schemas, durable or wire formats, migration, and compatibility behavior; no current documentation presents it as available; and no test exercises it as supported behavior. Removal rationale and tests that enforce absence may remain. Preserve why the feature originally existed, why that motivation no longer justified it, alternatives to full removal, the capability given up, conditions for reintroduction, and evidence that removal is complete. Old tests and implementation mechanics that verified only the deleted behavior are not current verification contracts.
+
+Reject consolidation when the removal is only one transport, default, implementation, or presentation of a feature; when persisted data or compatibility handling survives; or when the removal note does not yet carry enough rationale to prevent accidental reintroduction. A current negative design decision may legitimately need its own note even though the removed implementation is gone.
+
 ## Write The Agent Note
 
 Create one file per durable proposal under `.agents/notes/<lifecycle>/<class>/yyyy-mm-dd-topic.md`, following the lifecycle/classification contract in `.agents/notes/README.md`. Keep prose paragraphs on one physical line and use relative Markdown links.
@@ -106,9 +122,11 @@ For docs-only Agent Note work, run at least `pnpm run doc-sync`, `pnpm run lint`
 
 When opening or updating a PR, summarize:
 
-- How many Agent Notes and inline notes were added.
+- How many Agent Notes and inline notes were added, consolidated, retained as partial supersessions, or deleted.
 - The main areas surveyed.
 - What was intentionally excluded.
 - Which checks passed.
+
+For each consolidation group, name the old and current owners, state the evidence for full supersession, and explain why deletion is safe. If an added-then-removed scan finds no qualifying note, report that result and the representative partial cases retained.
 
 Use a draft PR while the survey is still expanding; mark ready only when the candidate set, review responses, and validation are settled.

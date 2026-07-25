@@ -43,6 +43,8 @@ Status: implemented
 - 被引用的包/vendor 项目保持与构建相同的输出行为，因此类型检查会刷新它们的 `lib/types` 输出，而无需使用独立的 no-emit 图。项目特定的严格度变更放在各自的 `packages/*/*/tsconfig.json` 或 `vendor/*/tsconfig.json` 中。
 - 两个 no-emit 聚合禁用 `rewriteRelativeImportExtensions`；它们不输出任何文件，且包含跨 project-reference 边界导入 helper 的测试。包/vendor 的 emit 项目保持重写开启。
 
+复合项目将增量构建信息保存在各项目本地的 `lib/` 输出中。`pnpm run clean` 会根据根 TypeScript project-reference 图确定当前有效的输出目录，删除遗留的根目录构建信息，并删除已删除包留下且仅包含已知生成残留的 `packages/*/*` 目录。对于仍有 `package.json` 的每个包，该命令都会保留 `node_modules`；如果不含 `package.json` 的目录中存在未知文件，则拒绝删除。构建不会自动调用 clean，因此常规构建会保留增量状态。
+
 命令编排结构如下：
 
 ```sh
@@ -55,6 +57,9 @@ tsx scripts/verify-node-next-types.ts
 
 pnpm run typecheck:
 tsc -b
+
+pnpm run clean:
+tsx scripts/clean.ts
 ```
 
 `pnpm run demo:*` 仍通过 tsx 和根路径直接运行 `src`，无需编译步骤。
@@ -63,6 +68,8 @@ tsc -b
 
 - **继续使用 `tsdown`/oxc 作为 TypeScript 转换器**：oxc 的转换行为与 `tsc` 不同（装饰器转换有差异、打包 JS 与逐文件输出不同），且其打包 `.d.ts` 与 Cordis 内部的相对模块增强结构冲突。
 - **用一个根目录严格程序覆盖包、vendor、示例、测试和脚本**：vendor 源码在根目录严格标志下会触发不属于本项目所有权范围的类型错误；带有逐项目严格度的 project references 才是可行的边界。
+- **每次构建前都执行清理**：即使工作区布局没有变化，这也会丢弃 `tsc` 和打包器拥有的增量状态。
+- **删除所有包级 `node_modules`**：有效的包依赖链接不会导致工作区发现失败，而删除这些链接会使构建清理变成重新安装依赖。
 
 ## 后果
 
@@ -76,5 +83,6 @@ tsc -b
     - `lib/index.*` 是发布用的运行时输出，由打包器（当前为 `tsdown`）生成。
 - `pnpm run verify-node-next-types` 扫描构建出的声明文件，检查是否存在缺少文件扩展名的相对说明符，然后以 `moduleResolution: "NodeNext"` 对构建出的 `types`/`exports` 接口进行临时外部 ESM 消费方的类型检查，确保声明说明符的回归在发布前被捕获。
 - `typecheck` 命令使用 `tsconfig.json`。示例、测试和脚本由根 no-emit 项目检查，包和 vendor 模块保持与 `build` 相同的输出行为。包和 vendor 源码始终处于 project-reference 边界之后。
+- 切换分支或更新工作副本后，如果其中删除了包，贡献者可在重新构建前运行 `pnpm run clean`，删除残留的包目录。不含 `package.json` 的包目录如果存在未知文件，必须手动判定其类别，不能直接删除。
 
 Cordis 的 vendor 副本现在与上游多了一处类型结构差异。在上游同步时，该差异必须被重新应用或明确废弃。

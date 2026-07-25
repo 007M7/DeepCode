@@ -54,6 +54,8 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 
 `TerminalResultView` carries only `output`/`exitCode`/`signal`. A UI without the terminal capability needs a fenced ` ```console ` text fallback; that derivation moves to the **bridge** (it wraps `output` in a fenced block on the no-capability path), rather than the tool double-encoding it. This keeps the bash tool's result a single structured shape and preserves the existing capability-gated behavior byte-for-byte.
 
+The terminal intent is display-only. The harness still executes the command through its bash service, preserving sandboxing, environment scrubbing, task ownership, and per-session cwd; a UI projects the completed call and never becomes a second execution backend.
+
 ### Purity preserved
 
 `presentCall`/`presentResult` remain pure functions of `args` (+ the result for `presentResult`) — they run on live streaming AND session-log replay, so they must be replay-deterministic. Every view is derived from args alone: write's diff is new-file style (`oldText:null`) because the tool has no old content at call time; edit's diff is `old_string`→`new_string`.
@@ -61,6 +63,7 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 ## Alternatives considered
 
 - **Delete tool-owned presentation entirely** — [the rejected collapse proposal](../../rejected/simplification/2026-06-20-generic-tool-rendering.md); its own verdict deferred to exactly this union once two real tools and two real consumers existed, and that bar is now met.
+- **Let a UI execute terminal intents** — rejected because it would bypass the harness's bash policy and ownership contracts and fork command execution across backends. A terminal card describes harness-owned execution; it never authorizes client-side execution.
 - **A merge-extensible union** (the `ContentBlockMap` pattern) — rejected: a new render intent needs new bridge code to render it anyway, so a plugin-added variant the bridge silently drops would be worse than the compile error the closed union raises at the bridge's `assertNever` switch.
 - **Keeping the optional-field bag** — the status quo the Problem dissects: invalid states representable, undocumented field interactions, and no way to ask for a diff card at all.
 
