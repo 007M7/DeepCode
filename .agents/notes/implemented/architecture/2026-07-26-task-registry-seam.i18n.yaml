@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-26-task-registry-seam.md: b785eb75a632503def10fad583f6a68477cffef6
-2026-07-26-task-registry-seam.zh.md: 3d2426b0208afbbebe51254e43cae64cad12f11a
+2026-07-26-task-registry-seam.zh.md: bfb733a5e1060c9bfe2acc6c4769aa47443d0c9e
