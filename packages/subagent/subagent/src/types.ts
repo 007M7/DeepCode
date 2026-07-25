@@ -28,7 +28,8 @@ export function SubagentRunId(id: string): SubagentRunId {
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
  * degradation" rule). These static flags cover features needed before a run exists; runtime
  * capabilities such as steering and resume are optional {@link SubagentRun} methods whose presence
- * is the capability.
+ * is the capability. Each flag corresponds one-to-one to a {@link SubagentStartRequest} option:
+ * `depthLimit` to `maxDepth`; the other names match.
  */
 export interface SubagentCapabilities {
   readonly outputSchema: boolean
@@ -98,11 +99,13 @@ export interface SubagentStartRequest {
  * non-`completed` result to an `isError` tool result.
  */
 export interface SubagentStopReasonMap {
+  /** The child finished its turn normally. */
   completed: 'completed'
   /** Cancelled through the request signal or disposal. */
   aborted: 'aborted'
   /** Model or transport failure. */
   error: 'error'
+  /** The child hit its token ceiling before finishing. */
   'max-tokens': 'max-tokens'
   refusal: 'refusal'
 }
