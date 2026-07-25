@@ -706,61 +706,80 @@ describe('provider-routed retry policy', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('does not make plugin disposal wait for a delegated recovery policy', async () => {
+  it('drains delegated recovery before completing plugin disposal', async () => {
     const adapter = new ScriptedAdapter([new LlmError('bad key', 'AUTH')])
     const mounted = await harness(adapter, { mock: alwaysConfig() })
     context = mounted.ctx
-    const downstream = Promise.withResolvers<RequestErrorDecision>()
+    const release = Promise.withResolvers<undefined>()
     const entered = Promise.withResolvers<undefined>()
-    context.on('agent/request-error', () => {
+    const order: string[] = []
+    context.on('agent/request-error', async () => {
       entered.resolve(undefined)
-      return downstream.promise
+      await release.promise
+      order.push('downstream')
+      return { action: 'retry' }
     })
     const agent = context.agentLoop.create(SessionId('retry-delegated-disposal'), {
       provider: 'mock',
       model: 'mock',
     })
-    const idle = waitForIdle(context, agent)
+    const idle = waitForIdle(context, agent).then(() => { order.push('idle') })
     agent.followup([{ type: 'text', text: 'go' }])
     await entered.promise
 
-    const disposing = mounted.retryFiber.dispose()
+    const disposing = mounted.retryFiber.dispose().then(() => { order.push('disposed') })
     let timer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
       disposing.then(() => 'disposed' as const),
       new Promise<'blocked'>((resolve) => { timer = setTimeout(() => { resolve('blocked') }, 100) }),
     ])
     if (timer !== undefined) clearTimeout(timer)
-    downstream.resolve({ action: 'fail' })
+    expect(outcome).toBe('blocked')
+
+    release.resolve(undefined)
     await disposing
     await idle
 
-    expect(outcome).toBe('disposed')
+    expect(order[0]).toBe('downstream')
+    expect(order).toEqual(expect.arrayContaining(['disposed', 'idle']))
     expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
   })
 
-  it('lets turn cancellation interrupt a delegated recovery policy', async () => {
+  it('drains delegated recovery before turn cancellation reaches idle', async () => {
     const adapter = new ScriptedAdapter([new LlmError('bad key', 'AUTH')])
     const mounted = await harness(adapter, { mock: alwaysConfig() })
     context = mounted.ctx
     const downstream = Promise.withResolvers<RequestErrorDecision>()
     const entered = Promise.withResolvers<undefined>()
-    context.on('agent/request-error', () => {
+    const order: string[] = []
+    context.on('agent/request-error', async () => {
       entered.resolve(undefined)
-      return downstream.promise
+      const decision = await downstream.promise
+      order.push('downstream')
+      return decision
     })
     const agent = context.agentLoop.create(SessionId('retry-delegated-cancel'), {
       provider: 'mock',
       model: 'mock',
     })
-    const idle = waitForIdle(context, agent)
+    const idle = waitForIdle(context, agent).then(() => { order.push('idle') })
     agent.followup([{ type: 'text', text: 'go' }])
     await entered.promise
 
     agent.cancel({ kind: 'user' })
-    await idle
-    downstream.resolve({ action: 'fail' })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const outcome = await Promise.race([
+      idle.then(() => 'idle' as const),
+      new Promise<'blocked'>((resolve) => { timer = setTimeout(() => { resolve('blocked') }, 100) }),
+    ])
+    if (timer !== undefined) clearTimeout(timer)
+    expect(outcome).toBe('blocked')
 
+    downstream.resolve({ action: 'retry' })
+    await idle
+
+    expect(order).toEqual(['downstream', 'idle'])
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
@@ -773,8 +792,10 @@ describe('provider-routed retry policy', () => {
     const mounted = await harness(adapter, { mock: alwaysConfig() })
     context = mounted.ctx
     const downstream = Promise.withResolvers<RequestErrorDecision>()
+    const entered = Promise.withResolvers<undefined>()
     context.on('agent/request-error', (agent) => {
       agent.cancel({ kind: 'user' })
+      entered.resolve(undefined)
       return downstream.promise
     })
     const agent = context.agentLoop.create(SessionId('retry-delegated-sync-cancel'), {
@@ -784,8 +805,17 @@ describe('provider-routed retry policy', () => {
     const idle = waitForIdle(context, agent)
 
     agent.followup([{ type: 'text', text: 'go' }])
+    await entered.promise
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const outcome = await Promise.race([
+      idle.then(() => 'idle' as const),
+      new Promise<'blocked'>((resolve) => { timer = setTimeout(() => { resolve('blocked') }, 100) }),
+    ])
+    if (timer !== undefined) clearTimeout(timer)
+    expect(outcome).toBe('blocked')
+
+    downstream.resolve({ action: 'retry' })
     await idle
-    downstream.resolve({ action: 'fail' })
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.at(-1)).toMatchObject({

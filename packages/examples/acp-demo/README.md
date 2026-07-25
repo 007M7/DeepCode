@@ -33,7 +33,6 @@ The app does not install commands, user interaction, session navigation, configu
 | `toolBash` | owner defaults | Model-facing bash tool config. |
 | `toolTasks` | owner defaults | Generic background-task control config, or `false`. |
 | `goals` | owner defaults | Persisted same-session goal domain and model tools, or `false`. |
-| `llmRetry` | owner defaults | Provider-owned normal or unbounded model-request retry policy. |
 
 The shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) adds the DeepSeek adapter, sandboxed bash and filesystem providers, one-shot approval policy, compaction, subagents, workflows, hooks, and model-facing tools. Snapshot overlays replace only nondeterministic providers or policy values.
 
