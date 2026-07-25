@@ -105,6 +105,15 @@ export interface LaunchOptions {
   paceMs?: number
 }
 
+/** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
+async function cleanupScaffoldWorld(ctx: Context, workspaceCwd: string, persistenceRoot: string): Promise<unknown[]> {
+  const failures: unknown[] = []
+  await Promise.resolve(ctx.fiber.dispose()).catch((error: unknown) => failures.push(error))
+  await rm(workspaceCwd, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+  await rm(persistenceRoot, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+  return failures
+}
+
 /**
  * Boot the real web composition under the current snapshot mode.
  * @param options - replay fixture selection and pacing.
@@ -120,7 +129,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     }
   }
   const workspaceCwd = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-'))
-  const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
+  let persistenceRoot: string
+  try {
+    persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
+  } catch (error) {
+    const failures: unknown[] = [error]
+    await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
+    if (failures.length > 1) throw new AggregateError(failures, 'web scaffold temp-root setup failed')
+    throw error
+  }
 
   // The include patch set — the same mechanism AppCLIEntry and the ACP
   // snapshot overlay use, applied over the SAME shipped tree (a patch id that
@@ -143,9 +160,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // Sessions inherit the gateway's process.cwd() default; run the boot from
   // the temp workspace so tool cwd, session cwd, and fixtures agree.
   const originalCwd = process.cwd()
-  process.chdir(workspaceCwd)
   const ctx = new Context()
+  let port = 0
+  let replayHandle: ReplayHandle | undefined
   try {
+    process.chdir(workspaceCwd)
     ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
@@ -155,32 +174,32 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     })
     await ctx.loader.await()
     assertEntriesLoaded(ctx, 'web e2e scaffold')
+    const boundPort = ctx.get('httpServer')?.port
+    if (boundPort === undefined) {
+      throw new Error('web e2e scaffold: httpServer service missing after settled boot')
+    }
+    port = boundPort
+
+    // Fill the open llm seam on the settled root ctx (llm-deepseek is disabled
+    // in keyless modes; a scenario with no fixture leaves the seam empty so a
+    // stray stream fails loud with NO_ADAPTER). The direct install, unlike the
+    // plugin row, returns the ReplayHandle for the teardown consumption check.
+    if (mode !== 'record' && options.replayFixture !== undefined) {
+      replayHandle = installLlmReplay(ctx, {
+        file: options.replayFixture,
+        providers: REPLAY_PROVIDERS,
+        ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
+      })
+    }
   } catch (error) {
-    process.chdir(originalCwd)
-    await ctx.fiber.dispose()
-    await rm(workspaceCwd, { recursive: true, force: true }).catch(() => undefined)
-    await rm(persistenceRoot, { recursive: true, force: true }).catch(() => undefined)
+    if (process.cwd() !== originalCwd) process.chdir(originalCwd)
+    const cleanupFailures = await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot)
+    if (cleanupFailures.length > 0) {
+      throw new AggregateError([error, ...cleanupFailures], 'web scaffold setup failed and cleanup was incomplete')
+    }
     throw error
   } finally {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
-  }
-
-  const port = ctx.get('httpServer')?.port
-  if (port === undefined) {
-    await ctx.fiber.dispose()
-    throw new Error('web e2e scaffold: httpServer service missing after settled boot')
-  }
-  // Fill the open llm seam on the settled root ctx (llm-deepseek is disabled
-  // in keyless modes; a scenario with no fixture leaves the seam empty so a
-  // stray stream fails loud with NO_ADAPTER). The direct install, unlike the
-  // plugin row, returns the ReplayHandle for the teardown consumption check.
-  let replayHandle: ReplayHandle | undefined
-  if (mode !== 'record' && options.replayFixture !== undefined) {
-    replayHandle = installLlmReplay(ctx, {
-      file: options.replayFixture,
-      providers: REPLAY_PROVIDERS,
-      ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
-    })
   }
 
   return {
@@ -222,9 +241,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       } catch (error) {
         failures.push(error)
       }
-      await Promise.resolve(ctx.fiber.dispose()).catch((e: unknown) => failures.push(e))
-      await rm(workspaceCwd, { recursive: true, force: true }).catch((e: unknown) => failures.push(e))
-      await rm(persistenceRoot, { recursive: true, force: true }).catch((e: unknown) => failures.push(e))
+      failures.push(...await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot))
       if (failures.length > 0) throw new AggregateError(failures, 'web scaffold teardown failed')
     },
   }
@@ -247,9 +264,9 @@ function rawSessionLog(session: Session): string {
  * Record-mode fixture write-back: harvest the live session, scrub request
  * headers to {{system}}/{{tools}} (TODO(web-header-pin): the web lane pins no
  * header class — a deliberate deviation logged in the Agent Note's deferred
- * work), tokenize the run-local session id and cwd ({{sessionId}}/{{cwd}},
- * the committed ACP fixture convention — re-records then diff only on real
- * content), and write the committed fixture.
+ * work), tokenize the run-local session id, cwd, and browser RPC id
+ * ({{sessionId}}/{{cwd}}/{{rpcId}}, the committed fixture convention —
+ * re-records then diff only on real content), and write the fixture.
  * @param scaffold - the record-mode scaffold.
  * @param sessionId - the driven session.
  * @param fixturePath - the committed session.jsonl / seed.jsonl target.
@@ -260,6 +277,7 @@ export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId,
   const tokenized = scrubRequestHeaders(rawSessionLog(agent.session))
     .split(sessionId).join('{{sessionId}}')
     .split(scaffold.workspaceCwd).join('{{cwd}}')
+    .replace(/"rpcId":"[^"]+"/g, '"rpcId":"{{rpcId}}"')
   await writeFile(fixturePath, tokenized)
 }
 
@@ -389,7 +407,7 @@ export async function compareOrRefreshGolden(goldenPath: string, actual: string,
 /**
  * Fixture-inventory guard (the TUI afterAll shape): the scenario directory
  * holds exactly the expected files and every committed JSONL is a scrub
- * fixed-point (no request-header bulk escaped the record write-back).
+ * fixed-point without a run-local browser RPC id.
  * @param dir - the scenario snapshot directory.
  * @param expected - the exact expected file inventory.
  */
@@ -399,6 +417,8 @@ export async function assertFixtureInventory(dir: string, expected: string[]): P
   for (const entry of entries.filter(name => name.endsWith('.jsonl'))) {
     const content = await readFile(join(dir, entry), 'utf8')
     expect(scrubRequestHeaders(content), `${dir}/${entry} carries request-header bulk`).toBe(content)
+    expect(content, `${dir}/${entry} carries a run-local rpcId`)
+      .not.toMatch(/"rpcId":"(?!\{\{rpcId\}\})[^"]+"/)
   }
 }
 
