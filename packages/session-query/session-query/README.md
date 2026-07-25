@@ -4,18 +4,18 @@
 
 ## Reads
 
-- `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
+- `listSessions(signal?)` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
 - `readSession(sessionId)` returns one complete detached raw log after the same core replay validation used by resume; it never enters the session into the live store.
-- `filterSessions(filters)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
+- `filterSessions(filters, signal?)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
 - `filterEvents(sessionId, filters)` extracts first-party semantic documents and applies provider-independent metadata and literal-text predicates in ascending seq order.
-- `readTitle(sessionId)` loads one live-preferred or persisted log and folds its latest `session/title` event into a `SessionTitleSnapshot`; it returns `undefined` when the known session has no title.
+- `readTitleSnapshots(sessionIds, signal?)` resolves unique ids from one live-preferred corpus observation, passes cancellation through persisted listing and inspection, and returns ordered per-session settlements so one missing or malformed title source does not discard its peers. Each live source is folded directly, and each persisted worker folds to a detached header/title result and releases the full log before dequeuing another id. Cancellation rejects the whole batch. `readTitleSnapshot(sessionId, signal?)` is the one-observation view; `readTitle(sessionId, signal?)` returns only its optional folded `session/title`.
 - `listEvents(sessionId)` loads the live-preferred raw log and classifies each event as `current`, `shadowed`, or `log-only` with the shared `dsh-session` surface fold.
 - `readSurface(sessionId)` returns one cloned header, raw-log capture boundary, and the complete folded current surface in model-history order. A live session wins over persistence; compaction is observed before or after its replacement append, never as a synthetic mixture.
-- `readEvent(request)` returns a cloned header, the full target event, and a bounded raw-seq window. `before` and `after` default to zero and may not exceed `readWindowMax`.
-- `traceSession(sessionId)` reads the corpus once and returns immediate-to-outward ancestors plus deterministic recursive descendant trees. `complete: false` identifies the first missing parent; a target-connected cycle fails with `SESSION_QUERY_INVALID_LINEAGE`.
-- `traceEvent(request)` loads the logical log once and returns direct positional replacements and direct logged provenance. `replacementChain` follows positional replacers to the final replacement; provenance links remain non-transitive.
+- `readEvent(request, signal?)` returns a cloned header, the full target event, and a bounded raw-seq window. `before` and `after` default to zero and may not exceed `readWindowMax`.
+- `traceSession(sessionId, signal?)` reads the corpus once and returns immediate-to-outward ancestors plus deterministic recursive descendant trees. `complete: false` identifies the first missing parent; a target-connected cycle fails with `SESSION_QUERY_INVALID_LINEAGE`.
+- `traceEvent(request, signal?)` loads the logical log once and returns its cloned source header with direct positional replacements and direct logged provenance. `replacementChain` follows positional replacers to the final replacement; provenance links remain non-transitive.
 
-Persistence is optional and may mount or unmount dynamically. Cross-corpus listing and lineage tracing fail with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A title, event read, or trace targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory state unreadable. Persisted title and event operations list before loading and reject a metadata mismatch rather than combining inconsistent observations. `listSessions()` remains lightweight and does not load logs or index titles.
+Persistence is optional and may mount or unmount dynamically. Cross-corpus listing and lineage tracing fail with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A title read, event trace, or event read targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory state unreadable. Persisted title and event operations list before loading and reject a metadata mismatch rather than combining inconsistent observations. Lineage-trace cancellation is passed to persisted listing; event-trace and event-read cancellation is passed to persisted listing and inspection. Each waits for the started backend call to settle, then rejects with the signal's exact reason even when the backend ignored that signal. A pre-aborted known-live title read, event trace, or event read rejects before folding or snapshotting without consulting persistence. A batch title observation performs one metadata listing, inspects its unique persisted ids with at most `persistedInspectConcurrency` workers, and preserves each title's own observed header for downstream authorization. Cancellation starts no queued inspections and rejects only after already-started workers settle. `listSessions()` remains lightweight and does not load logs or index titles.
 
 ## Filtering and extraction
 
@@ -25,7 +25,7 @@ The text clause is deliberately independent of FTS providers: caller text is esc
 
 ## Full-text methods
 
-`SessionQueryService.searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. These are the service's only abstract methods. Both return pages whose continuation is an owned branded `SessionSearchCursor`, accept optional cancellation, and expose snippets without provider-specific numeric scores. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
+`SessionQueryService.searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. These are the service's only abstract methods. Both return pages whose continuation is an owned branded `SessionSearchCursor`, accept optional cancellation, and expose snippets without provider-specific numeric scores. An event-search page also carries the cloned target header from the same indexed generation as its hits, allowing authorization consumers to bind policy to the payload observation. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
 
 The package has no provider coordinator, fallback implementation, or standalone concrete plugin. A concrete service backend inherits the implemented reads, filters, and traces while owning full-text observation, reconciliation, ranking, cursor generations, and query execution; the first implementation is [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md).
 
@@ -38,6 +38,7 @@ The package has no provider coordinator, fallback implementation, or standalone 
 | Key | Default | Contract |
 |---|---:|---|
 | `readWindowMax` | `50` | Maximum `before` or `after` raw-event count. |
+| `persistedInspectConcurrency` | `4` | Maximum concurrent persisted-log inspections in one batch read; must be a positive safe integer. |
 
 ## Model Experience
 

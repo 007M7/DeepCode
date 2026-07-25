@@ -18,7 +18,7 @@ ACP（Agent Client Protocol）与 tool-bash 的若干限制是同一个缺失 se
 
 ### 2. `AgentHandle` 异步释放器
 
-`ctx.agents.create`/`resume`（以及 `AgentFactory` 接口）返回 `AgentHandle = { agent: Agent; dispose(): Promise<void> }`。释放器是一种**消费方能力**——仅持有裸 `Agent` 的注册表观察者无法将其拆除。调用方 fiber 和已注册的 factory 提供方是结构上的共同所有者：调用方卸载强制结构化所有权，而提供方卸载必须停止旧实例，因为其实例作用域的依赖 surface 通过该提供方解析。三条路径都会进入同一个 memoize 的拆除过程：停止循环、等待其退出与空闲刷写完成（完全停稳，而非仅把状态翻转为 `disposed`）、分离 agent、分离其会话，然后解除其 scope。每个公开 ID 在其精确注册表条目分离时变得可复用；不存在独立的保留释放阶段。由配置创建的 agent 已归 `AgentLoop` fiber 所有（handle 被丢弃）。ACP 在其 `SessionRecord` 中保存每个会话的释放器，并在断连/拆除时运行它，因此单纯的客户端断连不会留下已注册 agent 或会话存储条目——即使 `session/load` 与拆除竞争（刚恢复的 handle 会在 closed-guard 抛出前释放）。
+`ctx.agents.create`/`resume`（以及 `AgentFactory` 接口）返回 `AgentHandle = { agent: Agent; dispose(): Promise<void> }`。释放器是一种**消费方能力**——仅持有裸 `Agent` 的注册表观察者无法将其拆除。调用方 fiber 和已注册的 factory 提供方是结构上的共同所有者：调用方卸载强制结构化所有权，而提供方卸载必须停止旧实例，因为其实例作用域的依赖 surface 通过该提供方解析。三条路径都会进入同一个 memoize 的拆除过程：停止循环、等待其退出与空闲刷写完成（完全停稳，而非仅把状态翻转为 `disposed`）、分离 agent、分离其会话，然后解除其 scope。每个公开 ID 在其精确注册表条目分离时变得可复用；不存在独立的保留释放阶段。由配置创建的 agent 已归 `AgentLoop` fiber 所有（handle 被丢弃）。ACP 在其 `SessionRecord` 中保存每个全新会话的释放器，并在断连或插件拆除时运行它，因此单纯的客户端断连不会留下已注册 agent 或会话存储条目。在与关闭的竞态中落败的创建流程会 dispose 其尚未发布的 handle。
 
 **拆除顺序对持久性至关重要**，实现将会话生命周期折叠进 agent 的单个复合 Cordis effect（`SessionStore.prepare`/`enter`/`announce`，取代兄弟 effect 拆分）。fiber 卸载会并发释放兄弟 effect（`Promise.all`），这会让会话存储的 append 发布钩子移除与循环关闭时的 `session/flush` 竞争，从而丢失关闭的 `turn/end`；在一个 effect 内，释放器作为有序的 LIFO 链运行（停止循环 + `await agent.done` 在会话分离之前），因此无论 handle 的 `dispose()` 还是 fiber 卸载，都会捕获循环的最终刷写。被隔离的 `agent/disposed` 和 `session/disposed` 通知无法拒绝该链或跳过后续拆除。
 
@@ -30,7 +30,7 @@ ACP（Agent Client Protocol）与 tool-bash 的若干限制是同一个缺失 se
 
 以下不变式已经成立，并由测试固定：
 
-- ACP 断连/会话关闭后，不留下该会话的任何已注册 agent 或会话存储条目，即使 `session/load` 与拆除竞争。
+- ACP 断连或插件拆除后，任何由桥接层拥有的会话都不留下已注册 agent 或会话存储条目，包括与连接关闭竞争的创建流程。
 - 已入队的提示词启动前执行 `session/cancel`，能阻止该提示词运行；后来接受的提示词仍是独立的已入队轮次。
 - `tool-bash` HMR 重载不会使另一个会话能够读取或终止已有的后台任务（所有权保留在执行器上）。
 - 既有的非 ACP 演示无需显式管理 handle 仍能工作；由配置创建的 agent 仍归 `AgentLoop` 插件 fiber 所有。

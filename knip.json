@@ -28,6 +28,7 @@
     "examples": {
       "entry": [
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
+        "headless-agent/tests/fixtures/semantic-checkpoint-agent.ts",
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
@@ -56,15 +57,6 @@
       ]
     },
     "packages/host/webserver": {
-      "entry": [
-        "tests/**/*.spec.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
-    "packages/host/runtime": {
       "entry": [
         "tests/**/*.spec.ts"
       ],
@@ -417,8 +409,7 @@
     },
     "packages/examples/tui-demo": {
       "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -579,7 +570,8 @@
         "src/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-.+"
+        "@deepseek-ai/.+",
+        "@cordisjs/.+"
       ]
     },
     "packages/client/modules": {

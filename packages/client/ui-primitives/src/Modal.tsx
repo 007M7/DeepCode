@@ -5,6 +5,7 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
+import { IconCloseOutline16 } from './icons/index.tsx'
 import css from './Modal.module.css'
 
 /**
@@ -49,10 +50,13 @@ export function Modal({ open, onClose, title, description, children, footer, cla
         <div className={css.content}>
           <div className={css.header}>
             <h2 className={css.title}>{title}</h2>
-            {description !== undefined && description !== '' && (
-              <p className={css.description}>{description}</p>
-            )}
+            <button type="button" className={css.close} aria-label="Close" onClick={onClose}>
+              <IconCloseOutline16 size={14} />
+            </button>
           </div>
+          {description !== undefined && description !== '' && (
+            <p className={css.description}>{description}</p>
+          )}
           {children !== undefined && <div className={css.body}>{children}</div>}
         </div>
         {footer !== undefined && <div className={css.footer}>{footer}</div>}

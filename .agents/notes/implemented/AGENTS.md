@@ -8,4 +8,4 @@ Keep paths, symbols, defaults, and mechanisms current in the same change that al
 
 ### This is not a license to rewrite the *decision*
 
-Update factual realization in place. A reversal of the decision or its rationale requires a new Agent Note and cross-link; see the [Agent Note contract](../README.md).
+Update factual realization in place. A reversal of the decision or its rationale requires a new Agent Note and cross-link; a fully superseded old note may be deleted only through the consolidation rule in the [Agent Note contract](../README.md).

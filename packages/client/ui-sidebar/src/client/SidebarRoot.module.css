@@ -339,22 +339,31 @@
   pointer-events: none;
 }
 
-/* Batch separator (figma 133:7661): 20px spacer after an expanded project's
-   session run, before the next project row. */
-.batchGap {
-  flex: none;
-  height: 20px;
-}
-
-/* Tree list: the only scrolling region. */
+/* Tree list: the only scrolling region. Block, not a flex column: as flex
+   items the 54/34 rows would shrink under content overflow (scrollHeight
+   collapses onto clientHeight and wheel scrolling dies); block children keep
+   their design heights and the 4px rhythm rides margins instead of gap. */
 .list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   padding-bottom: 12px;
+}
+
+/* One workspace section: header row + expanded session run. Rows inside
+   keep the former flat-list 4px gap as sibling margins; the inter-group
+   breathing room (figma 133:7661 batch separator, 20px after an expanded
+   run) rides the NEXT section's top margin so the last group adds none. */
+.groupSection > * + * {
+  margin-top: 4px;
+}
+
+.groupSection + .groupSection {
+  margin-top: 4px;
+}
+
+.groupSection:has([aria-expanded='true']) + .groupSection {
+  margin-top: 20px;
 }
 
 .empty {

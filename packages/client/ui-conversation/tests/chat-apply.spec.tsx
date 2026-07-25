@@ -30,16 +30,23 @@ async function bench() {
       [CHILD]: { id: CHILD, title: 'C', displayTitle: 'C', parentId: ROOT, running: false, updatedAt: 2 },
     },
     current: undefined,
+    intent: undefined,
+    phase: 'ready',
   } as SessionListState)
   const sessionsFake = {
     list: listStore,
-    manager: { get: vi.fn() },
+    binding: vi.fn(),
     scope: () => undefined,
     cell: () => undefined,
     create: vi.fn(),
     open: vi.fn(),
+    updateIntent: vi.fn(),
   }
   ctx.provide('sessions', sessionsFake)
+  ctx.provide('workspaces', {
+    startSession: vi.fn(),
+    sendSession: vi.fn(),
+  })
   ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
   ctx.provide('i18n', { bind: () => (key: string) => key })
 
@@ -84,7 +91,7 @@ describe('apply wiring', () => {
     expect(b.slots.spec('conversation.chat.toolview')).toEqual({ kind: 'keyed', scope: 'session' })
   })
 
-  it('occupies the three slots + the ring; session entries share one store handle, empty declares none', async () => {
+  it('occupies the three slots + the ring; session entries share one store handle, empty injects runtime actions', async () => {
     const b = await bench()
     await b.fiber.await()
     const conversation = renderEntryOf(b.slots, 'conversation')

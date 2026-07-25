@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import * as acpAgent from '../src/index.ts'
@@ -31,9 +30,6 @@ async function mount(config: acpAgent.Config, withBash = false): Promise<Context
     })
   }
   await ctx.plugin(acpAgent, config)
-  // The bundle mounts its children inside apply() (not awaited there); let their
-  // fibers settle so the spine services are ready.
-  await new Promise(resolve => setTimeout(resolve, 50))
   return ctx
 }
 
@@ -84,7 +80,6 @@ describe('dsh-acp-demo composition', () => {
       persona: 'hi',
       persistenceRoot: '/tmp/dsh-acp-demo-test',
       persistenceCompression: 'none',
-      sessionReferences: { candidateLimit: 1 },
       skills: await isolatedSkillsConfig(),
       workspaceContext: false,
     })
@@ -92,24 +87,20 @@ describe('dsh-acp-demo composition', () => {
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('sessionQuery')).toBeDefined()
-    expect(ctx.get('sessionReferences')).toBeDefined()
+    expect(ctx.get('sessionReferences')).toBeUndefined()
     expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(ctx.get('agentLoop')).toBeDefined()
-    expect(ctx.get('userInteraction')).toBeDefined()
+    expect(ctx.get('userInteraction')).toBeUndefined()
+    expect(ctx.get('commands')).toBeUndefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
     expect(ctx.get('goals')).toBeDefined()
     expect(ctx.get('tools')?.get('get_goal')).toBeDefined()
-    const target = ctx.sessions.create(SessionId('candidate-target'))
-    ctx.sessions.create(SessionId('candidate-one'))
-    ctx.sessions.create(SessionId('candidate-two'))
-    await expect(ctx.sessionReferences.listCandidates({ id: target.id, session: target } as Agent))
-      .resolves.toHaveLength(1)
     // No pre-created agents — ACP session/new creates them on demand.
     expect(ctx.get('agents')!.list()).toHaveLength(0)
     await ctx.fiber.dispose()
   })
 
-  it('can explicitly omit the persisted-goal stack and its command', async () => {
+  it('can explicitly omit the persisted-goal stack', async () => {
     const ctx = await mount({
       provider: 'mock',
       model: 'mock',
@@ -117,12 +108,7 @@ describe('dsh-acp-demo composition', () => {
       workspaceContext: false,
     })
     expect(ctx.get('goals')).toBeUndefined()
-    const handle = await ctx.agents.create({
-      sessionId: 'disabled-goals' as import('@deepseek-ai/dsh-session').SessionId,
-      agentOptions: { provider: 'mock', model: 'mock' },
-    })
-    expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
-    await handle.dispose()
+    expect(ctx.get('tools')?.get('get_goal')).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
@@ -133,8 +119,12 @@ describe('dsh-acp-demo composition', () => {
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    acpAgent.apply(ctx, { provider: 'mock', model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await acpAgent.apply(ctx, {
+      provider: 'mock',
+      model: 'mock',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
     expect(ctx.get('sessionPersistence')).toBeDefined()
     await ctx.fiber.dispose()
   })
@@ -155,8 +145,7 @@ describe('dsh-acp-demo composition', () => {
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      acpAgent.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await acpAgent.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
       await ctx.fiber.dispose()

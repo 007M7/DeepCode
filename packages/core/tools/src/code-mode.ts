@@ -363,7 +363,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         exec.signal.removeEventListener('abort', onOuterAbort)
       }
     },
-    // ACP execute cards use the program as their visible title.
+    // The program is the call's always-visible UI label.
     presentCall: args => ({
       card: 'generic',
       title: args.code,

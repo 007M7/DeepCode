@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-会话此前仅存在于内存中。示例插件 `session-jsonl.ts`（在两个示例中逐字节重复）是只写的遥测：它缓冲 `session/event` 并追加 JSON 行，没有读取/回放路径，没有崩溃安全性（无 fsync、无原子写入、fire-and-forget 的 dispose 排空），没有列表功能，也没有格式版本控制。没有任何机制能将磁盘上的历史会话重新注入到活跃的 agent（智能体）中，因此持久恢复（「继续昨天的任务」）、持久 fork 以及 ACP（Agent Client Protocol）的 `session/load` 方法（[ACP 支持](../feature/2026-06-14-acp-agent-client-protocol.md)）都无法实现。
+会话此前仅存在于内存中。示例插件 `session-jsonl.ts`（在两个示例中逐字节重复）是只写的遥测：它缓冲 `session/event` 并追加 JSON 行，没有读取/回放路径，没有崩溃安全性（无 fsync、无原子写入、fire-and-forget 的 dispose 排空），没有列表功能，也没有格式版本控制。没有任何机制能将磁盘上的历史会话重新注入到活跃的 agent（智能体）中，因此持久恢复、持久 fork 以及宿主侧的会话浏览都无法实现。
 
 [事件溯源模型](2026-06-11-event-sourced-sessions.md)将仅追加日志作为唯一真源，并从中派生 LLM（大语言模型）历史。持久化必须忠实于这一设计：直接持久化现有的 `SessionEvent`，不引入需要来回转换的并行「持久化消息」类型。后端也必须可替换——当前用文件存储，以后用数据库存储——统一在一个接口之后。
 
@@ -33,4 +33,4 @@ Status: implemented
 
 ## 后果
 
-新增两个包（package），以及 `dsh-session` 中的元数据 seam（`session.header`，`create(id?, options?)` 签名）。收益：持久恢复/fork、读取/回放路径、崩溃容忍，以及 ACP `session/load`（[ACP 支持](../feature/2026-06-14-acp-agent-client-protocol.md)）所需的基础——全部基于现有的事件溯源日志，后端在一个接口之后可替换。可复用的 `runPersistenceContract` 测试套件以相同的仅追加、连续 seq、惰性物化、整数元数据与可序列化语义约束每个后端。持久化完整日志还确定了事件保真度：`assistant/chunk` 保持逐字节不变。SQLite 初始化要么提交完整的自有 schema 与 header 标识，要么不留下任何会使下次打开受阻的部分 schema。
+新增两个包（package），以及 `dsh-session` 中的元数据 seam（`session.header`，`create(id?, options?)` 签名）。收益：持久恢复/fork、读取/回放路径、崩溃容忍，以及基于现有事件溯源日志的宿主侧会话访问，后端在一个接口之后可替换。可复用的 `runPersistenceContract` 测试套件以相同的仅追加、连续 seq、惰性物化、整数元数据与可序列化语义约束每个后端。持久化完整日志还确定了事件保真度：`assistant/chunk` 保持逐字节不变。SQLite 初始化要么提交完整的自有 schema 与 header 标识，要么不留下任何会使下次打开受阻的部分 schema。

@@ -42,7 +42,7 @@ ctx.slots.register({
 
 | 份额 | 类型 | 真源 | 内容 |
 |---|---|---|---|
-| 运行时 | `PropsRuntime<K>` | K 对应的 SlotMap entry | `OwnerOf<K>`（渲染现场传参）+ session scope 标配 `useSession`/`sessionId` + 全局 `useSessions` |
+| 运行时 | `PropsRuntime<K>` | K 对应的 SlotMap entry | `OwnerOf<K>`（渲染现场传参）+ session scope 标配 `useSession`/`sessionId` + 全局 `useSessions`/`useWorkspaces` |
 | 子坑渲染 | `PropsRenderSlots<S>` | register 的 `children` 键集 | `renderSlot(key, owner)`，键参静态收窄到 S；chain 键另有 `renderSlotChain` |
 | store | `PropsStore<H>` | store 工厂的返回类型 | `useStore` selector hook + `actions.*`（剥去 draft 形参） |
 | 业务 | `I` | inject 的返回类型 | 普通数据+回调（禁 hook） |
@@ -84,7 +84,7 @@ inject 工厂只收其声明挣来的形参——session 坑得 `sessionId`，�
 
 ### 数据界线纪律
 
-hook 只许框架造：`useSession`、`useSessions`、`useStore`、`renderSlot` 是仅有的四席，各实现一次、正确性由框架担保；业务代码在父子组件之间只传普通数据与回调（组件自用、不订阅任何外部数据源的行为 hook 不在此限）。活数据恰有三条通道：父知道的，作为 owner props 在 renderSlot 现场传入；只有组件自己知道的，是本地 state；需要跨 entry 共享或跨重挂载存活的，是声明的 store。派生是对框架 hook 数据做纯函数（`useMemo`），绝不自成一路订阅。
+hook 只许框架造：`useSession`、`useSessions`、`useWorkspaces`、`useStore`、`renderSlot` 是仅有的五席，各实现一次、正确性由框架担保；业务代码在父子组件之间只传普通数据与回调（组件自用、不订阅任何外部数据源的行为 hook 不在此限）。活数据恰有三条通道：父知道的，作为 owner props 在 renderSlot 现场传入；只有组件自己知道的，是本地 state；需要跨 entry 共享或跨重挂载存活的，是声明的 store。派生是对框架 hook 数据做纯函数（`useMemo`），绝不自成一路订阅。
 
 ### 树上语境与渲染器安装缝
 

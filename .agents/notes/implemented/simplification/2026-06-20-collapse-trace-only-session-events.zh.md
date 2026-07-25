@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-会话事件词汇中包含一些一等事件，它们不属于可回放的对话历史，在生产环境中几乎没有消费方。`usage` 已经作为模型流分片存在，之后循环又追加了一个独立的 `usage` 事件。`error` 与 `turn/end { kind: 'error', message, code }` 中的循环失败原因重复；ACP（Agent Client Protocol）结算读取轮次结束原因，ACP 渲染忽略 `error` 事件，`deriveMessages()` 也跳过它。
+会话事件词汇中包含一些一等事件，它们不属于可回放的对话历史，在生产环境中几乎没有消费方。`usage` 已经作为模型流分片存在，之后循环又追加了一个独立的 `usage` 事件。`error` 与 `turn/end { kind: 'error', message, code }` 中的循环失败原因重复；ACP（Agent Client Protocol）结算读取轮次结束原因，而消息投影和 UI 投影都会跳过独立的 `error` 事件。
 
 这些事件让规范的 transcript（文本记录）看起来比实际更像遥测数据。它们增加了事件变体、不变式、测试、快照和持久化用例，但作为独立记录并不承载实际功能。它们携带的事实仍然有用：token 用量应当保留以供计费，错误的步骤编号也不应悄然消失。简化的方式是将这些事实折叠进消费方本已必须理解的邻近事件，而非减少记录的信息量。
 

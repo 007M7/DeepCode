@@ -2,7 +2,7 @@
 
 [English](approval.md) | 中文
 
-[dsh-user-approval](../../packages/ui/user-approval) 的用户审批 seam 回答一个问题：这个具体操作是否可以继续？它拥有共享的请求/结果词汇、`ctx.approval` 分发服务、`approval/request` 应答者 waterfall（瀑布式事件）、仅记录日志的审计事件对，以及按会话的 `ask`/`never` 策略。UI 通道如 [dsh-acp](../../packages/ui/acp) 提供应答者；调用方如 [dsh-tools](../../packages/core/tools) 和 [dsh-tool-bash](../../packages/bash/tool-bash) 消费闭合的结果，除非结果为 `allowed-once`，否则一律拒绝。
+[dsh-user-approval](../../packages/ui/user-approval) 的用户审批 seam 回答一个问题：这个具体操作是否可以继续？它拥有共享的请求/结果词汇、`ctx.approval` 分发服务、`approval/request` 应答者 waterfall（瀑布式事件）、仅记录日志的审计事件对，以及按会话的 `ask`/`never` 策略。UI 通道可以提供人类应答者；[ACP（Agent Client Protocol）自动化桥接层](../../packages/acp/acp)为其拥有的 agent 提供一次性机器决策。调用方如 [dsh-tools](../../packages/core/tools) 和 [dsh-tool-bash](../../packages/bash/tool-bash) 消费闭合的结果，除非结果为 `allowed-once`，否则一律拒绝。
 
 源码：[`packages/ui/user-approval/src/index.ts`](../../packages/ui/user-approval/src/index.ts)
 
@@ -48,7 +48,7 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
-提示词段落会声明 `never` 的确定性行为，并以服务自有的标记记录当前策略。重启后，步骤前叙述器从已记录的请求头中读取该标记，而非从部署 persona 行文中推断状态。ACP（Agent Client Protocol）空闲切换会在 bridge 中保持，直到下一个 `turn/start`，因为审批审计和策略事件必须保持在轮次内，以确保持久回放的正确性。
+提示词段落会声明 `never` 的确定性行为，并以服务自有的标记记录当前策略。重启后，步骤前叙述器从已记录的请求头中读取该标记，而非从部署 persona 行文中推断状态。
 
 ## 审批请求
 

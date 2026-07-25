@@ -12,8 +12,8 @@ Status: implemented
 
 - `SessionPersistence.update()` **零个生产调用方**（所有 `.update(` 匹配都是 `createHash().update()` 或测试代码）。
 - `firstPrompt` 在生产代码中**从未被读取**。
-- `title` *确实*在 ACP（Agent Client Protocol）桥接层被读取过，但读的是工具调用的 **presenter**（`present.title`），从未读取存储的会话元数据。
-- `updatedAt` **没有消费方**：`list()` 唯一的生产调用方读取的是 `meta.cwd`（`SessionHeader` 字段），用于在 `session/load` 时校验工作区；恢复会话读取的是 `createdAt`/`cwd`/`parentSession`——全是 header 字段。
+- 会话标题来自持久的 `session/title` 事件，工具卡片标题来自工具 presenter；二者都不读取可变的会话元数据。
+- 持久化列表的消费方使用不可变 header 中的标识、创建、谱系和 cwd 字段。近期排序和预览派生自日志，而非某个 `updatedAt` 摘要。
 - 决定性的一点：活跃的 `Session.header` 类型本来就是 `SessionHeader` 而非 `SessionMeta`——摘要从未存在于活跃会话对象上；它只存在于持久化层，除了自身的契约测试外无人写入、无人读取。
 
 ## 决策

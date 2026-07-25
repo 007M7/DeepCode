@@ -1,6 +1,16 @@
 # @deepseek-ai/dsh-client-runtime
 
-Client cordis boot + core services: SlotsService (Service wrapper over SlotCore + 'slots/changed' bridge), SessionsService (list store projection, scope tree, bindings, ancestry), the Session object layer (exported as a type; instances are owned and handed out by SessionsService — the manager/paging internals stay package-internal, tests reach them via src), ClientLoader (`./loader` subpath, statically held by the shell). Contract: api-contracts v3 §4. `ConversationSnapshot` carries `todos` — the session-level todo projection: seeded from the tail history page's full-log projection (`history` response `todos`), overwritten by every in-window or live `todo/write` (last write wins), and preserved across window rebuilds.
+Client cordis boot and React-free object services: SlotsService wraps SlotCore and supplies renderer data sources; SessionsService owns Session objects, list/scope/history state, and page-local Session Intent state; WorkspacesService depends on SessionsService and owns Workspace objects, list/actions, page-local Workspace Intent state, default-target derivation, and the cross-object New Session flow. The runtime fans the shared Host stream into both managers. Contract: api-contracts v3 §4. `ConversationSnapshot` carries `todos` — the session's current todo projection: seeded by the tail history page's full-log value (host-computed, independent of the page window), preserved across window rebuilds, and overwritten by each live `todo/write` (last write wins).
+
+## Workspace and Session lists
+
+Workspace and Session lists have independent monotone `pending` → `ready` baseline phases and separate refresh activity/error state. Incremental frames arriving during a list request replay over its response. The first successful baseline establishes Host order; later refreshes update rows and membership without changing the relative order of identities already shown. Workspace recency is derived only after both baselines are ready and never changes Workspace list order.
+
+SlotsService gives the renderer separate bare observables for `useSessions` and `useWorkspaces`; web-react creates the hooks. Workspace business state does not enter `SessionListState` or an entry store.
+
+## Session creation failures
+
+`SessionsService.create` accepts an optional caller-preallocated SessionId. It throws `SessionCreateError` on failure: `requestedSessionId` remains available after transport uncertainty, while `publishedSessionId` is set when `workspace-attach-failed` proves the Host published a real Session before attachment failed. For the New Session flow, the frontend Session object owns its retained prompt and advances it through attachment and send; a partially published Session keeps the same object and prompt while it appears as Ungrouped.
 
 ## Session title projection
 
@@ -19,4 +29,4 @@ None; this package neither assembles nor sends a provider request.
 - **`loader.unload` is a stub (throws not-implemented)** — the full chain (fiber dispose → registration cascade → style removal) lands with the HMR project.
 - **Scope teardown is stage-driven, single-occupant today** — the staged session follows `list.current` exactly (staging is the open signal: the event window opens ⟺ the session is on stage); a removed-while-staged session's scope survives frozen until the stage moves on, not until true observer count reaches zero. Resolution (`cell()`/`binding()`/`scope()`) is pure addressing, render-safe. The staged state can widen to a multi-pane list when concurrent panes land.
 - **Value imports of this package from plugin bundles must use the `/client` subpath** — the bare package name is not in the loader externals table and inlines a second module instance, whose private scope-tag Symbol never matches (the empty-state P0 postmortem).
-- **`SessionSummary.title` is a display projection** — the wire summary carries no title yet; the cwd basename stands in, then the raw id.
+- **`todos` is window-scoped** — the projection scans only the paged display window, so reopening a session whose last `todo/write` precedes the tail page shows an empty plan until the user pages back to it. Restoring the tool's cold-load reconstruction promise needs the current projection independent of the window (host-attached on history, or a dedicated read).
