@@ -24,13 +24,20 @@ const ALL_INTERFACES_HOST = '0.0.0.0'
  * @param host - the bind host, or `undefined` to keep the config default.
  * @param port - the listen port (`0` requests an OS-assigned port), or `undefined` to keep the config default.
  * @param dev - mount the client HMR driver and watch plugin bundles for rebuilds.
+ * @param workspaceRoot - parent directory for name-created workspaces, or `undefined` for the gateway's cwd fallback.
  */
-export async function runWeb(host: string | undefined, port: number | undefined, dev: boolean): Promise<void> {
+export async function runWeb(
+  host: string | undefined,
+  port: number | undefined,
+  dev: boolean,
+  workspaceRoot: string | undefined,
+): Promise<void> {
   const entry = new AppCLIEntry({
     configPath: CONFIG_PATH,
     dev,
     ...host !== undefined && { host },
     ...port !== undefined && { port },
+    ...workspaceRoot !== undefined && { workspaceRoot },
   })
   const { ctx, port: boundPort } = await entry.run()
 

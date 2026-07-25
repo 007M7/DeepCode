@@ -8,7 +8,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { DatabaseSync } from 'node:sqlite'
-import { StorageError, UNIT_NAME_RE } from '@deepseek-ai/dsh-storage'
+import { StorageError, UNIT_NAME_RE, storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
 import { openDatabase, recordTableName, type JournalMode } from './schema.ts'
 import { SqliteKvUnit } from './unit.ts'
@@ -164,4 +164,5 @@ export function apply(ctx: Context, config: Config) {
       await backend.close()
     }
   }, 'storage-sqlite.registerBackend')
+  ctx.provide(storageBackendServiceKey('sqlite'), backend)
 }

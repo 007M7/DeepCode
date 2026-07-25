@@ -9,7 +9,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { StorageError, UNIT_NAME_RE } from '@deepseek-ai/dsh-storage'
+import { StorageError, UNIT_NAME_RE, storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
 import { openJsonUnit } from './unit.ts'
 
@@ -110,4 +110,5 @@ export function apply(ctx: Context, config: Config) {
       await backend.close()
     }
   })
+  ctx.provide(storageBackendServiceKey('json'), backend)
 }

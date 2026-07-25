@@ -34,6 +34,7 @@
     { "path": "./packages/client/ui-layout" },
     { "path": "./packages/client/ui-sidebar" },
     { "path": "./packages/client/ui-conversation" },
+    { "path": "./packages/client/ui-workspace" },
     { "path": "./packages/client/ui-question" },
     { "path": "./packages/client/ui-trajectory" },
     { "path": "./packages/client/ui-theme" },

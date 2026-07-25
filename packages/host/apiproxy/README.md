@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-host-apiproxy
 
-The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves. The composition lives in `apps/cli/cordis.yml` (the `api-gateway` row).
+The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model, workspaceRoot?}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves. The shipped core composition lives in [`apps/cli/cordis.yml`](../../../apps/cli/cordis.yml).
 
 ## Contract layer (`/api`)
 
@@ -9,6 +9,8 @@ Wire messages form a four-quadrant discriminated union — who initiates × requ
 The layering/protocol decisions are recorded in the [GUI layering and RPC protocol RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md); the browser-side consumption architecture in the [web client architecture RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md).
 
 The mux stream projects the latest log-backed title as a validated `session/title` control frame after each attached-session subscription baseline and immediately after the corresponding live raw title event. This projection does not add titles to `session.list`; cold sessions remain metadata-only there until opening or resuming attaches their logs.
+
+Workspace and Session lists are separate reconnect baselines. `workspace.create` creates a unique name or adopts an existing directory, `session.create` accepts an optional preallocated Session id, and `host/workspace-changed` plus `host/session-added` carry committed increments in either arrival order. Frontend Workspace and Session Intents are client-only and have no wire method.
 
 ## Carrier layer (`/client` + root)
 

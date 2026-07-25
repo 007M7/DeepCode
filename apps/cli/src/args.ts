@@ -31,13 +31,15 @@ interface HeadlessInvocation {
  * `port` a natural ≤ 65535) is the single source of both the default (the
  * shipped `cordis.yml` value stands when a flag is absent) and validity (a bad
  * value fails loud at boot). `port` is `Number`-coerced only because the schema
- * wants a number, not a string. `dev` mounts the client HMR driver.
+ * wants a number, not a string. `dev` mounts the client HMR driver;
+ * `workspaceRoot` is the parent directory for name-created workspaces.
  */
 interface WebInvocation {
   mode: 'web'
   host?: string
   port?: number
   dev: boolean
+  workspaceRoot?: string
 }
 
 /** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
@@ -48,6 +50,7 @@ interface WebOptions {
   host?: string
   port?: string
   dev?: boolean
+  workspaceRoot?: string
 }
 
 /**
@@ -62,6 +65,7 @@ function resolveWeb(options: WebOptions): WebInvocation {
     ...options.host !== undefined && { host: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
     dev: options.dev === true,
+    ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
   }
 }
 
@@ -112,6 +116,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .option('--host <host>', 'override the config bind host (127.0.0.1 or 0.0.0.0)')
     .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
     .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
+    .option('--workspace-root <path>', 'parent directory for name-created workspaces')
     .action((options: WebOptions) => {
       // Commander parses the parent (default-surface) options on either side of
       // the subcommand into `program.opts()`. `web` shares none of them, so a

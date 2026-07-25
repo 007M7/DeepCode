@@ -9,7 +9,7 @@ import css from './InputBar.module.css'
 
 /** Prompt failure surface (mirrors the session snapshot's promptError shape). */
 export interface InputBarError {
-  op: 'send' | 'stop'
+  op: 'workspace' | 'session' | 'send' | 'stop'
   message: string
 }
 
@@ -18,12 +18,17 @@ export interface InputBarProps {
   running: boolean
   disabled: boolean
   error: InputBarError | null
+  /** Observable async phase for browser fixtures and assistive technology. */
+  status?: string
+  /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
   placeholder?: string
   accessory?: ReactNode
   onDraftChange: (text: string) => void
   onSend: (mode: 'queue' | 'steer') => void
   onStop: () => void
+  onAdd?: () => void
+  addLabel?: string
 }
 
 interface SelectOption {
@@ -47,7 +52,8 @@ const MODEL_OPTIONS: readonly SelectOption[] = [
 ]
 
 export function InputBar({
-  draft, running, disabled, error, variant, placeholder, accessory, onDraftChange, onSend, onStop,
+  draft, running, disabled, error, status, variant, placeholder, accessory,
+  onDraftChange, onSend, onStop, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -98,7 +104,7 @@ export function InputBar({
     inputRef.current?.focus()
   }
 
-  const primaryLabel = running ? '停止' : '发送'
+  const primaryLabel = running ? 'Stop generating' : 'Send message'
   const onPrimary = (): void => {
     if (running) {
       onStop()
@@ -129,11 +135,8 @@ export function InputBar({
 
   return (
     <div className={clsx(css.root, variant === 'hero' && css.hero)}>
-      {error !== null && (
-        <div className={css.error}>
-          {error.op === 'stop' ? '停止失败' : '发送失败'}：{error.message}
-        </div>
-      )}
+      {status !== undefined && <div className={css.status} role="status">{status}</div>}
+      {error !== null && <div className={css.error} role="alert">{error.message}</div>}
       <div className={css.card}>
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {/* Mirror-div auto-grow: the hidden mirror renders draft+'\n' and stretches the wrapper
@@ -145,7 +148,7 @@ export function InputBar({
             className={css.input}
             value={draft}
             disabled={locked}
-            placeholder={placeholder ?? (disabled ? '会话不可用' : running ? '回复生成中，可停止后再输入' : '输入消息，Enter 发送，Shift+Enter 换行')}
+            placeholder={placeholder ?? (disabled ? 'Session unavailable' : running ? 'Generating a response…' : 'Message the agent')}
             rows={2}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={onKeyDown}
@@ -159,10 +162,11 @@ export function InputBar({
             <button
               type="button"
               className={css.add}
-              aria-label="添加"
-              title="添加"
+              aria-label={addLabel}
+              title={addLabel}
               disabled={locked}
               onMouseDown={keepFocus}
+              onClick={onAdd}
             >
               <IconPlusOutline16 size={14} />
             </button>
@@ -177,7 +181,7 @@ export function InputBar({
               type="button"
               className={clsx(css.primary, running && css.stopping)}
               aria-label={primaryLabel}
-              title={running ? '停止本轮' : '发送（Enter）'}
+              title={primaryLabel}
               disabled={!running && (empty || disabled)}
               onMouseDown={keepFocus}
               onClick={onPrimary}

@@ -15,12 +15,16 @@
  * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from 'cordis'
-import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { IApiClient, RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionCell } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import { SessionManager } from './manager.ts'
+import type {
+  SessionIntentListSnapshot, SessionListPhase,
+} from './manager.ts'
 import type { Session } from './session.ts'
+import type { SessionIntentTarget } from './conversation.ts'
 
 /** Session list row projected from the host list RPC plus live stream increments. */
 export interface SessionSummary {
@@ -40,7 +44,36 @@ export interface SessionSummary {
  * the single useSessions standard hook reads list and selection together —
  * sidebar highlighting and SessionProvider share one fact source).
  */
-export interface SessionListState { ids: SessionId[]; byId: Record<SessionId, SessionSummary>; current: SessionId | undefined }
+export interface SessionListState {
+  ids: SessionId[]
+  byId: Record<SessionId, SessionSummary>
+  current: SessionId | undefined
+  /** Frontend Session Intent projected from its owning Session object. */
+  intent: SessionIntentListSnapshot | undefined
+  /** Arrival lifecycle projected 1:1 from the manager snapshot (see SessionListPhase): empty-with-ready means "truly no sessions". */
+  phase: SessionListPhase
+}
+
+/** Structured session-create failure preserving partial publication identity. */
+export class SessionCreateError extends Error {
+  override readonly name = 'SessionCreateError'
+  /** Definitely published by Host before Workspace attachment failed. */
+  readonly publishedSessionId: SessionId | undefined
+
+  /**
+   * @param rpcError - Host business or folded transport error.
+   * @param requestedSessionId - caller-preallocated id used for later stream/list reconciliation.
+   */
+  constructor(
+    readonly rpcError: RpcError,
+    readonly requestedSessionId: SessionId | undefined,
+  ) {
+    super(`session create failed: ${rpcError.code}: ${rpcError.message}`)
+    this.publishedSessionId = rpcError.code === 'workspace-attach-failed'
+      ? rpcError.details.sessionId
+      : undefined
+  }
+}
 
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
@@ -65,14 +98,28 @@ export function scopeOf(ctx: Context): SessionId | undefined {
 function sessionScope(): void {}
 
 /**
+ * Workspace display title of a session cwd: the path's last non-empty
+ * segment (both separators accepted; trailing separators ignored), or ''
+ * for separator-only paths — callers own their fallback (session id, raw
+ * cwd, default-directory copy). The repo-wide single basename derivation —
+ * every surface naming a workspace (picker rows, toggle labels, list titles)
+ * calls this instead of re-splitting paths.
+ * @param cwd - workspace directory path.
+ * @returns basename title, or '' when no non-empty segment exists.
+ */
+export function workspaceTitleOf(cwd: string): string {
+  return cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? ''
+}
+
+/**
  * Display title projection: durable title, project directory basename, then
  * the raw id.
  */
 function displayTitleOf(title: string | undefined, cwd: string | undefined, id: SessionId): string {
   if (title !== undefined) return title
   if (cwd !== undefined && cwd !== '') {
-    const base = cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop()
-    if (base !== undefined && base !== '') return base
+    const base = workspaceTitleOf(cwd)
+    if (base !== '') return base
   }
   return id
 }
@@ -89,8 +136,8 @@ interface ScopeRecord {
 export class SessionsService {
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
-  /** The object-layer instance cluster and frame dispatch entry (wired to the connection by the runtime apply). */
-  readonly manager: SessionManager
+  /** The object-layer instance cluster and frame dispatch entry. */
+  private readonly manager: SessionManager
 
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
@@ -117,12 +164,14 @@ export class SessionsService {
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
    */
-  constructor(private readonly rootCtx: Context, private readonly api: IApiClient) {
-    this.manager = new SessionManager(api)
+  constructor(private readonly rootCtx: Context, api: IApiClient) {
     this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
-    this.list = createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined })
+    this.manager = new SessionManager(api, this.selection.getSnapshot().sessionId)
+    this.list = createSnapshotStore<SessionListState>({
+      ids: [], byId: {}, current: undefined, intent: undefined, phase: 'pending',
+    })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
     this.manager.subscribe(() => { this.projectList() })
@@ -142,54 +191,86 @@ export class SessionsService {
    * @param id - session id (must exist in the list store).
    */
   open(id: SessionId): void {
-    if (this.list.getSnapshot().byId[id] === undefined) {
-      throw new Error(`sessions.open: unknown session ${id}`)
-    }
-    this.selection.update((draft) => { draft.sessionId = id })
-    this.list.update((draft) => { draft.current = id })
+    this.manager.select(id)
   }
 
   /**
    * Clear the current selection so the layout shows the no-session empty
-   * state. Wipes the persisted selection too — a reload stays on empty until
-   * the user opens or starts a session. Staging holds the previous occupant
-   * across the blank (same masked-gap rule as a transient list miss).
+   * state (new-session affordance and the workspace preselection flow).
+   * Wipes the persisted selection too — a reload stays on empty until the
+   * user opens or starts a session. The staged scope keeps its frozen view
+   * per the masked-gap contract until the next open() moves the stage.
    */
   clear(): void {
-    this.selection.set({})
-    this.list.update((draft) => { draft.current = undefined })
+    this.manager.clearSelection()
+  }
+
+  /**
+   * Start or retarget the sole client-local Session intent.
+   * @param target - resolved real or frontend-only Workspace target.
+   * @param prompt - optional prompt retained across retargeting.
+   * @returns the frontend Session object that owns the Intent.
+   */
+  startIntent(target: SessionIntentTarget, prompt = ''): Session {
+    return this.manager.startIntent(target, prompt)
+  }
+
+  /**
+   * Resolve the active frontend Session Intent.
+   * @returns the active frontend Session object, if one exists.
+   */
+  intent(): Session | undefined {
+    return this.manager.getIntent()
+  }
+
+  /**
+   * Update the retained prompt of the active frontend Session.
+   * @param text - exact controlled-input value for the current Session Intent.
+   */
+  updateIntent(text: string): void {
+    this.manager.updateIntent(text)
+  }
+
+  /**
+   * Refresh the real Session baseline, reusing an in-flight pull.
+   * @returns completion of the current or newly started baseline pull.
+   */
+  refresh(): Promise<void> {
+    return this.manager.refreshList()
+  }
+
+  /**
+   * Route a mux stream envelope into the Session object layer.
+   * @param envelope - validated mux stream envelope.
+   */
+  handleMuxEnvelope(envelope: Parameters<SessionManager['handleMuxEnvelope']>[0]): void {
+    this.manager.handleMuxEnvelope(envelope)
+  }
+
+  /**
+   * Route a Host stream envelope into the Session object layer.
+   * @param envelope - validated Host stream envelope.
+   */
+  handleHostEnvelope(envelope: Parameters<SessionManager['handleHostEnvelope']>[0]): void {
+    this.manager.handleHostEnvelope(envelope)
+  }
+
+  /** Rebuild the Session baseline and every opened window after connection. */
+  handleConnected(): void {
+    this.manager.handleConnected()
   }
 
   /**
    * Create a session on the host.
-   * @param opts - creation options (project directory).
+   * @param opts - target workspace or directory and an optional preallocated id.
    * @returns the new session id.
+   * @throws {SessionCreateError} with the requested id and, after an attach
+   * failure, the definitely published id.
    */
-  async create(opts: { cwd?: string } = {}): Promise<SessionId> {
-    const result = await this.manager.create(opts.cwd)
-    if (!result.ok) throw new Error(`session create failed: ${result.error.code}: ${result.error.message}`)
+  async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
+    const result = await this.manager.create(opts)
+    if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
     return result.value.sessionId
-  }
-
-  /**
-   * Create a workspace folder under the host process cwd and a session in it.
-   * Name is a single path segment (no separators); the host mkdir runs inside
-   * session.create. Caller opens the returned id when it wants the session staged.
-   * @param name - workspace folder basename.
-   * @returns the new session id.
-   */
-  async createWorkspace(name: string): Promise<SessionId> {
-    const trimmed = name.trim()
-    if (trimmed === '') throw new Error('sessions.createWorkspace: name is required')
-    if (/[/\\]/.test(trimmed)) {
-      throw new Error('sessions.createWorkspace: name must not contain path separators')
-    }
-    const { result } = await this.api.host.describe({})
-    if (!result.ok) {
-      throw new Error(`host.describe failed: ${result.error.code}: ${result.error.message}`)
-    }
-    const hostCwd = result.value.cwd.replace(/[/\\]+$/, '')
-    return this.create({ cwd: `${hostCwd}/${trimmed}` })
   }
 
   /**
@@ -244,11 +325,12 @@ export class SessionsService {
    * failed one retries the next time current is touched).
    */
   private followCurrent(): void {
-    const current = this.list.getSnapshot().current
+    const snapshot = this.list.getSnapshot()
+    const current = snapshot.current
     // A masked gap (current blanked while the selection's session is
     // transiently absent) holds the stage: tearing down on the gap would
     // destroy exactly the frozen scope the mask exists to preserve.
-    if (current === undefined || current === this.watched) return
+    if (current === undefined || snapshot.byId[current] === undefined || current === this.watched) return
     this.watched = current
     this.sweepDeferred()
     const record = this.resolve(current)
@@ -300,7 +382,7 @@ export class SessionsService {
 
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
   private projectList(): void {
-    const items = this.manager.getListSnapshot().items
+    const { items, current, intent, phase } = this.manager.getListSnapshot()
     const ids: SessionId[] = []
     const byId: Record<SessionId, SessionSummary> = {}
     for (const entry of items) {
@@ -315,11 +397,13 @@ export class SessionsService {
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
       }
     }
-    // current = the persisted selection, masked while its session is absent
-    // (falls to the empty state; resurfaces if the session returns).
-    const selected = this.selection.getSnapshot().sessionId
-    const current = selected !== undefined && byId[selected] !== undefined ? selected : undefined
-    this.list.set({ ids, byId, current })
+    const persisted = this.selection.getSnapshot().sessionId
+    if (intent?.sessionId === current) {
+      if (persisted !== undefined) this.selection.set({})
+    } else if (current !== undefined && byId[current] !== undefined && persisted !== current) {
+      this.selection.set({ sessionId: current })
+    }
+    this.list.set({ ids, byId, current, intent, phase })
     this.pruneScopes(byId)
   }
 

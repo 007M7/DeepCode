@@ -33,8 +33,8 @@ describe('parseDshArgs', () => {
     expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
     // Host/port are unvalidated pass-throughs (the webserver schema gates them
     // at boot); the adapter only coerces the port string to a number.
-    expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev']))
-      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true })
+    expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
+      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, workspaceRoot: '/w' })
   })
 
   it('exits nonzero instead of silently starting fresh or dropping inputs', () => {
