@@ -49,7 +49,7 @@ Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI a
 
 ## Front door
 
-This package ships no bin. The [`dsh`](../../../apps/cli/README.md) CLI is the terminal front door: `dsh [path-to-cordis.yml]` boots a leaf config that mounts this bundle (defaulting to the shipped `examples/tui-agent/cordis.yml`), loads the optional cwd `.env`, drives the Cordis Loader, and waits for the full plugin tree. The repository installs Loader's optional native helper, so bare package specifiers resolve under plain Node.
+This package ships no bin. The [`dsh`](../../../apps/cli/README.md) CLI is the terminal front door: bare `dsh` boots the shipped `examples/tui-agent/cordis.yml` (which mounts this bundle), and `dsh --config <path-to-cordis.yml>` boots an alternate leaf config that mounts it. It loads the optional cwd `.env`, drives the Cordis Loader, and waits for the full plugin tree. The repository installs Loader's optional native helper, so bare package specifiers resolve under plain Node.
 
 ## Example leaf
 

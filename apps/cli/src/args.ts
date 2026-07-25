@@ -112,7 +112,17 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .option('--host <host>', 'override the config bind host (127.0.0.1 or 0.0.0.0)')
     .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
     .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
-    .action((options: WebOptions) => { resolved = resolveWeb(options) })
+    .action((options: WebOptions) => {
+      // Commander parses the parent (default-surface) options on either side of
+      // the subcommand into `program.opts()`. `web` shares none of them, so a
+      // leaked `--config`/`-p`/`--resume` is a mistyped invocation that must
+      // fail loud rather than silently start the web server and drop it.
+      const parent = program.opts<{ config?: string; prompt?: string; resume?: string }>()
+      if (parent.config !== undefined || parent.prompt !== undefined || parent.resume !== undefined) {
+        program.error('error: web takes none of --config, -p/--prompt, or --resume')
+      }
+      resolved = resolveWeb(options)
+    })
 
   try {
     program.parse(argv, { from: 'user' })

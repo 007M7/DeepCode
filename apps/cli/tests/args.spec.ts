@@ -47,6 +47,11 @@ describe('parseDshArgs', () => {
     expect(exitCode(['-p', 'x', '--resume', 's'])).toBe(1)
     expect(exitCode(['--bogus'])).toBe(1)
     expect(exitCode(['bogus-positional'])).toBe(1)
+    // A default-surface flag on either side of `web` leaks into program.opts()
+    // but the web subcommand shares none of them: reject rather than serve.
+    expect(exitCode(['web', '-p', 'task'])).toBe(1)
+    expect(exitCode(['web', '--resume', 's'])).toBe(1)
+    expect(exitCode(['--config', 'c.yml', 'web'])).toBe(1)
   })
 
   it('exits 0 for --help (disclosing web) and --version', () => {
