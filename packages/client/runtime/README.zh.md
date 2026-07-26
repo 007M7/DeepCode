@@ -14,6 +14,10 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 `SessionsService.create` 接受可选的、由调用方预先分配的 SessionId。失败时抛出 `SessionCreateError`：传输状态不确定后仍可取得 `requestedSessionId`；如果 Host 在附加失败前已经发布真实 Session，则会设置 `publishedSessionId`，此时 `workspace-attach-failed` 提供了证明。在 New Session 流程中，前端 Session 对象拥有其保留的提示词，并推动提示词完成附加与发送；部分发布的 Session 会保留同一对象和提示词，同时显示为 Ungrouped。
 
+## Code Mode 子调用索引
+
+`ConversationSnapshot.codeDispatches` 按父调用的 callId 和分发顺序，将一个 `run_code` 调用的子调用组织为已完结的 `ToolResultNode` 条目（即原生结果形状）：每条 `tool/code-dispatch` 事件追加一个。该事件只携带完结时间戳，因此 `callTime` 为 `null`（起始时间未知）；此索引目前无法据此作出任何耗时声明。live mux 帧与历史回放构建相同的索引；子调用永不进入 surface `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
+
 ## Session 标题投影
 
 `SessionManager` 独立于列表和 Session 实例到达情况，保留最近一次通过验证的 `session/title` 控制快照。seq 更新的事件会替换旧快照，标题时间戳计入列表新近程度；订阅基线会先丢弃 seq 超过其 `lastSeq` 的任何已保留标题，再接收可选的折叠标题。显式移除 Session 也会清除已保留标题。因此，面向客户端的 `SessionSummary.title` 只包含真实的持久标题；`displayTitle` 始终存在，并依次回退到 cwd basename 和 Session id。冷启动的持久会话会保持该回退值，直到打开或恢复会话，促使主机折叠并投影日志支持的标题。
