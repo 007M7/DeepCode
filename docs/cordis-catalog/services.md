@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:225`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:227`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -244,27 +244,21 @@ Approval service that applies session policy before answerers and logs every ask
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 /**
- * A session's approval-policy OVERRIDE — the fold alone, never the
- * configured default. The read half of delegation inheritance: the subagent
- * driver captures this synchronously at delegation, so a parent switch
- * racing the child's asynchronous creation belongs to the parent's future,
- * not to the child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
- * @param session - the session whose override chain to fold.
- * @returns the last switched policy, or `undefined` for a never-switched session.
+ * A session's approval-policy OVERRIDE — the override chain alone, never
+ * the configured default: the fold of the session's OWN switches (events
+ * past the seed boundary — a fork seed's stale parent switch is subsumed by
+ * the baseline captured after it), else the header's inherited delegation
+ * baseline. The subagent driver stamps `overrideOf(parent.session)` into
+ * each child's creation meta, so a `'never'` (headless/CI) parent cannot
+ * mint children that fall back to a prompting default, at any depth
+ * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+ * @param session - the session whose override chain to resolve.
+ * @returns the effective override, or `undefined` for a session following
+ *   the configured default.
+ * @throws when the durable header baseline is outside the closed policy
+ *   vocabulary (a corrupt or foreign log; durable-boundary validation).
  */
 overrideOf(session: Session): ApprovalPolicy | undefined
-
-/**
- * Stamp a captured override onto a child session through the canonical
- * write path — the write half of delegation inheritance: a `'never'`
- * (headless/CI) parent must not mint children that fall back to a prompting
- * default. A child whose log (e.g. a fork seed) already folds to the policy
- * is left untouched. Callers must append inside an open child turn — a bare
- * between-turn event is crash-tail garbage on reload.
- * @param child - the child session the override is appended to.
- * @param policy - the captured {@link overrideOf} value to stamp.
- */
-stampOverride(child: Session, policy: ApprovalPolicy): void
 ```
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
@@ -974,28 +968,21 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
 
 /**
- * A session's sandbox-mode OVERRIDE — the fold alone, never the deployment
- * default. The read half of delegation inheritance: the subagent driver
- * captures this synchronously at delegation, so a parent switch racing the
- * child's asynchronous creation belongs to the parent's future, not to the
- * child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
- * @param session - the session whose override chain to fold.
- * @returns the last switched mode, or `undefined` for a never-switched session.
+ * A session's sandbox-mode OVERRIDE — the override chain alone, never the
+ * deployment default: the fold of the session's OWN switches (events past
+ * the seed boundary — a fork seed's stale parent switch is subsumed by the
+ * baseline captured after it), else the header's inherited delegation
+ * baseline. The subagent driver stamps `overrideOf(parent.session)` into
+ * each child's creation meta, so the chain collapses one level per
+ * delegation and a tightened parent binds children at any depth
+ * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+ * @param session - the session whose override chain to resolve.
+ * @returns the effective override, or `undefined` for a session following
+ *   the deployment default.
+ * @throws when the durable header baseline is outside the closed mode
+ *   vocabulary (a corrupt or foreign log; durable-boundary validation).
  */
 overrideOf(session: Session): SandboxMode | undefined
-
-/**
- * Stamp a captured override onto a child session through the canonical
- * write path — the write half of delegation inheritance: a child agent runs
- * under the policy its delegating parent was switched to, not under the
- * (possibly wider) deployment default. A child whose log (e.g. a fork seed)
- * already folds to the mode is left untouched. Callers must append inside
- * an open child turn — a bare between-turn event is crash-tail garbage on
- * reload.
- * @param child - the child session the override is appended to.
- * @param mode - the captured {@link overrideOf} value to stamp.
- */
-stampOverride(child: Session, mode: SandboxMode): void
 ```
 
 Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
@@ -1389,7 +1376,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:606`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

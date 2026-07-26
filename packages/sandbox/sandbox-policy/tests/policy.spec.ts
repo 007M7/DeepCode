@@ -143,41 +143,56 @@ describe('the sandbox/mode session kit', () => {
   })
 })
 
-describe('delegation inheritance (overrideOf + stampOverride)', () => {
-  const modeEvents = (session: Session) => session.events.filter(e => e.type === 'sandbox/mode')
+describe('delegation inheritance (overrideOf over the header baseline)', () => {
+  /** A session whose header carries the delegation-inheritance baseline. */
+  function inheritedSession(id: string, meta: { sandboxMode?: string; seedLength?: number } = {}): Session {
+    const sessionId = SessionId(id)
+    return new Session(sessionId, undefined, {
+      version: 0,
+      id: sessionId,
+      createdAt: 0,
+      ...meta.sandboxMode === undefined ? {} : { sandboxMode: meta.sandboxMode },
+      ...meta.seedLength === undefined ? {} : { seedLength: meta.seedLength },
+    })
+  }
 
-  it('overrideOf folds to the LAST override and never falls back to the deployment default', async () => {
+  it('overrideOf folds the session log and never falls back to the deployment default', async () => {
     const ctx = await mounted({ mode: 'workspace-write' })
     const parent = session('sess-inherit-parent')
     setSandboxMode(parent, 'workspace-write')
     setSandboxMode(parent, 'read-only')
 
     expect(ctx.sandboxPolicy.overrideOf(parent)).toBe('read-only')
-    // undefined, NOT the deployment default — a child stamped with the
+    // undefined, NOT the deployment default — a child whose header froze the
     // default would stop following the LIVE default across resumes.
     expect(ctx.sandboxPolicy.overrideOf(session('sess-inherit-unswitched'))).toBeUndefined()
   })
 
-  it('stampOverride appends the captured mode through the canonical write path', async () => {
-    const ctx = await mounted()
-    const child = session('sess-inherit-child')
+  it('overrideOf reads the header baseline when the log has no own switch', async () => {
+    const ctx = await mounted({ mode: 'workspace-write' })
+    const child = inheritedSession('sess-inherit-baseline', { sandboxMode: 'read-only' })
 
-    ctx.sandboxPolicy.stampOverride(child, 'read-only')
-
-    const stamped = modeEvents(child)
-    expect(stamped).toHaveLength(1)
-    expect(stamped[0]?.data).toEqual({ mode: 'read-only' })
+    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('read-only')
+    // resolve() consumes the same chain, so enforcement sees the baseline.
+    expect(ctx.sandboxPolicy.resolve({ session: child }).mode).toBe('read-only')
   })
 
-  it('stampOverride skips a child already folding to the mode (fork-seed dedup)', async () => {
+  it('a seed-carried stale switch loses to the baseline; an OWN later switch wins over it', async () => {
+    const ctx = await mounted({ mode: 'workspace-write' })
+    // The fork seed carried the parent's OLD workspace-write switch (one
+    // event, so seedLength 1); the delegation-time baseline is read-only.
+    const child = inheritedSession('sess-inherit-slice', { sandboxMode: 'read-only', seedLength: 1 })
+    setSandboxMode(child, 'workspace-write')
+    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('read-only')
+    // A switch the child makes ITSELF (after the seed boundary) outranks it.
+    setSandboxMode(child, 'danger-full-access')
+    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('danger-full-access')
+  })
+
+  it('rejects a header baseline outside the closed mode vocabulary (durable boundary)', async () => {
     const ctx = await mounted()
-    const child = session('sess-inherit-dedup-child')
-    // A fork seed can already carry the parent's switch; stamping again would
-    // append a redundant event on every delegation.
-    setSandboxMode(child, 'read-only')
+    const child = inheritedSession('sess-inherit-invalid', { sandboxMode: 'yolo' })
 
-    ctx.sandboxPolicy.stampOverride(child, 'read-only')
-
-    expect(modeEvents(child)).toHaveLength(1)
+    expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/sandboxMode/)
   })
 })

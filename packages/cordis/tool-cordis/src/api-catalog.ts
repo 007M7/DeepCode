@@ -152,11 +152,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
-        jsDoc: '/**\n * A session\'s approval-policy OVERRIDE — the fold alone, never the\n * configured default. The read half of delegation inheritance: the subagent\n * driver captures this synchronously at delegation, so a parent switch\n * racing the child\'s asynchronous creation belongs to the parent\'s future,\n * not to the child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to fold.\n * @returns the last switched policy, or `undefined` for a never-switched session.\n */',
-      },
-      {
-        signature: 'stampOverride(child: Session, policy: ApprovalPolicy): void',
-        jsDoc: '/**\n * Stamp a captured override onto a child session through the canonical\n * write path — the write half of delegation inheritance: a `\'never\'`\n * (headless/CI) parent must not mint children that fall back to a prompting\n * default. A child whose log (e.g. a fork seed) already folds to the policy\n * is left untouched. Callers must append inside an open child turn — a bare\n * between-turn event is crash-tail garbage on reload.\n * @param child - the child session the override is appended to.\n * @param policy - the captured {@link overrideOf} value to stamp.\n */',
+        jsDoc: '/**\n * A session\'s approval-policy OVERRIDE — the override chain alone, never\n * the configured default: the fold of the session\'s OWN switches (events\n * past the seed boundary — a fork seed\'s stale parent switch is subsumed by\n * the baseline captured after it), else the header\'s inherited delegation\n * baseline. The subagent driver stamps `overrideOf(parent.session)` into\n * each child\'s creation meta, so a `\'never\'` (headless/CI) parent cannot\n * mint children that fall back to a prompting default, at any depth\n * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the configured default.\n * @throws when the durable header baseline is outside the closed policy\n *   vocabulary (a corrupt or foreign log; durable-boundary validation).\n */',
       },
     ],
   },
@@ -496,11 +492,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'overrideOf(session: Session): SandboxMode | undefined',
-        jsDoc: '/**\n * A session\'s sandbox-mode OVERRIDE — the fold alone, never the deployment\n * default. The read half of delegation inheritance: the subagent driver\n * captures this synchronously at delegation, so a parent switch racing the\n * child\'s asynchronous creation belongs to the parent\'s future, not to the\n * child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to fold.\n * @returns the last switched mode, or `undefined` for a never-switched session.\n */',
-      },
-      {
-        signature: 'stampOverride(child: Session, mode: SandboxMode): void',
-        jsDoc: '/**\n * Stamp a captured override onto a child session through the canonical\n * write path — the write half of delegation inheritance: a child agent runs\n * under the policy its delegating parent was switched to, not under the\n * (possibly wider) deployment default. A child whose log (e.g. a fork seed)\n * already folds to the mode is left untouched. Callers must append inside\n * an open child turn — a bare between-turn event is crash-tail garbage on\n * reload.\n * @param child - the child session the override is appended to.\n * @param mode - the captured {@link overrideOf} value to stamp.\n */',
+        jsDoc: '/**\n * A session\'s sandbox-mode OVERRIDE — the override chain alone, never the\n * deployment default: the fold of the session\'s OWN switches (events past\n * the seed boundary — a fork seed\'s stale parent switch is subsumed by the\n * baseline captured after it), else the header\'s inherited delegation\n * baseline. The subagent driver stamps `overrideOf(parent.session)` into\n * each child\'s creation meta, so the chain collapses one level per\n * delegation and a tightened parent binds children at any depth\n * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the deployment default.\n * @throws when the durable header baseline is outside the closed mode\n *   vocabulary (a corrupt or foreign log; durable-boundary validation).\n */',
       },
     ],
   },
@@ -1514,7 +1506,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n        readonly sandboxMode?: string;\n        readonly approvalPolicy?: string;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'CreateGoalRequest',
@@ -1522,7 +1514,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n        readonly sandboxMode?: string;\n        readonly approvalPolicy?: string;\n    };\n}',
   },
   {
     name: 'DiffCallView',
@@ -2002,7 +1994,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly delegationDepth?: number;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly delegationDepth?: number;\n    readonly sandboxMode?: string;\n    readonly approvalPolicy?: string;\n}',
   },
   {
     name: 'SessionId',

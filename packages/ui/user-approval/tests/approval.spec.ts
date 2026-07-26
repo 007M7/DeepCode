@@ -20,6 +20,9 @@ function fakeAgent(seed: Array<{ type: string }> = [{ type: 'turn/start' }, { ty
   const agent = {
     session: {
       events: seed,
+      // The typed Session contract the service folds over includes the header
+      // (seed boundary + inherited baselines); the stub carries a bare one.
+      header: { version: 0, id: 'fake-session', createdAt: 0 },
       append: (type: string, data: Record<string, unknown>) => {
         appended.push({ type, data })
         return { type, data } as unknown as SessionEvent
@@ -577,14 +580,24 @@ describe('approval policy (the approval/policy fold)', () => {
   })
 })
 
-describe('delegation inheritance (overrideOf + stampOverride)', () => {
-  const policyEvents = (session: Session) => session.events.filter(e => e.type === 'approval/policy')
-
+describe('delegation inheritance (overrideOf over the header baseline)', () => {
   function bareSession(id: string): Session {
     return new Session(SessionId(id))
   }
 
-  it('overrideOf folds to the LAST override and never falls back to the configured default', async () => {
+  /** A session whose header carries the delegation-inheritance baseline. */
+  function inheritedSession(id: string, meta: { approvalPolicy?: string; seedLength?: number } = {}): Session {
+    const sessionId = SessionId(id)
+    return new Session(sessionId, undefined, {
+      version: 0,
+      id: sessionId,
+      createdAt: 0,
+      ...meta.approvalPolicy === undefined ? {} : { approvalPolicy: meta.approvalPolicy },
+      ...meta.seedLength === undefined ? {} : { seedLength: meta.seedLength },
+    })
+  }
+
+  it('overrideOf folds the session log and never falls back to the configured default', async () => {
     const ctx = await mounted()
     const parent = bareSession('sess-appr-inherit-parent')
     setApprovalPolicy(parent, 'never')
@@ -593,24 +606,34 @@ describe('delegation inheritance (overrideOf + stampOverride)', () => {
     expect(ctx.approval.overrideOf(bareSession('sess-appr-unswitched'))).toBeUndefined()
   })
 
-  it('stampOverride appends the captured policy through the canonical write path', async () => {
+  it('overrideOf reads the header baseline when the log has no own switch, and effectivePolicy follows', async () => {
     const ctx = await mounted()
-    const child = bareSession('sess-appr-inherit-child')
+    const child = inheritedSession('sess-appr-baseline', { approvalPolicy: 'never' })
 
-    ctx.approval.stampOverride(child, 'never')
-
-    const stamped = policyEvents(child)
-    expect(stamped).toHaveLength(1)
-    expect(stamped[0]?.data).toEqual({ policy: 'never' })
+    expect(ctx.approval.overrideOf(child)).toBe('never')
+    // The request path consumes the same chain: an inherited 'never' rejects
+    // deterministically before any answerer could run.
+    child.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const agent = { session: child } as unknown as Agent
+    await expect(ctx.approval.request({ agent, toolName: 'echo' })).resolves.toBe('rejected')
   })
 
-  it('stampOverride skips a child already folding to the policy (fork-seed dedup)', async () => {
+  it('a seed-carried stale switch loses to the baseline; an OWN later switch wins over it', async () => {
     const ctx = await mounted()
-    const child = bareSession('sess-appr-dedup-child')
-    setApprovalPolicy(child, 'never')
+    const child = inheritedSession('sess-appr-slice', { approvalPolicy: 'never', seedLength: 1 })
+    // Event 0 sits inside the seed boundary — stale parent history, subsumed
+    // by the delegation-time baseline.
+    setApprovalPolicy(child, 'ask')
+    expect(ctx.approval.overrideOf(child)).toBe('never')
+    // Event 1 is the child's OWN switch — it outranks the baseline.
+    setApprovalPolicy(child, 'ask')
+    expect(ctx.approval.overrideOf(child)).toBe('ask')
+  })
 
-    ctx.approval.stampOverride(child, 'never')
+  it('rejects a header baseline outside the closed policy vocabulary (durable boundary)', async () => {
+    const ctx = await mounted()
+    const child = inheritedSession('sess-appr-invalid', { approvalPolicy: 'always' })
 
-    expect(policyEvents(child)).toHaveLength(1)
+    expect(() => ctx.approval.overrideOf(child)).toThrow(/approvalPolicy/)
   })
 })

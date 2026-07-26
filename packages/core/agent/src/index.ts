@@ -48,9 +48,9 @@ export interface CreateAgentOptions {
   readonly sessionId: SessionId
   /**
    * Session creation metadata: validated absolute `cwd`, `parentSession`
-   * fork lineage, the `seedLength` seed boundary, and the `delegationDepth`
-   * recursion budget. Mirrors the
-   * `cwd`/`parentSession`/`seedLength`/`delegationDepth` fields of
+   * fork lineage, the `seedLength` seed boundary, the `delegationDepth`
+   * recursion budget, and the inherited `sandboxMode`/`approvalPolicy`
+   * delegation baselines. Mirrors the corresponding fields of
    * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
    * excluded — a factory caller never sets it). This is durable session data,
@@ -62,6 +62,8 @@ export interface CreateAgentOptions {
     readonly parentSession?: SessionId
     readonly seedLength?: number
     readonly delegationDepth?: number
+    readonly sandboxMode?: string
+    readonly approvalPolicy?: string
   }
   /**
    * Seed events to reconstruct the child session's log from (the fork lineage

@@ -8,7 +8,7 @@
 
 应答者是 `approval/request` waterfall（瀑布式事件）监听器。要回答所拥有 agent 的请求，请返回一个结果；否则调用 `next()` 委托。限定到 agent 的监听器只接收该 agent 的请求；每项部署应当组合一个终端应答者，因为同级监听器的顺序不是策略优先级机制。ACP（Agent Client Protocol）自动化桥接层为其拥有的会话提供一次性机器决定。
 
-`ApprovalPolicy` 为 `'ask'` 或 `'never'`。实际值取最后一条 `approval/policy` 事件，并回退到配置；`setApprovalPolicy()` 是写入路径。`'never'` 会在交互式分发之前拒绝请求，也是提示词中唯一声明的策略。切换最多产生一条合并通知：如果覆盖发生在最后一个 `request/header` 之后，则归因于用户；否则归因于操作方／配置。`ctx.approval.overrideOf(session)`／`ctx.approval.stampOverride(child, policy)` 是委派继承的两半：仅折叠本身（绝不包含配置默认值），以及通过该写入路径写入捕获的覆盖项；进程内 subagent 驱动器在委派时捕获，并在子 agent 的第一个轮次内盖章，使 `'never'` 父级无法造出会弹出提示的子 agent（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
+`ApprovalPolicy` 为 `'ask'` 或 `'never'`。实际值取最后一条 `approval/policy` 事件，并回退到配置；`setApprovalPolicy()` 是写入路径。`'never'` 会在交互式分发之前拒绝请求，也是提示词中唯一声明的策略。切换最多产生一条合并通知：如果覆盖发生在最后一个 `request/header` 之后，则归因于用户；否则归因于操作方／配置。`ctx.approval.overrideOf(session)` 解析会话的覆盖链，绝不包含配置默认值：先折叠会话自己的切换（`SessionHeader.seedLength` 之后的事件），否则取会话头中继承的 `approvalPolicy` 委派基线，读取时按封闭词汇校验；进程内 subagent 驱动器在委派时捕获该值，并写入每个子 agent 创建时的会话头，使 `'never'` 父级无法造出会弹出提示的子 agent，且不存在任何第一轮次的时序窗口（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
 
 工具流水线通过此 seam 路由 `ask` 决定，并在该 seam 缺失时以拒绝方式关闭；沙箱 bash 工具也会将它用于升权重试。ACP 自动化桥接层根据客户端的机器策略，回答其自有 agent 的调用。审计事件仍只写入日志，因此模型只会看到发起请求的消费方所返回的结果。详见[审批 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-06-approval-seam.md)和[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 

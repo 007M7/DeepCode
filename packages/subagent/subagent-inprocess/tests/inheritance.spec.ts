@@ -198,21 +198,45 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
     expect(toolResultTexts(child).join('\n')).toContain(READ_ONLY_DENIAL)
     expect(result.stopReason).toBe('completed')
 
-    // The stamped override is the child's OWN durable, turn-enclosed record:
-    // after turn/start, before the first model request snapshot.
-    const events = child.session.events
-    const turnStart = events.findIndex(e => e.type === 'turn/start')
-    const mode = events.findIndex(e => e.type === 'sandbox/mode')
-    const policy = events.findIndex(e => e.type === 'approval/policy')
-    const header = events.findIndex(e => e.type === 'request/header')
-    expect(mode).toBeGreaterThan(turnStart)
-    expect(policy).toBeGreaterThan(turnStart)
-    expect(header).toBeGreaterThan(mode)
+    // The inherited baseline is part of the child's IMMUTABLE header —
+    // durable from the creation moment, with no first-turn timing window
+    // (a crash after any persisted turn still resumes with the baseline).
+    expect(child.session.header.sandboxMode).toBe('read-only')
+    expect(child.session.header.approvalPolicy).toBe('never')
+    // The log stays free of stamped events: the header is the one home.
+    expect(overrideEvents(child)).toEqual({ sandbox: 0, approval: 0 })
     // What the enforcing families resolve for the child, end to end.
     expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).toBe('read-only')
     // Inheritance reads the parent log, never writes it.
     expect(parent.session.events.length).toBe(parentLogLength)
 
+    await run.dispose()
+  })
+
+  it('the baseline is durable BEFORE any child turn exists (the injection-turn crash window)', async () => {
+    // The review scenario: a SessionStart-style idle injection can persist a
+    // complete turn before the first prompt turn opens. The baseline must
+    // already be durable then — it is, because it rides the creation-time
+    // header, not a first-turn event.
+    const script: Script = []
+    const { parent } = await setupWalled(script)
+    script.push(
+      () => {
+        setSandboxMode(parent.session, 'read-only')
+        return textResponse('staged')
+      },
+      textResponse('child done'),
+    )
+    parent.followup([{ type: 'text', text: 'stage' }])
+    await parent.whenIdle()
+
+    const run = await startInProcessRun(spawnRequest(parent), {})
+    const child = run.localAgent as Agent
+    // Assert on the HEADER immediately after publication — before the child's
+    // first turn has run (run.result not yet awaited). An idle injection
+    // persisting a turn now would carry the baseline with it.
+    expect(child.session.header.sandboxMode).toBe('read-only')
+    await run.result
     await run.dispose()
   })
 
@@ -373,10 +397,11 @@ describe('inheritance survives prompt vetoes', () => {
     await run.result
     const child = run.localAgent as Agent
 
-    // The veto closed the first turn promptless, but the stamp is inside that
-    // turn regardless — a later resume must not fall back to the deployment
-    // default just because the first prompt was blocked.
-    expect(overrideEvents(child)).toEqual({ sandbox: 1, approval: 0 })
+    // The veto closed the first turn promptless, but the baseline rides the
+    // creation-time header — no listener ordering can starve it, and a later
+    // resume must not fall back to the deployment default just because the
+    // first prompt was blocked.
+    expect(child.session.header.sandboxMode).toBe('read-only')
     expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).toBe('read-only')
 
     await run.dispose()
@@ -399,7 +424,9 @@ describe('inheritance guards (must hold before AND after the fix)', () => {
 
     // workspace-write (the deployment default) really allowed the write…
     expect(await readFile(allowed, 'utf8')).toBe('fine')
-    // …and nothing froze that default into the child log.
+    // …and nothing froze that default into the child header or log.
+    expect(child.session.header.sandboxMode).toBeUndefined()
+    expect(child.session.header.approvalPolicy).toBeUndefined()
     expect(overrideEvents(child)).toEqual({ sandbox: 0, approval: 0 })
 
     await run.dispose()

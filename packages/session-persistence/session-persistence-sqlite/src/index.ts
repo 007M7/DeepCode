@@ -301,15 +301,17 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
       INSERT INTO sessions
-        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision, sandbox_mode, approval_policy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
         parent_session = excluded.parent_session,
         seed_length = excluded.seed_length,
-        delegation_depth = excluded.delegation_depth
+        delegation_depth = excluded.delegation_depth,
+        sandbox_mode = excluded.sandbox_mode,
+        approval_policy = excluded.approval_policy
     `).run(
       meta.id,
       meta.version,
@@ -319,6 +321,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       meta.seedLength ?? null,
       meta.delegationDepth ?? null,
       randomUUID(),
+      meta.sandboxMode ?? null,
+      meta.approvalPolicy ?? null,
     )
   }
 }

@@ -9,10 +9,12 @@ import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+// Type-only: the `ctx.sandboxPolicy` Context merge and the `sandbox/mode`
+// SessionEventMap merge; the service itself arrives via `inject`.
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { PtyBackendCleanupError } from '@deepseek-ai/dsh-pty'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
 import { createProcessInspector } from './process-inspector.ts'
 import type { ProcessInspector } from './process-inspector.ts'
@@ -47,7 +49,7 @@ function ensureSandboxModeFence(ctx: Context, owner: Agent): void {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
     if (session !== owner.session || event.type !== 'sandbox/mode') return
-    const currentMode = effectiveSandboxMode(session.events) ?? state.sandboxPolicy.defaultMode
+    const currentMode = state.sandboxPolicy.overrideOf(session) ?? state.sandboxPolicy.defaultMode
     if (event.data.mode === currentMode || !state.pty.hasOwnerActivity(owner)) return
     throw new Error(
       `cannot change sandbox mode from "${currentMode}" to "${event.data.mode}" while persistent terminal sessions are open or being created; wait for creation to settle and close them first`,
@@ -76,7 +78,7 @@ function childEnvironment(spec: PtyBackendSpawnSpec): NodeJS.ProcessEnv {
 
 function spawnArgv(ctx: Context, config: ResolvedConfig, spec: PtyBackendSpawnSpec): string[] {
   const argv = [config.shellPath, ...config.shellArgs]
-  const mode: SandboxMode = effectiveSandboxMode(spec.owner.session.events) ?? ctx.sandboxPolicy.defaultMode
+  const mode: SandboxMode = ctx.sandboxPolicy.overrideOf(spec.owner.session) ?? ctx.sandboxPolicy.defaultMode
   if (mode === 'danger-full-access') return argv
   return ctx.sandbox.confine(argv, {
     mode: mode,

@@ -151,6 +151,14 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
     && (typeof record.delegationDepth !== 'number' || !Number.isSafeInteger(record.delegationDepth) || record.delegationDepth < 0)) {
     throw new Error('session header delegationDepth must be a non-negative safe integer')
   }
+  // Neutral strings only: the owning policy packages validate the values
+  // against their closed vocabularies on read (durable boundary).
+  if (record.sandboxMode !== undefined && typeof record.sandboxMode !== 'string') {
+    throw new Error('session header sandboxMode must be a string')
+  }
+  if (record.approvalPolicy !== undefined && typeof record.approvalPolicy !== 'string') {
+    throw new Error('session header approvalPolicy must be a string')
+  }
   return deepFreeze(record as unknown as SessionHeader)
 }
 
@@ -680,6 +688,8 @@ export class SessionStore extends Service {
       ...meta?.parentSession === undefined ? {} : { parentSession: meta.parentSession },
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
       ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
+      ...meta?.sandboxMode === undefined ? {} : { sandboxMode: meta.sandboxMode },
+      ...meta?.approvalPolicy === undefined ? {} : { approvalPolicy: meta.approvalPolicy },
     }
     return new Session(sessionId, seed, header)
   }

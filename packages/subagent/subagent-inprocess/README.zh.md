@@ -18,7 +18,7 @@
 
 子 agent 会获得父 agent 的工作目录/会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 模型。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。
 
-子 agent 还会继承父 agent 的会话策略覆盖项。驱动器在自己的第一个 await 之前同步捕获 `ctx.sandboxPolicy.overrideOf(parent.session)` 与 `ctx.approval.overrideOf(parent.session)`——委派时刻即快照点，因此与异步的子 agent 创建过程赛跑的父 agent 切换属于父 agent 的未来——再由一个一次性、前置安装的 `agent/prompt-submit` 监听器通过 `stampOverride` 盖章写入捕获值（两个服务均以可选方式消费：未挂载它们的组合照旧进行无策略委派）。锚定在子 agent 的第一个轮次内，使盖章事件被包围在轮次内（具备持久性）并先于第一次请求；前置安装使其位于具备否决能力的监听器之前，因此作出拒绝的 UserPromptSubmit 钩子无法在未盖章的情况下关闭第一个轮次；盖章事件在日志中位于 fork 初始内容携带的任何切换之后，因此既有的「最后一个事件生效」折叠即可解析陈旧初始内容的时序。只复制覆盖链，因此未切换过的父 agent 不盖任何章，子 agent 继续跟随实时部署默认值。嵌套按构造即可组合：每次捕获折叠的都是发起委派的会话已经盖过章的日志（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
+子 agent 还会继承父 agent 的会话策略覆盖项。驱动器在自己的第一个 await 之前同步捕获 `ctx.sandboxPolicy.overrideOf(parent.session)` 与 `ctx.approval.overrideOf(parent.session)`——委派时刻即快照点，因此与异步的子 agent 创建过程赛跑的父 agent 切换属于父 agent 的未来——并把捕获值作为创建元数据带入子 agent 不可变的 `SessionHeader`（`sandboxMode`/`approvalPolicy`），从会话存在的那一刻起就具备持久性：任何监听器顺序都不可能饿死该基线，任何崩溃窗口也不可能丢失它，包括空闲时的 SessionStart 式注入在任何提示词轮次开启之前就持久化一个完整轮次的情况。两个服务均以可选方式消费：未挂载它们的组合照旧进行无策略委派。只复制覆盖链，因此未切换过的父 agent 不写入任何基线，子 agent 继续跟随实时部署默认值；`overrideOf` 只折叠初始内容边界之后的事件，因此 fork 初始内容携带的陈旧切换已被基线所涵盖，而子 agent 自己之后的切换仍优先于基线。嵌套按构造即可组合：每次捕获解析的都是发起委派的会话自身的覆盖链（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
 
 ## 取消与所有权
 

@@ -19,7 +19,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
+import { SANDBOX_MODES, effectiveSandboxMode } from './session-mode.ts'
 
 export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 
@@ -100,38 +100,35 @@ export class SandboxPolicyService extends Service {
   resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy {
     const { session } = request
     return {
-      mode: request.mode ?? (session === undefined ? undefined : effectiveSandboxMode(session.events)) ?? this.defaultMode,
+      mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
     }
   }
 
   /**
-   * A session's sandbox-mode OVERRIDE — the fold alone, never the deployment
-   * default. The read half of delegation inheritance: the subagent driver
-   * captures this synchronously at delegation, so a parent switch racing the
-   * child's asynchronous creation belongs to the parent's future, not to the
-   * child ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
-   * @param session - the session whose override chain to fold.
-   * @returns the last switched mode, or `undefined` for a never-switched session.
+   * A session's sandbox-mode OVERRIDE — the override chain alone, never the
+   * deployment default: the fold of the session's OWN switches (events past
+   * the seed boundary — a fork seed's stale parent switch is subsumed by the
+   * baseline captured after it), else the header's inherited delegation
+   * baseline. The subagent driver stamps `overrideOf(parent.session)` into
+   * each child's creation meta, so the chain collapses one level per
+   * delegation and a tightened parent binds children at any depth
+   * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+   * @param session - the session whose override chain to resolve.
+   * @returns the effective override, or `undefined` for a session following
+   *   the deployment default.
+   * @throws when the durable header baseline is outside the closed mode
+   *   vocabulary (a corrupt or foreign log; durable-boundary validation).
    */
   overrideOf(session: Session): SandboxMode | undefined {
-    return effectiveSandboxMode(session.events)
-  }
-
-  /**
-   * Stamp a captured override onto a child session through the canonical
-   * write path — the write half of delegation inheritance: a child agent runs
-   * under the policy its delegating parent was switched to, not under the
-   * (possibly wider) deployment default. A child whose log (e.g. a fork seed)
-   * already folds to the mode is left untouched. Callers must append inside
-   * an open child turn — a bare between-turn event is crash-tail garbage on
-   * reload.
-   * @param child - the child session the override is appended to.
-   * @param mode - the captured {@link overrideOf} value to stamp.
-   */
-  stampOverride(child: Session, mode: SandboxMode): void {
-    if (effectiveSandboxMode(child.events) === mode) return
-    setSandboxMode(child, mode)
+    const own = effectiveSandboxMode(session.events.slice(session.header.seedLength ?? 0))
+    if (own !== undefined) return own
+    const baseline = session.header.sandboxMode
+    if (baseline === undefined) return undefined
+    if (!SANDBOX_MODES.includes(baseline as SandboxMode)) {
+      throw new Error(`session header sandboxMode "${baseline}" is outside the closed mode vocabulary`)
+    }
+    return baseline as SandboxMode
   }
 }
 

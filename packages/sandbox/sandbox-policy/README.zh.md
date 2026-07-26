@@ -19,7 +19,7 @@
 - `ctx.sandboxPolicy.defaultMode`／`ctx.sandboxPolicy.workspaceRoot`：`resolve()` 使用的部署默认值与回退根。
 - `effectiveSandboxMode(events)`：会话 `sandbox/mode` 事件的纯 fold（最后一次切换胜出，没有则为 `undefined`），在 `resolve()` 内使用。
 - `setSandboxMode(session, mode)`：逐会话覆盖的唯一写入路径：恰好追加一条 `sandbox/mode` 事件。切换本身就是事件；不会在带外修改模式。
-- `ctx.sandboxPolicy.overrideOf(session)`／`ctx.sandboxPolicy.stampOverride(child, mode)`：委派继承的两半：仅折叠本身（绝不包含部署默认值），以及通过 `setSandboxMode` 写入捕获的覆盖项，子 agent 已折叠出该值时跳过。进程内 subagent 驱动器在委派时捕获，并在子 agent 的第一个轮次内盖章，使发起委派的父级收紧后的模式约束其子 agent（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
+- `ctx.sandboxPolicy.overrideOf(session)`：会话的覆盖链，绝不包含部署默认值：先折叠会话自己的切换（`SessionHeader.seedLength` 之后的事件），否则取会话头中继承的 `sandboxMode` 委派基线；读取时按封闭词汇校验（遇到词汇之外的值即抛出异常——这是一条持久边界）。进程内 subagent 驱动器在委派时捕获该值，并写入每个子 agent 创建时的会话头，使发起委派的父级收紧后的模式约束其子 agent，且不存在任何第一轮次的时序窗口（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
 - `SANDBOX_MODES`：所有模式，用于选项展示与运行时验证。
 
 可选的 `./invariant` 配套组件会拒绝伪造的持久 `sandbox/mode` 事件，只要其值不在该封闭词汇中；Session 与其配套组件拥有周围的存储与轮次封闭规则。

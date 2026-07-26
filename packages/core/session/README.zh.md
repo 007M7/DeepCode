@@ -12,7 +12,7 @@
 
 ### 公共 API
 
-- `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength` 和 `delegationDepth`。
+- `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength`、`delegationDepth`，以及继承的 `sandboxMode`/`approvalPolicy` 委派基线。
 - `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败。未发布、已脱离和陈旧的对象会被拒绝。
 - `ctx.sessions.appendOutOfBand(session, type, data, trigger)` 只接受已在 `OutOfBandSessionEventMap` 中显式准入的插件事件类型。若轮次已打开，它会直接追加；否则会原子地开启一个零步骤插件轮次，依次追加、关闭并刷新。即使目标事件追加失败，仍会关闭并刷新合成轮次，且在整个序列结算前延后脱离操作。
 - `findLastMessageTurnEnd(events)` 将由消息触发的开始与结束配对，并返回最近匹配的 `turn/end`。结果消费方使用该折叠逻辑，而不直接取最近的原始轮次边界，因为更晚的注入或插件所有的零步骤轮次具有自己的结果。
@@ -44,7 +44,7 @@
 - `session.surface` 暴露只读 `SessionSurface` 视图，由会话唯一的增量 surface 管理器所有；每次提交重写，`replaceGeneration` 都会变化。
 - `session.events` 是按追加失效的缓存冻结快照；已接受事件保持深度冻结。
 - `session.seq`、`session.id`：当前序号和只读类型化身份。
-- `session.header: SessionHeader`：脱离、深冻结的创建元数据（`version`、`id`、`createdAt`，以及可选的 `cwd`／`parentSession`／`seedLength`／`delegationDepth`）。构造时会校验持久记录，并要求其中的 id 与 `session.id` 一致。
+- `session.header: SessionHeader`：脱离、深冻结的创建元数据（`version`、`id`、`createdAt`，以及可选的 `cwd`／`parentSession`／`seedLength`／`delegationDepth`／`sandboxMode`／`approvalPolicy`）。构造时会校验持久记录，并要求其中的 id 与 `session.id` 一致。
 
 ### 无损 JSON 工具
 
@@ -87,7 +87,7 @@
 
 ### 元数据类型（`types.ts`）
 
-- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, delegationDepth? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型由此包与 `SessionId` 一同所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
+- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, delegationDepth?, sandboxMode?, approvalPolicy? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型由此包与 `SessionId` 一同所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
 
 ### 扩展点
 
