@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-subprocess
 
+English | [中文](README.zh.md)
+
 The subprocess seam (`ctx.subprocess`). The abstract `SubprocessService` exposes one method — `spawn(spec): SubprocessHandle` — plus the vocabulary shared by every consumer: the fully-explicit `SubprocessSpawnSpec`, `SubprocessHandle` with its non-consuming offset-based output readers, `SubprocessOutcome`, `CollectedOutput`, and the managed `DSH_*` environment namespace (`DSH_ENV_PREFIX`, `DshEnvironment`). The local implementation lives in [`dsh-subprocess-local`](../subprocess-local/README.md).
 
 ## Contract

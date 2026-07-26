@@ -1,14 +1,14 @@
-# Subprocess
+# 进程管理器
 
-English | [中文](subprocess.zh.md)
+[English](subprocess.md) | 中文
 
-The subprocess seam is split across interface ([dsh-subprocess](../../packages/subprocess/subprocess), `ctx.subprocess`) and implementation ([dsh-subprocess-local](../../packages/subprocess/subprocess-local)); its consumers are other capability seams — today the [bash executor family](bash.md), which passes `['bash', '-c', command]` argv and owns every default. This seam owns the managed `DSH_*` environment namespace and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports them so bash consumers keep one import root.
+进程管理器 seam 分为接口（[dsh-subprocess](../../packages/subprocess/subprocess)，`ctx.subprocess`）与实现（[dsh-subprocess-local](../../packages/subprocess/subprocess-local)）；它的消费方是其他能力 seam：目前是 [bash 执行器家族](bash.md)，后者传入 `['bash', '-c', command]` argv，并拥有每一项默认值。该 seam 拥有受管的 `DSH_*` 环境命名空间与 `CollectedOutput` 形状；[dsh-bash](../../packages/bash/bash) 将二者重导出，使 bash 消费方保持单一导入入口。
 
-Source: [`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts)
+源码：[`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts)
 
-## Managed environment namespace and captured output
+## 受管环境命名空间与捕获的输出
 
-`DSH_*` variables are Harness-owned child-process facts; implementations discard ambient `DSH_*` names before merging the caller's snapshot, and each captured stream reports its truncation and spill-recovery state through `CollectedOutput`.
+`DSH_*` 变量是归 Harness 所有的子进程事实；实现会在合并调用方快照之前丢弃环境中已有的 `DSH_*` 名称，每条被捕获的流都通过 `CollectedOutput` 报告自身的截断与 spill 恢复状态。
 
 ```ts type-equiv
 /** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
@@ -32,9 +32,9 @@ interface CollectedOutput {
 }
 ```
 
-## The fully-explicit spawn spec
+## 完全显式的 spawn spec
 
-The seam applies no defaults: every limit and directory is explicit on the spec, so the caller's own config — not a hidden subprocess-service default — decides them. `argv` is never shell-interpreted.
+该 seam 不应用任何默认值：每项限制与目录都在 spec 上显式给出，因此由调用方自己的配置决定它们，而不是由某个隐藏的进程管理器默认值决定。`argv` 绝不经过 shell 解释。
 
 ```ts type-equiv
 /**
@@ -81,9 +81,9 @@ interface SubprocessSpawnSpec {
 }
 ```
 
-## Handles and offset-based reads
+## 句柄与基于偏移量的读取
 
-A spawn returns a live handle immediately. Output readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; the consuming-cursor model the bash tool presents is consumer-owned state over these readers.
+spawn 会立即返回一个实时句柄。输出读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；bash 工具呈现的消费游标模型，是消费方在这些读取器之上自行持有的状态。
 
 ```ts type-equiv
 /**
@@ -136,9 +136,9 @@ interface SubprocessOutputRead {
 }
 ```
 
-## Outcomes carry no cause classification
+## 结果不携带原因分类
 
-`done` reports raw exit facts. The service kills on abort but never decides why — the caller reads the deadline signal it owns to classify timeout versus cancellation (the bash executor's `timedOut`/`aborted` split).
+`done` 报告原始退出事实。服务会在中止时终止进程，但绝不判定原因：调用方读取归自己所有的 deadline 信号，以区分超时与取消（即 bash 执行器的 `timedOut`/`aborted` 拆分）。
 
 ```ts type-equiv
 /**
@@ -156,6 +156,6 @@ interface SubprocessOutcome {
 }
 ```
 
-## Service behavior
+## 服务行为
 
-The abstract [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam defines `spawn` only; [`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) is the local implementation (detached groups, tail-keep spill-backed collection, credential scrub, kill-and-join disposal). See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the seam contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for the mechanics.
+抽象的 [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam 只定义 `spawn`；[`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) 是本地实现（detached 进程组、以 spill 文件兜底的尾部保留收集、凭据清除、先终止再等待退出的 dispose（资源释放））。seam 契约见 [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md)，具体机制见 [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md)。

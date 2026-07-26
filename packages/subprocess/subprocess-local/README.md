@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-subprocess-local
 
+English | [中文](README.zh.md)
+
 Local implementation of the [`@deepseek-ai/dsh-subprocess`](../subprocess/README.md) seam: `LocalSubprocessService` spawns each spec's argv as a detached process group, collects bounded output with size-limited full-stream spill files, and escalates kills SIGTERM→SIGKILL across the whole group. It has no config: every limit and directory arrives on the spawn spec, so the deployment-varying knobs stay with the calling seam's config ([`dsh-bash-local`](../../bash/bash-local/README.md) today).
 
 ## Behavior (and where it came from)

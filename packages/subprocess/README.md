@@ -1,5 +1,7 @@
 # subprocess/ — subprocess capability family
 
+English | [中文](README.zh.md)
+
 The shared home for spawning managed child-process groups: fully-specified spawn specs, bounded tail-keep output with spill files, credential-scrubbed environments, offset-based incremental reads, and SIGTERM→grace→SIGKILL group kills. Command defaulting, shell semantics, deadlines, and presentation stay with consumers — the [bash executor family](../bash/README.md) is the first and owning consumer. See the [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md).
 
 | Package | ctx key | Role |
