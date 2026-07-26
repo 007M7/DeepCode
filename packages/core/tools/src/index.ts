@@ -307,7 +307,14 @@ export interface ToolRunContext extends ToolExecution {
    * are emitted in call order.
    */
   deferContext(context: UserMessageData): void
-  /** Mark a successful final result as terminal for the current agent turn. */
+  /**
+   * Mark a successful final result as terminal for the current agent turn.
+   * The marker rides this execution's own result (`concludesTurn` exists only
+   * on {@link ToolExecutionSuccess}); a composite that dispatches nested
+   * calls forwards it from the nested result, exactly like
+   * `additionalContexts`, so only an authoritative nested success can
+   * conclude the enclosing run.
+   */
   concludeTurn(): void
 }
 
@@ -653,16 +660,8 @@ export class ToolRegistry extends Service {
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
   private deferredContexts = new WeakMap<ToolRunContext, UserMessageData[]>()
-  /** Successful executions whose tool body declared the current turn complete. */
+  /** Executions whose tool body declared the current turn complete. */
   private concludingExecutions = new WeakSet<ToolExecution>()
-  /** Enclosing transport tokens marked terminal by a successful nested call. */
-  private concludingParents = new Set<ToolExecutionToken>()
-  /**
-   * Nested conclusions staged until their call's final verdict: a post-execute
-   * policy may still convert the nested success into an error, and a failed
-   * terminal operation must not stop the turn through its composite.
-   */
-  private pendingParentConclusions = new WeakMap<ToolRunContext, ToolExecutionToken>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   /** Definition-owned final content transform snapshotted before policy begins. */
@@ -985,7 +984,6 @@ export class ToolRegistry extends Service {
     const definition = this.get(name, agent)
     const finalizeContent = definition?.finalizeContent?.bind(definition)
     const concludingExecutions = this.concludingExecutions
-    const pendingParentConclusions = this.pendingParentConclusions
     const base = {
       token,
       callId,
@@ -997,10 +995,7 @@ export class ToolRegistry extends Service {
         deferredContexts.push(context)
       },
       concludeTurn(): void {
-        if (parent === undefined) concludingExecutions.add(this as unknown as ToolExecution)
-        // Staged, not propagated: only this nested call's authoritative
-        // successful result promotes the marker onto its parent.
-        else pendingParentConclusions.set(this as unknown as ToolRunContext, parent)
+        concludingExecutions.add(this as unknown as ToolExecution)
       },
     }
     try {
@@ -1214,16 +1209,7 @@ export class ToolRegistry extends Service {
     } catch (error: unknown) {
       finalResult = this.materializeFinalResult(toolErrorResult(error))
     }
-    // Promote a staged nested conclusion only on the call's authoritative
-    // successful verdict — a policy-converted failure must not let the
-    // composite stop the turn on a failed terminal operation.
-    const stagedParent = this.pendingParentConclusions.get(exec)
-    if (stagedParent !== undefined) {
-      this.pendingParentConclusions.delete(exec)
-      if (!finalResult.isError) this.concludingParents.add(stagedParent)
-    }
     this.notifyResult(exec, finalResult)
-    this.concludingParents.delete(exec.token)
     return finalResult
   }
 
@@ -1394,7 +1380,7 @@ export class ToolRegistry extends Service {
       }
       meta = snapshotProjection(tool.name, 'presentationMeta', projected)
     }
-    const concludesTurn = this.concludingExecutions.has(exec) || this.concludingParents.has(exec.token)
+    const concludesTurn = this.concludingExecutions.has(exec)
     return this.markCanonical(exec, this.materializeFinalResult({
       isError: false,
       value,

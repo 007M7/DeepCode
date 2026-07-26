@@ -553,18 +553,20 @@ describe('ToolRegistry', () => {
     expect(nested.isError ? undefined : nested.value).toBe('')
   })
 
-  it('propagates a nested concludeTurn only when the nested verdict stays successful', async () => {
+  it('carries a nested conclusion on the nested result for its composite to forward', async () => {
     const ctx = await setup()
     ctx.tools.register({
       ...echoTool,
       name: 'terminal-nested',
       async execute(_args, exec) {
         exec.concludeTurn()
-        return 'staged'
+        return 'terminal'
       },
     })
-    // A composite that swallows its nested failure and returns success — the
-    // Code Mode shape the staged propagation exists for.
+    // A composite that forwards the marker from the nested result — the Code
+    // Mode dispatch shape. A recovering composite (nested failure swallowed)
+    // has no marker to forward: ToolExecutionFailure types concludesTurn as
+    // never, so only an authoritative nested success can conclude the run.
     let call = 0
     ctx.tools.register({
       ...echoTool,
@@ -574,13 +576,13 @@ describe('ToolRegistry', () => {
         const nested = await ctx.tools.execute({
           signal: exec.signal, callId: CallId(`nested-${call}`), name: 'terminal-nested', arguments: {}, parent: exec.token,
         })
+        if (nested.concludesTurn) exec.concludeTurn()
         return nested.isError ? 'nested failed, composite recovered' : 'nested succeeded'
       },
     })
 
-    // A policy converts the nested success into an error: the staged
-    // conclusion must NOT reach the composite, or the loop would stop the
-    // turn on a failed terminal operation.
+    // A policy converts the nested success into an error: the failed result
+    // carries no marker, so the recovering composite does not conclude.
     const veto = ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
       if (exec.name !== 'terminal-nested') return next()
       return { kind: 'block', feedback: [{ type: 'text', text: 'nested success rejected' }] }
@@ -592,8 +594,8 @@ describe('ToolRegistry', () => {
     expect(recovered.concludesTurn).toBeUndefined()
     veto()
 
-    // The same nested call succeeding promotes the marker: the composite's
-    // own successful result now carries concludesTurn.
+    // The same nested call succeeding carries the marker; the composite
+    // forwards it onto its own successful result.
     const concluded = await ctx.tools.execute({
       signal: testToolSignal, callId: CallId('composite-ok'), name: 'composite', arguments: {},
     })
