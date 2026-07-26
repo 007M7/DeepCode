@@ -14,6 +14,10 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 `SessionsService.create` accepts an optional caller-preallocated SessionId. It throws `SessionCreateError` on failure: `requestedSessionId` remains available after transport uncertainty, while `publishedSessionId` is set when `workspace-attach-failed` proves the Host published a real Session before attachment failed. For the New Session flow, the frontend Session object owns its retained prompt and advances it through attachment and send; a partially published Session keeps the same object and prompt while it appears as Ungrouped.
 
+## Code Mode sub-dispatch index
+
+`ConversationSnapshot.codeDispatches` groups a `run_code` call's sub-dispatches under their parent callId, in dispatch order, as settled `ToolResultNode` entries (the native result shape): each `tool/code-dispatch` event appends one. The event carries only the settle timestamp, so `callTime` is `null` (start unknown) — no duration claim is possible from this index yet. Live mux frames and history replay build the identical index; sub-calls never join the surface `nodes` flow; per-parent array and map references are memo-stable across unrelated snapshot swaps.
+
 ## Session title projection
 
 `SessionManager` retains the latest validated `session/title` control snapshot independently of list and session-instance arrival. Newer event seqs replace older snapshots, title timestamps contribute to list recency, and a subscription baseline discards any retained title beyond its `lastSeq` before the optional folded title arrives. Explicit session removal also clears the retained title. The client-facing `SessionSummary.title` is therefore only the actual durable title; `displayTitle` is always present and falls back through the cwd basename and session id. A cold persisted session keeps that fallback until opening or resuming it causes the host to fold and project its log-backed title.

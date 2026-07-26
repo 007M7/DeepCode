@@ -11,7 +11,7 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  ComposerPhase, ConversationNode, ConversationSnapshot, OpenState, PendingPrompt,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState, PendingPrompt,
   PromptError, RunningToolCall, SessionIntentSnapshot, SessionIntentTarget,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
@@ -66,6 +66,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
+  /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
+   *  copy-on-write the per-parent array so published snapshot references never mutate. */
+  private codeDispatches = new Map<string, readonly CodeSubCall[]>()
+  private dispatchesRev = 0
+  private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -611,6 +616,39 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    // `tool/code-dispatch` is declared by the host-side dsh-tools plugin whose
+    // types cannot enter the client program (its host Context merges collide
+    // with the client's), so this wire consumer narrows it structurally —
+    // the same posture as every other cross-wire event payload.
+    if ((event.type as string) === 'tool/code-dispatch') {
+      // A sub-dispatch becomes a ToolResultNode so rows and the details
+      // panel reuse the native rendering path verbatim; it indexes under its
+      // parent run_code callId and never joins the surface flow.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+        isError: boolean
+        content: ContentBlock[]
+      }
+      const parent = data.parentCallId
+      const siblings = this.codeDispatches.get(parent) ?? []
+      const sub: CodeSubCall = {
+        kind: 'tool-result', seq: event.seq, time: event.time,
+        callId: data.subCallId,
+        call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
+        // The settle event is the only timestamp this event carries; the
+        // start time is unknown (null per the ToolResultNode contract), so
+        // duration-aware consumers never see a fabricated zero-duration call.
+        callTime: null,
+        content: data.content, isError: data.isError,
+        callView: null, resultView: null,
+      }
+      this.codeDispatches.set(parent, [...siblings, sub])
+      this.dispatchesRev++
+      return
+    }
     switch (event.type) {
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
@@ -690,6 +728,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.callsRev++
     this.frozenNodes = []
     this.frozenRev++
+    this.codeDispatches = new Map()
+    this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -722,6 +762,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
+    if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
+      this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
+    }
     const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
@@ -730,6 +773,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
+      codeDispatches: this.dispatchesCache.value,
       running: this.running,
       composerPhase: derivePhase(
         nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
