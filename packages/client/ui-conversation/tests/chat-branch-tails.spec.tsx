@@ -5,7 +5,7 @@
 // machinery specs since the tool ring dissolved into renderSlot.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
@@ -15,7 +15,10 @@ import { PendingCard } from '../src/client/chat/PendingCard.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 describe('MessageItem arms', () => {
   it('steering bubbles carry the interjection badge and non-text rest blocks', () => {
@@ -40,6 +43,78 @@ describe('MessageItem arms', () => {
       <MessageItem node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )
     expect(unknownView.getByText(/未知 surface 事件：surface\/next/)).toBeTruthy()
+  })
+
+  it('collapses retry details behind the durable model retry status', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const view = render(
+      <MessageItem
+        retryActive
+        node={{
+          kind: 'model-retry',
+          seq: 5,
+          time: 10_000,
+          turn: 1,
+          step: 0,
+          retry: 1,
+          maxRetries: 2,
+          delayMs: 2_500.4,
+          failure: { code: 'TRANSPORT', message: '连接被重置' },
+        }}
+      />,
+    )
+    const details = view.container.querySelector('details')
+    const summary = view.container.querySelector('summary')
+    expect(details?.open).toBe(false)
+    expect(details?.dataset.active).toBe('true')
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 3s')
+    expect(view.getByText('重试延迟：').parentElement?.textContent).toBe('重试延迟：2500ms')
+    expect(view.getByText('失败原因：').parentElement?.textContent).toBe('失败原因：连接被重置')
+
+    act(() => { vi.advanceTimersByTime(1_100) })
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 2s')
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
+
+    view.rerender(
+      <MessageItem
+        retryActive
+        node={{
+          kind: 'model-retry',
+          seq: 6,
+          time: 12_100,
+          turn: 1,
+          step: 1,
+          retry: 2,
+          maxRetries: 2,
+          delayMs: 3_500.4,
+          failure: { code: 'TRANSPORT', message: '再次断开' },
+        }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 4s')
+
+    if (summary === null) throw new Error('retry summary missing')
+    fireEvent.click(summary)
+    expect(details?.open).toBe(true)
+
+    view.rerender(
+      <MessageItem node={{
+        kind: 'model-retry',
+        seq: 6,
+        time: 12_100,
+        turn: 1,
+        step: 1,
+        retry: 2,
+        maxRetries: 2,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '再次断开' },
+      }}
+      />,
+    )
+    expect(details?.dataset.active).toBeUndefined()
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 4s')
   })
 })
 

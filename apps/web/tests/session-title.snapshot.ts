@@ -25,6 +25,9 @@ const bundles = new Map(PLUGINS.map(plugin => [
 
 interface FixtureTiming {
   appendTitle(id: string, title: string): void
+  beginModelRetry(id: string): void
+  scheduleModelRetry(id: string, retry?: number, delayMs?: number): void
+  completeModelRetry(id: string): void
 }
 
 interface FixtureWindow extends Window {
@@ -78,7 +81,7 @@ function titleSurfaces(label: string): { sidebar: string; breadcrumb: string; do
   return { sidebar, breadcrumb, documentTitle: document.title }
 }
 
-it('projects initial and revised durable titles through the built nine-plugin fixture app', async () => {
+function bootFixtureApp(): void {
   const root = document.querySelector<HTMLElement>('#root')
   if (root === null) throw new Error('snapshot root missing')
   act(() => {
@@ -92,18 +95,26 @@ it('projects initial and revised durable titles through the built nine-plugin fi
     void entry.run()
     unmount = () => { entry.dispose() }
   })
+}
 
+async function selectFixtureSession(): Promise<void> {
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
   const projectCount = await within(tree).findByText('4 sessions')
   const projectRow = projectCount.closest<HTMLElement>('[role="treeitem"]')
   if (projectRow === null) throw new Error('fixture project row missing')
   fireEvent.click(projectRow)
 
-  const initialLabel = 'Fixture 历史会话'
-  const initialRowLabel = await screen.findByText(initialLabel)
+  const initialRowLabel = await screen.findByText('Fixture 历史会话')
   const initialRow = initialRowLabel.closest<HTMLElement>('[role="treeitem"]')
   if (initialRow === null) throw new Error('fixture session row missing')
   fireEvent.click(initialRow)
+}
+
+it('projects initial and revised durable titles through the built nine-plugin fixture app', async () => {
+  bootFixtureApp()
+  await selectFixtureSession()
+
+  const initialLabel = 'Fixture 历史会话'
   await waitFor(() => { expect(document.title).toBe(`${initialLabel} — DeepSeek Harness`) })
   const initial = titleSurfaces(initialLabel)
 
@@ -115,4 +126,62 @@ it('projects initial and revised durable titles through the built nine-plugin fi
 
   await expect(`${JSON.stringify({ initial, revised }, null, 2)}\n`)
     .toMatchFileSnapshot('./snapshots/session-title.json')
+})
+
+it('retracts a failed stream at llm/retry and retains the durable notice after recovery', async () => {
+  bootFixtureApp()
+  await selectFixtureSession()
+  const timing = (globalThis as Record<string, unknown>).__fxTiming as FixtureTiming
+
+  act(() => { timing.beginModelRetry('fx-alpha') })
+  const partial = await screen.findByText('应撤回的半截回复')
+  const beforeRetry = { partial: partial.textContent }
+
+  act(() => { timing.scheduleModelRetry('fx-alpha') })
+  const firstNotice = await screen.findByRole('status')
+  await waitFor(() => { expect(screen.queryByText('应撤回的半截回复')).toBeNull() })
+  const disclosure = firstNotice.closest('details')
+  if (disclosure === null) throw new Error('retry disclosure missing')
+  const firstRetry = {
+    notice: firstNotice.textContent,
+    rows: screen.getAllByRole('status').length,
+  }
+
+  act(() => { timing.scheduleModelRetry('fx-alpha', 2, 1_500) })
+  const notice = screen.getByRole('status')
+  await waitFor(() => { expect(notice.textContent).toContain('（2/2）') })
+  const latestDisclosure = notice.closest('details')
+  const summary = notice.closest('summary')
+  if (latestDisclosure === null || summary === null) throw new Error('latest retry disclosure missing')
+  await waitFor(() => { expect(screen.queryByText('第 2 次应撤回的回复')).toBeNull() })
+  const scheduled = {
+    partialVisible: screen.queryByText('应撤回的半截回复') !== null
+      || screen.queryByText('第 2 次应撤回的回复') !== null,
+    notice: notice.textContent,
+    rows: screen.getAllByRole('status').length,
+    reusedDisclosure: latestDisclosure === disclosure,
+    detailsOpen: latestDisclosure.open,
+    animated: latestDisclosure.dataset.active === 'true',
+  }
+  fireEvent.click(summary)
+  const expanded = {
+    detailsOpen: latestDisclosure.open,
+    delay: screen.getByText('重试延迟：').parentElement?.textContent,
+    failure: screen.getByText('失败原因：').parentElement?.textContent,
+  }
+
+  act(() => { timing.completeModelRetry('fx-alpha') })
+  const recovered = await screen.findByText('重试后的完整回复')
+  await waitFor(() => { expect(screen.getByRole('status').textContent).toContain('已重试') })
+  const completedNotice = screen.getByRole('status')
+  const completedDisclosure = completedNotice.closest('details')
+  if (completedDisclosure === null) throw new Error('completed retry disclosure missing')
+  const completed = {
+    recovered: recovered.textContent,
+    retryNoticeStillVisible: completedNotice.textContent,
+    animated: completedDisclosure.dataset.active === 'true',
+  }
+
+  await expect(`${JSON.stringify({ beforeRetry, firstRetry, scheduled, expanded, completed }, null, 2)}\n`)
+    .toMatchFileSnapshot('./snapshots/model-retry.json')
 })

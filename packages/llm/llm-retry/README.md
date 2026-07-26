@@ -4,7 +4,7 @@ Function plugin that retries selected transient model-request failures on the ag
 
 The default policy permits two retries for `EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, using bounded exponential backoff from 500 ms to 10 seconds with 10 percent jitter. `EMPTY_RESPONSE` is the adapters' classification of a degenerate provider completion (a terminal stop with zero content blocks); the attempt produced nothing durable, so repeating it is safe. Delay bounds must fit Node's supported timer range. A valid `providerRetryAfterMs` replaces local backoff when it is within the configured cap; an over-cap instruction delegates to the next recovery policy instead.
 
-Before waiting, the plugin appends a non-surface `llm/retry` event with the failure and scheduled delay. Cancellation and plugin disposal abort the wait; disposal drains the plugin's active backoffs, and a callback captured before disposal fails closed if invoked afterward.
+Before waiting, the plugin appends a non-surface `llm/retry` event with the failure and scheduled delay. Its payload is available from the browser-safe `@deepseek-ai/dsh-llm-retry/types` subpath, so remote renderers can consume the durable status without loading the policy runtime. Cancellation and plugin disposal abort the wait; disposal drains the plugin's active backoffs, and a callback captured before disposal fails closed if invoked afterward.
 
 The separately published `./invariant` companion checks that every retry record names the current open turn and its latest closed step, has a unique step record and increasing retry number, and carries a positive bounded retry budget and non-negative bounded timer delay. Full jitter may schedule zero milliseconds at its lower boundary.
 

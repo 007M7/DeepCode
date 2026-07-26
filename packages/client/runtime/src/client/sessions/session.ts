@@ -1,6 +1,7 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
@@ -52,9 +53,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private readonly foldAdapter = new FoldAdapter()
   private partial: PartialAccumulator | null = null
   private openCalls = new Map<string, RunningToolCall>()
-  /** Interrupted-turn terminal nodes (frozen partial text / aborted tool cards), merged into the flow by seq.
-   *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
-  private frozenNodes: ConversationNode[] = []
+  /** Operational notices and interrupted-turn terminal nodes merged into the flow by seq.
+   *  Derived from window events — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
+  private derivedNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
   // Revision counters preserve array identity when derived content is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
@@ -64,8 +65,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
-  private frozenRev = 0
-  private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
+  private derivedRev = 0
+  private nodesCache: { folded: readonly ConversationNode[]; derivedRev: number; value: readonly ConversationNode[] } | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -609,8 +610,27 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
-   *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
+   *  chunk/retry projection and openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    const eventType: string = event.type
+    if (eventType === 'llm/retry') {
+      const data = parseRetryEventData(event.data)
+      if (data === null) {
+        console.error(`[web-runtime] ignored malformed llm/retry event at seq ${event.seq}`)
+        return
+      }
+      if (this.partial !== null && this.partial.turn === data.turn && this.partial.step === data.step) {
+        this.partial = null
+      }
+      this.derivedNodes.push({
+        kind: 'model-retry',
+        seq: event.seq,
+        time: event.time,
+        ...data,
+      })
+      this.derivedRev++
+      return
+    }
     switch (event.type) {
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
@@ -649,12 +669,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           const visible = blocks.some(b => (b.kind === 'text' || b.kind === 'reasoning' ? b.text !== '' : true))
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
-            this.frozenNodes.push({
+            this.derivedNodes.push({
               kind: 'assistant', seq: event.seq - 0.9, time: event.time,
               turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
-            this.frozenRev++
+            this.derivedRev++
           }
           this.partial = null
         }
@@ -664,7 +684,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.openCalls.delete(callId)
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
-          this.frozenNodes.push({
+          this.derivedNodes.push({
             kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
             callId,
             call: { name: call.name, argsRaw: call.argsRaw },
@@ -672,7 +692,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })
-          this.frozenRev++
+          this.derivedRev++
         }
         return
       }
@@ -681,15 +701,15 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
-  /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
+  /** Re-derive state (partial/openCalls/derivedNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
-   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text). */
+   *  same retry notices and interrupted nodes. */
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
     this.callsRev++
-    this.frozenNodes = []
-    this.frozenRev++
+    this.derivedNodes = []
+    this.derivedRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -704,17 +724,17 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   private buildSnapshot(): ConversationSnapshot {
     const { nodes: folded, degraded } = this.foldAdapter.nodes()
-    // Frozen interrupted nodes ride fractional seqs: a stable merge keeps them in flow order.
-    // The merged array is cached on (folded reference, frozenRev) so an unchanged flow keeps its
+    // Derived nodes use their event seq or a nearby fractional seq: a stable merge keeps flow order.
+    // The merged array is cached on (folded reference, derivedRev) so an unchanged flow keeps its
     // reference across snapshot swaps (§A.9.4).
     let nodes: readonly ConversationNode[]
-    if (this.nodesCache !== null && this.nodesCache.folded === folded && this.nodesCache.frozenRev === this.frozenRev) {
+    if (this.nodesCache !== null && this.nodesCache.folded === folded && this.nodesCache.derivedRev === this.derivedRev) {
       nodes = this.nodesCache.value
     } else {
-      nodes = this.frozenNodes.length === 0
+      nodes = this.derivedNodes.length === 0
         ? folded
-        : [...folded, ...this.frozenNodes].sort((a, b) => a.seq - b.seq)
-      this.nodesCache = { folded, frozenRev: this.frozenRev, value: nodes }
+        : [...folded, ...this.derivedNodes].sort((a, b) => a.seq - b.seq)
+      this.nodesCache = { folded, derivedRev: this.derivedRev, value: nodes }
     }
     if (this.callsCache === null || this.callsCache.rev !== this.callsRev) {
       this.callsCache = { rev: this.callsRev, value: [...this.openCalls.values()] }
@@ -750,6 +770,37 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
 function rpcErrorMessage(error: RpcError): string {
   return `${error.code}: ${error.message}`
+}
+
+/** Validate the plugin-owned payload at the session-event wire boundary. */
+function parseRetryEventData(value: unknown): LlmRetryEventData | null {
+  if (value === null || typeof value !== 'object') return null
+  const data = value as Record<string, unknown>
+  const failure = data.failure
+  if (failure === null || typeof failure !== 'object') return null
+  const failureData = failure as Record<string, unknown>
+  if (!nonNegativeInteger(data.turn)
+    || !nonNegativeInteger(data.step)
+    || !positiveInteger(data.retry)
+    || !positiveInteger(data.maxRetries)
+    || data.retry > data.maxRetries
+    || typeof data.delayMs !== 'number'
+    || !Number.isFinite(data.delayMs)
+    || data.delayMs < 0
+    || typeof failureData.message !== 'string'
+    || typeof failureData.code !== 'string') return null
+  const optionalNumbers = [failureData.status, failureData.providerRetryAfterMs]
+  if (optionalNumbers.some(item => item !== undefined && (typeof item !== 'number' || !Number.isFinite(item)))) return null
+  if (failureData.requestId !== undefined && typeof failureData.requestId !== 'string') return null
+  return data as unknown as LlmRetryEventData
+}
+
+function nonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+function positiveInteger(value: unknown): value is number {
+  return nonNegativeInteger(value) && value > 0
 }
 
 /**

@@ -59,6 +59,9 @@
   config:
     agents: []
 
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
+
 # The native DeepSeek adapter; reads the key/base-url the boot's layered
 # .env loading (cwd then $DSH_HOME) left in the environment.
 - id: llm-deepseek

@@ -4,6 +4,7 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type {
   RpcError, SessionId, ToolCallView, ToolResultView, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
@@ -87,6 +88,20 @@ export interface ContextMessageNode {
   meta?: unknown
 }
 
+/** Durable notice that a closed failed step is waiting for a model-request retry. */
+export interface ModelRetryNode {
+  kind: 'model-retry'
+  seq: number
+  /** Unix epoch ms from the llm/retry session event. */
+  time: number
+  turn: number
+  step: number
+  retry: number
+  maxRetries: number
+  delayMs: number
+  failure: LlmRetryEventData['failure']
+}
+
 /** A tool result paired (when in-window) with its call head. */
 export interface ToolResultNode {
   kind: 'tool-result'
@@ -124,6 +139,7 @@ export type ConversationNode =
   | AssistantMessageNode
   | SteeringMessageNode
   | ContextMessageNode
+  | ModelRetryNode
   | ToolResultNode
   | UnknownSurfaceNode
 
@@ -206,7 +222,7 @@ export interface PendingPrompt {
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
-  /** Surface fold product (finalized conversation nodes in surface order). */
+  /** Finalized surface events and durable operational notices in event order. */
   nodes: readonly ConversationNode[]
   /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
   foldDegraded: boolean

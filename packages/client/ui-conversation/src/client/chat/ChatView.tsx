@@ -45,6 +45,16 @@ type RenderToolRow = ChatViewSlotProps['renderSlot']
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 
+function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): number | null {
+  if (!running) return null
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]!
+    if (node.kind === 'model-retry') return node.seq
+    if (node.kind === 'assistant' || node.kind === 'user') return null
+  }
+  return null
+}
+
 /** One tool call row (result or running): dispatches through the keyed
  *  toolview slot with the owner payload; unregistered tools fall back to
  *  GenericToolCard at this render site. */
@@ -115,6 +125,7 @@ function StreamingTail({ useSession, onGrow }: {
 /** The chat view slot entry: pure component over the composed props (tool rows render through the declared keyed hole's renderSlot share). */
 export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession((s) => s.nodes)
+  const running = useSession((s) => s.running)
   const runningCalls = useSession((s) => s.runningCalls)
   const pending = useSession((s) => s.pending)
   const openState = useSession((s) => s.openState)
@@ -124,6 +135,7 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
   const selectedCallId = useStore((s) => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
+  const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
@@ -220,7 +232,13 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
-    return <MessageItem key={item.key} node={node} />
+    return (
+      <MessageItem
+        key={item.key}
+        node={node}
+        retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
+      />
+    )
   }
 
   return (

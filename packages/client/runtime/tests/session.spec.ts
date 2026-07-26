@@ -119,6 +119,72 @@ describe('live event path', () => {
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
   })
 
+  it('retracts the failed step partial on retry and keeps a replayable notice before the recovered response', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    const retryTurn = [
+      ev.turnStart(6, 1),
+      ev.user(7, '请重试'),
+      ev.stepStart(8, 1),
+      ev.chunkStart(9, 1),
+      ev.chunkText(10, 1, '不完整回复'),
+      ev.stepEnd(11, 1),
+      ev.retry(12, 1, 0, 1, 2, 450, '连接被重置'),
+      ev.stepStart(13, 1, 1),
+      ev.assistant(14, 1, '完整回复', 1),
+      ev.stepEnd(15, 1, 1),
+      ev.turnEnd(16, 1),
+    ]
+    for (const event of retryTurn.slice(0, 7)) feed(event)
+
+    let snapshot = session.getSnapshot()
+    expect(snapshot.partial).toBeNull()
+    expect(snapshot.nodes.at(-1)).toMatchObject({
+      kind: 'model-retry',
+      turn: 1,
+      step: 0,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 450,
+      failure: { code: 'TRANSPORT', message: '连接被重置' },
+    })
+    expect(JSON.stringify(snapshot.nodes)).not.toContain('不完整回复')
+
+    for (const event of retryTurn.slice(7)) feed(event)
+    snapshot = session.getSnapshot()
+    expect(snapshot.nodes.slice(-2).map(node => node.kind)).toEqual(['model-retry', 'assistant'])
+    expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
+
+    const replay = makeSession()
+    replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...retryTurn])
+    await replay.session.open()
+    expect(replay.session.getSnapshot().nodes).toEqual(snapshot.nodes)
+    expect(replay.session.getSnapshot().partial).toBeNull()
+  })
+
+  it('ignores malformed retry payloads without retracting the current partial', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.chunkStart(7, 1))
+    feed(ev.chunkText(8, 1, '仍在生成'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      feed(at(9, {
+        type: 'llm/retry',
+        data: {
+          turn: 1, step: 0, retry: 3, maxRetries: 2, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'bad budget' },
+        },
+      }))
+      expect(session.getSnapshot().partial?.blocks).toEqual([{ kind: 'text', text: '仍在生成' }])
+      expect(session.getSnapshot().nodes.filter(node => node.kind === 'model-retry')).toEqual([])
+      expect(errorSpy).toHaveBeenCalledWith('[web-runtime] ignored malformed llm/retry event at seq 9')
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
   it('freezes an unfinalized partial into an interrupted node on turn/end (cancel path)', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }

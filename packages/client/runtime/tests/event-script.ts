@@ -28,6 +28,22 @@ export const ev = {
     at(seq, { type: 'tool/result', surfaceOp: 'append', data: { turn, step, callId, content: text(body), isError: false } }),
   stepEnd: (seq: number, turn: number, step = 0): SessionEvent =>
     at(seq, { type: 'step/end', data: { turn, step } }),
+  retry: (
+    seq: number,
+    turn: number,
+    step = 0,
+    retry = 1,
+    maxRetries = 2,
+    delayMs = 500,
+    message = 'temporary transport failure',
+  ): SessionEvent =>
+    at(seq, {
+      type: 'llm/retry',
+      data: {
+        turn, step, retry, maxRetries, delayMs,
+        failure: { code: 'TRANSPORT', message },
+      },
+    }),
   turnEnd: (seq: number, turn: number, reason: 'completed' | 'cancelled' = 'completed'): SessionEvent =>
     at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
 }

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
+  AssistantMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
@@ -58,6 +58,11 @@ const user = (seq: number, text: string): UserMessageNode => ({
 })
 const assistant = (seq: number, text: string): AssistantMessageNode => ({
   kind: 'assistant', seq, time: seq * 1_000, turn: 1, step: 1, blocks: [{ kind: 'text', text }],
+})
+const retry = (seq: number): ModelRetryNode => ({
+  kind: 'model-retry', seq, time: seq * 1_000, turn: 1, step: 0,
+  retry: 1, maxRetries: 2, delayMs: 450,
+  failure: { code: 'TRANSPORT', message: '连接被重置' },
 })
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
@@ -128,6 +133,17 @@ describe('chat-flow derivation', () => {
     expect(flowKeys(items)).toBe('n1|n2|g3|n5|g6')
     expect(flowKeys(deriveChatFlow([...nodes, toolResult(7, 'd')]))).toBe('n1|n2|g3|n5|g6')
   })
+
+  it('reuses one stable row for consecutive retries in the same turn', () => {
+    const first = retry(2)
+    const second = { ...retry(3), step: 1, retry: 2 }
+    const initial = deriveChatFlow([user(1, 'try'), first])
+    const updated = deriveChatFlow([user(1, 'try'), first, second])
+    expect(flowKeys(initial)).toBe('n1|n2')
+    expect(flowKeys(updated)).toBe('n1|n2')
+    expect(updated).toHaveLength(2)
+    expect(updated[1]?.kind === 'node' && updated[1].node).toBe(second)
+  })
 })
 
 describe('ChatView', () => {
@@ -166,6 +182,31 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('animates only the latest unresolved model retry', () => {
+    const retryNode = retry(2)
+    const nextRetry = { ...retry(3), step: 1, retry: 2 }
+    const context = {
+      kind: 'context', seq: 4, time: 4_000, content: [], source: null,
+    } as const satisfies ConversationNode
+    const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const disclosure = view.container.querySelector('details')
+    expect(disclosure?.dataset.active).toBe('true')
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
+
+    act(() => h.set({ nodes: [user(1, 'try'), retryNode, nextRetry] }))
+    expect(view.getAllByRole('status')).toHaveLength(1)
+    expect(view.container.querySelector('details')).toBe(disclosure)
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 1s')
+
+    act(() => h.set({ nodes: [user(1, 'try'), retryNode, nextRetry, context, assistant(5, 'done')] }))
+    expect(disclosure?.dataset.active).toBeUndefined()
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 1s')
+
+    act(() => h.set({ nodes: [user(1, 'try'), retry(6)], running: false }))
+    expect(disclosure?.dataset.active).toBeUndefined()
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {

@@ -16,6 +16,10 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 `SessionManager` retains the latest validated `session/title` control snapshot independently of list and session-instance arrival. Newer event seqs replace older snapshots, title timestamps contribute to list recency, and a subscription baseline discards any retained title beyond its `lastSeq` before the optional folded title arrives. Explicit session removal also clears the retained title. The client-facing `SessionSummary.title` is therefore only the actual durable title; `displayTitle` is always present and falls back through the cwd basename and session id. A cold persisted session keeps that fallback until opening or resuming it causes the host to fold and project its log-backed title.
 
+## Model retry projection
+
+The Session object validates plugin-owned `llm/retry` payloads at the event wire boundary. A valid event removes the matching failed step's streaming partial and inserts a durable retry notice at the event's sequence position. Window rebuild and history replay apply the same projection, so logged chunks from the discarded attempt never reappear as an interrupted reply after refresh. A terminal turn without `llm/retry` retains the existing behavior: visible unfinalized output is frozen as an interrupted assistant node.
+
 ## Model Experience
 
 None, as the client runtime hosts browser-side services and the session object layer; nothing here reaches a model request.

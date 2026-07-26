@@ -43,6 +43,7 @@
       "@deepseek-ai/dsh-session/surface": ["./packages/core/session/src/surface.ts"],
       "@deepseek-ai/dsh-llm/types": ["./packages/llm/llm/src/types.ts"],
       "@deepseek-ai/dsh-llm/brand": ["./packages/llm/llm/src/brand.ts"],
+      "@deepseek-ai/dsh-llm-retry/types": ["./packages/llm/llm-retry/src/types.ts"],
       "@deepseek-ai/dsh-tools/presentation": ["./packages/core/tools/src/presentation.ts"],
       "@deepseek-ai/dsh-user-approval/types": ["./packages/ui/user-approval/src/types.ts"],
       "@deepseek-ai/dsh-user-interaction/types": ["./packages/ui/user-interaction/src/types.ts"],
