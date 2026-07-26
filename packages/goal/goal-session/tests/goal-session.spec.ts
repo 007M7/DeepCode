@@ -712,6 +712,31 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(1)
   })
 
+  it('yields to a round whose turn/end never committed instead of misreading it as settled', async () => {
+    const test = await harness([textResponse('round ran')])
+    // A persistent pre-commit turn/end rejection: the loop contains the close
+    // failure and reaches idle, but the round's attempt holds a turn with no
+    // terminal reason. The idle drive pass must yield to that unsettled
+    // attempt rather than classify an absent reason or crash into disarm.
+    test.ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string }
+      if (event.type === 'turn/end') throw new Error('turn close permanently rejected')
+    })
+    test.ctx.goals.create(test.agent, { objective: 'survive a lost turn end' })
+    await waitForRequests(test.adapter, 1)
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setImmediate(resolve) })
+
+    // One request ran; the unsettled attempt parked the driver without a
+    // second reservation and without disarming the goal.
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({
+      phase: 'active',
+      activation: 'armed',
+    })
+  })
+
   it('disarms instead of continuing when a plugin reports a post-turn persistence failure', async () => {
     const test = await harness([textResponse('round one')])
     test.ctx.on('session/event', (session, event) => {
