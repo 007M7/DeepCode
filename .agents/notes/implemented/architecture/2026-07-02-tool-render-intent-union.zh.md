@@ -54,6 +54,8 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 
 `TerminalResultView` 只携带 `output`/`exitCode`/`signal`。不具备终端能力的 UI 需要一个围栏 ` ```console ` 文本回退；该推导移至 **bridge**（在无能力路径上将 `output` 包裹在围栏代码块中），而非由工具双重编码。这使 bash 工具的结果保持单一结构化形状，并逐字节保留既有的能力门控行为。
 
+terminal 意图只用于展示。harness 仍通过自身的 bash 服务执行命令，从而保留沙箱、环境清理、任务归属和每会话 cwd；UI 只呈现已完成的调用，绝不会成为第二个执行后端。
+
 ### 纯函数性保持不变
 
 `presentCall`/`presentResult` 仍然是 `args`（`presentResult` 还有 result）的纯函数——它们在实时流式输出和会话日志回放中都会运行，因此必须具备回放确定性。每个 view 仅从 args 推导：write 的 diff 是新文件风格（`oldText:null`），因为工具在调用时没有旧内容；edit 的 diff 是 `old_string`→`new_string`。
@@ -61,6 +63,7 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 ## 曾考虑的替代方案
 
 - **完全删除工具自有的展示**：即[被否决的 collapse 提案](../../rejected/simplification/2026-06-20-generic-tool-rendering.md)；其自身的结论正是推迟到两个真实工具和两个真实消费方存在后再做此联合类型，该条件现已满足。
+- **让 UI 执行 terminal 意图**：否决。这样会绕过 harness 的 bash 策略与归属契约，并把命令执行分裂到不同后端。terminal 卡片描述的是 harness 拥有的执行，绝不授权客户端侧执行。
 - **可合并扩展的联合类型**（`ContentBlockMap` 模式）：否决。新的渲染意图无论如何需要新的 bridge 代码来渲染，因此一个被 bridge 静默丢弃的插件添加变体，比封闭联合类型在 bridge 的 `assertNever` switch 处引发的编译错误更糟糕。
 - **保留可选字段集合**：即「问题」一节所剖析的现状：无效状态可表达、字段交互无文档、且完全无法请求 diff 卡片。
 

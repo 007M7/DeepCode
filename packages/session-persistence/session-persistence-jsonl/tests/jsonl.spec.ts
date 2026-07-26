@@ -275,6 +275,56 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     discovery.mockRestore()
   })
 
+  it('forwards snapshot-list cancellation and awaits in-flight discovery cleanup', async () => {
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(signal?: AbortSignal): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const started = Promise.withResolvers<AbortSignal>()
+    const cleanup = Promise.withResolvers<undefined>()
+    vi.spyOn(persistence, 'listArtifacts').mockImplementation(async (signal) => {
+      if (signal === undefined) throw new Error('expected snapshot-list signal')
+      started.resolve(signal)
+      await cleanup.promise
+      return []
+    })
+    const reason = new Error('JSONL snapshot discovery cancelled')
+    const controller = new AbortController()
+    const pending = ctx.sessionPersistence.listSnapshots(controller.signal)
+    expect(await started.promise).toBe(controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+
+    controller.abort(reason)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    cleanup.resolve(undefined)
+    await expect(pending).rejects.toBe(reason)
+  })
+
+  it('checks cancellation after an uncancellable snapshot stat settles', async () => {
+    const m = meta('snapshot-stat-cancellation')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(signal?: AbortSignal): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const discovery = vi.spyOn(persistence, 'listArtifacts').mockResolvedValue([{
+      header: m,
+      path: rawLogPath(root, m.cwd, m.id),
+    }])
+    const reason = new Error('JSONL snapshot stat cancelled')
+    const controller = new AbortController()
+    const pending = ctx.sessionPersistence.listSnapshots(controller.signal)
+    queueMicrotask(() => { controller.abort(reason) })
+
+    await expect(pending).rejects.toBe(reason)
+    expect(discovery).toHaveBeenCalledWith(controller.signal)
+  })
+
   it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
     const m = meta('legacy-header-delta', '/legacy')
     const path = rawLogPath(root, m.cwd, m.id)

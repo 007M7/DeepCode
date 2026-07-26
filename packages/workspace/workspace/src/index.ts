@@ -14,6 +14,8 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { WorkspaceEntity } from './entity.ts'
 import type { WorkspaceEntityHost } from './entity.ts'
+
+export { WorkspaceMoveInvalidError } from './entity.ts'
 import { realpathNormalize } from './paths.ts'
 import { workspaceDomainSpec } from './spec.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
@@ -46,6 +48,7 @@ export class WorkspaceNameConflictError extends Error {
     this.name = 'WorkspaceNameConflictError'
   }
 }
+
 
 declare module 'cordis' {
   interface Context {
@@ -82,7 +85,6 @@ export class WorkspaceRegistry extends Service {
   private readonly headers = new Map<SessionId, SessionHeader>()
   private readonly sessionPaths = new Map<SessionId, string>()
   private readonly invalidSessionPaths = new Map<SessionId, string>()
-  private readonly pendingTouches = new Map<SessionId, Promise<void>>()
   private operationTail: Promise<void> = Promise.resolve()
 
   private readonly host: WorkspaceEntityHost = {
@@ -120,13 +122,6 @@ export class WorkspaceRegistry extends Service {
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
     this.reportFilteredCandidates()
-    // Session activity is authoritative even when no RPC/SSE consumer is
-    // connected. This service-owned listener is disposed with the registry.
-    this.ctx.on('session/event', (session) => {
-      void this.touchSession(session.id).catch((error: unknown) => {
-        this.ctx.logger.warn(`workspace activity touch failed for session '${session.id}': ${String(error)}`)
-      })
-    })
   }
 
   /**
@@ -171,32 +166,6 @@ export class WorkspaceRegistry extends Service {
       }
       return entity
     })
-  }
-
-  /**
-   * Move one accounted, cwd-validated session to the front of its workspace.
-   * Ungrouped sessions and candidates filtered by the header check are
-   * no-ops. The owning workspace's relative position never changes.
-   * @param sessionId - Session whose activity was observed.
-   * @returns resolution after the possible record write.
-   */
-  async touchSession(sessionId: SessionId): Promise<void> {
-    const pending = this.pendingTouches.get(sessionId)
-    if (pending !== undefined) {
-      await pending
-      return
-    }
-    for (const entity of this.entities.values()) {
-      if (!entity.hasSession(sessionId)) continue
-      const touch = entity.touchSession(sessionId)
-      this.pendingTouches.set(sessionId, touch)
-      try {
-        await touch
-      } finally {
-        this.pendingTouches.delete(sessionId)
-      }
-      return
-    }
   }
 
   /**

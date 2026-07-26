@@ -166,8 +166,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Session reads, traces, filters, and search',
     mode: 'seam',
     implementations: ['session-query-sqlite'],
-    consumers: ['session-reference'],
-    note: 'The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations on the same service.',
+    consumers: ['session-reference', 'tool-session-query'],
+    note: 'The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations, while the model consumer owns workspace authority and cursor-free rendering.',
   },
   {
     key: 'sessionReferences',

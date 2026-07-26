@@ -16,7 +16,7 @@ The testable logic lives in `dsh-app-boot`, not in `apps/cli`, because `apps/*` 
 
 ## Scope
 
-Only the `dsh` CLI adds this. The demo bins (`dsh-tui-demo`, `dsh-acp-demo`) boot their committed trees verbatim and gain no source section: they are not the self-modification surface, and their checkout root is not a fact the model needs.
+Only the `dsh` CLI adds this. The demo bins (`dsh-cli-demo`, `dsh-acp-demo`) boot their committed trees verbatim and gain no source section: they are not the self-modification surface, and their checkout root is not a fact the model needs.
 
 ## HMR
 
