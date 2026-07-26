@@ -23,7 +23,7 @@ const decompress = promisify(zstdDecompress)
 const dshPackages = [
   'examples/agent-spine-demo', 'examples/cli-demo', 'core/agent', 'core/session',
   'core/system-prompt', 'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
-  'bash/bash-local', 'bash/tool-bash', 'support/invariants', 'ui/app-boot',
+  'bash/bash-local', 'bash/tool-bash', 'process/process', 'process/process-local', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence', 'session-persistence/session-checkpoint-policy',
   'session-persistence/session-persistence-jsonl',
   'context/workspace-context',
