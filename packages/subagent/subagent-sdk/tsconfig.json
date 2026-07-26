@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -18,19 +21,25 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../../llm/llm-deepseek"
-    },
-    {
       "path": "../../core/agent"
     },
     {
       "path": "../../core/session"
     },
     {
+      "path": "../../sdk/sdk-client"
+    },
+    {
       "path": "../../sdk/sdk-protocol"
     },
     {
-      "path": "../../subagent/subagent"
+      "path": "../subagent"
+    },
+    {
+      "path": "../subagent-subprocess"
+    },
+    {
+      "path": "../../support/loader-smoke"
     },
     {
       "path": "../../support/invariants"

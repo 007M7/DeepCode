@@ -11,6 +11,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+export * from './cwd.ts'
+
 /**
  * Credential-shaped ambient env vars are NOT forwarded to a child by default
  * (the parent harness's own `DEEPSEEK_API_KEY`/secrets must not leak into a

@@ -32,6 +32,7 @@
     "@deepseek-ai/dsh-hooks-codex": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-jsonrpc": "workspace:^",
+    "@deepseek-ai/dsh-sdk-protocol": "workspace:^",
     "@deepseek-ai/dsh-jsonrpc-demo": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-token-meter": "workspace:^",

@@ -9,28 +9,22 @@
   ],
   "references": [
     {
-      "path": "../../../vendor/cordis"
+      "path": "../../../vendor/cosmokit"
     },
     {
-      "path": "../../../vendor/schemastery"
+      "path": "../../../vendor/cordis"
     },
     {
       "path": "../../llm/llm"
     },
     {
-      "path": "../../llm/llm-deepseek"
-    },
-    {
-      "path": "../../core/agent"
-    },
-    {
       "path": "../../core/session"
     },
     {
-      "path": "../../sdk/sdk-protocol"
+      "path": "../sdk-protocol"
     },
     {
-      "path": "../../subagent/subagent"
+      "path": "../../subagent/subagent-subprocess"
     },
     {
       "path": "../../support/invariants"

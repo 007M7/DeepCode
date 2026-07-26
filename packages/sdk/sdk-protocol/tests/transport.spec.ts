@@ -1,7 +1,7 @@
 import { once } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { JsonRpcLineTransport } from '../src/index.ts'
+import { JsonRpcLineTransport, JsonRpcResponseError } from '../src/index.ts'
 
 function transportPair() {
   const aToB = new PassThrough()
@@ -41,7 +41,7 @@ describe('JsonRpcLineTransport', () => {
     b.close()
   })
 
-  it('reports JSON-RPC request errors from the remote peer', async () => {
+  it('reports JSON-RPC request errors from the remote peer with their wire code', async () => {
     const { a, b } = transportPair()
     a.onRequest(async () => {
       throw new Error('handler boom')
@@ -49,9 +49,33 @@ describe('JsonRpcLineTransport', () => {
     a.start()
     b.start()
 
-    await expect(b.request('explode', {})).rejects.toThrow('handler boom')
+    const failure = await b.request('explode', {}).then(
+      () => { throw new Error('request unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(JsonRpcResponseError)
+    expect(failure).toMatchObject({ message: 'handler boom', code: -32603, data: undefined })
 
     a.close()
+    b.close()
+  })
+
+  it('preserves structured error data from an error response frame', async () => {
+    const { aToB, bToA, b } = transportPair()
+    b.start()
+
+    const pending = b.request('remote-error-data', {})
+    const requestChunk = (await once(bToA, 'data'))[0] as Buffer | string
+    const request = JSON.parse(String(requestChunk)) as { id: string }
+    aToB.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: 7, message: 'structured', data: { detail: 'x' } } })}\n`)
+
+    const failure = await pending.then(
+      () => { throw new Error('request unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(JsonRpcResponseError)
+    expect(failure).toMatchObject({ code: 7, message: 'structured', data: { detail: 'x' } })
+
     b.close()
   })
 
