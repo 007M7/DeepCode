@@ -199,6 +199,21 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
   })
 
+  it('a started-but-unsettled sub-call renders the running state exactly like a native in-flight row', async () => {
+    const parent = 'call-live'
+    const runningSub: CodeSubCall = {
+      callId: `${parent}:code:1`, name: 'grep', argsRaw: '{"pattern":"todo"}',
+      turn: 0, step: 0, time: 21_000, callView: null,
+    }
+    const dispatches = new Map([[parent, [runningSub]]])
+    const b = await bench(snapshotWith([], dispatches, [runningCode(parent)]))
+    const view = mountApp(b.slots)
+    // The nested row derives 'running' from the RunningToolCall shape — the
+    // same StateDot ring a native in-flight row wears.
+    const nested = view.container.querySelector('[data-subcalls] [data-variant][data-state="running"]')
+    expect(nested).not.toBeNull()
+  })
+
   it('an ordinary tool row renders no sub-call nest', async () => {
     const parent = 'call-64'
     const plain: ToolResultNode = {

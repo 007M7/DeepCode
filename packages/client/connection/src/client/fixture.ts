@@ -144,30 +144,22 @@ function buildAlphaLog(): SessionEvent[] {
       data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'run_code', arguments: args } })
-    push({
-      type: 'tool/code-dispatch',
-      data: {
-        parentCallId: callId, subCallId: `${callId}:code:1`, name: 'bash',
-        arguments: { command: 'ls notes', description: 'List notes' },
-        isError: false, content: [{ type: 'text', text: 'demo.txt\nnew-demo.txt' }],
-      },
-    })
-    push({
-      type: 'tool/code-dispatch',
-      data: {
-        parentCallId: callId, subCallId: `${callId}:code:2`, name: 'read',
-        arguments: { path: 'notes/demo.txt' },
-        isError: false, content: [{ type: 'text', text: 'hello fixture\n' }],
-      },
-    })
-    push({
-      type: 'tool/code-dispatch',
-      data: {
-        parentCallId: callId, subCallId: `${callId}:code:3`, name: 'read',
-        arguments: { path: 'notes/missing.txt' },
-        isError: true, content: [{ type: 'text', text: 'Error: ENOENT: notes/missing.txt not found' }],
-      },
-    })
+    const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
+      push({
+        type: 'tool/code-dispatch-start',
+        data: { parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
+      })
+      push({
+        type: 'tool/code-dispatch',
+        data: {
+          parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
+          arguments: dispatchArgs, isError, content: [{ type: 'text', text: resultText }],
+        },
+      })
+    }
+    dispatchPair(1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt\nnew-demo.txt')
+    dispatchPair(2, 'read', { path: 'notes/demo.txt' }, 'hello fixture\n')
+    dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
     push({
       type: 'tool/result', surfaceOp: 'append',
       data: { turn, step: 0, callId, content: text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), isError: false },
