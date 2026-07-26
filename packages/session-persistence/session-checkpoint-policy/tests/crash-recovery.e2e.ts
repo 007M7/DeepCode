@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process'
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execa } from 'execa'
 import { Context } from 'cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import SessionStore, {
   SessionId, TOOL_OUTCOME_UNKNOWN,
   type SessionEvent,
@@ -19,44 +19,36 @@ const roots: string[] = []
 const CHILD_FAILPOINT_TIMEOUT_MS = 30_000
 
 async function waitForFile(path: string): Promise<void> {
-  const deadline = Date.now() + CHILD_FAILPOINT_TIMEOUT_MS
-  for (;;) {
-    try {
-      await access(path)
-      return
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    if (Date.now() >= deadline) throw new Error(`crash child did not reach failpoint ${path}`)
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
+  await vi.waitFor(async () => {
+    await access(path).catch((error: unknown) => {
+      throw new Error(`crash child did not reach failpoint ${path}`, { cause: error })
+    })
+  }, { interval: 10, timeout: CHILD_FAILPOINT_TIMEOUT_MS })
 }
 
 async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; markerText: string }> {
   const root = await mkdtemp(join(tmpdir(), `dsh-semantic-${mode}-`))
   roots.push(root)
   const marker = join(root, 'failpoint')
-  const child = spawn(process.execPath, ['--import', tsxLoader, childScript, mode, root, marker], {
+  // The SIGKILL-at-failpoint choreography stays custom: the child must die
+  // mid-write, so no timeout or graceful termination may reach it first.
+  const child = execa(process.execPath, ['--import', tsxLoader, childScript, mode, root, marker], {
     cwd: repoRoot,
-    env: { ...process.env, TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json') },
-    stdio: ['ignore', 'ignore', 'pipe'],
+    env: { TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json') },
+    stdin: 'ignore',
+    stdout: 'ignore',
+    reject: false,
   })
-  let stderr = ''
-  child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (chunk: string) => { stderr += chunk })
   try {
     await waitForFile(marker)
     const markerText = await readFile(marker, 'utf8')
-    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.once('close', (code, signal) => { resolve({ code, signal }) })
-    })
     child.kill('SIGKILL')
-    const exit = await closed
-    expect(exit).toEqual({ code: null, signal: 'SIGKILL' })
+    const exit = await child
+    expect({ code: exit.exitCode ?? null, signal: exit.signal ?? null }).toEqual({ code: null, signal: 'SIGKILL' })
     return { root, markerText }
   } catch (error: unknown) {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-    throw new Error(`crash child failed: ${stderr}`, { cause: error })
+    child.kill('SIGKILL')
+    throw new Error(`crash child failed: ${(await child).stderr}`, { cause: error })
   }
 }
 
