@@ -53,12 +53,23 @@ export function markLlmAdapterFailure(
   // exactly when class identity is lost (a second copy of this package in
   // the process, e.g. a source-plane test harness over a lib-plane boot).
   const carried = ownFailureSnapshot(error)
-  const failure = carried !== undefined && carried.code === error.code ? carried : Object.freeze({
+  const failure = carried !== undefined && carried.code === foreignErrorCode(error) ? carried : Object.freeze({
     message: errorMessage(error),
     code: harnessErrorCode(error),
   })
   failures.set(error, failure)
   return error
+}
+
+/** Read a foreign error's `code` for the cross-check without letting an SDK accessor replace the primary failure. */
+function foreignErrorCode(error: Error & { code?: string }): unknown {
+  try {
+    return error.code
+  } catch (_sdkCodeGetter) {
+    // An unreadable code cannot confirm the carried facts describe this
+    // error; the caller falls back to the normalized snapshot.
+    return undefined
+  }
 }
 
 /** Snapshot an own data property without invoking an SDK-defined accessor. */

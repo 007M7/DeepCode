@@ -324,6 +324,27 @@ describe('LlmService', () => {
     expect(llmFailureOf(stream, original)).toEqual({ message: 'LLM adapter failed', code: 'UNKNOWN' })
   })
 
+  it('keeps an SDK Error exact when a valid failure payload rides a hostile code accessor', async () => {
+    // The carried-facts cross-check reads error.code; a throwing accessor
+    // there must fall back to the normalized snapshot instead of replacing
+    // the original adapter error with the accessor exception.
+    const original = Object.assign(new Error('busy'), {
+      failure: { message: 'busy', code: 'SERVER', status: 503 },
+    })
+    Object.defineProperty(original, 'code', {
+      get() { throw new Error('SDK code accessor must not escape') },
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    expect(llmFailureOf(stream, original)).toEqual({ message: 'busy', code: 'UNKNOWN' })
+  })
+
   it('falls back safely when SDK objects trap failure inspection or expose malformed facts', async () => {
     const propertyTrap = new Proxy(new HarnessError('descriptor trapped', 'SERVER'), {
       getOwnPropertyDescriptor(target, property) {

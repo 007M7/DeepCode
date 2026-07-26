@@ -57,12 +57,19 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
   let sidecarDir: string | undefined
 
   afterEach(async () => {
-    await browser?.close().catch(() => undefined)
+    // scaffold.close() failures MUST fail the scenario: assertConsumed() is
+    // the fixture-drift tripwire and cleanup problems are real defects. Run
+    // every teardown step regardless, then rethrow what failed.
+    const failures: unknown[] = []
+    await browser?.close().catch((error: unknown) => failures.push(error))
     browser = undefined
-    await scaffold?.close().catch(() => undefined)
+    const closing = scaffold
     scaffold = undefined
-    if (sidecarDir !== undefined) await rm(sidecarDir, { recursive: true, force: true }).catch(() => undefined)
+    await closing?.close().catch((error: unknown) => failures.push(error))
+    if (sidecarDir !== undefined) await rm(sidecarDir, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
     sidecarDir = undefined
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'live-interactions teardown failed')
   })
 
   /** Boot scaffold + page with an optional override doc materialized per run. */
