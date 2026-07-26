@@ -635,6 +635,15 @@ interface FusedToolSignal {
   dispose(): void
 }
 
+/** Resolve the run_code overlap cap at the owning config boundary (direct construction bypasses the Loader schema). */
+function resolveMaxParallelSubCalls(value: number | undefined): number {
+  const maxParallelSubCalls = value ?? 10
+  if (!Number.isInteger(maxParallelSubCalls) || maxParallelSubCalls < 1) {
+    throw new Error('maxParallelSubCalls must be a positive integer')
+  }
+  return maxParallelSubCalls
+}
+
 /**
  * Tool registry and execution pipeline. Scoped registrations shadow globals;
  * one visibility resolver feeds presentation, lookup, and dispatch.
@@ -681,7 +690,7 @@ export class ToolRegistry extends Service {
     // the filterable global/scoped capability layers.
     this.codeTransport = this.mode === 'native'
       ? undefined
-      : createRunCodeTool(this, () => this.requireCodeRuntime(), config.maxParallelSubCalls ?? 10)
+      : createRunCodeTool(this, () => this.requireCodeRuntime(), resolveMaxParallelSubCalls(config.maxParallelSubCalls))
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
       ctx.systemPrompt.section({
