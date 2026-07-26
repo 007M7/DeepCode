@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-19-require-agent-notes-for-non-trivial-changes.md: 32d7408b3d56e6571a14a8191e9b4b0fe901f5a3
-2026-07-19-require-agent-notes-for-non-trivial-changes.zh.md: 713845706e650b4b4acd591368d9bcff137a38b7
+2026-07-19-require-agent-notes-for-non-trivial-changes.md: 162ae61affb4c1b0ad526fa0da41f84ebbb02089
+2026-07-19-require-agent-notes-for-non-trivial-changes.zh.md: cd015ba62f1f2b1e9e5e6c36d1cde5bd35cba84c

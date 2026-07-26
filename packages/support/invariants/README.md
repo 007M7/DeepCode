@@ -1,5 +1,7 @@
 # dsh-invariants
 
+English | [中文](README.zh.md)
+
 Configurable registry service for package-owned runtime invariant checks. The root plugin registers `ctx.invariants`; it contains no product checks or product-package imports. Every workspace package publishes a `./invariant` companion that registers its exact npm package name.
 
 ## Service: `InvariantService` (`ctx.invariants`)

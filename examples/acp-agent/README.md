@@ -1,5 +1,7 @@
 # acp-agent example
 
+English | [中文](README.zh.md)
+
 Automation-oriented [Agent Client Protocol](https://agentclientprotocol.com) server over JSON-RPC stdio. It is intended for parent agents, subagent providers, and other programmatic clients, not as the product UI.
 
 ```sh

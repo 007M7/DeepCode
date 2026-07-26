@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-sidebar
 
+English | [中文](README.zh.md)
+
 Sidebar plugin: real Host Workspaces in stable Host order, each containing its `sessionIds` in Workspace order with `parentId` nesting; Sessions outside every Workspace appear in a trailing `Ungrouped` section. Search, state dots, and collapse into the layout-owned 56px rail are presentation-local. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
 
 New Session starts the runtime's page-local frontend Session Intent; a real Workspace's "+" starts one targeted to that Workspace. The Workspace header "+" opens ui-workspace's shared picker, whose selection also targets a frontend Session. A Workspace Intent does not appear in the sidebar.

@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-llm-mock-server`
 
+English | [中文](README.zh.md)
+
 A scriptable OpenAI-compatible HTTP/SSE server for exercising real LLM adapters, the agent loop, and recovery policy without a provider key. It accepts `POST /chat/completions` and `POST /v1/chat/completions`; each accepted request consumes one configured behavior in arrival order. Invalid methods, paths, bearer tokens, and JSON do not consume the script.
 
 The library entry exports `startMockLlmServer(options)`, behavior and telemetry types, the default random stress weights, the accepted Node timer bound, and a running handle with the bound `baseURL`, generated or configured `randomSeed`, captured requests, and idempotent `close()`. Closing force-terminates stalled connections.

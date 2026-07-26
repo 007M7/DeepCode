@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-locale
 
+English | [中文](README.zh.md)
+
 Locale plugin: LocaleService — the browser locale preference (`zh`/`en`, persisted under `dsh.locale`, getter/setter with `locale/change` snapshots) plus the ns×locale dictionary registry (`bind(ns)`→t with a stable function identity; lookup chain active → zh → key).
 
 ## Model Experience

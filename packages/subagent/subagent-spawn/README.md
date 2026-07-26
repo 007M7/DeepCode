@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-subagent-spawn
 
+English | [中文](README.zh.md)
+
 The spawn provider creates a fresh child `Agent` in the current process. The child has its own session, sees no parent conversation history, and reuses the host's agent factory and LLM/tool services.
 
 ## Behavior

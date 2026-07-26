@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-compact
 
+English | [中文](README.zh.md)
+
 The **compaction seam**: an abstract `CompactService` (`ctx.compact`) defining WHAT compaction does — decide when history is too large and summarize an older range into a single surface node — without saying HOW.
 
 This package is the interface tier of the compaction capability, split so each concern evolves (and swaps) independently:

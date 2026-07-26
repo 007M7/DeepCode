@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-user-interaction
 
+English | [中文](README.zh.md)
+
 Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a model-facing tool or permission plugin uses when it needs to pause work and ask the human for a decision.
 
 ## Service: `UserInteractionService` (ctx key: `userInteraction`)

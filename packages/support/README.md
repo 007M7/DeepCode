@@ -1,5 +1,7 @@
 # support/ — dev/test/example infrastructure
 
+English | [中文](README.zh.md)
+
 Packages that exist to serve development, testing, and the examples rather than to ship as product API. They are real workspace packages (typed, tested, under the coverage gate), but they carry **lower compatibility expectations**: they may change or be removed when the development need behind them does, without the deprecation care a product package would warrant.
 
 | Package | Role | ctx key |

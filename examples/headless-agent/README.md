@@ -1,5 +1,7 @@
 # headless-agent
 
+English | [中文](README.zh.md)
+
 Headless one-shot agent wiring: DeepSeek V4 + local bash and filesystem tools + subagent delegation + workflows and fresh-agent Ralph iteration + `todo_write` + JSONL persistence, with [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo) as the app front door.
 
 ## Run it

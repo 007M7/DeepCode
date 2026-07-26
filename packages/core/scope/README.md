@@ -1,5 +1,7 @@
 # dsh-scope
 
+English | [中文](README.zh.md)
+
 Scoped registration primitive. `createScope(ctx, key)` creates a tagged Cordis context whose backing fiber owns every registration made through it. `scopeOf(ctx)` reads the tag, and `scopeTarget(base, key)` routes scoped events to listeners with the same key while leaving unscoped listeners global. The agent loop creates one scope per live agent, but the mechanism is key-agnostic so lower-level packages can use it without depending on agents.
 
 ## Public API

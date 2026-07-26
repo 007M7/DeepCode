@@ -1,5 +1,7 @@
 # llm/ — LLM capability family
 
+English | [中文](README.zh.md)
+
 The LLM seam and its provider adapters. The interface package (`llm`) owns the abstract service, the content-block vocabulary, and the stream-chunk assembler; the adapters are concrete implementations that register on `ctx.llm`. All **product** packages.
 
 | Package | Role | ctx key |

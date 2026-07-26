@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-08-tool-output-spill-files.zh.md)
+
 ## Problem
 
 Tool outputs need bounded model-facing previews, but some oversized results are still useful later. A fetched page body or a verbose tool response should not consume the next model request in full, but the model should be able to inspect the complete formatted result later with existing file-reading tools.
