@@ -64,6 +64,15 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
   })
 
+  it('a fence labeled with an inherited object key renders plain, never crashing shiki', () => {
+    for (const label of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      const { container, unmount } = render(<MarkdownText text={'```' + label + '\ncode body\n```'} />)
+      expect(container.querySelector('pre.shiki')).toBeNull()
+      expect(container.querySelector('pre code')?.textContent).toContain('code body')
+      unmount()
+    }
+  })
+
   it('an empty fence keeps the stock pre; a language-less fence renders the plain CodeBlock arm', () => {
     const empty = render(<MarkdownText text={'```\n```'} />)
     expect(empty.container.querySelector('pre')?.outerHTML).toBe('<pre><code></code></pre>')
