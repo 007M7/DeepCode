@@ -1459,6 +1459,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CodeRunResult {\n    value?: CodeJsonValue;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
+    name: 'CollectedOutput',
+    declaration: 'export interface CollectedOutput {\n    text: string;\n    truncated: boolean;\n    spillPath?: string;\n}',
+  },
+  {
     name: 'CommandDefinition',
     declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
   },
@@ -1553,6 +1557,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DomainTableSpec',
     declaration: 'export interface DomainTableSpec<K extends string = string, V = unknown> {\n    readonly valueSchema: ZodType<V>;\n    readonly __key?: K;\n}',
+  },
+  {
+    name: 'DshEnvironment',
+    declaration: 'export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>;',
+  },
+  {
+    name: 'DshEnvironmentKey',
+    declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
   },
   {
     name: 'EditGoalRequest',
@@ -2197,6 +2209,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentStopReasonMap',
     declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n}',
+  },
+  {
+    name: 'SubprocessHandle',
+    declaration: 'export interface SubprocessHandle {\n    readonly pid: number;\n    readonly stdout: SubprocessOutputReader;\n    readonly stderr: SubprocessOutputReader;\n    readonly done: Promise<SubprocessOutcome>;\n    kill(): void;\n}',
+  },
+  {
+    name: 'SubprocessOutcome',
+    declaration: 'export interface SubprocessOutcome {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    stdout: CollectedOutput;\n    stderr: CollectedOutput;\n}',
+  },
+  {
+    name: 'SubprocessOutputRead',
+    declaration: 'export interface SubprocessOutputRead {\n    text: string;\n    nextOffset: number;\n    lossy: boolean;\n    spillPath?: string;\n}',
+  },
+  {
+    name: 'SubprocessOutputReader',
+    declaration: 'export interface SubprocessOutputReader {\n    readFrom(fromByte: number): SubprocessOutputRead;\n}',
+  },
+  {
+    name: 'SubprocessSpawnSpec',
+    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdoutMaxBytes: number;\n    stderrMaxBytes: number;\n    maxSpillBytes: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n}',
   },
   {
     name: 'SurfaceEvent',
