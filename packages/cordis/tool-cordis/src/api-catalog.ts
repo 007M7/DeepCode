@@ -865,6 +865,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Classify a pending call through the caller\'s visible tool definition. Only\n * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or\n * throwing classifiers are exclusive.\n * @param exec - call name, parsed arguments, and optional agent scope.\n * @returns the fail-closed scheduling mode.\n */',
       },
       {
+        signature: 'async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]>',
+        jsDoc: '/**\n * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch\n * and return the content the bridge should log on `tool/code-dispatch`.\n * Contained: a throwing listener falls back to the unshaped content — log\n * shaping must never fail the dispatch or lose the settle event.\n * @param dispatch - the sub-dispatch identity and its default logged content.\n * @returns the (possibly reshaped) content for the durable event.\n */',
+      },
+      {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
         jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy,\n * definition-owned content finalization, and final notification. Tool and\n * listener failures resolve as materialized error results; an invisible tool\n * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen\n * snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
       },
@@ -1223,6 +1227,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only).',
   },
   {
+    name: 'tools/code-dispatch-log',
+    mode: 'waterfall',
+    signature: '\'tools/code-dispatch-log\'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>',
+    jsDoc: '/**\n * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before\n * the bridge appends its `tool/code-dispatch` event. `next()` keeps the\n * content unchanged; a listener may return replacement blocks (e.g. the\n * spill policy\'s preview + locator for an oversized text result). Only the\n * logged copy is affected — the program already received the complete\n * value, and the model sees neither. A throwing listener is contained:\n * the bridge falls back to logging the unshaped content.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s dispatches.\n * @param dispatch - the parent execution, sub-call identity, and the settled content to log.\n * @mode waterfall\n */',
+    summary: 'Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event.',
+  },
+  {
     name: 'tools/execute',
     mode: 'waterfall',
     signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
@@ -1431,6 +1442,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CodeBindingNamespace',
     declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n    errorClass?: CodeBindingErrorClass;\n}',
+  },
+  {
+    name: 'CodeDispatchLog',
+    declaration: 'export interface CodeDispatchLog {\n    readonly exec: ToolExecution;\n    readonly agent?: Agent;\n    readonly subCallId: CallId;\n    readonly name: string;\n    readonly isError: boolean;\n    readonly content: ContentBlock[];\n}',
   },
   {
     name: 'CodeJsonValue',
