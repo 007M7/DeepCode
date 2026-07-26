@@ -176,6 +176,10 @@ export function apply(ctx: Context): void {
 
     const attempt = state.attempt
     if (attempt !== undefined) {
+      // Prompt admission joined the loop's running interval, so a drive pass
+      // (which requires idle) can no longer observe an unsettled attempt;
+      // kept as a backstop against a future trigger inside the interval.
+      /* v8 ignore next -- unreachable yield, see above */
       if (attempt.reason === undefined) return
       state.attempt = undefined
       const turn = attempt.turn

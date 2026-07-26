@@ -96,18 +96,20 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:403`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:405`](../../packages/core/agent/src/types.ts)
 
 ### `agent/idle` — emit
 
-One drain chain reached its terminal turn: that turn's `turn/end` is already committed. Automatically recovered failed turns do not emit this notification. `reason` says why; model-request recovery is exhausted when an error reaches it.
+One drain chain reached its terminal turn: that turn's `turn/end` is already committed. Automatically recovered failed turns do not emit this notification, and neither does a run that aborts or fails before its `turn/start` commits — there is no durable turn to settle against. `reason` says why; model-request recovery is exhausted when an error reaches it.
 
 ```ts cordis-catalog
 /**
  * One drain chain reached its terminal turn: that turn's `turn/end` is
  * already committed. Automatically recovered failed turns do not emit this
- * notification. `reason` says why; model-request recovery is exhausted when
- * an error reaches it.
+ * notification, and neither does a run that aborts or fails before its
+ * `turn/start` commits — there is no durable turn to settle against.
+ * `reason` says why; model-request recovery is exhausted when an error
+ * reaches it.
  * @param agent - the agent whose turn closed.
  * @param turn - the terminal turn number.
  * @param reason - why the terminal turn ended, with live error facts when it failed.
@@ -119,7 +121,7 @@ One drain chain reached its terminal turn: that turn's `turn/end` is already com
 
 Types: [Agent](../core-data-structures/core.md) · [IdleReason](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:390`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:392`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 

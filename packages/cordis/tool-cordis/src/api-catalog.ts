@@ -991,7 +991,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/idle',
     mode: 'emit',
     signature: '\'agent/idle\'(this: Scoped<Agent>, agent: Agent, turn: number, reason: IdleReason): void',
-    jsDoc: '/**\n * One drain chain reached its terminal turn: that turn\'s `turn/end` is\n * already committed. Automatically recovered failed turns do not emit this\n * notification. `reason` says why; model-request recovery is exhausted when\n * an error reaches it.\n * @param agent - the agent whose turn closed.\n * @param turn - the terminal turn number.\n * @param reason - why the terminal turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * One drain chain reached its terminal turn: that turn\'s `turn/end` is\n * already committed. Automatically recovered failed turns do not emit this\n * notification, and neither does a run that aborts or fails before its\n * `turn/start` commits — there is no durable turn to settle against.\n * `reason` says why; model-request recovery is exhausted when an error\n * reaches it.\n * @param agent - the agent whose turn closed.\n * @param turn - the terminal turn number.\n * @param reason - why the terminal turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'One drain chain reached its terminal turn: that turn\'s `turn/end` is already committed.',
   },
   {
