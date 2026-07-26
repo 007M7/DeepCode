@@ -1,81 +1,276 @@
 /**
- * Browser theme registry over the `--dsw-*` token stylesheets. Theme changes
- * update CSS variables and `body[data-ds-dark-theme]` without React renders.
+ * Browser theme registry over the `--dsw-*` token stylesheets. The service
+ * owns the theme preference (light/dark/system), resolves `system` through
+ * `prefers-color-scheme`, and publishes immutable snapshots; it never touches
+ * the DOM — ui-layout's presenter consumes the resolved snapshot. The plugin
+ * also registers the Appearance preference row into the settings General
+ * section — the theme feature owns its own settings surface.
  */
 import type { Context } from 'cordis'
+import { deferRegistration, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { AppearanceRowInjected } from './AppearanceRow.tsx'
+import { AppearanceRow } from './AppearanceRow.tsx'
+import { createAppearanceRowStore } from './settings-store.ts'
+
+export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
+export type { AppearanceRowState } from './settings-store.ts'
+
+/** Namespace owning this feature's settings-row copy. */
+export const SETTINGS_NS = 'settings.theme'
 
 /** Theme token dictionary: --dsw-alias-* overrides keyed by variable name. */
 export type ThemeTokens = Record<string, string>
+
+/** Theme preference: a concrete theme id or follow-the-OS. */
+export type ThemePreference = 'light' | 'dark' | 'system'
+
+/** One selectable theme: id, dark/light semantics, and alias-token overrides. */
+export interface ThemeDefinition {
+  /** Theme id (the setTheme argument for concrete themes). */
+  id: string
+  /**
+   * Which base palette this theme builds on. The presenter switches
+   * `body[data-ds-dark-theme]` from this field — never from the id.
+   */
+  colorScheme: 'light' | 'dark'
+  /** Alias-layer overrides applied as inline CSS variables over the base palette. */
+  tokens: ThemeTokens
+}
+
+/** Immutable theme state published on every change. */
+export interface ThemeSnapshot {
+  /** The persisted preference (may be `system`). */
+  preference: ThemePreference
+  /** The resolved active theme (`system` resolved via prefers-color-scheme). */
+  active: ThemeDefinition
+  /** Registered themes in registration order. */
+  themes: readonly ThemeDefinition[]
+  /** Monotonic change counter (registry or active changes). */
+  revision: number
+}
 
 declare module 'cordis' {
   interface Context {
     theme: ThemeService
   }
+  interface Events {
+    /**
+     * Theme state changed (preference switched, registry updated, or the OS
+     * color scheme changed while the preference is `system`).
+     * @param snapshot - Current immutable theme snapshot.
+     * @mode emit
+     */
+    'theme/change'(snapshot: ThemeSnapshot): void
+  }
 }
 
+/** localStorage key holding the persisted theme preference. */
+export const STORAGE_KEY = 'dsh.theme'
+
+/** Default preference when nothing (or garbage) is persisted. */
+export const DEFAULT_PREFERENCE: ThemePreference = 'system'
+
+const BUILTIN_THEMES: readonly ThemeDefinition[] = Object.freeze([
+  Object.freeze({ id: 'light', colorScheme: 'light' as const, tokens: Object.freeze({}) }),
+  Object.freeze({ id: 'dark', colorScheme: 'dark' as const, tokens: Object.freeze({}) }),
+])
+
 /**
- * Theme registry and switcher. `light`/`dark` are built in (the base
- * stylesheets carry both palettes; the dark palette activates via the
- * body[data-ds-dark-theme] attribute). Third-party themes register alias-layer
- * overrides applied as inline CSS variables on body, cascading over whichever
- * base palette the attribute selects.
+ * Theme registry and preference owner. `light`/`dark` are built in (the base
+ * stylesheets carry both palettes); third-party themes register alias-layer
+ * overrides. Reads go through {@link getTheme}; writes only through
+ * {@link setTheme}; continuous sync only through the `theme/change` event.
+ * The service holds the `prefers-color-scheme` media query (environment
+ * sensing, not presentation) and re-emits when the OS scheme flips while the
+ * preference is `system`.
  */
 export class ThemeService {
-  private themes = new Map<string, ThemeTokens>([['light', {}], ['dark', {}]])
-  private appliedTokens: ThemeTokens = {}
-  private active = 'light'
+  private readonly ctx: Context
+  private themes: ThemeDefinition[] = [...BUILTIN_THEMES]
+  private preference: ThemePreference
+  private revision = 0
+  private snapshot: ThemeSnapshot
+  private readonly media: MediaQueryList | undefined
 
   /**
-   * Register a theme. Duplicate id throws (single occupant per id; the
-   * built-in pair counts).
-   * @param id - theme id.
-   * @param tokens - alias-layer overrides (variable name to value).
-   * @returns disposer. Disposing the active theme reverts to `light` so the
-   * UI never keeps tokens of an unregistered theme.
+   * @param ctx - owning context (change events are emitted on it; the
+   * media-query listener is released through ctx.effect on dispose).
    */
-  register(id: string, tokens: ThemeTokens): () => void {
-    if (this.themes.has(id)) throw new Error(`theme "${id}" is already registered`)
-    this.themes.set(id, tokens)
-    return () => {
-      if (!this.themes.delete(id)) return
-      if (this.active === id) this.apply('light')
+  constructor(ctx: Context) {
+    this.ctx = ctx
+    this.preference = restorePreference()
+    // Non-browser runs (node e2e booting the client tree) have no matchMedia.
+    this.media = typeof matchMedia === 'undefined' ? undefined : matchMedia('(prefers-color-scheme: dark)')
+    this.snapshot = this.buildSnapshot()
+    if (this.media !== undefined) {
+      const media = this.media
+      const onChange = (): void => {
+        if (this.preference !== 'system') return
+        this.publish()
+      }
+      ctx.effect(() => {
+        media.addEventListener('change', onChange)
+        return () => { media.removeEventListener('change', onChange) }
+      }, 'ui-theme: prefers-color-scheme listener')
     }
   }
 
   /**
-   * Activate a theme: toggle body[data-ds-dark-theme] (set only for `dark`)
-   * and swap the previous theme's inline token overrides for this one's.
-   * Unregistered id throws.
-   * @param id - registered theme id.
+   * Read the current immutable theme snapshot.
+   * @returns the current snapshot (stable reference until the next change).
    */
-  apply(id: string): void {
-    const tokens = this.themes.get(id)
-    if (!tokens) throw new Error(`theme "${id}" is not registered`)
-    const body = document.body
-    for (const name of Object.keys(this.appliedTokens)) body.style.removeProperty(name)
-    if (id === 'dark') body.setAttribute('data-ds-dark-theme', '')
-    else body.removeAttribute('data-ds-dark-theme')
-    for (const [name, value] of Object.entries(tokens)) body.style.setProperty(name, value)
-    this.appliedTokens = tokens
-    this.active = id
+  getTheme(): ThemeSnapshot {
+    return this.snapshot
   }
 
   /**
-   * Report the active theme id (initially `light`).
-   * @returns the active theme id.
+   * Switch the theme preference — the only preference write entry. Persists
+   * the preference and emits `theme/change`.
+   * @param id - a registered theme id or `system`; unknown ids throw.
    */
-  current(): string {
-    return this.active
+  setTheme(id: string): void {
+    if (id !== 'system' && !this.themes.some(t => t.id === id)) {
+      throw new Error(`theme "${id}" is not registered`)
+    }
+    if (this.preference === id) return
+    this.preference = id as ThemePreference
+    persistPreference(this.preference)
+    this.publish()
+  }
+
+  /**
+   * Register a theme. Duplicate id throws (single occupant per id; the
+   * built-in pair counts; `system` is a preference, not a registrable id).
+   * @param definition - theme id, colorScheme, and alias-token overrides.
+   * @returns disposer. Disposing the theme backing the active preference
+   * resets the preference to the default so the UI never keeps tokens of an
+   * unregistered theme.
+   */
+  register(definition: ThemeDefinition): () => void {
+    if (definition.id === 'system') throw new Error('"system" is a preference, not a registrable theme id')
+    if (this.themes.some(t => t.id === definition.id)) {
+      throw new Error(`theme "${definition.id}" is already registered`)
+    }
+    this.themes = [...this.themes, definition]
+    this.publish()
+    return () => {
+      if (!this.themes.some(t => t.id === definition.id)) return
+      this.themes = this.themes.filter(t => t.id !== definition.id)
+      if (this.preference === definition.id) {
+        this.preference = DEFAULT_PREFERENCE
+        persistPreference(this.preference)
+      }
+      this.publish()
+    }
+  }
+
+  private buildSnapshot(): ThemeSnapshot {
+    const resolvedId = this.preference === 'system'
+      ? (this.media?.matches === true ? 'dark' : 'light')
+      : this.preference
+    // Both built-ins always exist; a registered preference id resolves or has
+    // been reset by its disposer, so the lookup cannot miss.
+    const active = this.themes.find(t => t.id === resolvedId)
+    /* v8 ignore next 2 -- needs a registry without light/dark, which register()/dispose() cannot produce */
+    if (active === undefined) throw new Error(`theme registry lost "${resolvedId}"`)
+    return Object.freeze({
+      preference: this.preference,
+      active,
+      themes: Object.freeze([...this.themes]),
+      revision: this.revision,
+    })
+  }
+
+  private publish(): void {
+    this.revision += 1
+    this.snapshot = this.buildSnapshot()
+    this.ctx.emit('theme/change', this.snapshot)
   }
 }
 
-/** Required services (none; the loader passes the export surface as an object plugin). */
-export const inject: string[] = []
+/** Read the persisted preference; unknown or unreadable values fall back to the default. */
+function restorePreference(): ThemePreference {
+  // Non-browser runs (node e2e booting the client tree) have no localStorage.
+  if (typeof localStorage === 'undefined') return DEFAULT_PREFERENCE
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+  } catch {
+    // Storage access can throw (privacy mode); the default below covers it.
+  }
+  return DEFAULT_PREFERENCE
+}
+
+/** Persist the preference; storage failures are non-fatal (preference resets next boot). */
+function persistPreference(preference: ThemePreference): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(STORAGE_KEY, preference)
+  } catch {
+    // Storage access can throw (privacy mode / quota); the preference simply
+    // does not survive the session.
+  }
+}
+
+/** Required services: slots + locale (the feature registers its own settings row with localized copy). */
+export const inject = ['slots', 'locale']
 
 /**
- * Client plugin body: provide the theme service.
+ * Client plugin body: provide the theme service and register the
+ * feature-owned Appearance preference row into the General section's item
+ * slot (a feature owns its settings surface).
  * @param ctx - client cordis context.
  */
-export function apply(ctx: Context): void {
-  ctx.provide('theme', new ThemeService())
+export function apply(ctx: ClientContext): void {
+  const theme = new ThemeService(ctx)
+  ctx.provide('theme', theme)
+
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(SETTINGS_NS, 'zh', {
+        'appearance.title': '外观',
+        'appearance.light': '浅色',
+        'appearance.dark': '深色',
+        'appearance.system': '跟随系统',
+      }),
+      ctx.locale.register(SETTINGS_NS, 'en', {
+        'appearance.title': 'Appearance',
+        'appearance.light': 'Light',
+        'appearance.dark': 'Dark',
+        'appearance.system': 'System',
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-theme: settings row dictionaries')
+
+  const store = createAppearanceRowStore()
+  let bound: BoundActions<typeof store> | undefined
+  const sync = (snapshot: ThemeSnapshot): void => {
+    bound?.sync(snapshot.preference, snapshot.revision)
+  }
+  ctx.on('theme/change', sync)
+  const injected = (actions: BoundActions<typeof store>): AppearanceRowInjected => {
+    bound = actions
+    // Re-sync from the getter so no event is lost between registration and
+    // first render (the store's revision guard drops stale duplicates).
+    sync(theme.getTheme())
+    return {
+      t: ctx.locale.bind(SETTINGS_NS),
+      setTheme: (id) => { theme.setTheme(id) },
+    }
+  }
+  ctx.effect(() => {
+    const deferred = deferRegistration(ctx.slots, 'settings.general.item', AppearanceRow, () =>
+      ctx.slots.register({
+        name: 'settings.general.item',
+        id: 'appearance',
+        order: 10,
+        store,
+        inject: injected,
+      }, AppearanceRow))
+    return () => { deferred.dispose() }
+  }, 'ui-theme: appearance settings row registration')
 }

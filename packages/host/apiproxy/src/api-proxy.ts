@@ -14,7 +14,8 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
-  workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId, WorkspaceNameConflictError,
+  workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
+  WorkspaceMoveInvalidError, WorkspaceNameConflictError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
@@ -297,6 +298,15 @@ class SessionCwdConflict extends Error {
 
 /** Host failed before the registry could adopt a name-created directory. */
 class WorkspaceDirectoryCreationError extends Error {}
+
+/** Shared workspace-not-found error response of the workspace.* mutation rows. */
+function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string): RpcResponse<T> {
+  return err(request, {
+    code: 'workspace-not-found',
+    message: `workspace "${workspaceId}" not found`,
+    details: { workspaceId },
+  })
+}
 
 /** Wire projection of one workspace entity (the workspace.* value row). */
 function workspaceView(workspace: Workspace): WorkspaceView {
@@ -680,6 +690,60 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async rename(request) {
+        const { payload } = request
+        const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
+        const title = payload.title.trim()
+        // Uniqueness AND the same-title no-op both ride the create chain so
+        // they observe the state left by earlier queued renames — checked
+        // up front, a queued A→A could report success while an earlier A→B
+        // still lands afterwards.
+        const operation = workspaceCreationChain.then(async () => {
+          if (title === workspace.title) return
+          if (ctx.workspace.list().some(other => other.id !== workspace.id && other.title === title)) {
+            throw new WorkspaceNameConflictError(title)
+          }
+          await workspace.setTitle(title)
+        })
+        workspaceCreationChain = operation.then(() => undefined, () => undefined)
+        try {
+          await operation
+        } catch (error: unknown) {
+          if (error instanceof WorkspaceNameConflictError) {
+            return err(request, {
+              code: 'workspace-name-conflict',
+              message: error.message,
+              details: { name: error.workspaceName },
+            })
+          }
+          throw error
+        }
+        return ok(request, { workspace: workspaceView(workspace) })
+      },
+
+      async insertSessionBefore(request) {
+        const { payload } = request
+        const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
+        try {
+          await workspace.insertSessionBefore(payload.sessionId, payload.beforeSessionId)
+        } catch (error: unknown) {
+          // Only the entity's unaccounted-id rejection is the business code;
+          // storage/durability failures propagate as internal errors.
+          if (!(error instanceof WorkspaceMoveInvalidError)) throw error
+          return err(request, {
+            code: 'workspace-move-invalid',
+            message: error.message,
+            details: {
+              workspaceId: payload.workspaceId,
+              sessionId: payload.sessionId,
+              ...payload.beforeSessionId === undefined ? {} : { beforeSessionId: payload.beforeSessionId },
+            },
+          })
+        }
+        return ok(request, { workspace: workspaceView(workspace) })
+      },
     },
 
     host: {

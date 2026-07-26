@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-cordis
 
+English | [中文](README.zh.md)
+
 The self-referential cordis toolset: three model-facing tools over the live runtime the agent runs inside. Design home — sandbox semantics, mount lifecycle, cross-mount composition, the generated API catalog, standing decisions: [the toolset Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## What it does

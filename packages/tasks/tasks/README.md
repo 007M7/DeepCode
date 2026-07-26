@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tasks
 
+English | [中文](README.zh.md)
+
 The background task registry seam (`ctx.tasks`). The abstract `TaskService` and its vocabulary types give long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup under one contract; the process-local registry lives in [`dsh-tasks-local`](../tasks-local/README.md). Producer plugins extend `TaskKindMap` with their opaque id namespace.
 
 ## Service contract

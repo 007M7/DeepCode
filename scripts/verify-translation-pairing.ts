@@ -1,9 +1,9 @@
 /**
  * Enforce complete English/Chinese pairs, matching structure, and recorded git
- * blob hashes under the bilingual manifest. Required files and date-named docs
- * at or after `requiredSince` must be paired; excluded docs may have neither a
- * counterpart nor sidecar. `--list` reports state and `--write` records both
- * sides after human review. Translation quality remains a review responsibility.
+ * blob hashes for every in-scope document. The manifest contains only explicit
+ * exclusions, which may have neither a counterpart nor a sidecar.
+ * `--list` reports state and `--write` records both sides after human review.
+ * Translation quality remains a review responsibility.
  * See `docs/i18n/README.md` for the owning contract.
  */
 
@@ -11,11 +11,11 @@ import { createHash } from 'node:crypto'
 import { existsSync, globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve, sep } from 'node:path'
 import {
-  datedDocumentDate,
   linksTo,
   parseTranslationMarkdown,
   parseTranslationPairingManifest,
-  requiresPairByDate,
+  isTranslationScopeFile,
+  TRANSLATION_SCOPE_GLOB_EXCLUDES,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -24,17 +24,12 @@ const root = resolve(import.meta.dirname, '..')
 const listMode = process.argv.includes('--list')
 const writeMode = process.argv.includes('--write')
 
-/** Scope of the bilingual contract: root docs, Agent Notes, the docs tree, and the Python SDK tree. */
+/** Discover source Markdown and pairing sidecars before applying the corpus predicate. */
 const SCOPE_PATTERNS = [
-  'README.md',
-  'README.zh.md',
-  'README.i18n.yaml',
+  '**/*.md',
+  '**/*.i18n.yaml',
   '.agents/notes/**/*.md',
   '.agents/notes/**/*.i18n.yaml',
-  'docs/**/*.md',
-  'docs/**/*.i18n.yaml',
-  'python/**/*.md',
-  'python/**/*.i18n.yaml',
 ]
 
 const manifest = parseTranslationPairingManifest(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8'))
@@ -92,7 +87,10 @@ function renderMeta(source: string, sourceHash: string, zh: string, zhHash: stri
 // Enumerate the scope once.
 const files = new Set<string>()
 for (const pattern of SCOPE_PATTERNS) {
-  for (const match of globSync(pattern, { cwd: root })) files.add(match.split(sep).join('/'))
+  for (const match of globSync(pattern, { cwd: root, exclude: TRANSLATION_SCOPE_GLOB_EXCLUDES })) {
+    const normalized = match.split(sep).join('/')
+    if (isTranslationScopeFile(normalized)) files.add(normalized)
+  }
 }
 const translations = [...files].filter(f => f.endsWith('.zh.md')).sort()
 const metas = [...files].filter(f => f.endsWith('.i18n.yaml')).sort()
@@ -118,34 +116,17 @@ if (writeMode) {
 const errors: string[] = []
 const state = new Map<string, 'ok' | 'out-of-sync' | 'missing'>()
 
-// 1. Required pairs exist.
-for (const req of manifest.required) {
-  if (!existsSync(join(root, req))) {
-    errors.push(`${req}: listed in translation-pairing.manifest.json \`required\` but the file does not exist`)
-    continue
-  }
-  const { zh } = pairPaths(req)
-  if (!existsSync(join(root, zh))) {
-    errors.push(`${req}: required to have a translation, but ${zh} does not exist`)
-    state.set(req, 'missing')
-  }
-}
-
-// 2. Date-named documents (Agent Notes) dated on/after the requiredSince cutoff merge
-// bilingual: a new Agent Note lands with its pair or not at all. Deterministic from
-// the filename alone — no git history, so it holds on shallow CI checkouts.
+// 1. Every discovered, non-excluded source merges bilingual.
 for (const source of sources) {
   if (isExcluded(source)) continue
-  const date = datedDocumentDate(source)
-  if (!requiresPairByDate(source, manifest.requiredSince) || date === undefined) continue
   const { zh } = pairPaths(source)
   if (!existsSync(join(root, zh))) {
-    errors.push(`${source}: dated ${date} — documents dated on/after ${manifest.requiredSince} merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
+    errors.push(`${source}: in-scope documentation must merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
     state.set(source, 'missing')
   }
 }
 
-// 3. Every pair that exists at all is complete and consistent. Anchor on the
+// 2. Every pair that exists at all is complete and consistent. Anchor on the
 // union of .zh.md files and .i18n.yaml records so a half-deleted pair is
 // caught from either remnant.
 const pairAnchors = new Set<string>()
@@ -205,7 +186,7 @@ for (const source of [...pairAnchors].sort()) {
   if (!state.has(source)) state.set(source, 'ok')
 }
 
-// Complete the state map for --list: any in-scope, non-excluded document with no pair yet is backlog.
+// Complete the state map for --list: any in-scope, non-excluded document with no pair is missing.
 for (const source of sources) {
   if (!isExcluded(source) && !state.has(source)) state.set(source, 'missing')
 }
@@ -214,9 +195,7 @@ if (listMode) {
   const order = { 'out-of-sync': 0, missing: 1, ok: 2 } as const
   const rows = [...state.entries()].sort((a, b) => order[a[1]] - order[b[1]] || a[0].localeCompare(b[0]))
   for (const [file, status] of rows) {
-    const required = manifest.required.includes(file)
-    const tag = required ? '  (required)' : requiresPairByDate(file, manifest.requiredSince) ? '  (required by date)' : '  (backlog)'
-    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? tag : ''}`)
+    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? '  (required)' : ''}`)
   }
   const counts = { 'ok': 0, 'out-of-sync': 0, 'missing': 0 }
   for (const status of state.values()) counts[status]++
@@ -225,7 +204,7 @@ if (listMode) {
 }
 
 if (errors.length === 0) {
-  console.log(`verify-translation-pairing: ${pairAnchors.size} pair(s) checked against ${manifest.required.length} required, all consistent.`)
+  console.log(`verify-translation-pairing: ${pairAnchors.size} pair(s) checked across all in-scope documentation, all consistent.`)
   process.exit(0)
 }
 

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-fs
 
+English | [中文](README.zh.md)
+
 The **filesystem provider seam**: an abstract `FileSystem` service (`ctx.fs`) defining the storage primitives a backend provides — resolve a path, stat metadata, no-follow path metadata, read/stream text, list directories, write atomically, and apply a literal edit — without saying HOW. Both mutations take their version guard **optionally**, so `ctx.fs` on its own is a complete, unconstrained text-storage seam. This package also owns the `fs/*` policy event vocabulary the tool dispatches and the policy plugin listens for.
 
 This package is the provider-seam layer of the four-layer filesystem stack, split so each concern can evolve (and be swapped) independently (see [the capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), [the filesystem capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md), [the split-the-filesystem-seam Agent Note](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md), and [the file-context event-gate Agent Note](../../../.agents/notes/implemented/architecture/2026-06-26-file-context-as-event-gate.md)):
