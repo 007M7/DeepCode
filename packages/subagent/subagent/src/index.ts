@@ -13,13 +13,11 @@
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Scope: the seam stays collection-, Task-, and persistence-agnostic — a run
- * is started or resumed and its `result` awaited, whether the consumer blocks
- * on it (foreground) or registers it as a `ctx.tasks` background task (the
- * generic runtime owns ids/polling/stop; this seam gains nothing task-shaped).
- * Durable continuable-child ids, descriptor lookup, and Task association
- * belong to `@deepseek-ai/dsh-subagent-control`; this service only validates
- * and dispatches `start`/`resume` and observes run lifecycle.
+ * Raw `start` and `resume` remain collection-agnostic provider dispatch.
+ * When `ctx.tasks` and `ctx.agents` are available, the same service also binds
+ * an internal continuation manager for durable child ids, descriptor lookup,
+ * Task-backed activations, and steer-or-resume delivery. Persistence remains
+ * optional and is required only when a continuation operation is called.
  *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
@@ -35,7 +33,7 @@ import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
@@ -47,6 +45,12 @@ import type {
   SubagentStartRequest,
 } from './types.ts'
 import { SubagentRunId } from './types.ts'
+import SubagentContinuationManager from './continuation.ts'
+import type {
+  ContinuableStart,
+  ContinuableStartSpec,
+  SendMessageResult,
+} from './continuation.ts'
 
 export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
@@ -67,6 +71,17 @@ export {
   SUBAGENT_DESCRIPTOR_VERSION,
 } from './descriptor.ts'
 export type { SubagentDescriptorData, SubagentDescriptorInput } from './descriptor.ts'
+export {
+  runOutcome,
+  settleRun,
+  SubagentControlError,
+} from './continuation.ts'
+export type {
+  ContinuableStart,
+  ContinuableStartSpec,
+  CoordinatorMessageSource,
+  SendMessageResult,
+} from './continuation.ts'
 
 declare module '@deepseek-ai/dsh-agent' {
   interface AgentOptions {
@@ -187,12 +202,49 @@ export class SubagentError extends HarnessError {
   }
 }
 
-/** Named provider registry and capability-checked start surface. */
+/** Named provider registry with raw and Task-backed continuation operations. */
 export class SubagentService extends Service {
   private providers = new Map<string, SubagentProvider>()
+  private continuations: SubagentContinuationManager | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'subagents')
+    ctx.inject(['tasks', 'agents'], (childCtx: Context) => {
+      const manager = new SubagentContinuationManager(childCtx, this)
+      this.continuations = manager
+      childCtx.effect(() => () => {
+        /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
+        if (this.continuations === manager) this.continuations = undefined
+      }, 'subagents.continuationBinding()')
+    })
+  }
+
+  /**
+   * Start one durable continuable child through a Task-backed initial
+   * activation.
+   * @param spec - provider, Task label, and delegation request.
+   * @returns the stable child id and initial activation Task id.
+   */
+  startContinuable(spec: ContinuableStartSpec): ContinuableStart {
+    return this.requireContinuations().startContinuable(spec)
+  }
+
+  /**
+   * Deliver a message to a continuable child by steering its live activation
+   * or cold-resuming a fresh Task-backed activation.
+   * @param parent - live direct parent authorizing the operation.
+   * @param childId - durable child session id.
+   * @param message - user-role content to deliver.
+   * @param source - durable caller attribution.
+   * @returns the existing steered Task or newly started Task.
+   */
+  sendMessage(
+    parent: Agent,
+    childId: SessionId,
+    message: ContentBlock[],
+    source: MessageSource,
+  ): Promise<SendMessageResult> {
+    return this.requireContinuations().sendMessage(parent, childId, message, source)
   }
 
   /**
@@ -264,7 +316,7 @@ export class SubagentService extends Service {
   /**
    * Resume a persisted continuable child through the named provider's
    * `resume` capability, with the same run lifecycle observation as
-   * {@link start}. The caller (the control service) has already loaded the
+   * {@link start}. The internal continuation manager has already loaded the
    * child, folded its descriptor, and authorized the parent; this method owns
    * only capability-checked dispatch.
    * @param name - the provider recorded in the child's descriptor.
@@ -289,6 +341,17 @@ export class SubagentService extends Service {
       throw new SubagentError(`no subagent provider registered for "${name}"`, 'NO_PROVIDER')
     }
     return provider
+  }
+
+  /** Resolve the optional Task-backed continuation runtime or fail loud. */
+  private requireContinuations(): SubagentContinuationManager {
+    if (this.continuations === undefined) {
+      throw new SubagentError(
+        'continuable subagents require the tasks and agents services',
+        'CONTINUATION_UNAVAILABLE',
+      )
+    }
+    return this.continuations
   }
 
   /** Emit the start/end lifecycle pair for one accepted run and return it. */

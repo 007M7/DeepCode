@@ -39,8 +39,6 @@ flowchart LR
   cfg --> plugin_acp_subagent_spawn
   plugin_acp_subagent_fork["subagent-fork<br/>@deepseek-ai/dsh-subagent-fork"]
   cfg --> plugin_acp_subagent_fork
-  plugin_acp_subagent_control["subagent-control<br/>@deepseek-ai/dsh-subagent-control"]
-  cfg --> plugin_acp_subagent_control
   plugin_acp_tool_subagent_control["tool-subagent-control<br/>@deepseek-ai/dsh-tool-subagent-control"]
   cfg --> plugin_acp_tool_subagent_control
   plugin_acp_tool_subagent["tool-subagent<br/>@deepseek-ai/dsh-tool-subagent"]
@@ -83,7 +81,6 @@ flowchart LR
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
-| `subagent-control` | `@deepseek-ai/dsh-subagent-control` |
 | `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |

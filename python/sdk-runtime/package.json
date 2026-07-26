@@ -66,7 +66,6 @@
     "@deepseek-ai/dsh-skill-local": "workspace:^",
     "@deepseek-ai/dsh-subagent": "workspace:^",
     "@deepseek-ai/dsh-subagent-acp": "workspace:^",
-    "@deepseek-ai/dsh-subagent-control": "workspace:^",
     "@deepseek-ai/dsh-subagent-fork": "workspace:^",
     "@deepseek-ai/dsh-subagent-inprocess": "workspace:^",
     "@deepseek-ai/dsh-subagent-spawn": "workspace:^",

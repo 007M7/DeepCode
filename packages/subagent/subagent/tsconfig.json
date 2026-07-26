@@ -27,6 +27,12 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../tasks/tasks"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

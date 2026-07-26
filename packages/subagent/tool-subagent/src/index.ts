@@ -1,11 +1,10 @@
 /**
  * Model-facing delegation through one configured `ctx.subagents` provider.
  * Provider lifecycle controls tool registration and context-sensitive schema
- * wording. Foreground calls always dispose the run after collection. A
- * background call's route follows the provider's continuation capability:
- * a provider with `resume` delegates to `ctx.subagentControl`, which owns the
- * durable child id, its descriptor, and the Task-backed activation lifecycle;
- * a provider without it (ACP) keeps the one-shot background task.
+ * wording. Foreground calls always dispose the run after collection.
+ * Background policy is selected by this plugin's configuration: one-shot
+ * calls own a plain Task, while continuable calls use
+ * `ctx.subagents.startContinuable()`.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
@@ -15,9 +14,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
-import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
+import { assertSubagentMaxDepth, settleRun } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
-import { settleRun } from '@deepseek-ai/dsh-subagent-control'
 import type { TaskOutcome } from '@deepseek-ai/dsh-tasks'
 
 export const name = 'tool-subagent'
@@ -37,6 +35,12 @@ export interface Config {
    * parameter and reject forced background calls.
    */
   enableRunInBackground?: boolean
+  /**
+   * Background execution policy (default `one-shot`). `continuable` requires
+   * a provider with persisted resume support and returns both child and Task
+   * ids; follow-up adapters remain independently optional.
+   */
+  backgroundMode?: 'one-shot' | 'continuable'
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
@@ -73,6 +77,7 @@ export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
   enableRunInBackground: z.boolean().default(true),
+  backgroundMode: z.union(['one-shot', 'continuable'] as const).default('one-shot'),
   // Prevent Schemastery from materializing omitted agentOptions as `{}`.
   agentOptions: z.object({
     provider: z.string(),
@@ -191,17 +196,19 @@ export function apply(ctx: Context, config: Config): void {
     }
     const wording = providerWording(provider.inheritsParentContext)
     const backgroundEnabled = config.enableRunInBackground !== false
-    // The provider's continuation capability decides the background route: a
-    // resumable provider starts durable, follow-up-able children through the
-    // control service, while a one-shot provider (ACP) keeps the plain task.
-    const continuable = provider.resume !== undefined
+    const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
+    if (continuable && provider.resume === undefined) {
+      throw new Error(
+        `tool-subagent: provider "${provider.name}" does not support \`backgroundMode: continuable\``,
+      )
+    }
     disposeTool = ctx.tools.register(defineTool({
       name: config.toolName ?? 'subagent',
       description: wording.description + (backgroundEnabled
         ? continuable
           ? ' Set `run_in_background: true` to start a continuable background subagent: you receive its'
-          + ' subagent id and a task id; collect the result with `task_output`, stop it with `task_kill`,'
-          + ' and send follow-up messages with `send_message`.'
+          + ' stable subagent id and current task id; collect the result with `task_output` and stop it with'
+          + ' `task_kill`.'
           : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
@@ -220,7 +227,7 @@ export function apply(ctx: Context, config: Config): void {
             type: 'boolean' as const,
             description: continuable
               ? 'Run as a continuable background subagent and return its subagent and task ids; '
-              + 'collect with task_output, stop with task_kill, follow up with send_message.'
+              + 'collect with task_output or stop with task_kill.'
               : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},
@@ -281,23 +288,7 @@ export function apply(ctx: Context, config: Config): void {
             throw new Error('run_in_background is disabled for this tool instance (enableRunInBackground: false)')
           }
           if (continuable) {
-            const control = ctx.get('subagentControl')
-            if (control === undefined) {
-              throw new Error('continuable background subagents unavailable: load @deepseek-ai/dsh-subagent-control and @deepseek-ai/dsh-tool-tasks')
-            }
-            // The schema above tells the model to follow up with
-            // `send_message`; starting a durable child the model cannot
-            // continue would make that advertisement false. Sibling load order
-            // is undetermined at mount, so the check lives at the operation,
-            // and it resolves in the CALLER's scope so a restriction that
-            // removes send_message from this agent also blocks the start.
-            if (ctx.tools.get('send_message', parent) === undefined) {
-              throw new Error('continuable background subagents unavailable: load @deepseek-ai/dsh-tool-subagent-control (the advertised send_message tool is not registered)')
-            }
-            // The control service owns the durable child id, descriptor
-            // snapshot, Task registration, and settle-then-dispose ordering; a
-            // synchronous validation failure rejects the call with no Task.
-            const started = control.startContinuable({
+            const started = ctx.subagents.startContinuable({
               provider: config.provider,
               label: args.description,
               request,

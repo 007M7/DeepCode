@@ -9,7 +9,6 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import SubagentService, { SUBAGENT_DESCRIPTOR_VERSION } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
@@ -18,7 +17,12 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { createUserMessage, HarnessError, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import SubagentControlService, { runOutcome, settleRun, SubagentControlError } from '../src/index.ts'
+import SubagentService, {
+  runOutcome,
+  settleRun,
+  SubagentControlError,
+  SUBAGENT_DESCRIPTOR_VERSION,
+} from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -53,12 +57,12 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-/** Boot the full continuable stack: loop, persistence, providers, tasks, control. */
+/** Boot the full continuable stack: loop, persistence, providers, tasks, and subagents. */
 async function setupWith(adapter: LlmAdapter, options: { persistence?: boolean } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   if (options.persistence !== false) {
-    const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-control-'))
+    const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-continuation-'))
     roots.push(root)
     await ctx.plugin(JsonlSessionPersistence, { root })
   }
@@ -68,7 +72,6 @@ async function setupWith(adapter: LlmAdapter, options: { persistence?: boolean }
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
   await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks, {})
-  await ctx.plugin(SubagentControlService)
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent }
@@ -93,12 +96,12 @@ async function waitTerminal(ctx: Context, taskId: TaskId, parent: Agent) {
 }
 
 async function waitPublishedRun(ctx: Context, childId: SessionId): Promise<void> {
-  const control = ctx.subagentControl as unknown as {
-    activations: Map<SessionId, { run: unknown }>
+  const continuations = ctx.subagents as unknown as {
+    continuations: { activations: Map<SessionId, { run: unknown }> }
   }
   await new Promise<void>((resolve) => {
     const timer = setInterval(() => {
-      if (control.activations.get(childId)?.run !== undefined) {
+      if (continuations.continuations.activations.get(childId)?.run !== undefined) {
         clearInterval(timer)
         resolve()
       }
@@ -121,13 +124,13 @@ function sendMessage(
   childId: SessionId,
   content: ReturnType<typeof message>,
 ) {
-  return ctx.subagentControl.sendMessage(parent, childId, content, { kind: 'user' })
+  return ctx.subagents.sendMessage(parent, childId, content, { kind: 'user' })
 }
 
-describe('SubagentControlService.startContinuable', () => {
+describe('SubagentService.startContinuable', () => {
   it('returns both identities immediately; the Task settles with the child result after disposal', async () => {
     const { ctx, parent } = await setup([textResponse('first answer')])
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     expect(started.childId).toMatch(/[0-9a-f-]{36}/)
     expect(started.taskId).toBe('subagent-1')
 
@@ -138,13 +141,13 @@ describe('SubagentControlService.startContinuable', () => {
     expect(ctx.agents.get(started.childId)).toBeUndefined()
   })
 
-  it('publishes the control-allocated child id and appends the turn-enclosed descriptor', async () => {
+  it('publishes the service-allocated child id and appends the turn-enclosed descriptor', async () => {
     const { ctx, parent } = await setup([textResponse('answer')])
     const seen: SessionEvent[] = []
     ctx.on('session/event', (session, event) => {
       if (session.id !== SessionId('parent')) seen.push(event)
     })
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
 
     const descriptorIndex = seen.findIndex(event => event.type === 'subagent/descriptor')
@@ -162,7 +165,7 @@ describe('SubagentControlService.startContinuable', () => {
     // Model-hidden: the descriptor never carries surface metadata.
     expect('surfaceOp' in descriptor).toBe(false)
 
-    // The durable log kept the exact control-allocated id.
+    // The durable log kept the exact service-allocated id.
     const loaded = await ctx.sessionPersistence.load(started.childId)
     expect(loaded.meta.id).toBe(started.childId)
     expect(loaded.meta.parentSession).toBe(SessionId('parent'))
@@ -171,7 +174,7 @@ describe('SubagentControlService.startContinuable', () => {
 
   it('rejects synchronously with no Task when persistence is not configured', async () => {
     const { ctx, parent } = await setup([textResponse('unused')], { persistence: false })
-    expect(() => ctx.subagentControl.startContinuable(startSpec(parent)))
+    expect(() => ctx.subagents.startContinuable(startSpec(parent)))
       .toThrow(/require session persistence/)
     expect(ctx.tasks.list(parent)).toEqual([])
   })
@@ -181,19 +184,21 @@ describe('SubagentControlService.startContinuable', () => {
     const realStart = ctx.tasks.start.bind(ctx.tasks)
     ctx.tasks.start = () => { throw new Error('task preflight failed') }
     try {
-      expect(() => ctx.subagentControl.startContinuable(startSpec(parent)))
+      expect(() => ctx.subagents.startContinuable(startSpec(parent)))
         .toThrow('task preflight failed')
     } finally {
       ctx.tasks.start = realStart
     }
-    const control = ctx.subagentControl as unknown as { activations: Map<SessionId, unknown> }
-    expect(control.activations.size).toBe(0)
+    const continuations = ctx.subagents as unknown as {
+      continuations: { activations: Map<SessionId, unknown> }
+    }
+    expect(continuations.continuations.activations.size).toBe(0)
   })
 
   it('rejects a non-JSON descriptor input synchronously with no Task', async () => {
     const { ctx, parent } = await setup([textResponse('unused')])
     const spec = startSpec(parent)
-    expect(() => ctx.subagentControl.startContinuable({
+    expect(() => ctx.subagents.startContinuable({
       ...spec,
       // A symbol survives the static ToolRestriction type only through this
       // cast — exactly the durable-boundary input the snapshot rejects.
@@ -214,7 +219,7 @@ describe('SubagentControlService.startContinuable', () => {
         maxDepth: 0,
       },
     }
-    const started = ctx.subagentControl.startContinuable(spec)
+    const started = ctx.subagents.startContinuable(spec)
     const snapshot = await waitTerminal(ctx, started.taskId, parent)
     expect(snapshot.status).toBe('failed')
     expect(snapshot.detail).toContain('maxDepth')
@@ -228,7 +233,7 @@ describe('SubagentControlService.startContinuable', () => {
 
   it('task_kill during the run aborts, disposes, and settles killed after quiescence', async () => {
     const { ctx, parent } = await setup(['hang'])
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     // Let the child publish and begin its turn.
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(ctx.agents.get(started.childId)).toBeDefined()
@@ -250,7 +255,7 @@ describe('SubagentControlService.startContinuable', () => {
       checkpointStarted.resolve(undefined)
       await releaseCheckpoint.promise
     })
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
 
     await checkpointStarted.promise
     expect(ctx.tasks.kill(started.taskId, parent, 'no longer needed')).toBe('requested')
@@ -262,7 +267,7 @@ describe('SubagentControlService.startContinuable', () => {
   })
 })
 
-describe('SubagentControlService.sendMessage', () => {
+describe('SubagentService.sendMessage', () => {
   it('omits undeclared model selectors and rejects a provider without live delivery', async () => {
     const { ctx } = await setup([])
     const result = Promise.withResolvers<{
@@ -286,7 +291,7 @@ describe('SubagentControlService.sendMessage', () => {
       resume: async () => { throw new Error('not used') },
     })
     const parent = ctx.agentLoop.create(SessionId('bare-parent'), {})
-    const started = ctx.subagentControl.startContinuable(startSpec(parent, 'no-steer'))
+    const started = ctx.subagents.startContinuable(startSpec(parent, 'no-steer'))
     await waitPublishedRun(ctx, started.childId)
 
     expect(descriptor).toEqual({ version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'no-steer' })
@@ -336,7 +341,7 @@ describe('SubagentControlService.sendMessage', () => {
       },
       resume: async () => { throw new Error('not used') },
     })
-    const started = ctx.subagentControl.startContinuable(startSpec(parent, 'mismatched-local'))
+    const started = ctx.subagents.startContinuable(startSpec(parent, 'mismatched-local'))
     await waitPublishedRun(ctx, started.childId)
 
     await expect(sendMessage(ctx, parent, started.childId, message('join')))
@@ -357,7 +362,7 @@ describe('SubagentControlService.sendMessage', () => {
     ])
     const { ctx, parent } = await setupWith(adapter)
 
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     // Wait until the first immutable request has crossed the adapter boundary.
     await new Promise<void>((resolve) => {
       const timer = setInterval(() => {
@@ -368,7 +373,7 @@ describe('SubagentControlService.sendMessage', () => {
       }, 5)
     })
 
-    const delivery = ctx.subagentControl.sendMessage(
+    const delivery = ctx.subagents.sendMessage(
       parent,
       started.childId,
       message('also consider Y'),
@@ -406,7 +411,7 @@ describe('SubagentControlService.sendMessage', () => {
     })
 
     const base = startSpec(parent)
-    const started = ctx.subagentControl.startContinuable({
+    const started = ctx.subagents.startContinuable({
       ...base,
       request: {
         ...base.request,
@@ -419,7 +424,7 @@ describe('SubagentControlService.sendMessage', () => {
     })
     await startedTool.promise
 
-    const delivery = ctx.subagentControl.sendMessage(
+    const delivery = ctx.subagents.sendMessage(
       parent,
       started.childId,
       message('follow-up that terminal policy rejects'),
@@ -437,11 +442,11 @@ describe('SubagentControlService.sendMessage', () => {
 
   it('cold-resumes a settled child into a fresh Task and reports `started`', async () => {
     const { ctx, parent } = await setup([textResponse('first answer'), textResponse('second answer')])
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
     expect(ctx.agents.get(started.childId)).toBeUndefined()
 
-    const followUp = await ctx.subagentControl.sendMessage(
+    const followUp = await ctx.subagents.sendMessage(
       parent,
       started.childId,
       message('and then?'),
@@ -476,7 +481,7 @@ describe('SubagentControlService.sendMessage', () => {
         toolFilter: { deny: [] as string[] },
       },
     }
-    const started = ctx.subagentControl.startContinuable(spec)
+    const started = ctx.subagents.startContinuable(spec)
     await waitTerminal(ctx, started.taskId, parent)
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
@@ -503,7 +508,7 @@ describe('SubagentControlService.sendMessage', () => {
     parent.followup(createUserMessage({ content: message('parent question one'), source: { kind: 'user' } }))
     await parent.whenIdle()
 
-    const started = ctx.subagentControl.startContinuable(startSpec(parent, 'fork'))
+    const started = ctx.subagents.startContinuable(startSpec(parent, 'fork'))
     await waitTerminal(ctx, started.taskId, parent)
     const firstLoad = await ctx.sessionPersistence.load(started.childId)
     const seedLength = firstLoad.meta.seedLength ?? 0
@@ -527,7 +532,7 @@ describe('SubagentControlService.sendMessage', () => {
 
   it('a resumed child cannot regain a top-level delegation budget (header floor)', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
     const followUp = await sendMessage(ctx, parent, started.childId, message('go on'))
 
@@ -546,7 +551,7 @@ describe('SubagentControlService.sendMessage', () => {
   it('rejects a foreign child id: the started Task fails with UNAUTHORIZED and delivers nothing', async () => {
     const { ctx, parent } = await setup([textResponse('other parent answer'), textResponse('unused')])
     const otherParent = ctx.agentLoop.create(SessionId('other-parent'), { provider: 'mock', model: 'mock' })
-    const started = ctx.subagentControl.startContinuable(startSpec(otherParent))
+    const started = ctx.subagents.startContinuable(startSpec(otherParent))
     await waitTerminal(ctx, started.taskId, otherParent)
 
     const attempt = await sendMessage(ctx, parent, started.childId, message('mine now'))
@@ -590,9 +595,9 @@ describe('SubagentControlService.sendMessage', () => {
     ])
   })
 
-  it('rejects delivery to a live agent outside control-service ownership', async () => {
+  it('rejects delivery to a live agent outside continuation ownership', async () => {
     const { ctx, parent } = await setup([textResponse('unused')])
-    // A live child created around the control service.
+    // A live child created outside continuation orchestration.
     const handle = await ctx.agents.create({
       sessionId: SessionId('rogue-child'),
       meta: { parentSession: parent.id },
@@ -601,7 +606,7 @@ describe('SubagentControlService.sendMessage', () => {
     await expect(sendMessage(ctx, parent, SessionId('rogue-child'), message('hello')))
       .rejects.toThrow(SubagentControlError)
     await expect(sendMessage(ctx, parent, SessionId('rogue-child'), message('hello')))
-      .rejects.toThrow(/outside control-service ownership.*not delivered/)
+      .rejects.toThrow(/outside continuation ownership.*not delivered/)
     await handle.dispose()
   })
 
@@ -625,7 +630,7 @@ describe('SubagentControlService.sendMessage', () => {
       }
     }
 
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     // Wait for the child to finish its turn while the run remains undisposed
     // and the association therefore still holds.
     await new Promise<void>((resolve) => {
@@ -654,7 +659,7 @@ describe('SubagentControlService.sendMessage', () => {
 
   it('each follow-up Task result is fenced to the parent session', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
     const followUp = await sendMessage(ctx, parent, started.childId, message('more'))
     const other = ctx.agentLoop.create(SessionId('intruder'), { provider: 'mock', model: 'mock' })
@@ -663,7 +668,7 @@ describe('SubagentControlService.sendMessage', () => {
 
   it('kills a cold-resume activation during descriptor lookup without starting child work', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('never used')])
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
 
     // Make the persistence load hang until the kill lands.
@@ -686,7 +691,7 @@ describe('SubagentControlService.sendMessage', () => {
 
   it('admits one process-local activation per child: a second send during resume load steers or fails, never duplicates', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('resumed answer')])
-    const started = ctx.subagentControl.startContinuable(startSpec(parent))
+    const started = ctx.subagents.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
 
     const realLoad = ctx.sessionPersistence.load.bind(ctx.sessionPersistence)
@@ -715,15 +720,15 @@ describe('service disposal with live activations', () => {
   it('cancels and settles a starting activation on service disposal instead of stranding it', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
-    const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-control-hmr-'))
+    const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-continuation-hmr-'))
     roots.push(root)
     await ctx.plugin(JsonlSessionPersistence, { root })
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(SubagentService)
+    const subagentsFiber = await ctx.plugin(SubagentService)
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks, {})
     // A provider that stays pending until its signal aborts, so the activation
-    // is observably mid-start when the control service is disposed.
+    // is observably mid-start when the subagent service is disposed.
     let sawAbort = false
     ctx.subagents.registerProvider({
       name: 'pending',
@@ -737,19 +742,17 @@ describe('service disposal with live activations', () => {
       }),
       resume: () => Promise.reject(new Error('unreachable')),
     })
-    const controlFiber = await ctx.plugin(SubagentControlService)
     ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
     const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
 
-    const control = ctx.get('subagentControl')!
-    const started = control.startContinuable({
+    const started = ctx.subagents.startContinuable({
       provider: 'pending',
       label: 'will be interrupted',
       request: { prompt: message('go'), parent },
     })
-    // LocalTaskService keeps the producer Task; the disposing control service must
+    // LocalTaskService keeps the producer Task; the disposing subagent service must
     // cancel its activation and await settlement rather than strand it.
-    await controlFiber.dispose()
+    await subagentsFiber.dispose()
     expect(sawAbort).toBe(true)
     const snapshot = await waitTerminal(ctx, started.taskId, parent)
     expect(snapshot.status).toBe('killed')

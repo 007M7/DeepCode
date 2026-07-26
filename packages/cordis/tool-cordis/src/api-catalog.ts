@@ -881,23 +881,17 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'subagentControl',
-    summary: 'The continuable-subagent orchestration service.',
+    key: 'subagents',
+    summary: 'Named provider registry with raw and Task-backed continuation operations.',
     methods: [
       {
         signature: 'startContinuable(spec: ContinuableStartSpec): ContinuableStart',
-        jsDoc: '/**\n * Start a continuable background child: allocate its stable session id,\n * snapshot its durable descriptor, and register the initial activation\'s\n * Task. A synchronous validation failure (a non-JSON descriptor input,\n * missing persistence, Task preflight) throws without creating a Task; the\n * method otherwise returns both identities immediately, without waiting for\n * child publication or descriptor durability. Asynchronous startup failure\n * settles the returned Task as `failed` (or `killed` when cancelled) after\n * any published run is disposed, which can leave an unmaterialized child id\n * that later by-id operations report as unavailable.\n * @param spec - provider, Task label, and the delegation request.\n * @returns the stable child id and the initial activation\'s Task id.\n */',
+        jsDoc: '/**\n * Start one durable continuable child through a Task-backed initial\n * activation.\n * @param spec - provider, Task label, and delegation request.\n * @returns the stable child id and initial activation Task id.\n */',
       },
       {
-        signature: 'async sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>',
-        jsDoc: '/**\n * Deliver one message to a known continuable child: steer its running\n * activation, or cold-resume the durable session into a fresh Task-backed\n * activation. The two routes are reported distinctly so timing-dependent\n * routing is observable. Rejection means the message was NOT delivered — in\n * particular, losing a race with Task settlement does not fall through to\n * cold resume within the same call; a later retry after Task terminal may\n * start the next activation. The started Task owns descriptor lookup and\n * direct-parent authorization (its AbortSignal exists before that lookup),\n * so an unknown, foreign, or descriptor-less child settles the started Task\n * as `failed` with a detail reporting the id as unavailable.\n * @param parent - the live parent agent sending the message (model tool or\n *   human adapter); Task access is authorized by its session id.\n * @param childId - the stable child session id.\n * @param message - the user-role content to deliver.\n * @param source - caller-supplied attribution retained across either route.\n * @returns whether the message `steered` the existing Task or `started` a new one.\n */',
+        signature: 'sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>',
+        jsDoc: '/**\n * Deliver a message to a continuable child by steering its live activation\n * or cold-resuming a fresh Task-backed activation.\n * @param parent - live direct parent authorizing the operation.\n * @param childId - durable child session id.\n * @param message - user-role content to deliver.\n * @param source - durable caller attribution.\n * @returns the existing steered Task or newly started Task.\n */',
       },
-    ],
-  },
-  {
-    key: 'subagents',
-    summary: 'Named provider registry and capability-checked start surface.',
-    methods: [
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
         jsDoc: '/**\n * Register a provider under its name. Registration is effect-scoped and HMR\n * safe; removing a provider blocks new starts but does not revoke runs that\n * were already returned to their holders.\n * @param provider - the trusted provider implementation.\n * @returns the exact Cordis effect disposer.\n */',
@@ -916,7 +910,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async resume(name: string, request: SubagentResumeRequest): Promise<SubagentRun>',
-        jsDoc: '/**\n * Resume a persisted continuable child through the named provider\'s\n * `resume` capability, with the same run lifecycle observation as\n * {@link start}. The caller (the control service) has already loaded the\n * child, folded its descriptor, and authorized the parent; this method owns\n * only capability-checked dispatch.\n * @param name - the provider recorded in the child\'s descriptor.\n * @param request - the fully resolved resume request.\n * @returns the fresh holder-owned run for the resumed activation.\n */',
+        jsDoc: '/**\n * Resume a persisted continuable child through the named provider\'s\n * `resume` capability, with the same run lifecycle observation as\n * {@link start}. The internal continuation manager has already loaded the\n * child, folded its descriptor, and authorized the parent; this method owns\n * only capability-checked dispatch.\n * @param name - the provider recorded in the child\'s descriptor.\n * @param request - the fully resolved resume request.\n * @returns the fresh holder-owned run for the resumed activation.\n */',
       },
     ],
   },

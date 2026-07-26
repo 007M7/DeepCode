@@ -15,9 +15,7 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
-import SubagentControlService from '@deepseek-ai/dsh-subagent-control'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
-import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as mock from './scripted-provider.ts'
@@ -70,6 +68,21 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 describe('dsh-tool-subagent', () => {
+  it('rejects continuable background policy when the configured provider cannot resume', async () => {
+    let failure: unknown
+    try {
+      await setup({
+        provider: 'mock',
+        backgroundMode: 'continuable',
+      })
+    } catch (error: unknown) {
+      failure = error
+    }
+    expect(String(failure)).toContain(
+      'provider "mock" does not support `backgroundMode: continuable`',
+    )
+  })
+
   it('registers a `subagent` tool that delegates to the configured provider and returns its output', async () => {
     const ctx = await setup({ provider: 'mock' }, { reply: 'child says hi' })
     const result = await callSubagent(ctx, { description: 'do a thing', prompt: 'go research X' })
@@ -655,6 +668,47 @@ describe('dsh-tool-subagent background mode', () => {
     return ctx
   }
 
+  it('keeps a resumable provider one-shot when backgroundMode selects one-shot', async () => {
+    const ctx = await backgroundSetup({ provider: 'mock' })
+    const parent = ownerAgent(ctx, 'sess-parent')
+    let resumeCalls = 0
+    ctx.subagents.registerProvider({
+      name: 'resumable',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async request => ({
+        id: SessionId('one-shot-child'),
+        localAgent: undefined,
+        result: Promise.resolve({
+          output: [{ type: 'text', text: 'one-shot answer' }],
+          stopReason: request.signal.aborted ? 'aborted' : 'completed',
+        }),
+        dispose: () => Promise.resolve(),
+      }),
+      resume: async () => {
+        resumeCalls += 1
+        throw new Error('one-shot policy must not resume')
+      },
+    })
+    tool.apply(ctx, {
+      provider: 'resumable',
+      toolName: 'subagent_resumable',
+      backgroundMode: 'one-shot',
+      maxDepth: 'provider-managed',
+    })
+
+    const started = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('resumable-one-shot'),
+      name: 'subagent_resumable',
+      arguments: { description: 'work', prompt: 'go', run_in_background: true },
+      agent: parent,
+    })
+
+    expect(text(started)).toBe('started background subagent task subagent-1')
+    expect(resumeCalls).toBe(0)
+  })
+
   it('returns a task id immediately and the answer is collected through task_output', async () => {
     const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } }, { reply: 'background answer' })
     const parent = ownerAgent(ctx, 'sess-parent')
@@ -825,8 +879,8 @@ describe('dsh-tool-subagent continuable background mode', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
   })
 
-  /** Boot the real continuable stack: loop, persistence, spawn, tasks, control. */
-  async function continuableSetup(options: { controlTool?: boolean } = {}) {
+  /** Boot the real continuable stack without any model-facing follow-up adapter. */
+  async function continuableSetup() {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
     const root = mkdtempSync(path.join(tmpdir(), 'dsh-tool-subagent-continuable-'))
@@ -837,9 +891,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
     await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks, {})
-    await ctx.plugin(SubagentControlService)
-    if (options.controlTool !== false) await ctx.plugin(ToolSubagentControl)
-    await ctx.plugin(tool, { provider: 'spawn' })
+    await ctx.plugin(tool, { provider: 'spawn', backgroundMode: 'continuable' })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([
       textResponse('continuable answer'),
     ]))
@@ -847,10 +899,10 @@ describe('dsh-tool-subagent continuable background mode', () => {
     return { ctx, parent }
   }
 
-  it('a resumable provider advertises send_message and returns both ids', async () => {
+  it('starts a continuable child and returns both ids without send_message', async () => {
     const { ctx, parent } = await continuableSetup()
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
-    expect(schema.description).toContain('send_message')
+    expect(schema.description).not.toContain('send_message')
 
     const started = await callSubagent(
       ctx,
@@ -869,56 +921,6 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
   })
 
-  it('fails loud when the provider is resumable but the control service is not loaded', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(SubagentService)
-    // A resumable provider without ctx.subagentControl.
-    ctx.subagents.registerProvider({
-      name: 'resumable',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
-      inheritsParentContext: false,
-      start: () => { throw new Error('unreachable') },
-      resume: () => { throw new Error('unreachable') },
-    })
-    await ctx.plugin(tool, { provider: 'resumable', maxDepth: 'provider-managed' })
-
-    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true })
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('load @deepseek-ai/dsh-subagent-control')
-  })
-
-  it('fails loud when the advertised send_message tool is not registered', async () => {
-    // The schema tells the model to follow up with send_message; starting a
-    // durable child the model cannot continue would make that false.
-    const { ctx, parent } = await continuableSetup({ controlTool: false })
-    const result = await callSubagent(
-      ctx,
-      { description: 'd', prompt: 'p', run_in_background: true },
-      { agent: parent },
-    )
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('load @deepseek-ai/dsh-tool-subagent-control')
-    // Nothing was started: no Task exists for the parent.
-    expect(ctx.tasks.list(parent)).toEqual([])
-  })
-
-  it('resolves send_message availability in the CALLER scope, not the global registry', async () => {
-    // A scoped restriction that keeps this delegation tool but removes
-    // send_message means this agent cannot execute the promised follow-up;
-    // the availability check must see the caller's surface.
-    const { ctx, parent } = await continuableSetup()
-    parent.ctx.tools.restrict({ deny: ['send_message'] })
-    const result = await callSubagent(
-      ctx,
-      { description: 'd', prompt: 'p', run_in_background: true },
-      { agent: parent },
-    )
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('load @deepseek-ai/dsh-tool-subagent-control')
-    expect(ctx.tasks.list(parent)).toEqual([])
-  })
 })
 
 describe('background preflight failure (no orphaned child, by construction)', () => {

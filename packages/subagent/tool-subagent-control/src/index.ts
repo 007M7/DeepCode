@@ -1,7 +1,7 @@
 /**
  * The globally named `send_message` tool: a thin model-facing adapter over
- * `ctx.subagentControl.sendMessage()`. It performs no lifecycle routing of its
- * own — steer-or-resume orchestration belongs to the control service — and it
+ * `ctx.subagents.sendMessage()`. It performs no lifecycle routing of its
+ * own — steer-or-resume orchestration belongs to the subagent service — and it
  * lives apart from the provider-bound `@deepseek-ai/dsh-tool-subagent`
  * instances so multiple delegation tools share one control tool.
  * @module @deepseek-ai/dsh-tool-subagent-control
@@ -11,14 +11,14 @@ import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-subagent-control'
+import type {} from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-subagent-control'
-export const inject = ['tools', 'subagentControl']
+export const inject = ['tools', 'subagents']
 
 /**
  * Register the `send_message` tool.
- * @param ctx - context carrying the tool registry and the control service.
+ * @param ctx - context carrying the tool registry and subagent service.
  */
 export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
@@ -67,7 +67,7 @@ export function apply(ctx: Context): void {
         throw new Error('send_message requires a calling agent (exec.agent was undefined)')
       }
       const message: ContentBlock[] = [{ type: 'text', text: args.message }]
-      const result = ctx.subagentControl.sendMessage(
+      const result = ctx.subagents.sendMessage(
         parent,
         SessionId(args.subagent_id),
         message,

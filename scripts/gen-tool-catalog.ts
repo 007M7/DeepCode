@@ -28,7 +28,6 @@ import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
-import SubagentControlService from '@deepseek-ai/dsh-subagent-control'
 import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
@@ -108,8 +107,6 @@ function registerCatalogSubagentProvider(ctx: Context, name: string): void {
     capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
     inheritsParentContext: false,
     start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
-    // Presence marks the continuation capability, so tool-subagent harvests
-    // its shipped continuable background wording (spawn/fork are resumable).
     resume: () => Promise.reject(new Error('tool-catalog provider cannot resume a child')),
   }
   ctx.subagents.registerProvider(provider)
@@ -388,13 +385,12 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
     dir: 'tool-subagent-control',
     source: 'packages/subagent/tool-subagent-control/src/index.ts',
-    requires: ['ctx.tools', 'ctx.subagentControl'],
-    writes: ['tool/call', 'tool/result', 'child session events through the control service'],
+    requires: ['ctx.tools', 'ctx.subagents'],
+    writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
       await ctx.plugin(LocalTaskService)
       await ctx.plugin(AgentRegistry)
-      await ctx.plugin(SubagentControlService)
       await ctx.plugin(ToolSubagentControl)
     },
     note:

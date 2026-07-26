@@ -94,7 +94,7 @@ export interface SubagentStartRequest {
    */
   readonly persona?: string
   /**
-   * Continuable-child intent, resolved by the control service before start.
+   * Continuable-child intent, resolved by `ctx.subagents` before start.
    * The provider MUST publish exactly `sessionId` as the child identity
    * instead of allocating one internally, and MUST append the snapshotted
    * `descriptor` as the child's turn-enclosed `subagent/descriptor` event
@@ -106,10 +106,10 @@ export interface SubagentStartRequest {
 
 /**
  * The resolved continuable-child identity and durable composition record a
- * control-service caller attaches to a start request.
+ * continuation caller attaches to a start request.
  */
 export interface SubagentContinuation {
-  /** Control-allocated stable child session id, published verbatim. */
+  /** Service-allocated stable child session id, published verbatim. */
   readonly sessionId: SessionId
   /** Snapshotted descriptor persisted in the child log for cold resume. */
   readonly descriptor: SubagentDescriptorData
@@ -117,7 +117,7 @@ export interface SubagentContinuation {
 
 /**
  * What a caller asks for when resuming a persisted continuable child. The
- * control service loads the child log, folds and authorizes its descriptor,
+ * continuation manager loads the child log, folds and authorizes its descriptor,
  * and passes this fully resolved request to
  * {@link SubagentService.resume}, which dispatches to
  * {@link SubagentProvider.resume}. The provider reconstructs the declared

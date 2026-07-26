@@ -1,10 +1,7 @@
 /**
- * Continuable-subagent control service (`ctx.subagentControl`): stable child
- * ids, descriptor persistence and lookup by known child id, Task-backed
- * activation, and steer-or-resume message routing. The low-level
- * `ctx.subagents` seam stays collection-, Task-, and persistence-agnostic;
- * this service owns the policy that binds one durable child session to a
- * series of disposable Task-backed activations.
+ * Internal continuable-subagent manager: stable child ids, descriptor
+ * persistence and lookup by known child id, Task-backed activation, and
+ * steer-or-resume message routing behind `ctx.subagents`.
  *
  * Every continuable activation — initial or resumed, parent- or human-started
  * — has exactly one Task and one result. Task settlement awaits the child
@@ -13,25 +10,20 @@
  * targets the whole activation: parent and human messages that joined one
  * turn share its result and its `killed` outcome.
  *
- * @module @deepseek-ai/dsh-subagent-control
+ * @module @deepseek-ai/dsh-subagent
  */
 
 import { randomUUID } from 'node:crypto'
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { foldSubagentDescriptor, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
-import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
+import type { SubagentResult, SubagentRun, SubagentStartRequest } from './types.ts'
+import type { SubagentService } from './index.ts'
 import type { TaskHooks, TaskId, TaskOutcome } from '@deepseek-ai/dsh-tasks'
-
-declare module 'cordis' {
-  interface Context {
-    subagentControl: SubagentControlService
-  }
-}
 
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
@@ -46,7 +38,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-/** Typed error for control-service routing, authorization, and delivery failures. */
+/** Typed error for continuation routing, authorization, and delivery failures. */
 export class SubagentControlError extends HarnessError {
   constructor(message: string, code: string, options?: ErrorOptions) {
     super(message, code, options)
@@ -68,7 +60,7 @@ export interface ContinuableStartSpec {
   readonly request: Omit<SubagentStartRequest, 'signal' | 'continuation'>
 }
 
-/** Identities returned by {@link SubagentControlService.startContinuable}. */
+/** Identities returned by {@link SubagentContinuationManager.startContinuable}. */
 export interface ContinuableStart {
   /** The durable child session id, stable across activations. */
   readonly childId: SessionId
@@ -77,7 +69,7 @@ export interface ContinuableStart {
 }
 
 /**
- * How {@link SubagentControlService.sendMessage} delivered a message:
+ * How {@link SubagentContinuationManager.sendMessage} delivered a message:
  * `steered` joined the running activation's existing Task without creating a
  * Task of its own; `started` created a fresh Task that cold-resumes the
  * durable child with the message. Failure is an exception, never a result —
@@ -173,14 +165,14 @@ function finalText(blocks: ContentBlock[]): string {
  * boundary, while foreground one-shot delegation keeps calling
  * `ctx.subagents.start()` directly.
  */
-export class SubagentControlService extends Service {
-  static inject = ['subagents', 'tasks', 'agents']
-
+export class SubagentContinuationManager {
   /** Child session id → its current activation. Process-local, never durable. */
   private activations = new Map<SessionId, ActiveActivation>()
 
-  constructor(ctx: Context) {
-    super(ctx, 'subagentControl')
+  constructor(
+    private readonly ctx: Context,
+    private readonly subagents: SubagentService,
+  ) {
     // Terminal publication is one of the two removal conditions. The exact
     // Task id pins the resolution to this activation, never a later same-child one.
     ctx.tasks.onTaskDone((snapshot) => {
@@ -189,7 +181,7 @@ export class SubagentControlService extends Service {
       }
     })
     // TaskService deliberately keeps producer Tasks alive across a
-    // control-surface or producer reload, so this service's disposal must not
+    // follow-up-tool or producer reload, so this manager's disposal must not
     // strand the activations it can no longer route to: cancel each one and
     // await producer settlement (run disposal) before releasing the map. The
     // effect-scoped onTaskDone listener above is already gone by then, so
@@ -198,7 +190,7 @@ export class SubagentControlService extends Service {
       const active = [...this.activations.values()]
       this.activations.clear()
       for (const activation of active) {
-        activation.controller.abort('subagent control service disposed')
+        activation.controller.abort('subagent continuation manager disposed')
         activation.terminal.resolve()
       }
       await Promise.allSettled(active.map((activation) => {
@@ -207,7 +199,7 @@ export class SubagentControlService extends Service {
         if (activation.done === undefined) return Promise.resolve()
         return activation.done
       }))
-    }, 'subagentControl.activations()')
+    }, 'subagents.continuations()')
   }
 
   /**
@@ -239,7 +231,7 @@ export class SubagentControlService extends Service {
       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
     })
     const taskId = this.startActivation(childId, spec.label, request.parent, signal =>
-      this.ctx.subagents.start(spec.provider, {
+      this.subagents.start(spec.provider, {
         ...request,
         signal,
         continuation: { sessionId: childId, descriptor },
@@ -294,7 +286,7 @@ export class SubagentControlService extends Service {
     const activation = this.activations.get(childId)
     if (activation === undefined) {
       throw new SubagentControlError(
-        `subagent "${childId}" has a live agent outside control-service ownership; the message was not delivered`,
+        `subagent "${childId}" has a live agent outside continuation ownership; the message was not delivered`,
         'OWNERSHIP_CONFLICT',
       )
     }
@@ -399,7 +391,7 @@ export class SubagentControlService extends Service {
           'NOT_RESUMABLE',
         )
       }
-      return this.ctx.subagents.resume(descriptor.provider, {
+      return this.subagents.resume(descriptor.provider, {
         sessionId: childId,
         prompt: message,
         source,
@@ -501,4 +493,4 @@ function resumeLabel(message: ContentBlock[]): string {
   return text.length > 80 ? `${text.slice(0, 79)}…` : text
 }
 
-export default SubagentControlService
+export default SubagentContinuationManager

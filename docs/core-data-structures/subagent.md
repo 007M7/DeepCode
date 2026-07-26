@@ -4,9 +4,9 @@ English | [中文](subagent.zh.md)
 
 The subagent seam — an agent delegating work to a child agent. Like [bash](bash.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). But it differs from every other seam on one axis: **multiple provider implementations coexist** in one context, registered by name (`ctx.subagents`), where bash allows only one executor. The registry shape mirrors the [LLM adapter registry](llm-streaming.md), not the single-service bash executor.
 
-Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumers are [dsh-tool-subagent](../../packages/subagent/tool-subagent) (per-provider delegation) and [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) (the global `send_message`). Continuable-child orchestration lives on `ctx.subagentControl` in [dsh-subagent-control](../../packages/subagent/subagent-control). The proposals and rationale: [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md) and [the continuable background subagents Agent Note](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md).
+Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumers are [dsh-tool-subagent](../../packages/subagent/tool-subagent) (per-provider delegation) and [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) (the optional global `send_message`). The same `ctx.subagents` service owns continuable-child orchestration through an internal Task-backed manager. The rationale lives in [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), [the continuable background subagents Agent Note](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md), and [the merged-service Agent Note](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md).
 
-Sources: [`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts) and [`packages/subagent/subagent-control/src/index.ts`](../../packages/subagent/subagent-control/src/index.ts)
+Sources: [`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts), [`packages/subagent/subagent/src/index.ts`](../../packages/subagent/subagent/src/index.ts), and [`packages/subagent/subagent/src/continuation.ts`](../../packages/subagent/subagent/src/continuation.ts)
 
 ## Two kinds of capability, discovered two ways
 
@@ -90,7 +90,7 @@ interface SubagentStartRequest {
    */
   readonly persona?: string
   /**
-   * Continuable-child intent, resolved by the control service before start.
+   * Continuable-child intent, resolved by `ctx.subagents` before start.
    * The provider MUST publish exactly `sessionId` as the child identity
    * instead of allocating one internally, and MUST append the snapshotted
    * `descriptor` as the child's turn-enclosed `subagent/descriptor` event
@@ -105,7 +105,7 @@ interface SubagentStartRequest {
 
 ## Continuable children: `SubagentContinuation` and `SubagentResumeRequest`
 
-A **continuable background subagent** is a durable child session with a series of Task-backed activations. `ctx.subagentControl` (`SubagentControlService` in [dsh-subagent-control](../../packages/subagent/subagent-control)) allocates the stable child id, snapshots the versioned `subagent/descriptor` payload, and passes both through the resolved start request; the provider publishes exactly that id and appends the descriptor inside the child's first turn. On follow-up, the control service loads the persisted child, authorizes the recorded `parentSession` as the direct parent, folds the descriptor, and dispatches a fully resolved resume request through `SubagentService.resume()` to `SubagentProvider.resume()`. The seam stays Task- and persistence-agnostic — descriptor lookup and Task association live only in the control service. `startContinuable()` returns a `ContinuableStart` (both identities), and `sendMessage()` returns a `SendMessageResult` reporting whether the message `steered` the running activation's existing Task or `started` a fresh one. Every sender supplies a `MessageSource`; the model-facing tool uses `CoordinatorMessageSource`, while a human adapter uses `{ kind: 'user' }`. Both project to a user-role model message, but the durable source remains distinct for policy and title consumers.
+A **continuable background subagent** is a durable child session with a series of Task-backed activations. `SubagentService.startContinuable()` allocates the stable child id, snapshots the versioned `subagent/descriptor` payload, and passes both through the resolved start request; the provider publishes exactly that id and appends the descriptor inside the child's first turn. `SubagentService.sendMessage()` loads and authorizes a stopped child before dispatching a fully resolved resume request through the raw `resume()` operation, or steers its live activation. An internal manager owns descriptor lookup and Task association only while `ctx.tasks` and `ctx.agents` exist; persistence is required per continuation operation, not to load the provider registry. `startContinuable()` returns both identities, while `sendMessage()` reports whether the message `steered` the existing Task or `started` a fresh one. Every sender supplies a `MessageSource`; the optional model-facing tool uses `CoordinatorMessageSource`, while a human adapter uses `{ kind: 'user' }`.
 
 ```ts type-equiv
 /** Attribution for a model coordinator's follow-up to one of its children. */
@@ -119,10 +119,10 @@ interface CoordinatorMessageSource {
 ```ts type-equiv
 /**
  * The resolved continuable-child identity and durable composition record a
- * control-service caller attaches to a start request.
+ * continuation caller attaches to a start request.
  */
 interface SubagentContinuation {
-  /** Control-allocated stable child session id, published verbatim. */
+  /** Service-allocated stable child session id, published verbatim. */
   readonly sessionId: SessionId
   /** Snapshotted descriptor persisted in the child log for cold resume. */
   readonly descriptor: SubagentDescriptorData
@@ -132,7 +132,7 @@ interface SubagentContinuation {
 ```ts type-equiv
 /**
  * What a caller asks for when resuming a persisted continuable child. The
- * control service loads the child log, folds and authorizes its descriptor,
+ * continuation manager loads the child log, folds and authorizes its descriptor,
  * and passes this fully resolved request to
  * {@link SubagentService.resume}, which dispatches to
  * {@link SubagentProvider.resume}. The provider reconstructs the declared

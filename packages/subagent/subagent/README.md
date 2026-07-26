@@ -10,11 +10,10 @@ The family separates the stable interface from implementations and model-facing 
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-subagent` | Provider registry, request/result/descriptor types, and lifecycle events. |
+| `@deepseek-ai/dsh-subagent` | Provider registry, request/result/descriptor types, lifecycle events, and continuable-child orchestration. |
 | `@deepseek-ai/dsh-subagent-spawn` | Fresh in-process child, with cold resume. |
 | `@deepseek-ai/dsh-subagent-fork` | In-process child seeded with completed parent turns, with cold resume. |
 | `@deepseek-ai/dsh-subagent-acp` | Fresh out-of-process ACP child (one-shot). |
-| `@deepseek-ai/dsh-subagent-control` | Continuable-child orchestration: durable ids, descriptors, Task-backed activation. |
 | `@deepseek-ai/dsh-tool-subagent` | Model-facing delegation tool over one configured provider. |
 | `@deepseek-ai/dsh-tool-subagent-control` | The globally named `send_message` follow-up tool. |
 
@@ -22,7 +21,7 @@ Multiple providers may coexist under different names. This lets a deployment exp
 
 ## Service API
 
-`SubagentService` has five main operations:
+`SubagentService` has seven main operations:
 
 | Member | Meaning |
 |---|---|
@@ -30,7 +29,9 @@ Multiple providers may coexist under different names. This lets a deployment exp
 | `getProvider(name)` | Return the provider, or `undefined` when absent. |
 | `list()` | Return provider names in insertion order. |
 | `start(name, request)` | Validate requested capabilities and semantic values, then await the provider until a real child is ready. Fulfillment returns a holder-owned `SubagentRun`; rejection means the provider has already cleaned every partial startup resource. |
-| `resume(name, request)` | Capability-checked dispatch to `provider.resume?()` with the same run lifecycle observation as `start`. The caller (the control service) has already loaded the child, folded its descriptor, and authorized the parent; this seam stays collection-, Task-, and persistence-agnostic. |
+| `resume(name, request)` | Capability-checked raw dispatch to `provider.resume?()` with the same run lifecycle observation as `start`; the caller owns descriptor lookup, authorization, and collection. |
+| `startContinuable(spec)` | Allocate a durable child id and register its initial Task-backed activation. Requires `ctx.tasks`, `ctx.agents`, session persistence, and a resumable provider. |
+| `sendMessage(parent, childId, message, source)` | Steer the current activation or start a new Task that cold-resumes the durable child. Requires `ctx.tasks` and `ctx.agents`; cold resume also requires session persistence. |
 
 `SubagentStartRequest.signal` is required and is the canonical cancellation channel. An abort before publication makes `start()` reject after rollback; an abort after publication cancels the live child. The request may also select a model, require structured output, cap delegation depth, restrict child tools, set a child persona, or carry a resolved `continuation` (the control-allocated stable child id plus its durable descriptor), which requires the provider's `resume` capability.
 
@@ -63,7 +64,7 @@ The seam owns the depth vocabulary shared by implementations and consumers: the 
 
 `SubagentRun.result` resolves to `{ output, structured?, stopReason }`. Child-level failures resolve with a non-`completed` reason; only an infrastructure fault that the seam cannot represent may reject. For a continuable activation, a completed result also confirms that the provider made its final state durable; a failed required checkpoint rejects as infrastructure rather than publishing unconfirmed output. `dispose()` is idempotent, cancels remaining work, and waits for the child resources to quiesce.
 
-A local run publishes an ordinary child agent/session before `start()` fulfills, returns that shared session id as `SubagentRun.id`, exposes the exact child as `SubagentRun.localAgent`, and records `request.parent.session.id` in the child's `parentSession` header. A continuable start publishes exactly the control-allocated `continuation.sessionId`. Remote providers instead mint a parent-scoped lifecycle id and return `localAgent: undefined`.
+A local run publishes an ordinary child agent/session before `start()` fulfills, returns that shared session id as `SubagentRun.id`, exposes the exact child as `SubagentRun.localAgent`, and records `request.parent.session.id` in the child's `parentSession` header. A continuable start publishes exactly the service-allocated `continuation.sessionId`. Remote providers instead mint a parent-scoped lifecycle id and return `localAgent: undefined`.
 
 The service emits `subagent/start` only after `start()` or `resume()` has fulfilled. It attaches the result observer before that synchronous notification, so even an already-settled child still produces `subagent/start` before `subagent/end`. The pair shares a service-minted `runId`; its `local` flag is snapshotted from the provider's exact `localAgent`, so observers never infer run identity or locality from reusable provider/session names.
 
@@ -73,7 +74,7 @@ Provider additions and removals also emit `subagent/provider-added` and `subagen
 
 ## Collection model
 
-The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. Background delegation does not change this seam; `@deepseek-ai/dsh-subagent-control` registers each activation with the generic `ctx.tasks` runtime, then collection and cancellation use the shared task tools. See the [background subagent tasks Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md), the [continuable background subagents Agent Note](../../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md), the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
+The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. One-shot background delegation registers a plain Task in the tool. Continuable background delegation calls `ctx.subagents.startContinuable()`, whose internal manager exists only while `ctx.tasks` and `ctx.agents` are available; session persistence is resolved per continuation operation. Collection and cancellation use the shared task tools. See the [background subagent tasks Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md), the [continuable background subagents Agent Note](../../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md), the [merged-service Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md), the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
 
 ## Model Experience
 

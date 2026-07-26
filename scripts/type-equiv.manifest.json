@@ -1102,7 +1102,7 @@
     {
       "doc": "docs/core-data-structures/subagent.md",
       "symbol": "CoordinatorMessageSource",
-      "source": "packages/subagent/subagent-control/src/index.ts"
+      "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {
       "doc": "docs/core-data-structures/subagent.md",

@@ -9,7 +9,6 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import SubagentControlService from '@deepseek-ai/dsh-subagent-control'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
@@ -34,7 +33,6 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks, {})
-  await ctx.plugin(SubagentControlService)
   await ctx.plugin(tool)
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
@@ -68,7 +66,7 @@ describe('dsh-tool-subagent-control', () => {
 
   it('cold-resumes a settled child and renders the started route with its task id', async () => {
     const { ctx, parent } = await setup([textResponse('first answer'), textResponse('second answer')])
-    const started = ctx.subagentControl.startContinuable({
+    const started = ctx.subagents.startContinuable({
       provider: 'spawn',
       label: 'work',
       request: { prompt: [{ type: 'text', text: 'child task' }], parent },
@@ -98,10 +96,10 @@ describe('dsh-tool-subagent-control', () => {
     const { ctx, parent } = await setup([])
     let steered: string | undefined
     let source: unknown
-    // Reach past the tool into the control service to fake a running route
+    // Reach past the tool into the subagent service to fake a running route
     // deterministically: the tool is a thin adapter, so its steered wording is
     // what this test pins.
-    ctx.subagentControl.sendMessage = async (agent, _childId, message, messageSource) => {
+    ctx.subagents.sendMessage = async (agent, _childId, message, messageSource) => {
       steered = (message[0] as { text: string }).text
       source = messageSource
       return { route: 'steered', taskId: ctx.tasks.list(agent)[0]?.id ?? ('subagent-9' as never) }
@@ -116,7 +114,7 @@ describe('dsh-tool-subagent-control', () => {
     expect(text(result)).toBe('message delivered to running task subagent-9')
   })
 
-  it('reports a control-service failure as an errored, not-delivered result', async () => {
+  it('reports a delivery failure as an errored, not-delivered result', async () => {
     const { ctx, parent } = await setup([])
     const result = await callTool(ctx, 'send_message', {
       subagent_id: 'no-such-child',
@@ -148,7 +146,6 @@ describe('dsh-tool-subagent-control', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
     await ctx.plugin(LocalTaskService)
-    await ctx.plugin(SubagentControlService)
     const fiber = await ctx.plugin(tool)
     expect(ctx.tools.schemas().some(schema => schema.name === 'send_message')).toBe(true)
     await fiber.dispose()
@@ -158,7 +155,7 @@ describe('dsh-tool-subagent-control', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-subagent-control')
-    expect(tool.inject).toEqual(['tools', 'subagentControl'])
+    expect(tool.inject).toEqual(['tools', 'subagents'])
     expect(typeof tool.apply).toBe('function')
   })
 })

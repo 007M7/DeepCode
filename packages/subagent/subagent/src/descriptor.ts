@@ -3,7 +3,7 @@
  * `subagent/descriptor` session event that records a child's declared
  * composition so a known child id can be cold-resumed after its run — and its
  * process — are gone. Providers append it turn-enclosed in the child's initial
- * turn; the control service folds it back on resume.
+ * turn; the continuation manager folds it back on resume.
  *
  * The descriptor deliberately snapshots explicit fields rather than the
  * merge-extensible `AgentOptions` object: an unrelated extension value cannot

@@ -125,6 +125,17 @@ describe('SubagentService', () => {
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
   })
 
+  it('rejects Task-backed continuation operations when their runtime services are absent', async () => {
+    const { subagents } = await service()
+    expect(() => {
+      subagents.startContinuable({
+        provider: 'unused',
+        label: 'work',
+        request: baseRequest(),
+      })
+    }).toThrow(expect.objectContaining({ code: 'CONTINUATION_UNAVAILABLE' }))
+  })
+
   it.each([
     ['outputSchema', { outputSchema: { type: 'object', properties: {} } }],
     ['depthLimit', { maxDepth: 1 }],

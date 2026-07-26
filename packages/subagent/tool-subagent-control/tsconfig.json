@@ -24,7 +24,7 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../subagent-control"
+      "path": "../subagent"
     },
     {
       "path": "../../support/invariants"

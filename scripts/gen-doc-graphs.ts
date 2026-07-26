@@ -424,19 +424,11 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'subagents',
     pkg: 'subagent',
-    title: 'Subagent provider registry',
+    title: 'Subagent provider and continuation service',
     mode: 'seam',
     implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
-    consumers: ['tool-subagent', 'tool-ralph'],
-    note: 'Providers implement transports; tool-subagent exposes configured delegation while tool-ralph requires one fresh structured-output route.',
-  },
-  {
-    key: 'subagentControl',
-    pkg: 'subagent',
-    title: 'Continuable-subagent control service',
-    mode: 'core',
-    consumers: ['tool-subagent', 'tool-subagent-control'],
-    note: 'Binds one durable child session to Task-backed activations over ctx.subagents; tool-subagent starts continuable background children and tool-subagent-control delivers follow-up messages.',
+    consumers: ['tool-subagent', 'tool-subagent-control', 'tool-ralph'],
+    note: 'Providers implement transports; the service also owns optional Task-backed continuation orchestration, tool-subagent selects one-shot or continuable delegation, tool-subagent-control delivers follow-ups, and tool-ralph requires one fresh structured-output route.',
   },
   {
     key: 'tasks',

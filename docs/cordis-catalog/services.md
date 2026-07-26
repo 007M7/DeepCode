@@ -1946,56 +1946,30 @@ async closeAll(): Promise<void>
 
 Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/storage/storage-domain/src/index.ts)
 
-## `ctx.subagentControl` — `SubagentControlService`
+## `ctx.subagents` — `SubagentService`
 
-The continuable-subagent orchestration service. Tool schema and UI adapters are consumers of this one contract: parent and human messages route through sendMessage and share one activation result and cancellation boundary, while foreground one-shot delegation keeps calling `ctx.subagents.start()` directly.
+Named provider registry with raw and Task-backed continuation operations.
 
 ```ts cordis-catalog
 /**
- * Start a continuable background child: allocate its stable session id,
- * snapshot its durable descriptor, and register the initial activation's
- * Task. A synchronous validation failure (a non-JSON descriptor input,
- * missing persistence, Task preflight) throws without creating a Task; the
- * method otherwise returns both identities immediately, without waiting for
- * child publication or descriptor durability. Asynchronous startup failure
- * settles the returned Task as `failed` (or `killed` when cancelled) after
- * any published run is disposed, which can leave an unmaterialized child id
- * that later by-id operations report as unavailable.
- * @param spec - provider, Task label, and the delegation request.
- * @returns the stable child id and the initial activation's Task id.
+ * Start one durable continuable child through a Task-backed initial
+ * activation.
+ * @param spec - provider, Task label, and delegation request.
+ * @returns the stable child id and initial activation Task id.
  */
 startContinuable(spec: ContinuableStartSpec): ContinuableStart
 
 /**
- * Deliver one message to a known continuable child: steer its running
- * activation, or cold-resume the durable session into a fresh Task-backed
- * activation. The two routes are reported distinctly so timing-dependent
- * routing is observable. Rejection means the message was NOT delivered — in
- * particular, losing a race with Task settlement does not fall through to
- * cold resume within the same call; a later retry after Task terminal may
- * start the next activation. The started Task owns descriptor lookup and
- * direct-parent authorization (its AbortSignal exists before that lookup),
- * so an unknown, foreign, or descriptor-less child settles the started Task
- * as `failed` with a detail reporting the id as unavailable.
- * @param parent - the live parent agent sending the message (model tool or
- *   human adapter); Task access is authorized by its session id.
- * @param childId - the stable child session id.
- * @param message - the user-role content to deliver.
- * @param source - caller-supplied attribution retained across either route.
- * @returns whether the message `steered` the existing Task or `started` a new one.
+ * Deliver a message to a continuable child by steering its live activation
+ * or cold-resuming a fresh Task-backed activation.
+ * @param parent - live direct parent authorizing the operation.
+ * @param childId - durable child session id.
+ * @param message - user-role content to deliver.
+ * @param source - durable caller attribution.
+ * @returns the existing steered Task or newly started Task.
  */
-async sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>
-```
+sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageSource](../core-data-structures/core.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md)
-
-Source: [`packages/subagent/subagent-control/src/index.ts:176`](../../packages/subagent/subagent-control/src/index.ts)
-
-## `ctx.subagents` — `SubagentService`
-
-Named provider registry and capability-checked start surface.
-
-```ts cordis-catalog
 /**
  * Register a provider under its name. Registration is effect-scoped and HMR
  * safe; removing a provider blocks new starts but does not revoke runs that
@@ -2032,7 +2006,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 /**
  * Resume a persisted continuable child through the named provider's
  * `resume` capability, with the same run lifecycle observation as
- * {@link start}. The caller (the control service) has already loaded the
+ * {@link start}. The internal continuation manager has already loaded the
  * child, folded its descriptor, and authorized the parent; this method owns
  * only capability-checked dispatch.
  * @param name - the provider recorded in the child's descriptor.
@@ -2042,9 +2016,9 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 async resume(name: string, request: SubagentResumeRequest): Promise<SubagentRun>
 ```
 
-Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentResumeRequest](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageSource](../core-data-structures/core.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentResumeRequest](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:191`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:206`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-tool-subagent-control
 
-The globally named `send_message` tool: a thin adapter over `ctx.subagentControl.sendMessage()`. Provider-bound `@deepseek-ai/dsh-tool-subagent` instances register distinct delegation tools per transport; this separately loaded package registers the one shared control tool, so multiple delegation tools never register duplicate global controls.
+The optional, globally named `send_message` tool: a thin adapter over `ctx.subagents.sendMessage()`. Provider-bound `@deepseek-ai/dsh-tool-subagent` instances register distinct delegation tools per transport; this separately loaded package registers one shared follow-up tool, so multiple delegation tools never register duplicate global controls. Its presence does not determine whether a delegation tool starts continuable work.
 
-The tool performs no lifecycle routing. It attributes every follow-up as `{ kind: 'coordinator', senderSessionId: parent.id }`; the control service preserves that source while deciding between live delivery to the running activation's existing Task and a fresh Task that cold-resumes the durable child. The tool renders which route was taken and the relevant Task id. A control-service throw becomes an errored tool result stating the message was not delivered.
+The tool performs no lifecycle routing. It attributes every follow-up as `{ kind: 'coordinator', senderSessionId: parent.id }`; the subagent service preserves that source while deciding between live delivery to the running activation's existing Task and a fresh Task that cold-resumes the durable child. The tool renders which route was taken and the relevant Task id. A delivery failure becomes an errored tool result stating the message was not delivered.
 
 ## Model Experience
 

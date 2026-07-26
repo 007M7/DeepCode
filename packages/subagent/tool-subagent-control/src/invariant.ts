@@ -16,7 +16,7 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this model-facing adapter has no independent lifecycle stream; delivery
- * and activation relations are owned by the control service it calls.
+ * and activation relations are owned by the subagent service it calls.
  */
 const install: InvariantInstaller = () => {}
 

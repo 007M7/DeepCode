@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-07-21-continuable-background-subagents.md) | 中文
 
+本记录中的服务放置与提供方功能策略已由[将 subagent 控制合并到 subagent 服务](../simplification/2026-07-26-merge-subagent-control-service.md)取代。继续执行、持久化、Task、路由、授权和持久性语义仍然有效；下文所提控制服务，是指现已通过 `ctx.subagents` 公开的内部继续执行管理器。
+
 ## 问题
 
 subagent 工具将每次委派视为一个独占的 `SubagentRun`：前台调用和后台 Task 收集结果后 dispose（资源释放）该 run。这种所有权关系能够限制存活 child agent（智能体）的数量，并释放其作用域服务、监听器及提供方资源。持久化的 child 会话可能继续存在，但 parent 缺少持久化目录和工具路径，无法发现该 child 并为其启动另一轮次。
@@ -101,15 +103,15 @@ Task 记录和活跃 run 关联都位于进程内。持久化使 child 会话可
 
 **在已 dispose 的 run 上保留 `resume?()`。** 如果仅为调用 `resume()` 而保留已 dispose 的 `SubagentRun`，旧 run 会同时充当持久化 child handle，而且进程重启后无法重建该对象。由服务分发、提供方重建，可明确表达持久化边界。
 
-**将控制编排放在 `SubagentService` 上。** 这样一个服务就能查找描述符、关联 Task 并分发提供方，但会迫使不感知集合的提供方 seam 依赖某个消费方的持久化与 Task 策略。单独的控制服务让前台及不使用 Task 的消费方可以复用 start／resume 传输，同时为工具和 UI 提供统一的编排路径。
+**将控制编排放在 `SubagentService` 上。** 后来的[服务合并决策](../simplification/2026-07-26-merge-subagent-control-service.md)采用了这一服务放置方案；该方案保持底层 start／resume 传输可复用，同时将可选的 Task 与持久化工作隔离在注入的内部管理器中。
 
 **增加显式激活阶段。** 公开的 `starting`／`running`／`settling` 状态可以准确描述准入和清理，但会引入实现本身并不需要的生命周期协议。同步安装关联无需暴露这些阶段，即可消除进程内重复的 cold resume。
 
 ## 测试
 
-- `packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 固定可继续执行的持久性边界：flush 持续失败时会以 `DURABILITY_FAILED` 拒绝并保留失败原因，循环检查点的瞬时失败可在最终确认成功后继续完成，发生取消时最终检查点无论成功还是失败都由取消优先决定结果，resume 同样会确认持久性，而前台运行仍采用尽力而为策略。`packages/subagent/subagent-control/tests/subagent-control.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn／fork 提供方、Task 服务与控制面、控制服务）：初始及恢复后的激活都会创建新 Task，并在进入终态前 dispose 各自的 run；描述符事件位于轮次内、对模型隐藏、带版本，并在控制服务分配的 child id 下持久化；在 run 运行期间、最终持久性检查点执行期间或 cold resume 查找期间执行 `task_kill`，会在完全停稳后结算为 `killed`，且不产生任何 child 工作；steering 会加入运行中的 Task，不创建第二个 Task，并保留调用方来源；cold follow-up 会在一份持久化 transcript 中累积轮次，并重建其来源和声明的组合配置；恢复 fork 会保持持久化 seed 边界，绝不重新 fork parent 更新后的历史；恢复后的深度以持久化 header 为下界；外来 parent、无描述符及 unmaterialized 的 id 会带着「id 不可用」使其已启动的 Task 失败；所有权冲突和 steering 与结算的竞态会报告未送达，且不改用从持久化存储恢复路径；resume 加载期间竞争的发送只准入一次。
+- `packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 固定可继续执行的持久性边界：flush 持续失败时会以 `DURABILITY_FAILED` 拒绝并保留失败原因，循环检查点的瞬时失败可在最终确认成功后继续完成，发生取消时最终检查点无论成功还是失败都由取消优先决定结果，resume 同样会确认持久性，而前台运行仍采用尽力而为策略。`packages/subagent/subagent/tests/continuation.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn／fork 提供方、Task 服务和 `ctx.subagents`）：初始及恢复后的激活都会创建新 Task，并在进入终态前 dispose 各自的 run；描述符事件位于轮次内、对模型隐藏、带版本，并在服务分配的 child id 下持久化；取消、steering、cold follow-up、授权、所有权冲突与 resume 竞态保留上述契约。
 - `packages/subagent/tool-subagent-control/tests/tool-subagent-control.spec.ts` 固定 `send_message` 的 schema、coordinator 来源标记、两种路由渲染、未送达失败、无 agent 时的拒绝，以及 HMR（热模块替换）dispose。
-- `packages/subagent/tool-subagent/tests/tool-subagent.spec.ts` 覆盖按功能分支的后台路由：可恢复的提供方会通过控制服务返回两个 id 并公开 `send_message`，一次性提供方保持普通的 task 确认消息，而缺少控制服务的可恢复提供方会明确失败。
+- `packages/subagent/tool-subagent/tests/tool-subagent.spec.ts` 覆盖配置的后台路由：可继续模式要求提供方可恢复，并在不要求 `send_message` 的情况下返回两个 id；即使提供方可以恢复，一次性模式仍保持普通的 Task 确认消息。
 - `packages/sdk/helper/tests/project.spec.ts` 固定生成的 spawn 与 fork 组合中的 Task 服务及面向模型的 Task 控制工具。
 - 无密钥 ACP 快照场景 `subagent-continuable`（examples/acp-agent）固定模型可见的 transcript：双 id 确认消息、最终持久性确认失败（该失败通过 `task_output` 呈现，且不包含未经确认的 child 输出），以及一次 `send_message` 后续操作——其已启动的 Task 会带着「id 不可用」失败。
 
@@ -117,7 +119,7 @@ Task 记录和活跃 run 关联都位于进程内。持久化使 child 会话可
 
 - 每次完成结算后的后续轮次都需要承担持久化加载和作用域 setup 成本；作为交换，存活 child 的数量受并发工作量限制，而不是随历史会话数量增长。持久化不可用或存储的组合配置无法重建时，可继续 child 的创建会明确失败。
 - 两个调用方仍可能通过控制服务外部的路径争抢已停止的 child。Agent 注册表会阻止相同会话的重复发布；失败的 Task 会失败，且其消息不会送达。消息也可能与取消、终态状态发布或 run dispose 发生竞态。准入不承诺原子或恰好执行一次；在进程内同步安装的关联无需公开生命周期状态机，即可通过控制服务消除重复的 cold resume。
-- 通过普通 Agent API 驱动可继续 child 会绕过其 Task 关联。控制服务会将该存活 child 视为所有权冲突并拒绝；适配器必须在不加载 Agent 的情况下展示持久化 transcript，并通过 `SubagentControlService.sendMessage()` 提交用户输入。
+- 通过普通 Agent API 驱动可继续 child 会绕过其 Task 关联。`ctx.subagents` 会将该存活 child 视为所有权冲突并拒绝；适配器必须在不加载 Agent 的情况下展示持久化 transcript，并通过 `SubagentService.sendMessage()` 提交用户输入。
 - 活跃 run 关联只能协调一个运行时。多个进程同时恢复时不会串行化；此类部署需要持久化层的租约或 compare-and-set 操作。
 - 用户交互要求作为 owner 的那个精确 parent Agent 实例保持存活，因为 dispose owner 会取消并移除其 Task。用户交互还要求附加 Task 控制面。若要单独与 child 交互，后续必须将 Task 访问所有权与持久化通知目标分离。
 - 后台工具会在 child 发布和描述符持久化之前返回 child id 和 Task id。启动失败、最终持久性确认失败，或进程在 child 首次 flush 之前退出，都会使 Task 失败，并可能留下 unmaterialized 或陈旧的 child id；按 id 的控制操作会将缺失状态报告为不可用，而不会追溯修改工具确认消息。
