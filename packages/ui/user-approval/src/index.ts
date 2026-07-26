@@ -162,7 +162,14 @@ export function approvalOverrideOf(session: Session): ApprovalPolicy | undefined
   if (!APPROVAL_POLICIES.includes(baseline as ApprovalPolicy)) {
     throw new Error(`session header approvalPolicy "${baseline}" is outside the closed policy vocabulary`)
   }
-  const own = effectiveApprovalPolicy(session.events.slice(session.header.seedLength ?? 0))
+  // A boundary past the log would make the own-switch slice empty until the
+  // log grows past it — a baseline would then shadow a REAL later switch.
+  // Malformed durable metadata fails loud, never fails open.
+  const seedLength = session.header.seedLength ?? 0
+  if (seedLength > session.events.length) {
+    throw new Error(`session header seedLength ${seedLength} exceeds the log length ${session.events.length}`)
+  }
+  const own = effectiveApprovalPolicy(session.events.slice(seedLength))
   return own ?? baseline as ApprovalPolicy
 }
 

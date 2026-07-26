@@ -78,7 +78,14 @@ export function sandboxOverrideOf(session: Session): SandboxMode | undefined {
   if (!SANDBOX_MODES.includes(baseline as SandboxMode)) {
     throw new Error(`session header sandboxMode "${baseline}" is outside the closed mode vocabulary`)
   }
-  const own = effectiveSandboxMode(session.events.slice(session.header.seedLength ?? 0))
+  // A boundary past the log would make the own-switch slice empty until the
+  // log grows past it — a wide baseline would then shadow a REAL later
+  // tightening. Malformed durable metadata fails loud, never fails open.
+  const seedLength = session.header.seedLength ?? 0
+  if (seedLength > session.events.length) {
+    throw new Error(`session header seedLength ${seedLength} exceeds the log length ${session.events.length}`)
+  }
+  const own = effectiveSandboxMode(session.events.slice(seedLength))
   return own ?? baseline as SandboxMode
 }
 

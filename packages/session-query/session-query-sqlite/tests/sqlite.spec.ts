@@ -220,6 +220,40 @@ describe('SQLite session search', () => {
       .resolves.toMatchObject({ items: [{ header: { ...session.header, seedLength: 1 }, live: true, persisted: false }] })
   })
 
+  it('round-trips the inherited policy baselines through search headers', async () => {
+    // A delegated child's header carries the sandbox/approval baselines; the
+    // derived index must return them — a consumer resuming from a search hit
+    // would otherwise rebuild a child without its inherited confinement.
+    const ctx = await liveContext({ path: ':memory:' })
+    const session = ctx.sessions.create(SessionId('live-baseline'), {
+      meta: { cwd: '/work', createdAt: 10, sandboxMode: 'read-only', approvalPolicy: 'never' },
+    })
+    session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'baseline needle' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+
+    const result = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(result.items[0]?.header).toMatchObject({ sandboxMode: 'read-only', approvalPolicy: 'never' })
+    const events = await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'needle' })
+    expect(events.session).toMatchObject({ sandboxMode: 'read-only', approvalPolicy: 'never' })
+  })
+
+  it('rejects live/persisted sources whose policy baselines conflict', async () => {
+    const shared = header('baseline-conflict', 10, { sandboxMode: 'read-only' })
+    TestPersistence.reset([{ meta: shared, events: messageEvents('persisted needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    ctx.sessions.create(shared.id, {
+      seed: messageEvents('live needle'),
+      meta: { createdAt: 10, sandboxMode: 'danger-full-access' },
+    })
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+  })
+
   it('searches all surfaces by default and applies metadata before ranking', async () => {
     const ctx = await liveContext({ path: ':memory:', defaultLimit: 10, maxLimit: 20 })
     const parent = SessionId('parent')

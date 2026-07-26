@@ -146,6 +146,8 @@ interface SessionHeaderRow {
   parent_session: string | null
   seed_length: number | null
   delegation_depth: number | null
+  sandbox_mode: string | null
+  approval_policy: string | null
 }
 
 interface SearchRow extends SessionHeaderRow {
@@ -533,8 +535,8 @@ export class SessionQuerySqlite extends SessionQueryService {
     const db = this._requireDb()
     db.prepare(`
       INSERT INTO persisted_sessions
-        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, revision, generation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, sandbox_mode, approval_policy, revision, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.header.id,
       entry.header.version,
@@ -543,6 +545,8 @@ export class SessionQuerySqlite extends SessionQueryService {
       entry.header.parentSession ?? null,
       entry.header.seedLength ?? null,
       entry.header.delegationDepth ?? null,
+      entry.header.sandboxMode ?? null,
+      entry.header.approvalPolicy ?? null,
       revision,
       generation,
     )
@@ -569,8 +573,8 @@ export class SessionQuerySqlite extends SessionQueryService {
     const db = this._requireDb()
     db.prepare(`
       INSERT INTO temp.live_sessions
-        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, fingerprint, persisted, generation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, sandbox_mode, approval_policy, fingerprint, persisted, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.header.id,
       entry.header.version,
@@ -579,6 +583,8 @@ export class SessionQuerySqlite extends SessionQueryService {
       entry.header.parentSession ?? null,
       entry.header.seedLength ?? null,
       entry.header.delegationDepth ?? null,
+      entry.header.sandboxMode ?? null,
+      entry.header.approvalPolicy ?? null,
       entry.fingerprint,
       persisted ? 1 : 0,
       generation,
@@ -671,7 +677,7 @@ export class SessionQuerySqlite extends SessionQueryService {
     const db = this._requireDb()
     const live = db.prepare(
       `SELECT
-        id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, generation
+        id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, sandbox_mode, approval_policy, generation
       FROM temp.live_sessions
       WHERE id = ?`,
     ).get(sessionId) as (SessionHeaderRow & { generation: number }) | undefined
@@ -681,7 +687,7 @@ export class SessionQuerySqlite extends SessionQueryService {
     if (persistenceBinding.service !== undefined) {
       const persisted = db.prepare(
         `SELECT
-          id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, generation
+          id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, sandbox_mode, approval_policy, generation
         FROM persisted_sessions
         WHERE id = ?`,
       ).get(sessionId) as (SessionHeaderRow & { generation: number }) | undefined
@@ -740,6 +746,8 @@ function selectedDocumentsSql(): { sql: string } {
         ps.parent_session AS parent_session,
         ps.seed_length AS seed_length,
         ps.delegation_depth AS delegation_depth,
+        ps.sandbox_mode AS sandbox_mode,
+        ps.approval_policy AS approval_policy,
         0 AS live,
         1 AS persisted,
         CAST(pd.seq AS INTEGER) AS seq,
@@ -762,6 +770,8 @@ function selectedDocumentsSql(): { sql: string } {
         ls.parent_session AS parent_session,
         ls.seed_length AS seed_length,
         ls.delegation_depth AS delegation_depth,
+        ls.sandbox_mode AS sandbox_mode,
+        ls.approval_policy AS approval_policy,
         1 AS live,
         CASE WHEN ? = 1 THEN ls.persisted ELSE 0 END AS persisted,
         CAST(ld.seq AS INTEGER) AS seq,
@@ -870,6 +880,8 @@ function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
     && a.parentSession === b.parentSession
     && a.seedLength === b.seedLength
     && (a.delegationDepth ?? 0) === (b.delegationDepth ?? 0)
+    && a.sandboxMode === b.sandboxMode
+    && a.approvalPolicy === b.approvalPolicy
 }
 
 function rowHeader(row: SessionHeaderRow): SessionHeader {
@@ -881,6 +893,8 @@ function rowHeader(row: SessionHeaderRow): SessionHeader {
     ...row.parent_session === null ? {} : { parentSession: row.parent_session as SessionId },
     ...row.seed_length === null ? {} : { seedLength: row.seed_length },
     ...row.delegation_depth === null ? {} : { delegationDepth: row.delegation_depth },
+    ...row.sandbox_mode === null ? {} : { sandboxMode: row.sandbox_mode },
+    ...row.approval_policy === null ? {} : { approvalPolicy: row.approval_policy },
   }
 }
 

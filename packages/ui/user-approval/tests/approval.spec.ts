@@ -655,4 +655,12 @@ describe('delegation inheritance (overrideOf over the header baseline)', () => {
 
     expect(ctx.approval.overrideOf(child)).toBe('never')
   })
+
+  it('rejects a seed boundary past the log end instead of silently ignoring own switches', async () => {
+    const ctx = await mounted()
+    const child = inheritedSession('sess-appr-oob', { approvalPolicy: 'ask', seedLength: 100 })
+    setApprovalPolicy(child, 'never')
+
+    expect(() => ctx.approval.overrideOf(child)).toThrow(/seedLength/)
+  })
 })

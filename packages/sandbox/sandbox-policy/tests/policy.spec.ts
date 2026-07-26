@@ -218,4 +218,15 @@ describe('delegation inheritance (overrideOf over the header baseline)', () => {
     expect(ctx.sandboxPolicy.overrideOf(child)).toBe('read-only')
     expect(ctx.sandboxPolicy.resolve({ session: child }).mode).toBe('read-only')
   })
+
+  it('rejects a seed boundary past the log end instead of silently ignoring own switches', async () => {
+    const ctx = await mounted()
+    // A malformed durable seedLength beyond the log would make the own-switch
+    // slice empty until the log grows past it — a wide baseline would then
+    // shadow a REAL later tightening. Fail loud at the durable boundary.
+    const child = inheritedSession('sess-inherit-oob', { sandboxMode: 'danger-full-access', seedLength: 100 })
+    setSandboxMode(child, 'read-only')
+
+    expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/seedLength/)
+  })
 })
