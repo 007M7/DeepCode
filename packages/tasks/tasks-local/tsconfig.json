@@ -15,13 +15,13 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../util/brand"
-    },
-    {
       "path": "../../core/agent"
     },
     {
-      "path": "../../core/session"
+      "path": "../../util/timeout"
+    },
+    {
+      "path": "../tasks"
     },
     {
       "path": "../../support/invariants"
