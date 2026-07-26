@@ -142,6 +142,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(CANCEL_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('surfaces a non-retryable AUTH failure without retrying', async () => {
@@ -167,6 +168,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(ERROR_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('recovers a transient SERVER failure through llm-retry and completes', async () => {
@@ -194,6 +196,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RETRY_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {

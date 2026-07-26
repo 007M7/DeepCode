@@ -71,8 +71,8 @@ describe('web e2e: resident question composer round trip', () => {
     await expect.poll(() => composer.getByText('Which color do you prefer?').count(), { timeout: 10_000 }).toBeGreaterThan(0)
 
     if (MODE !== 'record') {
-      // Golden of the composer's waiting state (the transcript region golden
-      // is #612's job; this pins the question surface).
+      // This golden owns the stable question surface; the answered-state
+      // golden below owns the resulting transcript.
       const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     }
@@ -98,6 +98,7 @@ describe('web e2e: resident question composer round trip', () => {
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(ANSWERED_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
   }, 200_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {

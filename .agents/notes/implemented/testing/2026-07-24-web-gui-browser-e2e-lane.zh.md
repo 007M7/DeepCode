@@ -10,7 +10,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 决策
 
-`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放，断言规范化后的会话区 aria 预期输出加进程内世界状态。不新增包（package）；产品侧增量为 `dsh-llm-replay` 的增量接口（`paceMs`、`ReplayHandle`，以及 `{ patches }` 覆写形式：对派生脚本按索引增补，使一份 sidecar 无需复制已录分片即可表达「第 N 次调用抛错/挂起，其余照录回放」），一处由重试场景暴露的 `dsh-llm` 修复（携带的 `failure` 快照对任何 Error 都生效——此前的 `instanceof` 判定会在两份包副本并存时丢弃提供方错误码，即源码平面回放叠在 lib 平面 boot 之上的情形），以及 web 组合此前缺失的 `llm-retry` 行。
+`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放；用户可见状态使用规范化的 aria 预期输出，持久世界状态则使用进程内断言。配套的产品契约包括 `dsh-llm-replay` 的节奏控制、消费检查与已校验的索引式覆写 patch；跨包的 `dsh-llm` 失败通过自有数据属性保留经校验的提供方信息；已交付的 web 组合挂载 `llm-retry`，以处理瞬态模型失败。
 
 ### Scaffold：`apps/web/tests/scaffold.ts`
 
@@ -32,25 +32,17 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### 预期输出
 
-每场景至少一份提交的预期输出，交互类场景则每个不同终态各一份（取消/错误/重试、等待/已作答、steer 中途/安定、面板打开、重新加载后）：该场景所属区域的规范化 `ariaSnapshot()`——uuid/cwd/工作区目录名/时长归一为稳定 token，在安定里程碑处轮询至两次相等再采集——外加几条 role/文本锚断言，让保语义的组件重写在预期输出可评审地变动时仍保持绿色锚点。aria 树是 client 规则「断言用户所见，绝不断言类名」的机械化。世界状态断言内联在根上下文的会话事件上（哪次工具调用产生了哪项已持久化的工具结果、`turn/end` 是否完成）而不是第二份提交的日志预期输出：持久化日志表面已由 ACP/headless/TUI 套件经同一循环和持久化钉住，在此重复钉住会违背分层纪律、翻倍刷新成本。`refresh` 是预期输出的唯一写入者——回放模式下预期输出缺失会连同修复命令一起报错，而不是静默自举。
+具有稳定所属区域的场景会为每个不同的用户可见状态提交一份规范化的 `ariaSnapshot()`；跨区域的工作区管理状态则使用语义 DOM 断言和权威的 host 状态检查。UUID、cwd、工作区目录名与时长等易变内容会归一为稳定 token；采集过程持续轮询，直到连续两次规范化读取结果相同。Role 与文本锚点继续充当可评审预期输出周围的语义防线，并直接覆盖跨区域状态。世界状态断言使用根上下文的会话事件，而不是第二份提交的日志预期输出，因为 ACP、headless 与 TUI 套件已经通过同一循环和持久化钉住持久化日志表面。`refresh` 是预期输出的唯一写入者；回放模式下缺少预期输出时，测试会连同重新生成命令一起失败。
 
-类型检查平面切分是结构性的：启动 host 主干的三个文件（`scaffold`、`replay-round-trip.e2e` 和 `seeded-history.e2e`）被排除出注册在 client 侧的 `apps/web` 工程。这三个文件及其共享的 `support.ts` 逐文件纳入 `tsconfig.host.json`——一个程序不能同时持有 cordis `Context` 合并的两侧。
+类型检查平面切分是结构性的：host scaffold、其支持模块，以及每个启动或检查 host 组合的 web spec 都会从注册在 client 侧的 `apps/web` 工程中排除，并逐文件纳入 `tsconfig.host.json`。一个程序不能同时持有 Cordis `Context` 合并的两侧。
 
 ### 模式与 fixture
 
-`DSH_SNAPSHOT` 以内联 spec 分支选择 replay（默认，无密钥）、record（带密钥）或 refresh（无密钥）——TUI 的形态，不是套件工厂：两个场景撑不起 acp-snapshot 工厂机制，且真正共享的部分已被导出（`scrubRequestHeaders`、`parseSessionLog`、`installLlmReplay`）。每个 spec 切分为驱动步骤（输入、发送、`whenTurnSettled`——所有模式都执行，绝不等待模型内容选择器，因此 record 不会因真实模型答法不同而挂起）与断言步骤（仅 replay/refresh）。Record = 经真实输入框实时驱动 + 采收内存中的 `session.header`/`session.events`（TUI 的 `rawSessionLog` 形态——无需文件解压）+ `scrubRequestHeaders` + `{{sessionId}}`/`{{cwd}}`/`{{rpcId}}` token 化；随后一次无密钥 refresh 重新生成各份 aria 预期输出。每个发起提示的场景，其 fixture 都经此流程对本组装录制。一条漂移防线把每个 spec 的驱动提示词与 fixture 录制的 `user/message` 绑定。fixture 清单防线保持每个场景目录封闭（精确文件集合，每个 JSONL 都是脱敏不动点，不含当次运行的 `rpcId`）。Web fixture 全部脱敏请求头且不钉任何头类别，沿用 TUI 先例而非[钉住请求头](2026-07-06-pin-request-header-content-in-one-scenario.md)的严格读法——见「暂缓」。
+`DSH_SNAPSHOT` 选择 replay（默认，无密钥）、record（带密钥）或 refresh（无密钥）。发起提示的 spec 将所有模式共用的驱动步骤与仅供 replay/refresh 使用的断言分开；record 模式驱动真实输入框，采收内存中的会话 header 与事件，脱敏请求头，并 token 化当次运行的会话、cwd 与 RPC 标识。随后一次无密钥 refresh 重新生成 aria 预期输出。每条提示词都会与 fixture 中录制的 `user/message` 核对；每个场景目录都采用封闭清单，其中每个 JSONL 都是脱敏不动点。Web fixture 全部脱敏请求头且不钉任何 header 类别；见「暂缓」。
 
-### 场景
+### 覆盖契约
 
-1. **`replay-round-trip`**——新会话，经真实输入框发送提示词，回放流式输出推理（reasoning）+ 一次在临时工作区真实执行的 `bash` 工具调用 + 最终文本（15ms 节奏）。断言安定后的 markdown、aria 预期输出与内联世界状态（这次 bash 调用的已持久化工具结果严格等于 `WEB_E2E_OK\n`、完成的 `turn/end`、>10 个分片事件）。
-2. **`seeded-history`**——冷播种一份已录会话；侧栏列出它（分组行 → 会话行，默认折叠），打开后纯凭日志经 `session.history` 内的隐式冷恢复挂载渲染工具卡片与文本——replay 下零模型调用，因此没有任何绑定约束；record 模式实时驱动同一轮（真实 `read` 工具读取播种的工作区文件）来产出种子。
-3. **`live-interactions`**——一段不含工具调用的已录轮次经覆写 sidecar 承载三个仅回放的场景：sidecar 的内容本身写在 spec 里，每次运行时在 spec 自有的临时目录中生成文件（重试追加所用的派生成功条目经 `deriveReplayScript` 从 fixture 重新派生，绝不复制进已提交的 sidecar）。取消：一个带 `readyFile` 标记的 `{ patches }` `hang`——标记文件的存在证明流在测试点击 Stop 之前已停驻在轮次中途，使流中取消按构造即确定（`turn/end` 原因为 `aborted`，输入框重新启用）。AUTH 错误：一次落在 llm-retry 可重试集合之外的分片前 `throw`（`turn/end` 原因为 `error`，零条 `llm/retry` 事件，输入框恢复可用）。SERVER 重试：第 0 次调用 `throw` + 在第 1 次调用处追加 fixture 自身的成功条目，凭持久的 `llm/retry` 记录在浏览器中端到端证明 llm-retry（`request/header` 仅在变化时记录，因此尝试次数在那里不可见）。每个场景都把各自的终态表面钉为一份预期输出：`cancel.expected.md`（冻结的 `partial`、「已停止」标记）、`error-auth.expected.md`（仅有提示词气泡——web-error-surface 缺口的已提交产物，错误渲染落地时翻转的那份 diff）、`retry.expected.md`（与一次干净完成无从区分——重试在文本记录中刻意不可见）。
-4. **`question-composer`**——已交付组合中常驻的 `ask_user_question` 接管：一段已录轮次在真实的 userInteraction seam 上阻塞于步骤中途，提问输入框（`[data-question-key]`）在浏览器中渲染，测试经它作答（这是驱动步骤对模型内容作出反应的唯一获准之处：没有这个回答，轮次无法完成，record 与 replay 皆然），工具结果携带所选的 label。预期输出：提问输入框稳定的等待态（`ui.expected.md`）与已作答的文本记录（`answered.expected.md`——提问已落定为其工具往返加最终回复，接管消失）。
-5. **`steering`**——在提问输入框阻塞该步骤时做轮次中途 steering（中途引导），此即确定性的轮次中途窗口，不依赖任何时序。输入框在运行期间锁定，因此这一 steer 由页面经客户端所用的同一条同源 `/api` wire POST `session.prompt` `mode:'steer'`（`TODO(web-steer-composer)`：待有输入框手势后改为驱动它）；下游的一切都是产品路径——gateway → `Agent.steer` → 步骤边界排空 → 持久的 `steering/message` → SSE → 带徽标的插话气泡。record 模式的 fixture 诚实性：除非真实模型的最终回复遵循了一条只有 steering 消息才携带的指令，否则该次录制被拒绝。预期输出以可视方式钉住这一时序语义：`mid-steer.expected.md` 捕捉「已接受但不可见」的状态（循环仅在步骤边界才排空 steering，因此提问仍在阻塞时不存在插话气泡——若 client 日后提前渲染待处理的 steer，这份预期输出会最先翻转），`settled.expected.md` 则捕捉带徽标的气泡加遵循指令的回复。
-6. **`navigation-panes`**——一份内容丰富的双轮次种子（轮次 1：同一条 assistant 消息内的 bash + 两次并行 read；轮次 2：一段 markdown 密集的回复）经 seeded-history 模式冷渲染（零模型调用），承载四个表面：侧栏搜索（客户端标题过滤；仅在持久的标题随 attach 基线一同到达后才断言，因为冷的 `SessionSummary` 不携带标题，而搜索匹配的是用户所见的 `displayTitle`；反例查询清空整棵树，正例查询收窄，清除后复原）、Trajectory 标签页（轮次分节 + 步骤组的工具构成，外加视图区 aria 预期输出）、Waterfall 标签页（span 统计 + 每个 span 一条泳道；只有 assistant/steering 节点携带轮次编号，因此 P-I 折叠会将一个轮次 0 的序幕 span 计入，按原样钉住）与详情列（bash 工具视图行把点击路由到 openDetails；打开/关闭状态断言在 frame 的 `data-details-collapsed` 属性上，因为关闭把网格列收缩到宽度 0 而不卸载子树）。预期输出：`trajectory.expected.md` 与 `waterfall.expected.md`（各自标签页的视图区），外加 `details-open.expected.md`（打开的面板：工具名标题、Input 参数、Output 结果）。
-7. **`lifecycle-chrome`**——一段极小的已录纯文本轮次驱动三个整页关注点。真实 wire 上的 Workspace 动线：空态 hero 的首次发送物化出真实的 Workspace + Session（jsdom 的 `workspace-flow.snapshot.ts` 套件基于 fixture 客户端钉住这一状态机；本场景则经 HTTP RPC + SSE + gateway 钉住它），其持久证据是会话头部的 cwd 恰为按名创建的目标 `<workspaceRoot>/workspace`，外加 hero 等待态的 aria 预期输出。重新加载恢复：折叠侧栏（持久化于 `dsh.layout.panels`），`page.reload`，整个表面纯凭持久化完整归来——布局保持折叠，选中项恢复（`dsh.sessions.current`），已录轮次从 `session.history` 重新渲染且零模型调用（已耗尽的回放游标使任何离群请求都在 close 时大声失败），且 `reloaded.expected.md` 钉住重建后的会话区——纯凭持久化渲染出同一份安定的文本记录，这本身就是恢复主张。暗色模式：本场景直接驱动 ThemeService 的 DOM 契约 seam（即 `body[data-ds-dark-theme]` 属性），并钉住已交付的级联（alias token 翻转，某个实际绘制的表面重绘，移除该属性则精确还原亮色采样值），且独立于设置表面——该表面的真实用户手势归 `settings-chrome` 管；按范围裁定，主题/布局不设预期输出（aria 感知不到颜色）。
-8. **`settings-chrome`**——设置表面（#644），空白 frame 上零模型调用。模态框外壳：侧栏底部的触发按钮（`aria-haspopup`/`aria-expanded`）打开 `role=dialog` 的「设置」，默认激活「通用设置」，其中既有骨架行，也有具备实际功能的「语言」与「外观」两行（对话框 aria 预期输出）；分节切换把 `aria-current` 移到刻意留空的「模型」分节；经 Escape 与头部的「关闭」按钮均可关闭。「外观」行是真正的主题手势（lifecycle 场景的 `TODO(web-theme-gesture)` 就此撤除）：点击「深色」跑通整条链路（`aria-pressed`、持久化的 `dsh.theme`、`body[data-ds-dark-theme]`、alias token 翻转）并在重新加载后存续；`system` 双向跟随所模拟的操作系统配色方案（`page.emulateMedia`），该 spec 还会恢复「浅色」默认值以保证 spec 之间互不污染。「语言」行把设置范围内的文案切换为 English（`dsh.locale` 持久化，对话框重新注册为 Settings/General/Appearance），在重新加载后存续，最后恢复为「中文」——目前本地化只覆盖设置命名空间，因此该场景断言的恰是这一表面。有意的重新加载会撕断 SSE 流，因此该 spec 恰好只排空自身重新加载引发的重连警告；任何意外的连接丢失仍会触发绊线失败。
-9. **`workspace-management`**——工作区浏览器操作（#643），零模型调用（workspace.create/rename 是 host 侧 RPC；唯一的会话行来自重新播种 seeded-history 已提交的种子，因此没有录制任何新 fixture）。经区域头部的「＋」对话框按名创建两次（`workspace.create` 会 mkdir 并把新项前插到持久注册表——host 侧经 `ctx.workspace.list()` 断言）。端到端的重命名：悬停显露的行操作菜单（按钮在所在行悬停之前是 `display:none`）→ Rename 对话框 → 重名预检在发出任何 wire 调用之前就亮出内联 `role=alert` 并禁用主按钮 → 换一个全新名称则走 `workspace.rename` RPC，更新该行、在 host 上持久化并在重新加载后存续。扁平的「In one list」视图：Group by 菜单把分节标签翻转为 Sessions，去掉分组头（播种的会话成为顶层行），在 `dsh.workspace.view` 中持久化并跨重新加载存续，该 spec 最后恢复分组模式。会话悬停卡片在驻留延时后渲染（纯展示，无 aria role——用文本锚定），指针移开即关闭。刻意不驱动：本次迭代以无行为形态交付的纯视觉菜单行（会话的 Rename/Fork/Delete、工作区的 Delete）与拖拽重排——见「暂缓」。
+该车道覆盖三类行为。实时轮次场景钉住普通工具执行、取消、不可重试失败、瞬态重试、常驻提问与轮次中途 steering；同步依赖持久事件、`whenIdle()` 或显式回放标记，而不使用延时。冷历史场景通过真实持久化 API 播种，在不调用模型的情况下覆盖历史渲染、侧栏搜索、Trajectory 与 Waterfall 视图及工具详情。浏览器生命周期场景覆盖首次发送时物化工作区、重新加载恢复、布局持久化、主题与语言偏好，以及工作区的创建、重命名和视图操作。每类场景都断言浏览器表面和权威的 host 状态；离群的模型调用或未耗尽的 fixture 会使拆卸失败。
 
 ### CI 立场
 
@@ -70,7 +62,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **用占位 `DEEPSEEK_API_KEY` + 回放拦截替代禁用适配器行。** 尽管零组合改动且树内有两处先例仍被否决：它用谎言满足 `llm-deepseek` 的快速失败密钥检查，还留下一个挂载却被拦截的死适配器；禁用行（ACP overlay 的同款做法）是诚实的无密钥，并在最早可解析点快速失败。
 
-**`packages/support/web-snapshot` 包 + `defineWebSnapshotSuite` 工厂。** 已否决：驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100%，且两个场景就上工厂是从单一消费方过度泛化，真正共享的逻辑已从受门禁的包中导出。重启条件：出现第二个 web 形态消费方，或 ≥6 个场景的内联分支被证实各自漂移；届时包边界将画在无浏览器一侧。
+**`packages/support/web-snapshot` 包 + `defineWebSnapshotSuite` 工厂。** 已否决：驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100%，且除受门禁的包已导出的辅助工具与本地 scaffold 外，这些场景专用交互尚未形成稳定的无浏览器契约。出现第二个 web 形态消费方，或被证实重复的生命周期代码确立该契约后，再重新考虑。
 
 **第二份提交的规范化会话日志预期输出。** 已否决：日志表面已由 ACP/headless/TUI 套件经同一循环与持久化钉住；在此只会翻倍刷新成本并重复测试下层。内联在根上下文事件上的世界状态断言保住了验证世界的义务。
 
@@ -80,11 +72,11 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **以真实模型浏览器测试充当无密钥车道。** 已否决：按构造即不确定；被调研的前车之鉴（open-webui）长出无界超时后被删除。带密钥的 W5 冒烟仍是真实模型侧的补充。
 
-**客户端 `data-dsh-busy` 安定信号。** 暂缓：两个场景下多条件安定轮询已经够用，host 侧 `whenIdle` 屏障承担了重活。重启条件：第一次安定轮询抖动，或某场景需要等待 DOM 不暴露的状态。
+**客户端 `data-dsh-busy` 安定信号。** 暂缓：host 侧 `whenIdle` 屏障配合稳定 DOM 轮询，足以覆盖当前场景。第一次安定轮询抖动，或必要状态在 DOM 中不可观察时，再重新考虑。
 
 ## Testing
 
-车道自身：`pnpm run test:web` 与既有冒烟对一起无密钥运行所有场景；`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型重录某场景的 fixture；`DSH_SNAPSHOT=refresh` 无密钥重写各份 aria 预期输出。`paceMs` 校验、节奏下限、节奏中中止、`assertConsumed` 的两种失败形态，以及 `{ patches }` 的接受/拒绝路径（按索引换入保留邻项、`at == length` 追加、越界/非整数大声失败）钉在 `packages/support/llm-replay/tests/llm-replay.spec.ts`。
+`pnpm run test:web` 无密钥运行该车道。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh` 则无密钥重写 aria 预期输出。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
 
 ## 暂缓
 
@@ -93,7 +85,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
 - **Web 错误表面**：客户端不消费任何 `agent/error` 帧，分片前的失败也没有可冻结的部分输出，因此不可重试的提供方失败不渲染任何错误文案——用户看到的只是发送就此停住。AUTH 场景钉住当前契约（不崩溃、输入框恢复可用、轮次记录为 `error`），`FIXME(web-error-surface)` 标记了待 UI 长出错误渲染后断言可见错误文本的位置。
 - **输入框 steering 手势**：输入在运行期间锁定（只能停止或等待），因此 steering 场景从页面走 wire 做 steer；`TODO(web-steer-composer)` 待产品长出真实的输入框手势后，把驱动步骤升级为该手势。
-- **拖拽会话重排**：`workspace.insertSessionBefore`（手动排序，#643）尚无浏览器场景——它需要在同一个工作区里物化两个会话（一份双脚本的已录 fixture）外加合成的 HTML5 拖拽事件；当该表面变更或回归时再补充。无行为的菜单行（会话的 Rename/Fork/Delete、工作区的 Delete）待长出行为后获得各自的场景。
+- **拖拽会话重排**：`workspace.insertSessionBefore` 尚无浏览器场景；它需要在同一个工作区里物化两个会话，并合成 HTML5 拖拽事件。当该表面变更或回归时再补充。无行为的会话 Rename/Fork/Delete 和工作区 Delete 菜单行待获得行为后再补充场景。
 
 ## 后果
 

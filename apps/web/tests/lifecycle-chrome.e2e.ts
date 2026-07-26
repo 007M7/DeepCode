@@ -17,7 +17,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
@@ -103,8 +103,10 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     // (persisted under dsh.layout.panels) before reloading.
     await page.getByRole('button', { name: 'Collapse sidebar' }).click()
     await expect.poll(() => page.getByRole('button', { name: 'Open sidebar' }).count(), { timeout: 10_000 }).toBe(1)
+    const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
     // Layout persisted: the sidebar comes back collapsed.
     await expect.poll(() => page.getByRole('button', { name: 'Open sidebar' }).count(), { timeout: 10_000 }).toBe(1)
     // Selection persisted (dsh.sessions.current) and history replayed: the
@@ -155,6 +157,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
+    expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'hero.expected.md', 'reloaded.expected.md'])
   })
 })

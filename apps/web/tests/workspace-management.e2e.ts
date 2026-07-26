@@ -12,7 +12,7 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  assertFixtureInventory, launchWebScaffold, seedSession, watchConsole,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, launchWebScaffold, seedSession, watchConsole,
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
@@ -44,17 +44,6 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
-
-  /**
-   * An INTENTIONAL reload tears the SSE stream mid-flight, so the dying
-   * page's reconnect note is expected — drain exactly those entries so the
-   * tripwire still fails the spec on any UNEXPECTED connection loss.
-   */
-  const drainReloadWarnings = (): void => {
-    const kept = tripwire.warnings.filter(text => !/connection lost/i.test(text))
-    tripwire.warnings.length = 0
-    tripwire.warnings.push(...kept)
-  }
 
   afterAll(async () => {
     await browser?.close()
@@ -108,9 +97,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     expect(await page.getByText('alpha-ws', { exact: true }).count()).toBe(0)
     // Host durability, then reload: the projection is rebuilt from the wire.
     expect(scaffold.ctx.workspace.list().map(workspace => workspace.title)).toContain('gamma-ws')
+    const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    drainReloadWarnings()
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await expect.poll(() => page.getByText('gamma-ws', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
@@ -129,9 +119,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
     expect(await page.evaluate(() => localStorage.getItem('dsh.workspace.view'))).toContain('flat')
     // Persisted across reload; then restore grouped for inter-spec hygiene.
+    const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    drainReloadWarnings()
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 15_000 }).toBe(0)
     await page.getByRole('button', { name: 'Group by' }).click()
     await page.getByRole('menuitem', { name: 'WorkSpace' }).click()

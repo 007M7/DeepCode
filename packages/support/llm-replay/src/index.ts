@@ -59,7 +59,7 @@ export interface ReplayConfig {
    */
   file: string
   /**
-   * Optional sidecar for the PRIMARY session: a bare `ReplayEntry[]` REPLACES
+   * Optional sidecar for the PRIMARY session: a bare `ReplayEntry[]` replaces
    * the derived script; `{ patches }` keeps it and swaps the named call
    * indexes ({@link ReplayOverrideDoc}). Used by single-session scenarios not
    * expressible as `assistant/chunk` (throw-before-chunk, cancel/hang,
@@ -214,12 +214,104 @@ export interface ReplayOverridePatch {
 }
 
 /**
- * Override sidecar document: either the legacy whole-script replacement (a
+ * Override sidecar document: either a whole-script replacement (a
  * bare `ReplayEntry[]`) or the augmentation form `{ patches }`, which keeps
  * the JSONL-derived script and swaps only the named call indexes — the shape
  * for "turn N errors, everything else replays as recorded".
  */
 export type ReplayOverrideDoc = ReplayEntry[] | { patches: ReplayOverridePatch[] }
+
+const REPLAY_CHUNK_TYPES = new Set<StreamChunk['type']>([
+  'block-start',
+  'text-delta',
+  'reasoning-delta',
+  'tool-call-delta',
+  'block-end',
+  'usage',
+  'finish',
+])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+}
+
+function invalidOverride(file: string, location: string, detail: string): never {
+  throw new Error(`llm-replay: invalid override ${file}: ${location} ${detail}`)
+}
+
+function readChunks(value: unknown, file: string, location: string): StreamChunk[] {
+  if (!Array.isArray(value)) invalidOverride(file, location, 'chunks must be an array')
+  for (const [index, chunk] of value.entries()) {
+    if (!isRecord(chunk)
+      || typeof chunk['type'] !== 'string'
+      || !REPLAY_CHUNK_TYPES.has(chunk['type'] as StreamChunk['type'])) {
+      invalidOverride(file, `${location}.chunks[${index}]`, 'must have a known StreamChunk type')
+    }
+  }
+  return value as StreamChunk[]
+}
+
+function readReplayEntry(value: unknown, file: string, location: string): ReplayEntry {
+  if (!isRecord(value)) invalidOverride(file, location, 'must be an object')
+  switch (value['kind']) {
+    case 'chunks': {
+      if (!hasExactKeys(value, ['kind', 'chunks'])) invalidOverride(file, location, 'has invalid chunks-entry fields')
+      return { kind: 'chunks', chunks: readChunks(value['chunks'], file, location) }
+    }
+    case 'throw': {
+      if (!hasExactKeys(value, ['kind', 'chunks', 'message', 'code'])) {
+        invalidOverride(file, location, 'has invalid throw-entry fields')
+      }
+      if (typeof value['message'] !== 'string' || value['message'].length === 0) {
+        invalidOverride(file, location, 'message must be a non-empty string')
+      }
+      if (typeof value['code'] !== 'string' || value['code'].length === 0) {
+        invalidOverride(file, location, 'code must be a non-empty string')
+      }
+      return {
+        kind: 'throw',
+        chunks: readChunks(value['chunks'], file, location),
+        message: value['message'],
+        code: value['code'],
+      }
+    }
+    case 'hang': {
+      const readyFile = value['readyFile']
+      const keys = readyFile === undefined ? ['kind'] : ['kind', 'readyFile']
+      if (!hasExactKeys(value, keys)) invalidOverride(file, location, 'has invalid hang-entry fields')
+      if (readyFile !== undefined && (typeof readyFile !== 'string' || readyFile.length === 0)) {
+        invalidOverride(file, location, 'readyFile must be a non-empty string')
+      }
+      return { kind: 'hang', ...(readyFile === undefined ? {} : { readyFile }) }
+    }
+    default:
+      return invalidOverride(file, location, `has unknown kind ${JSON.stringify(value['kind'])}`)
+  }
+}
+
+function readOverrideDoc(value: unknown, file: string): ReplayOverrideDoc {
+  if (Array.isArray(value)) return value.map((entry, index) => readReplayEntry(entry, file, `entry ${index}`))
+  if (!isRecord(value) || !hasExactKeys(value, ['patches']) || !Array.isArray(value['patches'])) {
+    return invalidOverride(file, 'document', 'must be a ReplayEntry[] or { patches: [...] }')
+  }
+  return {
+    patches: value['patches'].map((value, index): ReplayOverridePatch => {
+      const location = `patch ${index}`
+      if (!isRecord(value) || !hasExactKeys(value, ['at', 'entry'])) {
+        return invalidOverride(file, location, 'must contain exactly at and entry')
+      }
+      const at = value['at']
+      if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0) {
+        return invalidOverride(file, location, 'at must be a non-negative safe integer')
+      }
+      return { at, entry: readReplayEntry(value['entry'], file, `${location}.entry`) }
+    }),
+  }
+}
 
 /**
  * Load the PRIMARY session's replay script: the sidecar override when present
@@ -231,20 +323,22 @@ export type ReplayOverrideDoc = ReplayEntry[] | { patches: ReplayOverridePatch[]
  */
 export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
   if (config.overrideFile !== undefined && existsSync(config.overrideFile)) {
-    const parsed: unknown = JSON.parse(readFileSync(config.overrideFile, 'utf8'))
-    if (Array.isArray(parsed)) return parsed as ReplayEntry[]
-    const doc = parsed as { patches?: unknown }
-    if (typeof parsed !== 'object' || parsed === null || !Array.isArray(doc.patches)) {
-      throw new Error(`llm-replay: override must be a ReplayEntry[] or { patches: [...] }: ${config.overrideFile}`)
-    }
+    const doc = readOverrideDoc(JSON.parse(readFileSync(config.overrideFile, 'utf8')) as unknown, config.overrideFile)
+    if (Array.isArray(doc)) return doc
     const script = deriveScriptFromFile(config.file)
-    for (const patch of doc.patches as ReplayOverridePatch[]) {
-      if (!Number.isInteger(patch.at) || patch.at < 0 || patch.at > script.length) {
+    const derivedLength = script.length
+    const seenIndexes = new Set<number>()
+    for (const patch of doc.patches) {
+      if (patch.at > derivedLength) {
         throw new Error(
           `llm-replay: override patch index ${String(patch.at)} out of range `
-          + `(derived script has ${script.length} call(s); == length appends): ${config.overrideFile}`,
+          + `(derived script has ${derivedLength} call(s); == length appends): ${config.overrideFile}`,
         )
       }
+      if (seenIndexes.has(patch.at)) {
+        throw new Error(`llm-replay: duplicate override patch index ${patch.at}: ${config.overrideFile}`)
+      }
+      seenIndexes.add(patch.at)
       script[patch.at] = patch.entry
     }
     return script
@@ -397,9 +491,8 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined,
       })
       /* v8 ignore next -- unreachable: the hang promise only ever rejects (on abort), never resolves; control never reaches here */
       return
+    /* v8 ignore next -- sidecar entries are validated before they reach the closed local union. */
     default:
-      // Closed local union: an unknown kind means malformed (hand-edited or
-      // drifted) sidecar data — fail loud with a runtime diagnostic.
       return assertNever(entry, 'llm-replay replay entry')
   }
 }

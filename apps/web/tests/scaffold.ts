@@ -18,7 +18,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -141,7 +141,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       throw new Error('web e2e record mode needs DEEPSEEK_API_KEY (env or repo-root .env)')
     }
   }
-  const workspaceCwd = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-'))
+  const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -452,4 +452,18 @@ export function watchConsole(page: Page): { warnings: string[]; pageErrors: stri
   })
   page.on('pageerror', (error) => { pageErrors.push(String(error)) })
   return { warnings, pageErrors }
+}
+
+/**
+ * Remove only connection-loss warnings emitted after an intentional reload.
+ * Earlier warnings and all gap-repair/discontinuity warnings remain fatal.
+ * @param tripwire - the live console-warning collector.
+ * @param warningStart - warning count captured immediately before reloading.
+ */
+export function acknowledgeReloadConnectionLoss(
+  tripwire: ReturnType<typeof watchConsole>,
+  warningStart: number,
+): void {
+  const reloadWarnings = tripwire.warnings.splice(warningStart)
+  tripwire.warnings.push(...reloadWarnings.filter(text => !/connection lost/i.test(text)))
 }

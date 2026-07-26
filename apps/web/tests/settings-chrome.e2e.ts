@@ -12,7 +12,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { join } from 'node:path'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
@@ -35,17 +35,6 @@ describe('web e2e: settings modal, appearance gesture, language switch', () => {
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
-
-  /**
-   * An INTENTIONAL reload tears the SSE stream mid-flight, so the dying
-   * page's reconnect note is expected — drain exactly those entries so the
-   * tripwire still fails the spec on any UNEXPECTED connection loss.
-   */
-  const drainReloadWarnings = (): void => {
-    const kept = tripwire.warnings.filter(text => !/connection lost/i.test(text))
-    tripwire.warnings.length = 0
-    tripwire.warnings.push(...kept)
-  }
 
   afterAll(async () => {
     await browser?.close()
@@ -114,9 +103,10 @@ describe('web e2e: settings modal, appearance gesture, language switch', () => {
     await page.keyboard.press('Escape')
 
     // Reload: the preference survives boot (restore + presenter initial apply).
+    const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    drainReloadWarnings()
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await page.emulateMedia({ colorScheme: 'light' })
     const reloaded = await readState()
     expect(reloaded.attr).toBe(true)
@@ -158,9 +148,10 @@ describe('web e2e: settings modal, appearance gesture, language switch', () => {
     expect(await page.evaluate(() => localStorage.getItem('dsh.locale'))).toBe('en')
     // Reload keeps English; then restore zh so shared page state (and the
     // other specs' 设置-anchored selectors + goldens) see the default again.
+    const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    drainReloadWarnings()
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
     const enTrigger = page.getByRole('button', { name: 'Settings' })
     await enTrigger.waitFor({ timeout: 10_000 })
     await enTrigger.click()
