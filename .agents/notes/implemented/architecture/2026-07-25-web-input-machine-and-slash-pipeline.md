@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-25-web-input-machine-and-slash-pipeline.zh.md)
 
-> Scope: the input state machine (the occurrence table + claim watch + the submit transaction), the hub/facade and send orchestration, the three scoped bail events for cross-plugin input rewrites, `/` and `@` trigger detection and the menu pipeline (ui-slash), and the slot system around the composer. It depends on the [session scope note](2026-07-25-web-client-session-scope-and-provide-channel.md)'s sctx / provide / intent transaction model; command knowledge (the three kinds, the directory, popups) is untouched here — that is the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md)'s territory.
+> Scope: the input state machine (the occurrence table + claim watch + the submit transaction), the hub/facade and send orchestration, the three scoped bail events for cross-plugin input rewrites, `/` and `@` trigger detection and the menu pipeline (ui-slash), and the slot system around the composer. It depends on the [session scope note](2026-07-25-web-client-session-scope-and-provide-channel.md)'s sctx / provide / session-maybe and blank entity model; command knowledge (the three kinds, the directory, popups) is untouched here — that is the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md)'s territory.
 
 ## Problem
 
@@ -15,7 +15,7 @@ Two composers, each a law unto itself: hero (EmptyState, the controlled chain wr
 - Submission is an asynchronous transaction (an RPC round trip) — how are stale-result backwash, session switching, and React concurrent replay defended;
 - How reference chips are represented on a plain textarea, and who owns undo / clipboard / paste matching / model serialization;
 - How cross-plugin input rewrites (menu backfill, reference insertion, token consumption) achieve dependency inversion;
-- How a new session keeps the same textarea from Draft → materialized.
+- Which React shells must be reused across no session → blank session, and which strict-session input bodies may be replaced.
 
 Hard constraints: components mount through slots only; presentation artifacts never enter the session log; the keyboard path is IME-safe throughout.
 
@@ -63,15 +63,17 @@ Calls that stay un-evented (registry registration → explicit call → await): 
 A trigger/menu/pick pipeline with zero knowledge of "commands":
 
 - The service holds only the source registry (`SlashSource{trigger: '/'|'@', name, candidates, onPick, matchSpace?, matchEnter?}`; (trigger,name) unique, registration order = group order = polling order) and `sessionOf(sctx)`. Implementing a match hook IS the declaration of participation in space/enter adjudication; the pipeline polls in registration order, the first non-undefined answer wins, and no claimant means the default sink. matchSpace is synchronous (space fires mid-keystroke; hot cache only); matchEnter is asynchronous (it may await the source's own warmup, and a warmup failure rejects).
-- The controller holds the single authoritative hit (span included; retained for Space after the menu closes), the per-session menu store, the candidate-fetch generation, keyboard arbitration (combobox mode: focus stays in the textarea, ↑↓/Enter/Escape are intercepted and all pass the IME composition guard, with the single exception Shift+Enter unconditionally going first), and pick orchestration (outcome → self-dispatched bail events); it subscribes to the Session, invalidating candidates on projection transitions (a published flip, a Draft workspace change) and calling each source's optional `warm(projection)`; the scope disposer tears it down.
+- The controller holds the single authoritative hit (span included; retained for Space after the menu closes), the per-session menu store, the candidate-fetch generation, keyboard arbitration (combobox mode: focus stays in the textarea, ↑↓/Enter/Escape are intercepted and all pass the IME composition guard, with the single exception Shift+Enter unconditionally going first), and pick orchestration (outcome → self-dispatched bail events); at each session scope's birth it runs `warm(projection)` once over the source roster — within that scope the projection holds only the stable sessionId, with no published/capability transitions; the scope disposer tears down the controller.
 - Trigger-detection word boundaries (`user@host` and URL `/` never trigger) and the guard tiers (plain: `/` everywhere + `@` inline / claimed: `/` suppressed, `@` live / frozen: none) are the frozen pure core.
 
-### hub / facade: one composer rendered in two places
+### hub / facade: the resident shell and the strict-session input body
 
 - The hub (trigger/decoration registries + send orchestration) takes the slash/command services as optional `ctx.get()` dependencies: without ui-slash or the command surfaces, input still sends and receives normally — graceful degradation.
-- `SessionInputShell` (the facade) is the sole composer implementation; EmptyState is deleted and hero is just a layout state of ConversationRoot: Intent sessions and real sessions ride the same SessionProvider, the central area switches by phase between the hero chrome (HeroShell: hero image + glow + workspace row) and the session view ring, the composer's position in the component tree is constant, and React preserves DOM identity — the same textarea throughout materialize.
-- ConversationRoot switches the hero/composer layout class on `composerPhase === 'blank' && (openState === 'open' ∨ ¬published)` (a Draft has no host window and openState stays cold, so the criterion must admit an unpublished blank).
-- Sending unifies in the hub defaultSink: published → optimistic draft clear + `session.prompt {mode:'queue'}` (backfilled only on failure with no further typing); Draft → `session.connect(workspaceId, text)` (workspace-intent runs materializeIntent first). The hub's `watchTransaction` owns failure backfill: failure backfills only while the draft is empty; a successful retry clears the draft only while it still equals the backfilled text.
+- Each materialized Session has exactly one `SessionInputShell` (the facade), created and torn down with the session scope; with no session, no input machine is built. `ConversationRoot` is itself the `session-maybe` resident shell, holding HeroShell, the Workspace picker, the composer stack, and the chain-fallback frame.
+- With no session the shell renders the presentation-only `DisabledInputBar`; once `connectWorkspace` returns a blank session, only the input body is swapped for the strict-session InputBar. The textarea may be rebuilt here, while `ConversationRoot`, the Hero, and the layout skeleton hold; blank → engaging/active stays the same session-bound InputBar, with the textarea never rebuilt on a phase flip.
+- ConversationRoot's Hero criterion is `sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))`. The first submit enters engaging synchronously, and a failure keeps the composer and the error context rather than falling back to the blank Hero; the sidebar's blank bit flips false only after a prompt is successfully accepted.
+- Sending unifies in the hub defaultSink: after an optimistic draft clear it goes only through `session.prompt {mode:'queue'|'steer'}`; backfill happens only when it fails and the live draft is still empty — a user who has kept typing is never overwritten. No Draft materialize or attach transaction exists.
+- When the blank Hero re-picks the Workspace, the shell calls `connectWorkspace`; if the target session differs, the non-empty draft moves from the current shell to the target shell before the new id is opened, and the old blank session survives but is no longer current.
 - The Notifier's two-bit contract: `dirty` (snapshot freshness, clearable by an `ensureFresh` pull) and `notifyPending` (notification debt, cleared only by a flush) are mutually independent — a pull must not swallow a push, and object-layer push subscribers (watchTransaction) depend on this guarantee.
 
 ### Plain-text references (Decision 21): text outcomes and lexicon decoration
@@ -91,15 +93,16 @@ skill/@subagent references skip the placeholder + occurrence identity chain — 
 
 ### The slot system
 
-The slots around the composer are all session scope, declared by ui-conversation's conversation registration:
+`conversation` is itself session-maybe; its session content and the composer input slots are strict session, while the Hero Workspace picker stays root. The child slots are all declared by ui-conversation's conversation registration:
 
+- `conversation.session` (single) — the strict-session header, view ring, and chat store; rebuilt when the session id switches.
 - `conversation.composer.bar` (single) — the slot for the InputBar itself: the InputBar is a true slot entry (self-registered into its own slot) and the content of the composer chain's fallback; it is not a chain entry — the chain's single election would unmount it on a takeover, breaking textarea DOM survival.
 - `conversation.input.overlay` — the floating-overlay anchor inside the input card; registrants' inject resolves each one's own per-session controller by the slot sessionId.
 - `conversation.input.dock` — the stacked strip above the input (QueueDock's read-only queue list lands here), ordered by `order`.
 - `conversation.composer.dock` — the stats band on the composer's top edge.
 - `conversation.input.left` / `conversation.input.right` — the tool-row left and right regions.
 - `conversation.input.plan` / `conversation.input.model` (single) — the tool row's two named control seats; the bar passes only `locked` (owner props), each stays empty until its owning plugin registers, no placeholder fallback.
-- `conversation.hero.workspace` (root scope) — the hero-phase workspace picker slot; a pick redirects the Intent through `retargetWorkspace`.
+- `conversation.hero.workspace` (root scope) — the Workspace picker shared by the no-session and blank Hero; a pick reuses or creates the target blank session through `connectWorkspace`, moving the draft where necessary before switching current.
 
 ### Testing discipline
 
@@ -123,7 +126,7 @@ The state machine's entire behavior is covered by pure-JS unit tests (event sequ
 
 ## Consequences
 
-- One composer rendered in two places: hero and in-conversation behavior agree, and materialize preserves textarea DOM identity; EmptyState and the controlled intent chain (`sessions.updateIntent`/`updatePendingPrompt`/`workspaces.sendSession`) are deleted along with their last consumer.
+- One resident conversation shell carries no-session/blank/active: no session → blank guarantees only the outer frame's React identity, allowing the disabled textarea to be replaced by the strict InputBar; the same blank session → engaging/active keeps the InputBar and the textarea. EmptyState and the controlled intent chain (`sessions.updateIntent`/`updatePendingPrompt`/`workspaces.sendSession`) are deleted along with their last consumer.
 - The input surface's zero knowledge of commands plus optional dependencies: pure input works without the command packages; `@` references and skill references get free reuse of the same menu/pick pipeline. The cost is that space/enter adjudication is a per-source polling protocol whose answer semantics (sync/async, the meaning of undefined) are a frozen contract.
 - Transactionalized submission (attempt seq + the drift guard) makes the three defect classes — stale-result backwash, session switching, concurrent replay — structurally impossible, pinned by the matrix tests.
 - Known gaps: chip fidelity across refresh (paste matching is reusable for it) has no workstream yet; the subagent reference's model representation awaits its business workstream.

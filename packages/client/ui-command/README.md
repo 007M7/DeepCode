@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-command
 
+English | [中文](README.zh.md)
+
 Client command surface (`ctx.command`): the session-keyed command-directory cache, the `/` command source with matchSpace/matchEnter adjudication hooks, three-kind dispatch (execute / popupSelect / leadingInput), and the popupSelect registration face for business packages. Contract: the [web command surfaces Agent Note](../../../.agents/notes/implemented/architecture/2026-07-25-web-command-surfaces-and-assembly.zh.md).
 
 `src/client/contract.ts` is the frozen business face: `CommandServiceContract.register(name, spec)` is everything a business package consumes; `CommandUiSpec{options, onSelect}` keeps popup data self-served — the shell component is this package's and business never sees it. Command kinds derive per dispatch, never per registration: a host descriptor with `input` is leadingInput, a registered `CommandUiSpec` is popupSelect, everything else is execute.

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-slash
 
+English | [中文](README.zh.md)
+
 Input trigger pipeline plugin: `/` and `@` detection under the caret (word-boundary + guard-tier rules), the grouped candidate menu, and pick routing to registered sources. `ctx.slash` owns the source roster and resolves one `SlashController` per session scope (`sessionOf`); the conversation wiring layer drives `track`/`arbitrate`/`onSpace`/`adjudicate` on the controller. Sources receive a `ClientSessionContext` projection per call — sessions are always agent-backed, so the projection is the session identity alone and the roster is warmed once at scope birth. The pipeline is command-agnostic: space/enter adjudication polls the optional `matchSpace`/`matchEnter` hooks in registration order and the first non-undefined answer wins.
 
 Layering: `src/core/` (T2) is the pure core — `detectTrigger`, `menuReduce`/`seedGroups`/`MENU_CLOSED`, `exactMatch`, zero React/DOM/cordis; `src/client/service.ts` is the shell wiring the core to the menu snapshot store, the per-hit candidate fetch (generation-gated, `AbortSignal`-superseded, failed sources drop silently with a console record), and the three pick paths. `src/types.ts` and the two `contract.ts` files are the frozen cross-package contract (design v4 §5.1); changes require main-thread arbitration.

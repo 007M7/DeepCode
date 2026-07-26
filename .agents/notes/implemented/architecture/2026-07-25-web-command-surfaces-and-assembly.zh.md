@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-25-web-command-surfaces-and-assembly.md) | 中文
 
-> 范围：命令目录缓存与三型判定（ui-command）、popup 选择流、skill / subagent 两个引用源、fixture 命令路由与装配验收（slash-flow 快照）。承载 wire 见[会话作用域 note](2026-07-25-web-client-session-scope-and-provide-channel.zh.md)；触发/菜单/输入机器见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.zh.md)。
+> 范围：命令目录缓存与三型判定（ui-command）、popup 选择流、skill / subagent 两个引用源、fixture 命令路由与装配验收（slash-flow 快照）。承载 wire 见[会话作用域 note](2026-07-25-web-client-session-scope-and-provide-channel.md)；触发/菜单/输入机器见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)。
 
 ## 问题
 

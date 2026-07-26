@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-skill
 
+English | [中文](README.zh.md)
+
 Skill reference source, browser half: registers the `/`-trigger `skill` source into `ctx.slash`. Candidates come from the `skill.list` RPC addressed by the per-call `ClientSessionContext` projection's `{sessionId}` — every session is agent-backed and the host resolves `cwd` from the session header. Catalogs cache per session with a single-flight fetch; the scope-birth `warm` hook prewarms the session's entry and `connection/reset` clears everything. Results filter by `startsWith(query)`; picking a candidate lands the literal `/name ` text through the slash pipeline (decision 21 plain-text reference), and the source `codec` owns the reference's two projections: `clipboardText` → `/name`, `serialize` → the model form `<skill>name</skill>` invoked at submit time. The RPC rides the plugin's root-context connection captured at registration — the source never reads services off a per-call argument. The source implements no `matchSpace`/`matchEnter` hooks — skill references never enter command adjudication and ride ordinary prompts into the default sink.
 
 A failed `skill.list` throws from `candidates`, which the slash shell logs and folds into a silent menu-group drop — the menu shows only pending/ready states.

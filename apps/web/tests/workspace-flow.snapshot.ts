@@ -174,6 +174,26 @@ it('locks the composer in the New Session view state until a Workspace is chosen
   `)
 })
 
+it('selects the recent Workspace and opens its blank Session on first load', async () => {
+  boot('?fixture')
+
+  const composer = await findHeroComposer()
+  const tree = screen.getByRole('tree', { name: 'Sessions' })
+  await waitFor(() => { expect(within(tree).getByText('4 sessions')).toBeDefined() }, { timeout: 10_000 })
+
+  expect({
+    chip: visibleText(workspaceChip()),
+    composerDisabled: composer.disabled,
+    blankRow: within(tree).getByText('New Session').textContent,
+  }).toMatchInlineSnapshot(`
+    {
+      "blankRow": "New Session",
+      "chip": "fixture",
+      "composerDisabled": false,
+    }
+  `)
+})
+
 it('creating a Workspace materializes and lists its selected blank Session', async () => {
   boot('?fixture=empty')
 
@@ -297,8 +317,6 @@ it('a rejected first prompt keeps the session blank and the draft in the machine
 it('switching Workspace before the first message carries the draft to the new blank session', async () => {
   boot('?fixture')
 
-  await findLockedComposer()
-  await pickWorkspace('fixture')
   const composer = await findHeroComposer()
   setComposerText(composer, 'carry me')
 

@@ -115,6 +115,10 @@ export function apply(ctx: Context): void {
   const connection = ctx.get('connection') as ConnectionHandle
   const sessions = new SessionsService(ctx, connection.api)
   const workspaces = new WorkspacesService(ctx, connection.api, sessions)
+  ctx.effect(
+    () => workspaces.startInitialSelection(),
+    'runtime: initial Workspace selection',
+  )
   const loop = connection.start({
     onMuxEnvelope: (envelope) => { sessions.handleMuxEnvelope(envelope) },
     onHostEnvelope: (envelope) => {

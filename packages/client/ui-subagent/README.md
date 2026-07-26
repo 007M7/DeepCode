@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-subagent
 
+English | [中文](README.zh.md)
+
 Subagent reference source, browser half: registers the `@`-trigger `subagent` source into `ctx.slash`. Candidates are zero-RPC — filtered from the root `ctx.sessions.list` snapshot captured at registration (children of the per-call projection's session: `parentId` matches, `running`, `displayTitle` contains the query); picking a candidate lands the literal `@label ` text through the slash pipeline (decision 21 plain-text reference), and the source `codec` projects both faces as `@label` — the model serialization stays the raw label until the `@` consumption feature defines a model representation. The source implements no `matchSpace`/`matchEnter` hooks — subagent references never enter command adjudication and ride ordinary prompts into the default sink.
 
 A session with no running children is simply candidate-less. This phase ships "menu + reference text" only; what consuming an `@label` means (steering the child, resuming a disposed one) is future business work.

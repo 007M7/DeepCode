@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-25-web-client-session-scope-and-provide-channel.md) | 中文
 
-> 范围：client Agent scope（actx）与定向事件、client/host 实体化对等模型、空会话 blank 位与复用（`connectWorkspace`）、per-session 供数通道（`sessions.provide`）、队列只读镜像（`session/queued`），以及承载这些能力的 host wire 小件（summary `blank` 列、`host/session-added` 帧字段、`host/commands-changed` 帧）。输入状态机与 slash 管线见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.zh.md)；命令业务面见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.zh.md)。
+> 范围：client Agent scope（actx）与定向事件、client/host 实体化对等模型、空会话 blank 位与复用（`connectWorkspace`）、per-session 供数通道（`sessions.provide`）、队列只读镜像（`session/queued`），以及承载这些能力的 host wire 小件（summary `blank` 列、`host/session-added` 帧字段、`host/commands-changed` 帧）。输入状态机与 slash 管线见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)；命令业务面见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)。
 
 ## 问题
 
@@ -80,6 +80,7 @@ Session 实例与 scope 同生命周期，存活资格 = host listed（一个判
 - 解析保证（两臂同契约）：promise resolve 时返回的 id 已在 list store 且 `sessions.binding(id)` 同步可解析——`SessionsService.create` 在 RPC 成功后同步投影列表再 resolve，使 draft 搬运方可以在 open 之前往新 scope 的 machine 写文本，不等 notifier flush。
 - 调用方拿 id 自行 `sessions.open`；首讯发送就是普通 `session.prompt`——会话本来就在，失败即普通 prompt 失败，draft 文本还在 machine 里，重试即再次发送。
 - 全局 New Session 按钮默认取 `recentWorkspaceId`：先比较各 Workspace 内 Session 的最新 `updatedAt`，无 Session 时回退 Workspace `createdAt`，同值保持 Host 顺序；只有完全没有 Workspace 时才 `sessions.clear()` 进入无 session 视图。Workspace 分组内的创建动作仍显式命中该 Workspace。
+- runtime 启动时订阅首次完整基线：若已有恢复成功的 current session 则保持不动，否则自动 `connectWorkspace(recentWorkspaceId)` 并 open 返回的 blank session。该策略只结算一次；之后用户主动 clear 不会再次被自动选择覆盖，连接失败则等下一次基线投影重试。
 - blank Hero 中改选 Workspace 也走 `connectWorkspace`；若目标 id 与当前 id 不同，先把当前 input machine 的非空 draft 搬到目标 scope，再 `sessions.open(nextId)`。旧 blank 实体不删除，只因不再 current 而从列表隐藏。
 
 ### per-session 供数：`sessions.provide` 标准件通道
@@ -107,7 +108,7 @@ slot scope 是闭集 `root | session-maybe | session`：
 
 - summary `blank` 列与 `host/session-added` 帧 `blank` 字段（见上文 blank 位）。
 - SSE 帧 `host/commands-changed`（纯失效信号）；client 路由为类型事件 `commands/changed` 与 `connection/reset`（连接代建立后广播，wire 派生缓存一律视旧态为 stale）。
-- `command.list/execute`、`skill.list` 一律 `sessionId` 单址（会话恒有 Agent，`agentFor` 的 resume 语义现成）；命令面叙述见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.zh.md)。
+- `command.list/execute`、`skill.list` 一律 `sessionId` 单址（会话恒有 Agent，`agentFor` 的 resume 语义现成）；命令面叙述见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)。
 - `session.create` 请求形状：workspaceId/cwd 二选一 + 可选调用方预分配 sessionId（同 id 同 cwd 重试幂等，异 cwd 报 `session-conflict`）。
 
 ## Alternatives considered
