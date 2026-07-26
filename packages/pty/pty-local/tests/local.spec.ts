@@ -135,12 +135,16 @@ describe('pty-local real shell', () => {
     const { ctx, agent } = await harness('danger-full-access')
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     const controller = new AbortController()
+    const ready = 'RAW_READY'
+    // The interactive shell echoes the command, so only child output may contain the readiness marker.
+    const command = 'python3 -c \'import signal,sys,termios,time; signal.signal(signal.SIGINT, lambda *_: (print("SIGINT_SEEN", flush=True), sys.exit(0))); attrs=termios.tcgetattr(0); attrs[3] &= ~termios.ISIG; termios.tcsetattr(0, termios.TCSANOW, attrs); print("RAW_" + "READY", flush=True); time.sleep(60)\''
+    expect(command).not.toContain(ready)
     const foreground = ctx.pty.startSend(agent, created.sessionId, {
-      text: 'python3 -c \'import signal,sys,termios,time; signal.signal(signal.SIGINT, lambda *_: (print("SIGINT_SEEN", flush=True), sys.exit(0))); attrs=termios.tcgetattr(0); attrs[3] &= ~termios.ISIG; termios.tcsetattr(0, termios.TCSANOW, attrs); print("RAW_READY", flush=True); time.sleep(60)\'',
+      text: command,
       submit: true,
       signal: controller.signal,
     })
-    await waitForOutput(foreground, 'RAW_READY')
+    await waitForOutput(foreground, ready)
     controller.abort()
     const result = await foreground.done
     expect(result.waitReason).toBe('stdin_read')
