@@ -66,9 +66,14 @@ export interface SpawnInternals {
 /** Timeout code marking a dispose-ladder tier bound (vs an external abort). */
 const DISPOSE_TIER_TIMEOUT = 'SUBPROCESS_DISPOSE_TIER'
 
-/** Liveness-poll cadence for tree-exit waits; unref'd so an abandoned wait cannot hold the parent's loop open. */
+/**
+ * Liveness-poll cadence for tree-exit waits. The timer stays ref'd: an
+ * awaited teardown must keep the event loop alive until the tree really
+ * exits, or the parent can exit while claiming quiescence and orphan the
+ * survivors it promised to reap.
+ */
 function sleepTick(): Promise<void> {
-  return sleepMs(15, undefined, { ref: false })
+  return sleepMs(15)
 }
 
 let spillCounter = 0
@@ -401,12 +406,13 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     if (!treeAlive()) return
     signalTree(platform, pid, 'SIGTERM', child, taskkill)
     // The escalation must survive direct-child settlement — the leader dying
-    // does not mean the tree died — so the timer is unref'd rather than
-    // cleared at settle, and re-checks tree liveness before force-killing.
+    // does not mean the tree died — so settle does not clear this timer, and
+    // it re-probes tree liveness before force-killing. It stays ref'd: the
+    // pending SIGKILL is a commitment, and a parent exiting before it fires
+    // would orphan a trapped survivor. Self-bounds at graceMs.
     graceTimer = setTimeout(() => {
       if (treeAlive()) signalTree(platform, pid, 'SIGKILL', child, taskkill)
     }, spec.graceMs)
-    graceTimer.unref()
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
