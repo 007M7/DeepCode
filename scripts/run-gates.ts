@@ -454,6 +454,7 @@ function docSyncLeafGates(options: {
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
     pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format' }),
+    pnpmScript('archived-agent-notes', 'verify-archived-agent-notes', { label: 'archived agent notes' }),
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),

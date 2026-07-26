@@ -1,0 +1,23 @@
+- region "Which color do you prefer?":
+  - text: Pick one
+  - heading "Which color do you prefer?" [level=2]
+  - text: 1 / 1
+  - button "上一题" [disabled]:
+    - img
+  - button "下一题" [disabled]:
+    - img
+  - button "放弃整组问题":
+    - img
+  - radiogroup:
+    - radio "Blue":
+      - text: 1 Blue
+      - img
+    - radio "Green":
+      - text: 2 Green
+      - img
+    - button "其他，请填写自定义答案":
+      - img
+      - text: 其他，请填写自定义答案
+  - status
+  - button "跳过本题"
+  - button "提交" [disabled]

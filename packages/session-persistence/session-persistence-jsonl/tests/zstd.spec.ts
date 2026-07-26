@@ -245,10 +245,35 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
       backend = new SessionPersistenceJsonl(inner, { root })
     }, { inject: ['sessions'] }))
     const header = meta('direct-default')
+    const path = logPath(root, header.cwd, header.id, 'zstd')
     expect(backend.locate(header)).toEqual({
       kind: 'jsonl',
-      path: logPath(root, header.cwd, header.id, 'zstd'),
+      path,
     })
+
+    const base = oneTurnLog()
+    const events: SessionEvent[] = [
+      ...base.slice(0, 3),
+      ...Array.from({ length: 3 }, (_, index): SessionEvent => ({
+        type: 'assistant/chunk',
+        seq: 3 + index,
+        time: 4 + index,
+        data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: `part-${index}` } },
+      })),
+      ...base.slice(3).map((event): SessionEvent => ({
+        ...event,
+        seq: event.seq + 3,
+        time: event.time + 3,
+      })),
+    ]
+    await backend.create(header)
+    await backend.append(header.id, events)
+
+    const plaintext = (await decodeCompleteFrames(await readFile(path))).toString()
+    const recordTypes = plaintext.trimEnd().split('\n')
+      .map(line => (JSON.parse(line) as { type: string }).type)
+    expect(recordTypes).toContain('text-chunks')
+    expect((await backend.load(header.id)).events).toEqual(events)
   })
 
   it('appends one frame per durable batch without rewriting prior bytes', async () => {

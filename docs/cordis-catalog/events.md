@@ -842,7 +842,31 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:143`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:156`](../../packages/core/tools/src/index.ts)
+
+### `tools/code-dispatch-log` — waterfall
+
+Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the unshaped content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+
+```ts cordis-catalog
+/**
+ * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
+ * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+ * content unchanged; a listener may return replacement blocks (e.g. the
+ * spill policy's preview + locator for an oversized text result). Only the
+ * logged copy is affected — the program already received the complete
+ * value, and the model sees neither. A throwing listener is contained:
+ * the bridge falls back to logging the unshaped content.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+ * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
+ * @mode waterfall
+ */
+'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
+```
+
+Types: [CodeDispatchLog](../core-data-structures/tools.md) · [ContentBlock](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [ToolRegistry](../core-data-structures/tools.md)
+
+Source: [`packages/core/tools/src/index.ts:138`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -927,7 +951,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:133`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:146`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 

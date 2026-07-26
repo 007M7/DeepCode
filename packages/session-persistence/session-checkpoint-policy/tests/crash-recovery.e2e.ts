@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,11 +18,17 @@ const sessionId = SessionId('semantic-checkpoint-crash')
 const roots: string[] = []
 const CHILD_FAILPOINT_TIMEOUT_MS = 30_000
 
-async function waitForFile(path: string): Promise<void> {
-  await vi.waitFor(async () => {
-    await access(path).catch((error: unknown) => {
-      throw new Error(`crash child did not reach failpoint ${path}`, { cause: error })
+async function waitForMarker(path: string, expected: string): Promise<string> {
+  return await vi.waitFor(async () => {
+    const content = await readFile(path, 'utf8').catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      throw new Error(`crash child did not publish failpoint ${JSON.stringify(expected)} at ${path}`, { cause: error })
     })
+    if (content === expected) return content
+    if (!expected.startsWith(content)) {
+      throw new Error(`crash child wrote unexpected failpoint ${JSON.stringify(content)}`)
+    }
+    throw new Error(`crash child has not finished publishing failpoint ${JSON.stringify(expected)}`)
   }, { interval: 10, timeout: CHILD_FAILPOINT_TIMEOUT_MS })
 }
 
@@ -30,6 +36,9 @@ async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; marker
   const root = await mkdtemp(join(tmpdir(), `dsh-semantic-${mode}-`))
   roots.push(root)
   const marker = join(root, 'failpoint')
+  // Keep the open-before-write window deterministic: readiness is marker content, not path existence.
+  await writeFile(marker, '')
+  const expectedMarker = mode === 'request' ? 'request-dispatched' : 'tool-side-effect'
   // The SIGKILL-at-failpoint choreography stays custom: the child must die
   // mid-write, so no timeout or graceful termination may reach it first.
   const child = execa(process.execPath, ['--import', tsxLoader, childScript, mode, root, marker], {
@@ -40,8 +49,7 @@ async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; marker
     reject: false,
   })
   try {
-    await waitForFile(marker)
-    const markerText = await readFile(marker, 'utf8')
+    const markerText = await waitForMarker(marker, expectedMarker)
     child.kill('SIGKILL')
     const exit = await child
     expect({ code: exit.exitCode ?? null, signal: exit.signal ?? null }).toEqual({ code: null, signal: 'SIGKILL' })

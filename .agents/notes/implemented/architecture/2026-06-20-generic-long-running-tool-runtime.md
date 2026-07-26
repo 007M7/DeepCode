@@ -19,7 +19,7 @@ The `tasks/` package group owns background-task semantics:
 
 Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The execution seams remain independent of sessions and the task registry.
 
-`TaskService` is a concrete, process-local service. TODO(task-service-backend): separate its public contract from the implementation when a second backend defines the required lifecycle; a systemd-backed runtime is one plausible driver, but this PR does not speculate about its durability, reconnect, ownership, or observation semantics.
+`TaskService` is the abstract seam in `@deepseek-ai/dsh-tasks`; the process-local registry is `LocalTaskService` in `@deepseek-ai/dsh-tasks-local` (the [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) records that split).
 
 ## Runtime contract
 
@@ -103,7 +103,7 @@ Separate bash and subagent output/stop tools duplicate ids, isolation, cleanup, 
 
 ### An immediate abstract task-runtime backend
 
-The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so extracting an interface before a second implementation exists would freeze the wrong boundary.
+The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so at introduction time the registry stayed one concrete service rather than freezing the wrong boundary. The [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) later separated the contract from the process-local implementation without changing these in-process semantics.
 
 ### Consumer-owned authorization or cleanup events
 

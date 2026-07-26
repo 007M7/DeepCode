@@ -144,7 +144,7 @@ describe('renderToolsSdk', () => {
     // The fixed instruction lines the model relies on.
     expect(text).toContain('erasable syntax only')
     expect(text).toContain('rejects with `ToolCallError`')
-    expect(text).toContain('sequentially, even under `Promise.all`')
+    expect(text).toContain('MAY overlap under `Promise.all`')
     expect(text).toContain('lossless JSON')
   })
 

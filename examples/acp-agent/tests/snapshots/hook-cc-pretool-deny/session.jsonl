@@ -5,49 +5,9 @@
 {"type":"step/start","seq":3,"time":1783352165198,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":4,"time":1783352165199,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
 {"type":"assistant/chunk","seq":5,"time":1783352165899,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
-{"type":"assistant/chunk","seq":6,"time":1783352165899,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
-{"type":"assistant/chunk","seq":7,"time":1783352166048,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
-{"type":"assistant/chunk","seq":8,"time":1783352166075,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" wants"}}}
-{"type":"assistant/chunk","seq":9,"time":1783352166075,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" me"}}}
-{"type":"assistant/chunk","seq":10,"time":1783352166075,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
-{"type":"assistant/chunk","seq":11,"time":1783352166076,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" run"}}}
-{"type":"assistant/chunk","seq":12,"time":1783352166076,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" a"}}}
-{"type":"assistant/chunk","seq":13,"time":1783352166076,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" simple"}}}
-{"type":"assistant/chunk","seq":14,"time":1783352166104,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" bash"}}}
-{"type":"assistant/chunk","seq":15,"time":1783352166104,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" command"}}}
-{"type":"assistant/chunk","seq":16,"time":1783352166105,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" and"}}}
-{"type":"assistant/chunk","seq":17,"time":1783352166105,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" report"}}}
-{"type":"assistant/chunk","seq":18,"time":1783352166105,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
-{"type":"assistant/chunk","seq":19,"time":1783352166133,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" result"}}}
-{"type":"assistant/chunk","seq":20,"time":1783352166133,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" verb"}}}
-{"type":"assistant/chunk","seq":21,"time":1783352166160,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"atim"}}}
-{"type":"assistant/chunk","seq":22,"time":1783352166160,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"reasoning-chunks","seq0":6,"time0":1783352165899,"data":{"turn":1,"step":1,"index":0,"dt":[149,27,0,0,1,0,0,28,0,1,0,0,28,0,27,0],"texts":["The"," user"," wants"," me"," to"," run"," a"," simple"," bash"," command"," and"," report"," the"," result"," verb","atim","."]}}
 {"type":"assistant/chunk","seq":23,"time":1783352166218,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"tool-call"}}}
-{"type":"assistant/chunk","seq":24,"time":1783352166218,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":""}}}
-{"type":"assistant/chunk","seq":25,"time":1783352166250,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"{"}}}
-{"type":"assistant/chunk","seq":26,"time":1783352166250,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":27,"time":1783352166250,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"command"}}}
-{"type":"assistant/chunk","seq":28,"time":1783352166278,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":29,"time":1783352166279,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":": "}}}
-{"type":"assistant/chunk","seq":30,"time":1783352166279,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":31,"time":1783352166279,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"echo"}}}
-{"type":"assistant/chunk","seq":32,"time":1783352166308,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":" HE"}}}
-{"type":"assistant/chunk","seq":33,"time":1783352166308,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"LL"}}}
-{"type":"assistant/chunk","seq":34,"time":1783352166309,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"O"}}}
-{"type":"assistant/chunk","seq":35,"time":1783352166309,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":36,"time":1783352166336,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":", "}}}
-{"type":"assistant/chunk","seq":37,"time":1783352166337,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":38,"time":1783352166365,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"description"}}}
-{"type":"assistant/chunk","seq":39,"time":1783352166365,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":40,"time":1783352166365,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":": "}}}
-{"type":"assistant/chunk","seq":41,"time":1783352166365,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":42,"time":1783352166394,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"Run"}}}
-{"type":"assistant/chunk","seq":43,"time":1783352166394,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":" echo"}}}
-{"type":"assistant/chunk","seq":44,"time":1783352166422,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":" HE"}}}
-{"type":"assistant/chunk","seq":45,"time":1783352166422,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"LL"}}}
-{"type":"assistant/chunk","seq":46,"time":1783352166422,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"O"}}}
-{"type":"assistant/chunk","seq":47,"time":1783352166422,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":48,"time":1783352166453,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","argumentsDelta":"}"}}}
+{"type":"tool-call-chunks","seq0":24,"time0":1783352166218,"data":{"turn":1,"step":1,"index":1,"dt":[32,0,0,28,1,0,0,29,0,1,0,27,1,28,0,0,0,29,0,28,0,0,0,31],"id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","args":["","{","\"","command","\"",": ","\"","echo"," HE","LL","O","\"",", ","\"","description","\"",": ","\"","Run"," echo"," HE","LL","O","\"","}"]}}
 {"type":"assistant/chunk","seq":49,"time":1783352166512,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user wants me to run a simple bash command and report the result verbatim."}}}}
 {"type":"assistant/chunk","seq":50,"time":1783352166512,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"tool-call","id":"call_00_JliP571Bh0QQ8QExbSPk0080","name":"bash","arguments":"{\"command\": \"echo HELLO\", \"description\": \"Run echo HELLO\"}"}}}}
 {"type":"assistant/chunk","seq":51,"time":1783352166512,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":2878,"outputTokens":83,"cacheReadTokens":0,"reasoningTokens":17}}}}
@@ -60,58 +20,9 @@
 {"type":"step/end","seq":58,"time":1783352166529,"data":{"turn":1,"step":1}}
 {"type":"step/start","seq":59,"time":1783352166529,"data":{"turn":1,"step":2}}
 {"type":"assistant/chunk","seq":60,"time":1783352167307,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
-{"type":"assistant/chunk","seq":61,"time":1783352167308,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
-{"type":"assistant/chunk","seq":62,"time":1783352167440,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" bash"}}}
-{"type":"assistant/chunk","seq":63,"time":1783352167469,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" tool"}}}
-{"type":"assistant/chunk","seq":64,"time":1783352167469,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" is"}}}
-{"type":"assistant/chunk","seq":65,"time":1783352167469,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" disabled"}}}
-{"type":"assistant/chunk","seq":66,"time":1783352167469,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" by"}}}
-{"type":"assistant/chunk","seq":67,"time":1783352167469,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" policy"}}}
-{"type":"assistant/chunk","seq":68,"time":1783352167470,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
-{"type":"assistant/chunk","seq":69,"time":1783352167497,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" I"}}}
-{"type":"assistant/chunk","seq":70,"time":1783352167497,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" need"}}}
-{"type":"assistant/chunk","seq":71,"time":1783352167525,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
-{"type":"assistant/chunk","seq":72,"time":1783352167526,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" report"}}}
-{"type":"assistant/chunk","seq":73,"time":1783352167526,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" this"}}}
-{"type":"assistant/chunk","seq":74,"time":1783352167557,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" error"}}}
-{"type":"assistant/chunk","seq":75,"time":1783352167557,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" verb"}}}
-{"type":"assistant/chunk","seq":76,"time":1783352167582,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"atim"}}}
-{"type":"assistant/chunk","seq":77,"time":1783352167582,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" back"}}}
-{"type":"assistant/chunk","seq":78,"time":1783352167611,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
-{"type":"assistant/chunk","seq":79,"time":1783352167612,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
-{"type":"assistant/chunk","seq":80,"time":1783352167613,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
-{"type":"assistant/chunk","seq":81,"time":1783352167613,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"reasoning-chunks","seq0":61,"time0":1783352167308,"data":{"turn":1,"step":2,"index":0,"dt":[132,29,0,0,0,0,1,27,0,28,1,0,31,0,25,0,29,1,1,0],"texts":["The"," bash"," tool"," is"," disabled"," by"," policy","."," I"," need"," to"," report"," this"," error"," verb","atim"," back"," to"," the"," user","."]}}
 {"type":"assistant/chunk","seq":82,"time":1783352167613,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":83,"time":1783352167613,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":"The"}}}
-{"type":"assistant/chunk","seq":84,"time":1783352167643,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" tool"}}}
-{"type":"assistant/chunk","seq":85,"time":1783352167672,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" returned"}}}
-{"type":"assistant/chunk","seq":86,"time":1783352167701,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":":\n\n"}}}
-{"type":"assistant/chunk","seq":87,"time":1783352167701,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":">"}}}
-{"type":"assistant/chunk","seq":88,"time":1783352167702,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" Error"}}}
-{"type":"assistant/chunk","seq":89,"time":1783352167730,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":":"}}}
-{"type":"assistant/chunk","seq":90,"time":1783352167730,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" bash"}}}
-{"type":"assistant/chunk","seq":91,"time":1783352167731,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" is"}}}
-{"type":"assistant/chunk","seq":92,"time":1783352167731,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" disabled"}}}
-{"type":"assistant/chunk","seq":93,"time":1783352167731,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" by"}}}
-{"type":"assistant/chunk","seq":94,"time":1783352167731,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" policy"}}}
-{"type":"assistant/chunk","seq":95,"time":1783352167757,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" in"}}}
-{"type":"assistant/chunk","seq":96,"time":1783352167758,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" this"}}}
-{"type":"assistant/chunk","seq":97,"time":1783352167758,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" session"}}}
-{"type":"assistant/chunk","seq":98,"time":1783352167758,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":"\n\n"}}}
-{"type":"assistant/chunk","seq":99,"time":1783352167758,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":"I"}}}
-{"type":"assistant/chunk","seq":100,"time":1783352167786,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" cannot"}}}
-{"type":"assistant/chunk","seq":101,"time":1783352167786,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" run"}}}
-{"type":"assistant/chunk","seq":102,"time":1783352167817,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" the"}}}
-{"type":"assistant/chunk","seq":103,"time":1783352167817,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" command"}}}
-{"type":"assistant/chunk","seq":104,"time":1783352167842,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" because"}}}
-{"type":"assistant/chunk","seq":105,"time":1783352167872,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" the"}}}
-{"type":"assistant/chunk","seq":106,"time":1783352167873,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" bash"}}}
-{"type":"assistant/chunk","seq":107,"time":1783352167873,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" tool"}}}
-{"type":"assistant/chunk","seq":108,"time":1783352167900,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" is"}}}
-{"type":"assistant/chunk","seq":109,"time":1783352167901,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" disabled"}}}
-{"type":"assistant/chunk","seq":110,"time":1783352167901,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" by"}}}
-{"type":"assistant/chunk","seq":111,"time":1783352167932,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":" policy"}}}
-{"type":"assistant/chunk","seq":112,"time":1783352167933,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":1,"text":"."}}}
+{"type":"text-chunks","seq0":83,"time0":1783352167613,"data":{"turn":1,"step":2,"index":1,"dt":[30,29,29,0,1,28,0,1,0,0,0,26,1,0,0,0,28,0,31,0,25,30,1,0,27,1,0,31,1],"texts":["The"," tool"," returned",":\n\n",">"," Error",":"," bash"," is"," disabled"," by"," policy"," in"," this"," session","\n\n","I"," cannot"," run"," the"," command"," because"," the"," bash"," tool"," is"," disabled"," by"," policy","."]}}
 {"type":"assistant/chunk","seq":113,"time":1783352167933,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The bash tool is disabled by policy. I need to report this error verbatim back to the user."}}}}
 {"type":"assistant/chunk","seq":114,"time":1783352167933,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"The tool returned:\n\n> Error: bash is disabled by policy in this session\n\nI cannot run the command because the bash tool is disabled by policy."}}}}
 {"type":"assistant/chunk","seq":115,"time":1783352167933,"data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":167,"outputTokens":52,"cacheReadTokens":2816,"reasoningTokens":21}}}}

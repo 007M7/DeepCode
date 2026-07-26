@@ -18,7 +18,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -31,8 +31,14 @@ import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded } from '@deepseek-ai/dsh-app-boot'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, {
+  packChunkRuns,
+  SESSION_FORMAT_VERSION,
+  SessionId,
+  type Session,
+  type SessionEvent,
+  type SessionHeader,
+} from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -91,8 +97,21 @@ export interface LaunchOptions {
    * mounts).
    */
   replayFixture?: string
+  /**
+   * Optional replay.override.json sidecar (whole-script replacement or
+   * `{ patches }` augmentation) for throw/hang scenarios not expressible as
+   * recorded chunks; replay/refresh only.
+   */
+  replayOverride?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
   paceMs?: number
+  /**
+   * Tool presentation mode patched onto the shipped `tools` row (`code`
+   * collapses the wire to run_code + the SDK prompt section). Omit for the
+   * yml default. The code runtime row is always in the tree, so no extra
+   * insertion is needed.
+   */
+  toolsMode?: 'native' | 'code' | 'both'
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -119,7 +138,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       throw new Error('web e2e record mode needs DEEPSEEK_API_KEY (env or repo-root .env)')
     }
   }
-  const workspaceCwd = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-'))
+  const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -145,6 +164,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'workspace-context', disabled: true },
     { id: 'session-title-llm', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...mode === 'record' ? [] : [{ id: 'llm-deepseek', disabled: true }],
   ]
 
@@ -179,6 +199,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       replayHandle = installLlmReplay(ctx, {
         file: options.replayFixture,
         providers: REPLAY_PROVIDERS,
+        ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
       })
     }
@@ -239,14 +260,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
 }
 
 /**
- * Serialize a live session back to raw session-JSONL (header + events) — the
+ * Serialize a live session to the canonical raw session-JSONL layout — the
  * in-memory record-mode harvest, so the on-disk zstd default never matters.
- * Mirrors the TUI suite's rawSessionLog.
  */
 function rawSessionLog(session: Session): string {
   return [
     JSON.stringify({ type: 'session', ...session.header }),
-    ...session.events.map(event => JSON.stringify(event)),
+    ...packChunkRuns(session.events).map(record => JSON.stringify(record)),
     '',
   ].join('\n')
 }
@@ -428,4 +448,18 @@ export function watchConsole(page: Page): { warnings: string[]; pageErrors: stri
   })
   page.on('pageerror', (error) => { pageErrors.push(String(error)) })
   return { warnings, pageErrors }
+}
+
+/**
+ * Remove only connection-loss warnings emitted after an intentional reload.
+ * Earlier warnings and all gap-repair/discontinuity warnings remain fatal.
+ * @param tripwire - the live console-warning collector.
+ * @param warningStart - warning count captured immediately before reloading.
+ */
+export function acknowledgeReloadConnectionLoss(
+  tripwire: ReturnType<typeof watchConsole>,
+  warningStart: number,
+): void {
+  const reloadWarnings = tripwire.warnings.splice(warningStart)
+  tripwire.warnings.push(...reloadWarnings.filter(text => !/connection lost/i.test(text)))
 }

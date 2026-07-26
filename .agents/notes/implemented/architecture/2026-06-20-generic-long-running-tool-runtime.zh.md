@@ -19,7 +19,7 @@ Status: implemented
 
 长时间运行工具是生产方。`dsh-tool-bash` 将 `BashProcess` 适配为增量输出与进程取消；`dsh-tool-subagent` 将子运行适配为最终输出与子运行释放。执行 seam 保持独立，不依赖会话或任务注册表。
 
-`TaskService` 是一个具体的进程内服务。TODO(task-service-backend)：当第二个后端明确所需生命周期后，将其公共契约与实现分离；systemd 驱动的运行时是一种可能方案，但本 PR（Pull Request）不臆测其持久性、重连、所有权或观察语义。
+`TaskService` 是 `@deepseek-ai/dsh-tasks` 中的抽象 seam；进程内注册表是 `@deepseek-ai/dsh-tasks-local` 中的 `LocalTaskService`（该拆分记录在[任务注册表 seam Agent Note](2026-07-26-task-registry-seam.md)中）。
 
 ## 运行时契约
 
@@ -103,7 +103,7 @@ bash seam 暴露 `resolve`、`run` 和 `start`。`start(spec)` 返回一个 `Bas
 
 ### 立即抽象任务运行时后端
 
-当前 `TaskStart.run()` 契约传入进程内回调与确切的 `Agent` 对象。持久化后端会改变身份、重启、所有权与观察语义，因此在第二种实现出现前抽取接口，会固化错误的边界。
+当前 `TaskStart.run()` 契约传入进程内回调与确切的 `Agent` 对象。持久化后端会改变身份、重启、所有权与观察语义，因此在引入之时注册表保持为单一具体服务，而非固化错误的边界。[任务注册表 seam Agent Note](2026-07-26-task-registry-seam.md)后来在不改变这些进程内语义的前提下，将契约与进程内实现分离。
 
 ### 由消费方负责授权或清理事件
 
