@@ -10,7 +10,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 决策
 
-`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放，断言规范化后的会话区 aria 预期输出加进程内世界状态。不新增包（package）；产品侧增量只有 `dsh-llm-replay` 的两处增量接口（`paceMs`、`ReplayHandle`）。
+`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放；用户可见状态使用规范化的 aria 预期输出，持久世界状态则使用进程内断言。配套的产品契约包括 `dsh-llm-replay` 的节奏控制、消费检查与已校验的索引式覆写 patch；跨包的 `dsh-llm` 失败通过自有数据属性保留经校验的提供方信息；已交付的 web 组合挂载 `llm-retry`，以处理瞬态模型失败。
 
 ### Scaffold：`apps/web/tests/scaffold.ts`
 
@@ -32,18 +32,17 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### 预期输出
 
-每场景一份提交的预期输出：会话区规范化 `ariaSnapshot()`（`ui.expected.md`）——uuid/cwd/工作区目录名/时长归一为稳定 token，在安定里程碑处轮询至两次相等再采集——外加几条 role/文本锚断言，让保语义的组件重写在预期输出可评审地变动时仍保持绿色锚点。aria 树是 client 规则「断言用户所见，绝不断言类名」的机械化。世界状态断言内联在根上下文的会话事件上（哪次工具调用产生了哪项已持久化的工具结果、`turn/end` 是否完成）而不是第二份提交的日志预期输出：持久化日志表面已由 ACP/headless/TUI 套件经同一循环和持久化钉住，在此重复钉住会违背分层纪律、翻倍刷新成本。`refresh` 是预期输出的唯一写入者——回放模式下预期输出缺失会连同修复命令一起报错，而不是静默自举。
+具有稳定所属区域的场景会为每个不同的用户可见状态提交一份规范化的 `ariaSnapshot()`；跨区域的工作区管理状态则使用语义 DOM 断言和权威的 host 状态检查。UUID、cwd、工作区目录名与时长等易变内容会归一为稳定 token；采集过程持续轮询，直到连续两次规范化读取结果相同。Role 与文本锚点继续充当可评审预期输出周围的语义防线，并直接覆盖跨区域状态。世界状态断言使用根上下文的会话事件，而不是第二份提交的日志预期输出，因为 ACP、headless 与 TUI 套件已经通过同一循环和持久化钉住持久化日志表面。`refresh` 是预期输出的唯一写入者；回放模式下缺少预期输出时，测试会连同重新生成命令一起失败。
 
-类型检查平面切分是结构性的：启动 host 主干的三个文件（`scaffold`、`replay-round-trip.e2e` 和 `seeded-history.e2e`）被排除出注册在 client 侧的 `apps/web` 工程。这三个文件及其共享的 `support.ts` 逐文件纳入 `tsconfig.host.json`——一个程序不能同时持有 cordis `Context` 合并的两侧。
+类型检查平面切分是结构性的：host scaffold、其支持模块，以及每个启动或检查 host 组合的 web spec 都会从注册在 client 侧的 `apps/web` 工程中排除，并逐文件纳入 `tsconfig.host.json`。一个程序不能同时持有 Cordis `Context` 合并的两侧。
 
 ### 模式与 fixture
 
-`DSH_SNAPSHOT` 以内联 spec 分支选择 replay（默认，无密钥）、record（带密钥）或 refresh（无密钥）——TUI 的形态，不是套件工厂：两个场景撑不起 acp-snapshot 工厂机制，且真正共享的部分已被导出（`scrubRequestHeaders`、`parseSessionLog`、`installLlmReplay`）。每个 spec 切分为驱动步骤（输入、发送、`whenTurnSettled`——所有模式都执行，绝不等待模型内容选择器，因此 record 不会因真实模型答法不同而挂起）与断言步骤（仅 replay/refresh）。Record = 经真实输入框实时驱动 + 采收内存中的 `session.header`/`session.events`（TUI 的 `rawSessionLog` 形态——无需文件解压）+ `scrubRequestHeaders` + `{{sessionId}}`/`{{cwd}}`/`{{rpcId}}` token 化；随后一次无密钥 refresh 重新生成 `ui.expected.md`。两个场景的 fixture 都经此流程对本组装录制。一条漂移防线把每个 spec 的驱动提示词与 fixture 录制的 `user/message` 绑定。fixture 清单防线保持每个场景目录封闭（精确文件集合，每个 JSONL 都是脱敏不动点，不含当次运行的 `rpcId`）。Web fixture 全部脱敏请求头且不钉任何头类别，沿用 TUI 先例而非[钉住请求头](2026-07-06-pin-request-header-content-in-one-scenario.md)的严格读法——见「暂缓」。
+`DSH_SNAPSHOT` 选择 replay（默认，无密钥）、record（带密钥）或 refresh（无密钥）。发起提示的 spec 将所有模式共用的驱动步骤与仅供 replay/refresh 使用的断言分开；record 模式驱动真实输入框，采收内存中的会话 header 与事件，脱敏请求头，并 token 化当次运行的会话、cwd 与 RPC 标识。随后一次无密钥 refresh 重新生成 aria 预期输出。每条提示词都会与 fixture 中录制的 `user/message` 核对；每个场景目录都采用封闭清单，其中每个 JSONL 都是脱敏不动点。Web fixture 全部脱敏请求头且不钉任何 header 类别；见「暂缓」。
 
-### 场景
+### 覆盖契约
 
-1. **`replay-round-trip`**——新会话，经真实输入框发送提示词，回放流式输出推理（reasoning）+ 一次在临时工作区真实执行的 `bash` 工具调用 + 最终文本（15ms 节奏）。断言安定后的 markdown、aria 预期输出与内联世界状态（这次 bash 调用的已持久化工具结果严格等于 `WEB_E2E_OK\n`、完成的 `turn/end`、>10 个分片事件）。
-2. **`seeded-history`**——冷播种一份已录会话；侧栏列出它（分组行 → 会话行，默认折叠），打开后纯凭日志经 `session.history` 内的隐式冷恢复挂载渲染工具卡片与文本——replay 下零模型调用，因此没有任何绑定约束；record 模式实时驱动同一轮（真实 `read` 工具读取播种的工作区文件）来产出种子。
+该车道覆盖三类行为。实时轮次场景钉住普通工具执行、取消、不可重试失败、瞬态重试、常驻提问与轮次中途 steering；同步依赖持久事件、`whenIdle()` 或显式回放标记，而不使用延时。冷历史场景通过真实持久化 API 播种，在不调用模型的情况下覆盖历史渲染、侧栏搜索、Trajectory 与 Waterfall 视图及工具详情。浏览器生命周期场景覆盖首次发送时物化工作区、重新加载恢复、布局持久化、主题与语言偏好，以及工作区的创建、重命名和视图操作。每类场景都断言浏览器表面和权威的 host 状态；离群的模型调用或未耗尽的 fixture 会使拆卸失败。
 
 ### CI 立场
 
@@ -63,7 +62,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **用占位 `DEEPSEEK_API_KEY` + 回放拦截替代禁用适配器行。** 尽管零组合改动且树内有两处先例仍被否决：它用谎言满足 `llm-deepseek` 的快速失败密钥检查，还留下一个挂载却被拦截的死适配器；禁用行（ACP overlay 的同款做法）是诚实的无密钥，并在最早可解析点快速失败。
 
-**`packages/support/web-snapshot` 包 + `defineWebSnapshotSuite` 工厂。** 已否决：驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100%，且两个场景就上工厂是从单一消费方过度泛化，真正共享的逻辑已从受门禁的包中导出。重启条件：出现第二个 web 形态消费方，或 ≥6 个场景的内联分支被证实各自漂移；届时包边界将画在无浏览器一侧。
+**`packages/support/web-snapshot` 包 + `defineWebSnapshotSuite` 工厂。** 已否决：驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100%，且除受门禁的包已导出的辅助工具与本地 scaffold 外，这些场景专用交互尚未形成稳定的无浏览器契约。出现第二个 web 形态消费方，或被证实重复的生命周期代码确立该契约后，再重新考虑。
 
 **第二份提交的规范化会话日志预期输出。** 已否决：日志表面已由 ACP/headless/TUI 套件经同一循环与持久化钉住；在此只会翻倍刷新成本并重复测试下层。内联在根上下文事件上的世界状态断言保住了验证世界的义务。
 
@@ -73,17 +72,20 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **以真实模型浏览器测试充当无密钥车道。** 已否决：按构造即不确定；被调研的前车之鉴（open-webui）长出无界超时后被删除。带密钥的 W5 冒烟仍是真实模型侧的补充。
 
-**客户端 `data-dsh-busy` 安定信号。** 暂缓：两个场景下多条件安定轮询已经够用，host 侧 `whenIdle` 屏障承担了重活。重启条件：第一次安定轮询抖动，或某场景需要等待 DOM 不暴露的状态。
+**客户端 `data-dsh-busy` 安定信号。** 暂缓：host 侧 `whenIdle` 屏障配合稳定 DOM 轮询，足以覆盖当前场景。第一次安定轮询抖动，或必要状态在 DOM 中不可观察时，再重新考虑。
 
 ## Testing
 
-车道自身：`pnpm run test:web` 与既有冒烟对一起无密钥运行两个场景；`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型重录某场景的 fixture；`DSH_SNAPSHOT=refresh` 无密钥重写两份 aria 预期输出。`paceMs` 校验、节奏下限、节奏中中止、`assertConsumed` 的两种失败形态钉在 `packages/support/llm-replay/tests/llm-replay.spec.ts`。
+`pnpm run test:web` 无密钥运行该车道。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh` 则无密钥重写 aria 预期输出。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
 
 ## 暂缓
 
 - **Web 头类别钉住**：web fixture 处处 token 化 `{{system}}`/`{{tools}}`，没有场景钉住 web 组合的提示词/工具 schema（`TODO(web-header-pin)`——scaffold 的 `recordFixture` JSDoc 有标记）。沿用 TUI 处处脱敏先例；当 web 组装的请求头与其镜像的 repl 组合进一步分叉时重审。
 - **CI 浏览器供给**：推翻 CI 无浏览器裁定，分阶段标准见上（`TODO(ci-browser)`）。
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
+- **Web 错误表面**：客户端不消费任何 `agent/error` 帧，分片前的失败也没有可冻结的部分输出，因此不可重试的提供方失败不渲染任何错误文案——用户看到的只是发送就此停住。AUTH 场景钉住当前契约（不崩溃、输入框恢复可用、轮次记录为 `error`），`FIXME(web-error-surface)` 标记了待 UI 长出错误渲染后断言可见错误文本的位置。
+- **输入框 steering 手势**：输入在运行期间锁定（只能停止或等待），因此 steering 场景从页面走 wire 做 steer；`TODO(web-steer-composer)` 待产品长出真实的输入框手势后，把驱动步骤升级为该手势。
+- **拖拽会话重排**：`workspace.insertSessionBefore` 尚无浏览器场景；它需要在同一个工作区里物化两个会话，并合成 HTML5 拖拽事件。当该表面变更或回归时再补充。无行为的会话 Rename/Fork/Delete 和工作区 Delete 菜单行待获得行为后再补充场景。
 
 ## 后果
 

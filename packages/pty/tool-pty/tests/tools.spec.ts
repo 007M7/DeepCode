@@ -9,7 +9,7 @@ import ToolRegistry, { renderToolsSdk } from '@deepseek-ai/dsh-tools'
 import type { ToolSdkSchema } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
 import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
 import type { PtyBackend, PtyBackendSession, PtySendOperation, PtySendRequest, PtySessionStatus, PtySignal } from '@deepseek-ai/dsh-pty'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 
@@ -106,7 +106,7 @@ async function setupBase(tasks: boolean) {
   const stub = stubBackend()
   ctx.pty.registerBackend(stub.backend)
   if (tasks) {
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks)
   }
   return { ctx, stub, agent: fakeAgent(ctx, tasks ? 'with-tasks' : 'foreground') }
