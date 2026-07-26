@@ -164,6 +164,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-workspace':
         specifier: workspace:^
         version: link:../../packages/client/ui-workspace
+      '@deepseek-ai/dsh-code-runtime-worker':
+        specifier: workspace:^
+        version: link:../../packages/code-runtime/code-runtime-worker
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:^
         version: link:../../packages/compact/compact-basic
