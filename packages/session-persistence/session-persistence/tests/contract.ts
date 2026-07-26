@@ -84,6 +84,36 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('round-trips the inherited policy baselines exactly and omits them when absent', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        // A delegated child header: the sandbox/approval baselines must
+        // survive storage verbatim — a resumed child falling back to the
+        // deployment default would reopen the delegation bypass.
+        const child: SessionHeader = {
+          ...meta('s-baseline', '/work'),
+          delegationDepth: 1,
+          sandboxMode: 'read-only',
+          approvalPolicy: 'never',
+        }
+        await persistence.create(child)
+        await persistence.append(child.id, oneTurnLog())
+        const loaded = await persistence.load(child.id)
+        expect(loaded.meta).toMatchObject({ sandboxMode: 'read-only', approvalPolicy: 'never' })
+
+        // A top-level header: absent baselines stay ABSENT (not null/empty) —
+        // presence is the signal the policy owners branch on.
+        const top = meta('s-no-baseline', '/work')
+        await persistence.create(top)
+        await persistence.append(top.id, oneTurnLog())
+        const reloaded = await persistence.load(top.id)
+        expect('sandboxMode' in reloaded.meta).toBe(false)
+        expect('approvalPolicy' in reloaded.meta).toBe(false)
+      } finally {
+        await dispose()
+      }
+    })
+
     it('rejects a fractional creation timestamp without reserving its session id', async () => {
       const { persistence, dispose } = await make()
       try {

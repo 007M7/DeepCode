@@ -764,6 +764,8 @@ describe('Session', () => {
       { header: { ...base, seedLength: '1' }, error: /seedLength must be a non-negative safe integer/ },
       { header: { ...base, seedLength: 0.5 }, error: /seedLength must be a non-negative safe integer/ },
       { header: { ...base, seedLength: -1 }, error: /seedLength must be a non-negative safe integer/ },
+      { header: { ...base, sandboxMode: 1 }, error: /header sandboxMode must be a string/ },
+      { header: { ...base, approvalPolicy: 1 }, error: /header approvalPolicy must be a string/ },
     ]
 
     for (const { header, error } of cases) {
@@ -1011,6 +1013,8 @@ describe('SessionStore', () => {
       { meta: { delegationDepth: '1' }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: 0.5 }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: -1 }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { sandboxMode: 1 }, error: /header sandboxMode must be a string/ },
+      { meta: { approvalPolicy: 1 }, error: /header approvalPolicy must be a string/ },
     ]
 
     for (const [index, { meta, error }] of cases.entries()) {
