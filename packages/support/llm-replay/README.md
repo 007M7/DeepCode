@@ -10,7 +10,7 @@ Its consumers are the ACP, headless `stream-json`, and TUI snapshot suites plus 
 
 The fixture IS the persisted session log (`<scenario>/session.jsonl`). Its `assistant/chunk` events carry every `StreamChunk`, so grouping them by `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model call per loop step). Recording is therefore "run the real agent once and harvest the `.jsonl`", done by the snapshot harness — this plugin does not record. A fixture may carry its `request/header` content tokenized to `{{system}}`/`{{tools}}` (the harness pins that content in one scenario and scrubs the rest); replay is indifferent — derivation reads only `assistant/chunk` events and the line-0 session header.
 
-Two failure modes are not reconstructable from `assistant/chunk` alone — a pure throw before any chunk (e.g. an HTTP 401, where the log holds only a `turn/end {error}` and no chunks) and a cancel/hang (timing, not chunk content). A scenario that needs those supplies an optional sidecar (`<scenario>/replay.override.json`: a `ReplayEntry[]`) that REPLACES the derived script. A `hang` entry may name `readyFile`; replay writes that empty marker after its prefix chunks reach the loop and before it waits for cancellation, so an external driver can cancel deterministically without observing a presentation update.
+Two failure modes are not reconstructable from `assistant/chunk` alone — a pure throw before any chunk (e.g. an HTTP 401, where the log holds only a `turn/end {error}` and no chunks) and a cancel/hang (timing, not chunk content). A scenario that needs those supplies an optional sidecar (`<scenario>/replay.override.json`) that either replaces the derived script (a bare `ReplayEntry[]`) or augments it (`{ patches: [{ at, entry }] }`: keep every JSONL-derived call and swap the named 0-based call indexes; `at` equal to the derived length appends the retry attempt after an injected transient throw). Patch indexes must be unique. The override document, each patch and entry, and every chunk discriminant are validated when the file loads. A `hang` entry may name `readyFile`; replay writes that empty marker after its prefix chunks reach the loop and before it waits for cancellation, so an external driver can cancel deterministically without observing a presentation update.
 
 ## Nested agents: per-session keying
 
@@ -23,7 +23,7 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `file` | string | `$DSH_SNAPSHOT_FILE` | Path to the primary (parent) `session.jsonl` fixture. Required (config or env). |
-| `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | Optional path to a `ReplayEntry[]` sidecar that replaces the PRIMARY session's derived script. |
+| `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | Optional `ReplayOverrideDoc` sidecar for the primary session: a bare `ReplayEntry[]` replaces its derived script, while `{ patches }` augments it by call index. |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES` (path-delimited) | Recorded subagent child-session logs for a nested scenario; empty for a single-session scenario. |
 | `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Each model may publish `contextWindow`; configured routes dispatch through the replay adapter and never perform provider I/O. |
 | `paceMs` | number | — (burst) | Optional per-chunk delay in ms so downstream transports (e.g. the web SSE mux observed by a real browser) see genuinely incremental delivery. A realism knob only — tests must not depend on it for correctness. Non-negative integer; abort during a pace wait cancels the stream promptly. |
@@ -48,9 +48,9 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 
 - `installLlmReplay(ctx, config)` — install the configured replay adapter or catch-all `llm/stream` listener; returns a `ReplayHandle` (`dispose()` for HMR safety plus `assertConsumed()`, the teardown check that every recorded script bound to a live session and every bound cursor drained — turning a scenario that silently drove fewer model calls than recorded into a crisp diagnostic). Use this in tests to drive replay without the Loader or env vars.
 - `loadSessionScripts(config)` — resolve the ordered `SessionScript[]` (primary + children) for a scenario, ready to bind to live sessions in first-call order.
-- `loadReplayScript(config)` — resolve the `ReplayEntry[]` for the PRIMARY session only (sidecar override if present, else derived from the JSONL; fail-loud if the fixture is missing).
+- `loadReplayScript(config)` — resolve the `ReplayEntry[]` for the primary session only (validated sidecar replacement/patches if present, else derived from the JSONL; fail-loud if the fixture is missing).
 - `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)` — the pure helpers that turn a recorded session log into a script and read its header `id`/`createdAt`. A derived group must end in a `finish` chunk; a group without one is the fingerprint of a thrown `stream()` and must instead be expressed via an override sidecar.
-- Types `ReplayEntry` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `ReplayHandle` / `Config`.
+- Types `ReplayEntry` / `ReplayOverrideDoc` / `ReplayOverridePatch` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `ReplayHandle` / `Config`.
 
 ## Plugin export shape
 
@@ -67,4 +67,4 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **First-call-order script binding assumes sequential delegation** — a cut that runs sibling subagents concurrently (or a compaction summarize call landing mid-run) would bind live sessions to recorded scripts non-deterministically; a stronger keying is deferred until such a scenario exists (`XXX(concurrent-subagents)`).
-- **Only chunk-producing calls are derivable** — a pure pre-chunk throw or a cancel/hang scenario needs the `replay.override.json` sidecar; the override replaces the PRIMARY session's script only.
+- **Only chunk-producing calls are derivable** — a pure pre-chunk throw or a cancel/hang scenario needs the `replay.override.json` sidecar. Replacement and patch forms affect only the primary session; child scripts still derive from their logs.

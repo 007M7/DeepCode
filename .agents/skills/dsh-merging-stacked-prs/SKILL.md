@@ -20,6 +20,7 @@ Given `A ← B ← C` landing on `master`:
 2. **Retarget PR B, refresh it, then merge it — keeping its branch.**
    - `gh pr edit B --base master` (now that A is in master, B's base becomes master).
    - Merge the new master *into* branch B: check out B, `git fetch origin`, `git merge origin/master` — merge `origin/master`, not local `master`, because `gh pr merge` updated only GitHub and the local branch is stale — resolve any conflicts here, and push. This makes B current and surfaces conflicts in the working branch where they can be tested — not as a surprise at the GitHub merge.
+   - If `origin/master` moves during that work, finish and push the in-progress merge, then fetch and merge the newer tip in a separate commit. Never abandon or rewrite the earlier work ([rationale](../../notes/implemented/process/2026-07-26-incremental-pr-base-retargeting.md)).
    - `gh pr merge B --merge` — still no `--delete-branch` (PR C bases on branch B).
 
 3. **Retarget PR C, refresh it, then merge it — keeping its branch.** Same steps: `gh pr edit C --base master`, fetch and merge `origin/master` into branch C, resolve conflicts there and push, then `gh pr merge C --merge` without `--delete-branch`.
