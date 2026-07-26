@@ -21,9 +21,9 @@
  *   arrives, then poll for the GO file before answering (deterministic
  *   cancel-during-handshake window).
  * - `FAKE_HANG_PROMPT`: never answer `session/prompt` (for timeout/dispose tests).
- * - `FAKE_STREAM_THEN_HANG`: stream a text chunk for the prompt, then never
- *   finish the turn or answer (partial-output cancel probe). Touches
- *   `FAKE_STREAM_READY` after the chunk when set.
+ * - `FAKE_STREAM_THEN_MALFORMED`: stream a text chunk for the prompt, then
+ *   answer `{}` (no accepted) — same-pipe ordering makes the chunk arrive
+ *   before the protocol failure (partial-output retention probe).
  * - `FAKE_IGNORE_EOF` + `FAKE_SIGTERM_FILE`: keep running after stdin EOF; touch the file on SIGTERM (ladder probe).
  * - `FAKE_TRAP_SIGTERM`: with `FAKE_IGNORE_EOF`, survive SIGTERM too (SIGKILL-rung probe).
  * - `FAKE_EXIT_BEFORE_INIT`: exit 3 immediately (spawn-then-die probe).
@@ -151,10 +151,10 @@ reader.on('line', (line) => {
       respond({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } })
       return
     case 'session/prompt': {
-      if (env.FAKE_STREAM_THEN_HANG !== undefined) {
+      if (env.FAKE_STREAM_THEN_MALFORMED !== undefined) {
         const sessionId = sessionIdOf(frame.params)
-        event(sessionId, 'assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text: 'streamed then hung' } })
-        if (env.FAKE_STREAM_READY !== undefined) writeFileSync(env.FAKE_STREAM_READY, 'streamed\n')
+        event(sessionId, 'assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text: 'streamed then cut short' } })
+        respond({})
         return
       }
       if (env.FAKE_HANG_PROMPT !== undefined) return

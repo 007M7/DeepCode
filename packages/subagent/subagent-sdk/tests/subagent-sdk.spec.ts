@@ -209,27 +209,18 @@ describe('dsh-subagent-sdk provider', () => {
     }
   })
 
-  it('keeps partial streamed text when aborted mid-turn', async () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'subagent-sdk-partial-'))
-    const streamed = join(tmp, 'streamed')
-    try {
-      const ctx = await setup(
-        { FAKE_STREAM_THEN_HANG: '1', FAKE_STREAM_READY: streamed },
-        { disposeEofGraceMs: 200, disposeGraceMs: 200, shutdownTimeoutMs: 100 },
-      )
-      const controller = new AbortController()
-      const run = await ctx.subagents.start('sdk', request('p', controller.signal))
-      // Cancel only after the chunk has demonstrably streamed (condition, not a sleep).
-      await waitForFile(streamed)
-      controller.abort('test')
-      const result = await run.result
-      expect(result.stopReason).toBe('aborted')
-      expect(text(result.output)).toBe('streamed then hung')
-      await run.dispose()
-      await ctx.fiber.dispose()
-    } finally {
-      rmSync(tmp, { recursive: true, force: true })
-    }
+  it('keeps accumulated streamed text when the turn is cut short before a full message', async () => {
+    // The fake streams one text-delta chunk and then violates the protocol on
+    // the same pipe; frame order guarantees the chunk was dispatched before
+    // the failure settles, so the accumulated partial text (no complete
+    // assistant/message ever arrived) must survive into the error result.
+    const ctx = await setup({ FAKE_STREAM_THEN_MALFORMED: '1' }, { shutdownTimeoutMs: 100, disposeEofGraceMs: 200, disposeGraceMs: 200 })
+    const run = await ctx.subagents.start('sdk', request())
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(text(result.output)).toBe('streamed then cut short')
+    await run.dispose()
+    await ctx.fiber.dispose()
   })
 
   it('dispose cancels a hung child locally and reaps it', async () => {
