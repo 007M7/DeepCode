@@ -1,5 +1,7 @@
 # compact/ — compaction capability family
 
+English | [中文](README.zh.md)
+
 A compaction capability family (see [capability seams](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract interface, a summarizing backend, a model-free tool-result pruning companion, and a deferred model-facing consumer. All **product** packages.
 
 | Package | Role | ctx key |

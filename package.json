@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -b && tsdown",
     "build:web": "pnpm --filter @deepseek-ai/dsh-frontend run build",
-    "clean:build": "rm -rf .typecheck packages/*/*/lib vendor/*/lib *.tsbuildinfo",
+    "clean": "tsx scripts/clean.ts",
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -93,9 +93,10 @@
     "demo:headless": "node --import tsx packages/examples/cli-demo/src/bin.ts --config examples/headless-agent/cordis.yml",
     "demo:tui": "node --import tsx apps/cli/src/bin.ts",
     "demo:code-mode": "node scripts/demo-code-mode.mjs",
-    "demo:cordis": "node --import tsx packages/examples/tui-demo/src/bin.ts examples/cordis-agent/cordis.yml",
+    "demo:cordis": "node --import tsx apps/cli/src/bin.ts --config examples/cordis-agent/cordis.yml",
     "demo:acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/acp-agent/cordis.yml",
     "demo:web": "npm run build && npm run build:web && node --import tsx apps/cli/src/bin.ts web",
+    "mock:llm": "node --import tsx packages/support/llm-mock-server/src/bin.ts",
     "dev:web": "tsx scripts/dev-web.ts --poll",
     "postinstall": "node scripts/install-lefthook.mjs"
   },

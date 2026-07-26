@@ -12,6 +12,7 @@
  */
 
 import type { Context } from 'cordis'
+import { join } from 'node:path'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
@@ -22,6 +23,7 @@ import SessionPersistenceJsonl, {
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 
 export const name = 'acp-demo'
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
@@ -51,7 +53,7 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory for JSONL sessions. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
   packChunks?: boolean
@@ -101,28 +103,39 @@ export const Config: z<Config> = z.object({
 /**
  * Compose the spine with the ACP automation transport. The agent-spine-demo bundle pre-creates
  * NO agents (its `agents` list defaults to `[]`) and carries the deployment
- * `persona`; the JSONL backend persists under
+ * `persona`; the JSONL backend and derived query index persist under
  * `persistenceRoot`; the ACP bridge owns stdout for JSON-RPC and creates one
  * agent per `session/new` from the provider/model pair. The composite effect
  * unloads in reverse order, keeping checkpoint and persistence listeners
  * attached until ACP agents have flushed their closing events. No logger, no
  * `hmr` — stdout stays pure.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   const goals = config.goals ?? {}
   const persistenceRoot = config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT
-  ctx.effect(function* () {
-    yield ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals }).dispose
+  await ctx.effect(async function* () {
+    const spine = ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals })
+    await spine
+    yield spine.dispose
     // Same rationale as the Config schema above: each front door forwards its own
     // persistence passthroughs rather than sharing a facade with stdio-demo.
     /* jscpd:ignore-start */
-    yield ctx.plugin(SessionPersistenceJsonl, {
+    const persistence = ctx.plugin(SessionPersistenceJsonl, {
       root: persistenceRoot,
       ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
       ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
-    }).dispose
+    })
+    await persistence
+    yield persistence.dispose
     /* jscpd:ignore-end */
-    yield ctx.plugin(sessionCheckpointPolicy).dispose
-    yield ctx.plugin(acp, { provider: config.provider, model: config.model }).dispose
+    const checkpoint = ctx.plugin(sessionCheckpointPolicy)
+    await checkpoint
+    yield checkpoint.dispose
+    const query = ctx.plugin(SessionQuerySqlite, { path: join(persistenceRoot, 'session-query.db') })
+    await query
+    yield query.dispose
+    const transport = ctx.plugin(acp, { provider: config.provider, model: config.model })
+    await transport
+    yield transport.dispose
   }, 'acp-demo.composition')
 }

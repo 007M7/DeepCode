@@ -87,8 +87,10 @@ describe('tails', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],
-      byId: { [sid]: { id: sid, title: 'r', running: false, updatedAt: 0 } },
+      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, updatedAt: 0 } },
       current: undefined,
+      intent: undefined,
+      phase: 'ready',
     } as SessionListState)
     const props = {
       callId: 'c1', toolName: 'bash', block: errorResult, openDetails: vi.fn(),

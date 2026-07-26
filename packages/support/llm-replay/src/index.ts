@@ -78,6 +78,32 @@ export interface ReplayConfig {
    * by tests that do not need discovery.
    */
   providers?: ReplayProviderConfig[]
+  /**
+   * Optional per-chunk pacing delay in milliseconds: each replayed chunk waits
+   * this long before yielding, so a downstream transport (e.g. the web SSE
+   * mux observed by a browser) sees genuinely incremental delivery. A realism
+   * knob only — correctness must never depend on it. Absent or `0` keeps
+   * today's synchronous burst yield. Must be a non-negative finite integer;
+   * aborting mid-wait cancels the stream like any other abort.
+   */
+  paceMs?: number
+}
+
+/**
+ * Handle returned by {@link installLlmReplay}: removal plus the end-of-run
+ * consumption check that turns silent fixture underruns (a scenario that
+ * issued fewer calls than recorded, or never bound a recorded child script)
+ * into a crisp diagnostic at teardown.
+ */
+export interface ReplayHandle {
+  /** Remove the registered adapter or waterfall listener (HMR safety). Freestanding closure — safe to destructure. */
+  dispose(this: void): void
+  /**
+   * Throw unless every recorded script was bound to a live session and every
+   * bound cursor consumed its full entry list. Call at scenario teardown.
+   * Freestanding closure — safe to destructure.
+   */
+  assertConsumed(this: void): void
 }
 
 /**
@@ -281,12 +307,32 @@ class ReplayAdapter extends LlmAdapter {
   }
 }
 
+/**
+ * Wait `paceMs` between chunk yields, aborting the wait (and the stream) the
+ * moment the signal fires — a paced replay must cancel as promptly as a burst
+ * one.
+ */
+function paceDelay(paceMs: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, paceMs)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new Error('aborted'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /** Yield a recorded stream back, honoring abort like a real adapter. */
-async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined): AsyncIterable<StreamChunk> {
+async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined, paceMs: number): AsyncIterable<StreamChunk> {
   switch (entry.kind) {
     case 'chunks':
       for (const chunk of entry.chunks) {
         if (signal?.aborted) throw new Error('aborted')
+        if (paceMs > 0) await paceDelay(paceMs, signal)
         yield chunk
       }
       return
@@ -297,6 +343,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
       // mid-stream STREAM_CLOSED after partial chunks).
       for (const chunk of entry.chunks) {
         if (signal?.aborted) throw new Error('aborted')
+        if (paceMs > 0) await paceDelay(paceMs, signal)
         yield chunk
       }
       throw new LlmError(entry.message, entry.code)
@@ -324,14 +371,17 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
  * next ordered recorded script, then advances its own cursor synchronously at
  * invocation time; calls without `sessionId` share one anonymous session. A
  * non-empty provider catalog registers a routed replay adapter; otherwise a
- * catch-all waterfall intercepts requests. Returns the effect disposer for
- * HMR-safe removal.
+ * catch-all waterfall intercepts requests.
  *
  * @param ctx - the context whose LLM service receives the replay route or waterfall.
  * @param config - the resolved fixture paths (env-var defaulting is `apply`'s job).
- * @returns the disposer that removes the registered adapter or listener.
+ * @returns the {@link ReplayHandle} carrying the disposer and the teardown consumption check.
  */
-export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void {
+export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHandle {
+  const paceMs = config.paceMs ?? 0
+  if (!Number.isInteger(paceMs) || paceMs < 0) {
+    throw new Error(`llm-replay: paceMs must be a non-negative integer, got ${String(config.paceMs)}`)
+  }
   const scripts = loadSessionScripts(config)
   // Live-session → its bound script + cursor. A new live session id claims the
   // next not-yet-bound script (scripts are in bind order); `nextScript` is the
@@ -375,14 +425,31 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      yield* replayEntry(entry, options.signal)
+      yield* replayEntry(entry, options.signal, paceMs)
     })()
   }
   const providers = config.providers ?? []
-  if (providers.length > 0) {
-    return ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
+  const dispose = providers.length > 0
+    ? ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
+    : ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
+  return {
+    dispose,
+    assertConsumed(): void {
+      const problems: string[] = []
+      if (nextScript < scripts.length) {
+        problems.push(`${scripts.length - nextScript} recorded script(s) never bound to a live session`)
+      }
+      for (const [key, state] of bound) {
+        if (state.cursor < state.entries.length) {
+          const who = key === ANON ? 'the anonymous session' : `session ${key}`
+          problems.push(`${who} consumed ${state.cursor}/${state.entries.length} recorded call(s)`)
+        }
+      }
+      if (problems.length > 0) {
+        throw new Error(`llm-replay: fixture not fully consumed — ${problems.join('; ')}; the scenario drove fewer model calls than recorded`)
+      }
+    },
   }
-  return ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
 }
 
 export const name = 'llm-replay'
@@ -402,6 +469,8 @@ export interface Config {
   childFiles?: string[]
   /** Optional replay-only provider catalog; absent or empty selects catch-all waterfall replay. */
   providers?: ReplayProviderConfig[]
+  /** Optional per-chunk pacing delay in ms (see {@link ReplayConfig.paceMs}); absent keeps burst yield. */
+  paceMs?: number
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -418,5 +487,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     ...overrideFile !== undefined && overrideFile.length > 0 ? { overrideFile } : {},
     ...childFiles.length > 0 ? { childFiles } : {},
     ...config.providers !== undefined ? { providers: config.providers } : {},
+    ...config.paceMs !== undefined ? { paceMs: config.paceMs } : {},
   })
 }

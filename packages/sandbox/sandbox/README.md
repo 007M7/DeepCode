@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-sandbox
 
+English | [中文](README.zh.md)
+
 Abstract process-sandbox seam. Owns the `ctx.sandbox` service contract ([`SandboxProvider`](src/index.ts)) and the confinement vocabulary the harness shares: `SandboxMode` (`read-only` / `workspace-write` / `danger-full-access`, file effects only), `SandboxEnforcement` (`full` / `partial`, per kernel ABI), `SandboxExecutionPolicy` (the complete per-call mode + workspace root), `SandboxPolicy` (its confined subset), and the fail-closed `SANDBOX_UNAVAILABLE` error. Interface package of the [capability-seam split](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): depends only on cordis (+ the harness error base), never on a backend.
 
 The contract in one line: `ctx.sandbox.confine(argv, policy)` returns the argv to spawn INSTEAD of your own — wrapped so the process (and everything it spawns) runs confined — plus two facts about the selected backend: the enforcement completeness it achieves and its denial dialect (`denialSignatures`, the stderr substrings its kernel prints on a denied file effect — what stderr-inferring consumers match instead of a cross-backend union); when no backend is usable it throws rather than passing the argv through unconfined.

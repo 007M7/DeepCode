@@ -1,5 +1,7 @@
 # dsh-system-prompt
 
+English | [中文](README.zh.md)
+
 System prompt assembly registry. Plugins contribute ordered sections, tool schemas, and named variables. The loop assembles once per step and renders the result as the complete model prompt. This plugin owns the static harness identity and global deployment persona; an agent-scoped persona shadows the global default.
 
 ## Config

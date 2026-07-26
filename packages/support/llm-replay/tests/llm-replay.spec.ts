@@ -234,7 +234,7 @@ describe('installLlmReplay (through the real LlmService)', () => {
     writeLog(TEXT_CHUNKS)
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    const dispose = installLlmReplay(ctx, {
+    const { dispose } = installLlmReplay(ctx, {
       file,
       providers: [
         {
@@ -430,6 +430,92 @@ describe('installLlmReplay (through the real LlmService)', () => {
     await iterator.next()
     await iterator.next()
     await expect(iterator.next()).rejects.toThrow('aborted')
+  })
+
+  it('rejects a paceMs that is not a non-negative integer', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    expect(() => installLlmReplay(ctx, { file, paceMs: -1 })).toThrow(/paceMs/)
+    expect(() => installLlmReplay(ctx, { file, paceMs: 1.5 })).toThrow(/paceMs/)
+  })
+
+  it('paces chunk yields when paceMs is set (each chunk waits at least the pace)', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, paceMs: 10 })
+    const started = performance.now()
+    const chunks = await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))
+    expect(chunks).toEqual(TEXT_CHUNKS)
+    // N chunks × 10ms; allow generous scheduling slack, assert the floor only.
+    expect(performance.now() - started).toBeGreaterThanOrEqual(TEXT_CHUNKS.length * 10 - 5)
+  })
+
+  it('aborting DURING a pace wait cancels the stream promptly', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, paceMs: 60_000 })
+    const controller = new AbortController()
+    const pending = drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], signal: controller.signal }))
+    // Let the generator park inside the pace timer, then abort — the reject
+    // must come from the abort listener, not the (distant) timer.
+    await new Promise(r => setImmediate(r))
+    controller.abort()
+    await expect(pending).rejects.toThrow('aborted')
+  })
+
+  it('assertConsumed passes only after every recorded call replayed', async () => {
+    writeLog(TEXT_CHUNKS, TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const handle = installLlmReplay(ctx, { file })
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))
+    // One of two recorded calls consumed — the underrun must name the gap.
+    expect(() => { handle.assertConsumed() }).toThrow(/consumed 1\/2 recorded call/)
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))
+    expect(() => { handle.assertConsumed() }).not.toThrow()
+  })
+
+  it('paces a throw-entry prefix too (the recorded partial streams at the same cadence)', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: partial, message: 'boom', code: 'STREAM_CLOSED' },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, overrideFile, paceMs: 10 })
+    const started = performance.now()
+    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).rejects.toThrow('boom')
+    expect(performance.now() - started).toBeGreaterThanOrEqual(5)
+  })
+
+  it('assertConsumed names an underrunning identified session by its id', async () => {
+    writeLog(TEXT_CHUNKS, TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const handle = installLlmReplay(ctx, { file })
+    const sessionId = 'live-underrun' as NonNullable<GenerateOptions['sessionId']>
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], sessionId }))
+    expect(() => { handle.assertConsumed() }).toThrow(/session live-underrun consumed 1\/2/)
+  })
+
+  it('assertConsumed reports recorded scripts no live session ever bound', async () => {
+    writeLog(TEXT_CHUNKS)
+    const childFile = join(dir, 'session.1.jsonl')
+    writeFileSync(childFile, sessionJsonl(
+      TEXT_CHUNKS.map((chunk, i) => chunkEvent(i + 1, 1, 1, chunk)),
+      { id: 'child', createdAt: 10 },
+    ), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const handle = installLlmReplay(ctx, { file, childFiles: [childFile] })
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], sessionId: 'live-parent' as NonNullable<GenerateOptions['sessionId']> }))
+    // The child script never bound: the scenario drove fewer sessions than recorded.
+    expect(() => { handle.assertConsumed() }).toThrow(/1 recorded script\(s\) never bound/)
   })
 })
 
@@ -631,7 +717,7 @@ describe('apply (the plugin entry)', () => {
     writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }] })
+    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }], paceMs: 1 })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }])
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })

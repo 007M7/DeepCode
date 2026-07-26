@@ -40,10 +40,12 @@
   width: 100%;
 }
 
-/* Header pad (figma Title row): pt 22 / pl 24 / pr 14 / pb 12. */
+/* Header row (figma Title row): pad l24/t22/r14/b12, SPACE_BETWEEN —
+ * title left, close button right. */
 .header {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding: 22px 14px 12px 24px;
 }
@@ -52,21 +54,43 @@
   margin: 0;
   font-size: 16px;
   line-height: 24px;
-  font-weight: 500;
+  font-weight: 510;
   color: var(--dsw-alias-label-primary);
 }
 
+.close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Description and body share the 332px content column (24px side pads). */
 .description {
   margin: 0;
+  padding: 0 24px;
   font-size: 14px;
   line-height: 22px;
-  color: var(--dsw-alias-label-secondary);
+  font-weight: 400;
+  color: var(--dsw-alias-label-primary);
 }
 
 .body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  margin-top: 20px;
   padding: 0 24px;
 }
 

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-session-telemetry
 
+English | [中文](README.zh.md)
+
 The telemetry seam: the CAPTURE side of session-event reporting, behind a backend contract any reporting SDK satisfies with zero bending. The boundary axiom that shapes everything here: **this package's aspect ends at `emit()`** — batching, retry, queueing, and loss policy belong to the backend's SDK and are neither specified nor wrapped. Rationale and rejected alternatives: [the revival Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md).
 
 ## The backend contract

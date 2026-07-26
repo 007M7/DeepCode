@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import Storage from '@deepseek-ai/dsh-storage'
+import Storage, { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import { runKvBackendContract } from '../../storage/tests/contract.ts'
 import { Config, JsonStorageBackend, apply } from '../src/index.ts'
@@ -185,10 +185,12 @@ describe('json backend specifics', () => {
     await ctx.plugin(Storage)
     const fiber = await ctx.plugin({ apply, Config, inject: ['storage'] }, { root })
     const backend = ctx.storage.backend.get('json')
+    expect(ctx.get(storageBackendServiceKey('json'))).toBe(backend)
     const unit = await backend.kv!.open(descriptor)
     await unit.putRecord('t', 'k', { v: 1 })
     await fiber.dispose()
     expect(() => ctx.storage.backend.get('json')).toThrow()
+    expect(ctx.get(storageBackendServiceKey('json'))).toBeUndefined()
     await expect(unit.putRecord('t', 'x', {})).rejects.toMatchObject({ code: 'closed' })
   })
 

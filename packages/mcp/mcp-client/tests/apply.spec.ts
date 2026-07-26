@@ -213,13 +213,11 @@ describe('apply (plugin lifecycle)', () => {
 
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
 
-    // Simulate the notification handler being invoked with a new tool list.
     mockListTools.mockResolvedValue({
       tools: [{ name: 'updated', inputSchema: { type: 'object' } }],
       nextCursor: undefined,
     })
 
-    // Extract and call the notification handler.
     const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
     await handler()
 

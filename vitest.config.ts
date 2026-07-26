@@ -31,6 +31,7 @@ const windowsCoverageExclusions = process.platform === 'win32'
 
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',
+  'apps/*/tests/**/*.spec.ts',
   'examples/*/tests/**/*.spec.ts',
   'scripts/**/*.spec.ts',
 ]
@@ -123,6 +124,7 @@ export default defineConfig({
         'packages/client/connection/src/http-bridge.ts',
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
+        'packages/host/apiproxy/src/api-proxy.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

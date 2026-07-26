@@ -42,6 +42,9 @@
       "path": "../../ui/user-interaction"
     },
     {
+      "path": "../../workspace/workspace"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

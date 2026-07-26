@@ -1096,7 +1096,6 @@ describe('step boundary publication order', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-step-order'), { provider: 'mock', model: 'mock' })
 
-    // Append commits before observers run.
     const observed: { turn: number; step: number; lastEventType: string | undefined; sawStepStart: boolean }[] = []
     ctx.on('session/event', (subject, event) => {
       if (subject !== agent.session || event.type !== 'step/start') return
@@ -1704,7 +1703,6 @@ describe('disposal and cancellation during pre-step assembly', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 50))
 
-    // Start disposal, then release the block, then await disposal.
     const disposalDone = fiber.dispose()
     releasePreStep()
     await disposalDone

@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-loader-smoke`
 
+English | [中文](README.zh.md)
+
 Shared subprocess harness for tests that boot an app and `cordis.yml` through the Cordis Loader. `resolveExampleLaunch` selects local `src` mode (tsx and root tsconfig paths) or CI `lib` mode (plain Node and package exports) from an explicit mode or `DSH_EXAMPLE_MODE`.
 
 `runLoaderSmoke` accepts bin and config paths, optional complete bin arguments, environment overrides, stdin, pre-run setup, and pre-cleanup inspection. It owns the isolated cwd, DSH homes, diagnostics, deadline, termination, EOF, and cleanup; it returns both streams after a zero exit and rejects with both streams on failure.

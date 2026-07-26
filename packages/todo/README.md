@@ -1,5 +1,7 @@
 # todo/ — todo / planning capability family
 
+English | [中文](README.zh.md)
+
 The model-facing todo tool. A single **product** package — there is no interface/implementation seam here, because the list is single-owner session state (one agent session owns its own list), not a swappable capability.
 
 | Package | Role | ctx key |

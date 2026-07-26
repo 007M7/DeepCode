@@ -509,16 +509,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
       },
       {
-        signature: 'abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
       },
       {
-        signature: 'abstract list(): Promise<SessionHeader[]>',
-        jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @returns one header per materialized session.\n */',
+        signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
+        jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @param signal - optional cancellation for backend listing work.\n * @returns one header per materialized session.\n */',
       },
       {
-        signature: 'abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>',
-        jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
+        signature: 'abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>',
+        jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @param signal - optional cancellation for backend snapshot-listing work.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
       },
     ],
   },
@@ -531,24 +531,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Search the live-preferred logical corpus and group by session.\n * @param request - query text, metadata filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns session hits ranked by their strongest matching event.\n */',
       },
       {
-        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
-        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits in deterministic relevance order.\n */',
+        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionEventSearchPage>',
+        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits and their target header from one indexed generation.\n */',
       },
       {
-        signature: 'listSessions(): Promise<SessionRecord[]>',
-        jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
+        signature: 'listSessions(signal?: AbortSignal): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @param signal - optional cancellation for persistence listing.\n * @returns deterministic newest-first cloned session records.\n */',
       },
       {
         signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
         jsDoc: '/**\n * Read and replay-validate one complete logical session log without making it live.\n * @param sessionId - live or persisted session id to read.\n * @returns cloned header and complete raw event log from one observation.\n * @throws when persistence, header compatibility, or replay validation fails.\n */',
       },
       {
-        signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
-        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
+        signature: 'async filterSessions( filters: readonly SessionResultFilter[], signal?: AbortSignal, ): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @param signal - optional cancellation for persistence listing.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
       {
-        signature: 'async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>',
-        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
+        signature: 'async readTitle( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleSnapshot | undefined>',
+        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @param signal - optional cancellation for source resolution and title folding.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
+      },
+      {
+        signature: 'async readTitleSnapshot( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionTitleObservation>',
+        jsDoc: '/**\n * Fold the latest title and return its source header from one corpus observation.\n * @param sessionId - live or persisted session id to read.\n * @param signal - optional cancellation for source resolution and title folding.\n * @returns cloned source header and optional latest title snapshot.\n */',
+      },
+      {
+        signature: 'async readTitleSnapshots( sessionIds: readonly SessionId[], signal?: AbortSignal, ): Promise<SessionTitleObservationResult[]>',
+        jsDoc: '/**\n * Fold titles for unique sessions from one cancellable corpus observation.\n *\n * Results preserve first-occurrence input order. Operational failures stay\n * isolated per session, while cancellation rejects the complete operation.\n * @param sessionIds - live or persisted session ids to observe.\n * @param signal - optional cancellation shared by all source reads.\n * @returns one fulfilled or rejected result per unique requested id.\n */',
       },
       {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
@@ -563,16 +571,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read one session\'s complete current model surface from one corpus observation.\n * @param sessionId - live-preferred session id to read.\n * @returns cloned header, current surface, and raw-log capture boundary.\n * @throws when source resolution fails or the session surface is invalid.\n */',
       },
       {
-        signature: 'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
-        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
+        signature: 'async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>',
+        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @param signal - optional cancellation for persistence listing.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
       },
       {
-        signature: 'async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>',
-        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @returns direct links plus the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
+        signature: 'async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>',
+        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns source header, direct links, and the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
       },
       {
-        signature: 'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
-        jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @returns cloned target and neighboring events.\n */',
+        signature: 'async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>',
+        jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns cloned target and neighboring events.\n */',
       },
     ],
   },
@@ -693,6 +701,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'form<K extends keyof StorageForms>(form: K): StorageForms[K]',
         jsDoc: '/**\n * Resolve a mounted data form.\n * @param form - Form key declared in {@link StorageForms}.\n * @returns the mounted facility.\n */',
+      },
+    ],
+  },
+  {
+    key: 'storageDomain',
+    summary: 'The mounted domain facility.',
+    methods: [
+      {
+        signature: 'async open<S extends DomainSpec>(spec: S): Promise<Domain<S>>',
+        jsDoc: '/**\n * Open one declared domain. Steps, each failing the whole call: reject a\n * name that is already open (`already-open`); resolve the backend route\n * (`backend-not-found` passes through from the hub); require its `kv` facet\n * (`facet-unsupported`); open the unit projected from the spec (backend\n * `version-mismatch`/`malformed-medium` pass through); load and validate\n * every stored record against the spec\'s zod schemas (`invalid-record`\n * with the offending table and key); construct the domain.\n *\n * Lifecycle: the CALLER owns the returned handle and closes it via\n * `Domain.close()` (typically as its own `ctx.effect` disposer) — the\n * facility does not tie the domain to any consumer fiber. Domains still\n * open when the facility unmounts are closed by the plugin disposer.\n * @param spec - The domain declaration, typically from `defineDomain`.\n * @returns the opened domain handle, typed by the spec.\n */',
+      },
+      {
+        signature: 'get(name: string): DomainImpl | undefined',
+        jsDoc: '/**\n * Look up an open domain by name, untyped. Diagnostic surface (the package\n * invariant cross-checks change events against live domain state); typed\n * consumers hold the handle returned by {@link open}.\n * @param name - Domain name.\n * @returns the open domain runtime, or `undefined` when not open.\n */',
+      },
+      {
+        signature: 'async closeAll(): Promise<void>',
+        jsDoc: '/**\n * Close every domain still open on this facility. The unmount path for\n * consumers that never called `Domain.close()` themselves; closing is\n * idempotent, so double-closing an already-closed domain is harmless.\n * @returns resolution after every unit is released.\n */',
       },
     ],
   },
@@ -920,23 +946,23 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'workspace',
-    summary: 'The workspace registry service.',
+    summary: 'Durable workspace registry.',
     methods: [
       {
         signature: 'async create(path: string, title?: string): Promise<Workspace>',
-        jsDoc: '/**\n * Create a workspace over an existing directory. The path is canonicalized\n * through `fs.realpath` first — a nonexistent path rejects with the\n * original `ENOENT`, a path resolving to anything but a directory rejects,\n * and a canonical path already owned by another workspace (including a\n * symlink resolving to it) rejects.\n * @param path - Directory the workspace points at; canonicalized before storing.\n * @param title - Display title; defaults to `basename` of the canonical path.\n * @returns the created workspace after durability.\n */',
+        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * A different canonical path cannot create a duplicate display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
       },
       {
         signature: 'get(id: WorkspaceId): Workspace | undefined',
-        jsDoc: '/**\n * Look up a workspace by id.\n * @param id - The workspace id.\n * @returns the workspace, or `undefined` when unknown.\n */',
+        jsDoc: '/**\n * Look up a workspace by id.\n * @param id - Workspace id.\n * @returns the workspace, or `undefined` when unknown.\n */',
       },
       {
         signature: 'list(): Workspace[]',
-        jsDoc: '/**\n * Snapshot of all workspaces, in load-then-creation order.\n * @returns a fresh array of the cached entities.\n */',
+        jsDoc: '/**\n * Synchronous workspace projection in durable registry order. Every\n * entity\'s `sessionIds` getter is already filtered by the startup/live\n * canonical-cwd header index; this method performs no persistence reads.\n * @returns a fresh ordered array of workspace entities.\n */',
       },
       {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
-        jsDoc: '/**\n * Resolve a workspace by directory path, through the same `fs.realpath`\n * canon as {@link create} (hence async). A path that does not exist rejects\n * with the original error — a missing directory has no canonical form to\n * compare (a workspace whose recorded directory vanished is only reachable\n * by id; see `Workspace.status`).\n * @param path - Directory path in any spelling (symlinks, `..`, trailing slash).\n * @returns the owning workspace, or `undefined` when none matches.\n */',
+        jsDoc: '/**\n * Resolve by canonical directory path without creating or mutating a\n * workspace. A missing path rejects during `realpath`; an existing unowned\n * directory returns `undefined`.\n * @param path - Existing directory path in any spelling.\n * @returns the workspace owning the canonical path, when one exists.\n */',
       },
     ],
   },
@@ -1516,6 +1542,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
   },
   {
+    name: 'Domain',
+    declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'DomainGlobal',
+    declaration: 'export interface DomainGlobal<G> {\n    get(): G;\n    set(value: G): Promise<void>;\n}',
+  },
+  {
+    name: 'DomainGlobalHandleOf',
+    declaration: 'export type DomainGlobalHandleOf<S extends DomainSpec> = S extends {\n    readonly global: DomainGlobalSpec<infer G>;\n} ? DomainGlobal<G> : never;',
+  },
+  {
+    name: 'DomainGlobalSpec',
+    declaration: 'export interface DomainGlobalSpec<G> {\n    readonly schema: ZodType<G>;\n    readonly initial: G;\n}',
+  },
+  {
+    name: 'DomainImpl',
+    declaration: 'export class DomainImpl {\n    readonly name: string;\n    constructor(private readonly ctx: Context, spec: DomainSpec, private readonly unit: KvUnit, records: Map<string, Map<string, unknown>>, globalValue: unknown, private readonly onClosed: () => void);\n    get global(): DomainGlobal<unknown>;\n    table(name: string): KvTable<string, unknown>;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'DomainSpec',
+    declaration: 'export interface DomainSpec {\n    readonly name: string;\n    readonly version: number;\n    readonly global?: DomainGlobalSpec<unknown>;\n    readonly tables: Record<string, DomainTableSpec>;\n}',
+  },
+  {
+    name: 'DomainTableSpec',
+    declaration: 'export interface DomainTableSpec<K extends string = string, V = unknown> {\n    readonly valueSchema: ZodType<V>;\n    readonly __key?: K;\n}',
+  },
+  {
     name: 'DshEnvironment',
     declaration: 'export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>;',
   },
@@ -1658,6 +1712,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'KvTable',
+    declaration: 'export interface KvTable<K extends string, V> {\n    get(key: K): V | undefined;\n    entries(): IterableIterator<[\n        K,\n        V\n    ]>;\n    keys(): IterableIterator<K>;\n    readonly size: number;\n    put(key: K, value: V): Promise<void>;\n    delete(key: K): Promise<boolean>;\n    update(key: K, fn: (current: V) => V): Promise<V>;\n}',
+  },
+  {
+    name: 'KvUnit',
+    declaration: 'export interface KvUnit {\n    loadAll(): Promise<{\n        tables: Record<string, Record<string, unknown>>;\n        global: unknown;\n    }>;\n    putRecord(table: string, key: string, value: unknown): Promise<void>;\n    deleteRecord(table: string, key: string): Promise<void>;\n    setGlobal(value: unknown): Promise<void>;\n    close(): Promise<void>;\n}',
   },
   {
     name: 'LlmAdapter',
@@ -1912,6 +1974,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventSearchHit extends SessionEventRecord {\n    snippet: string;\n}',
   },
   {
+    name: 'SessionEventSearchPage',
+    declaration: 'export interface SessionEventSearchPage extends SessionSearchPage<SessionEventSearchHit> {\n    session: SessionHeader;\n}',
+  },
+  {
     name: 'SessionEventSearchRequest',
     declaration: 'export interface SessionEventSearchRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
   },
@@ -1922,6 +1988,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionEventTrace',
     declaration: 'export interface SessionEventTrace {\n    target: SessionEventRecord;\n    replacedBy?: number;\n    replacementChain: number[];\n    replacedEventSeqs: number[];\n    sourceEventSeqs: number[];\n    derivedEventSeqs: number[];\n}',
+  },
+  {
+    name: 'SessionEventTraceObservation',
+    declaration: 'export interface SessionEventTraceObservation extends SessionEventTrace {\n    session: SessionHeader;\n}',
   },
   {
     name: 'SessionEventTraceRequest',
@@ -2030,6 +2100,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionTitleModelProvenance',
     declaration: 'export interface SessionTitleModelProvenance {\n    readonly provider: string;\n    readonly model: string;\n}',
+  },
+  {
+    name: 'SessionTitleObservation',
+    declaration: 'export interface SessionTitleObservation {\n    session: SessionHeader;\n    title?: SessionTitleSnapshot;\n}',
+  },
+  {
+    name: 'SessionTitleObservationResult',
+    declaration: 'export type SessionTitleObservationResult = {\n    sessionId: SessionId;\n    status: \'fulfilled\';\n    value: SessionTitleObservation;\n} | {\n    sessionId: SessionId;\n    status: \'rejected\';\n    reason: unknown;\n};',
   },
   {
     name: 'SessionTitleProvider',
@@ -2158,6 +2236,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SurfaceOp',
     declaration: 'export type SurfaceOp = \'append\' | {\n    op: \'replace\';\n    start: number;\n    end: number;\n};',
+  },
+  {
+    name: 'TableKeyOf',
+    declaration: 'export type TableKeyOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<infer K> ? K : never;',
+  },
+  {
+    name: 'TableValueOf',
+    declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
   },
   {
     name: 'TaskDoneListener',
@@ -2465,7 +2551,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Workspace',
-    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
+    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
   },
 ]
 

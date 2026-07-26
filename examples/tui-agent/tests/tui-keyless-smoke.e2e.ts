@@ -8,7 +8,6 @@ import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/d
 import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 
-const binScript = fileURLToPath(new URL('../../../packages/examples/tui-demo/src/bin.ts', import.meta.url))
 const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const codeModeConfigPath = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
@@ -87,11 +86,11 @@ async function readLoggedSystemPrompt(cwd: string): Promise<string> {
   throw new Error(`session log ${logRelPath} has no request/header event`)
 }
 
-/** Shared defaults: the keyless key, the tui-demo bin, and the live cordis.yml. */
+/** Shared defaults: the keyless key, the dsh bin, and the live cordis.yml (passed as the positional config). */
 function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Promise<string> {
   return runTuiPtySmoke({
     tempDirPrefix: 'tui-agent-smoke-',
-    binScript,
+    binScript: dshBinScript,
     configPath,
     tsconfigPath,
     env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
@@ -246,18 +245,6 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('prints a config-resume failure and exits instead of leaving a blank terminal', async () => {
-    const output = await smoke({
-      label: 'tui-agent resume failure',
-      tempDirPrefix: 'tui-agent-resume-',
-      env: {
-        DEEPSEEK_API_KEY: 'keyless-tui-no-call',
-        RESUME_SESSION_ID: 'missing-session',
-      },
-      expectedExitCode: 1,
-    })
-    expect(output).toContain('ui-tui: session "missing-session" failed to start:')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })
 
 describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
@@ -266,7 +253,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       label: 'dsh in-place resume',
       tempDirPrefix: 'dsh-in-place-resume-',
       binScript: dshBinScript,
-      configArgs: [scriptedConfigPath],
+      configPath: scriptedConfigPath,
       prepare: seedResumeSession,
       actions: [
         { waitFor: 'scripted TUI ready.', send: '/resume\r' },
@@ -341,9 +328,9 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
 
   it('routes the --resume flag into the config resume intake, failing loud on a missing id', async () => {
     // The flag path end to end: apps/cli parses `--resume missing-session` and
-    // sets RESUME_SESSION_ID, the shipped config's `!!js` reads it, and the
-    // resume fails loud — proving the printed `dsh --resume <id>` hint reaches
-    // the same intake as the env var.
+    // provides the id on the boot context, the shipped config's `!!js` reads it
+    // as a bare identifier, and the resume fails loud — proving the printed
+    // `dsh --resume <id>` hint reaches the config resume intake with no env var.
     const output = await smoke({
       label: 'dsh resume flag failure',
       tempDirPrefix: 'dsh-resume-flag-',
@@ -363,7 +350,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       label: 'dsh source-path prompt',
       tempDirPrefix: 'dsh-source-path-',
       binScript: dshBinScript,
-      configArgs: [scriptedConfigPath],
+      configPath: scriptedConfigPath,
       actions: [
         ...SELECT_PRO_MODEL,
         { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },

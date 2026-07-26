@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-06-20-package-hierarchy.zh.md)
 
-The later [fold-stdio-helper](../simplification/2026-07-04-fold-stdio-ui-helper.md) decision superseded the original `support/ui-stdio` placement, and the [redundant-agent removal](../simplification/2026-07-20-remove-stdio-and-echo-agents.md) subsequently removed that surface entirely. The [automation-only ACP decision](../simplification/2026-07-23-acp-automation-only-protocol.md) places ACP under `packages/acp/acp` instead of the human-UI group. The uniform depth-two hierarchy remains the decision owned here.
+The [redundant-agent removal](../simplification/2026-07-20-remove-stdio-and-echo-agents.md) deletes the original `support/ui-stdio` surface instead of relocating it, and the [automation-only ACP decision](../simplification/2026-07-23-acp-automation-only-protocol.md) places ACP under `packages/acp/acp` instead of the human-UI group. The uniform depth-two hierarchy remains the decision owned here.
 
 ## Problem
 

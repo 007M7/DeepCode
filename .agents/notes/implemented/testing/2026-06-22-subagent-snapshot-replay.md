@@ -11,7 +11,7 @@ The snapshot tier (`pnpm run test:snapshot`) boots the real `acp-agent` subproce
 It was built for ONE session per process, and that assumption is wired into two places:
 
 - **`dsh-llm-replay` keyed nothing.** It served the Nth `llm/stream` call the Nth recorded entry from a single global cursor. With a parent agent AND an in-process subagent both streaming on one context, the calls interleave and the single cursor hands the child the parent's script (and vice versa).
-- **The harness harvested one log.** `findSessionLog` walked the sessions root and returned the FIRST `.jsonl` it found. A subagent runs as a second `Session` with its own log in the same cwd bucket, so the child's transcript was silently dropped.
+- **The harness harvested one log.** `findSessionLog` walked the sessions root and returned the FIRST `.jsonl` it found. A subagent runs as a second `Session` with its own log, so the child's transcript was silently dropped.
 
 This was the `TODO(subagent-snapshots)` deferral recorded in the [subagent seam Agent Note](../feature/2026-06-21-subagent-capability-seam.md): the in-process backends (PR2) shipped with unit + e2e coverage, but the full-transcript snapshot tier could not express a nested-agent shape until this infrastructure landed. This Agent Note is that stacked follow-up.
 
@@ -39,7 +39,7 @@ The alternative considered and rejected was a **call-ordered merge of the parent
 
 ### 3. The harness harvests every log, primary-first
 
-`harvestSessionLogs` collects every `.jsonl` across every cwd bucket under the sessions root (the JSONL backend puts a parent and its same-cwd child in the same bucket), parses each header, and orders them primary-first: the top-level session (no `parentSession`) leads, then each child by ascending `createdAt`. `RunResult.sessionLogs` is the plural result; the spec writes each back to its fixture on record (`session.jsonl` + `session.<n>.jsonl`) and diffs each harvested log against its fixture on replay. The normalizer already accepted plural session ids and collapses any stray UUID, so no normalizer change was needed.
+`harvestSessionLogs` recursively collects every fixed `session.jsonl` transcript under the sessions root (the JSONL backend gives each parent and child its own project/session directory), parses each header, and orders them primary-first: the top-level session (no `parentSession`) leads, then each child by ascending `createdAt`. `RunResult.sessionLogs` is the plural result; the spec writes each back to its fixture on record (`session.jsonl` + `session.<n>.jsonl`) and diffs each harvested log against its fixture on replay. The normalizer already accepted plural session ids and collapses any stray UUID, so no normalizer change was needed.
 
 ### 4. Scenarios
 

@@ -1,5 +1,7 @@
 # telemetry/
 
+English | [中文](README.zh.md)
+
 Outbound session reporting: the telemetry seam plus its OpenTelemetry backend. The design — the boundary axiom (the harness's aspect ends at `emit()`; delivery is the reporting SDK's), the `telemetry/redact` waterfall (deployment-mounted rules; the seam ships none), the fixed chunk projection, the handoff cursor, and the operational-record channel — is pinned in [the revival Agent Note](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md).
 
 | Package | Role |

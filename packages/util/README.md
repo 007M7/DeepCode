@@ -1,5 +1,7 @@
 # util/ — low-level shared utilities
 
+English | [中文](README.zh.md)
+
 Zero-dependency primitives shared across the other groups. A package lands here when it owns a tiny, foundational type or helper that several capability families need but that belongs to none of them — keeping it out of any one group avoids a capability package depending on an unrelated one just to reach a shared primitive. These are **support** packages: small, stable, and free of harness dependencies.
 
 | Package | Role |

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-session-persistence-sqlite
 
+English | [中文](README.zh.md)
+
 A SQLite durable session-persistence backend — a second `SessionPersistence` implementation ([session persistence](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)), built to validate that the abstract seam and the shared `runPersistenceContract` suite are genuinely backend-agnostic. It satisfies the SAME contract as `dsh-session-persistence-jsonl` (append-only, contiguous-seq, lazy materialization, interrupted-turn close on load), expressed over `node:sqlite` rows instead of file bytes.
 
 `locate(meta)` returns `undefined`: all sessions share one database, so there is no honest independent per-session transcript path.
@@ -20,7 +22,7 @@ On filesystems with POSIX modes, the backend requests mode `0700` for missing di
 - **Lazy materialization.** `create()` records intent in memory only — no row is written until the first `append`. A created-but-never-appended session has no `sessions` row, so it is absent from `list()` (which reports exactly the sessions that have a row).
 - **Interrupted-turn close on load.** `load()` implements the shared [crash-recovery contract](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md): preserve the valid interrupted turn, append its synthetic closing events in one transaction, and remove only a torn tail row. Committed parse errors or sequence gaps make the session unloadable. Because recovery mutates stored rows, the next append starts from a balanced log and accurate cursor.
 - **Non-mutating inspection.** `inspect()` returns the detached valid row prefix without deleting a torn tail row or appending recovery closers, and leaves the lightweight revision unchanged.
-- **Lightweight revisions.** `listSnapshots()` combines the immutable store and database-file identity, a per-materialization incarnation id, and a per-session counter incremented in each mutating transaction. This keeps unchanged observations stable without parsing event rows and distinguishes independent stores and recreated same-id logs.
+- **Lightweight revisions.** `listSnapshots(signal?)` combines the immutable store and database-file identity, a per-materialization incarnation id, and a per-session counter incremented in each mutating transaction. This keeps unchanged observations stable without parsing event rows and distinguishes independent stores and recreated same-id logs. It checks cancellation before and after shared readiness and the synchronous metadata query; the query itself is non-preemptible.
 
 ## Configuration (schemastery)
 

@@ -136,6 +136,51 @@ describe('Menu', () => {
     expect(screen.getByRole('separator')).toBeDefined()
   })
 
+  it('renders a non-interactive heading label and a danger row', () => {
+    const onSelect = vi.fn()
+    render(
+      <Menu
+        open
+        anchor={<span>trigger</span>}
+        items={[
+          { type: 'label', id: 'h', text: 'Group by' },
+          { id: 'del', label: 'Delete', danger: true },
+        ]}
+        onSelect={onSelect}
+        onClose={() => {}}
+      />)
+    const heading = screen.getByText('Group by')
+    expect(heading.getAttribute('role')).toBe('presentation')
+    // The heading is not a menu item — only the danger row is interactive.
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    const danger = screen.getByRole('menuitem', { name: 'Delete' })
+    expect(danger.className).toMatch(/danger/)
+    fireEvent.click(danger)
+    expect(onSelect).toHaveBeenCalledWith('del')
+  })
+
+  it('closeOnPointerLeave closes when the pointer leaves the list; default stays open', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(
+      <Menu open closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+    fireEvent.pointerLeave(screen.getByRole('menu'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    rerender(
+      <Menu open anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+    fireEvent.pointerLeave(screen.getByRole('menu'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a list click does not bubble to the anchor row (portal synthetic-event path)', () => {
+    const rowClick = vi.fn()
+    render(
+      <div onClick={rowClick}>
+        <Menu open anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={() => {}} />
+      </div>)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Alpha' }))
+    expect(rowClick).not.toHaveBeenCalled()
+  })
+
   it('opens a submenu on hover and selects a nested item', () => {
     const onSelect = vi.fn()
     render(
@@ -169,6 +214,71 @@ describe('Menu', () => {
     expect(onSelect).toHaveBeenCalledWith('ok')
     fireEvent.mouseLeave(wrap)
     expect(screen.queryByRole('menuitem', { name: 'Create ok' })).toBeNull()
+  })
+
+  it('portal mode prefers getAnchorRect over measuring its own wrapper', () => {
+    const rect = { left: 40, right: 72, top: 100, bottom: 128, width: 32, height: 28, x: 40, y: 100, toJSON: () => ({}) } as DOMRect
+    render(
+      <Menu
+        portal
+        open
+        getAnchorRect={() => rect}
+        anchor={null}
+        items={items}
+        onSelect={() => {}}
+        onClose={() => {}}
+      />)
+    const menu = screen.getByRole('menu')
+    // side=bottom, align=start: below the host-supplied rect, left-aligned.
+    expect(menu.style.left).toBe('40px')
+    expect(menu.style.top).toBe('132px')
+  })
+
+  it('portal mode skips the frame when getAnchorRect returns null (no menu until a rect exists)', () => {
+    render(
+      <Menu
+        portal
+        open
+        getAnchorRect={() => null}
+        anchor={null}
+        items={items}
+        onSelect={() => {}}
+        onClose={() => {}}
+      />)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('portal mode renders the list under body, positions it fixed, and still closes on outside pointerdown', () => {
+    const onSelect = vi.fn()
+    const onClose = vi.fn()
+    const { container } = render(
+      <Menu portal open anchor={<span>trigger</span>} items={items} onSelect={onSelect} onClose={onClose} />)
+    const menu = screen.getByRole('menu')
+    // Outside the anchor wrapper subtree — overflow-clipping ancestors can't crop it.
+    expect(container.contains(menu)).toBe(false)
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu.style.top).not.toBe('')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Alpha' }))
+    expect(onSelect).toHaveBeenCalledWith('a')
+    fireEvent.pointerDown(menu)
+    expect(onClose).not.toHaveBeenCalled()
+    // Non-Node targets (e.g. window itself) are ignored, not treated as outside.
+    const nonNodeTarget = new Event('pointerdown', { bubbles: true })
+    Object.defineProperty(nonNodeTarget, 'target', { value: window })
+    document.dispatchEvent(nonNodeTarget)
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.pointerDown(document.body)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('portal mode positions from the opposite edges for align=end / side=top', () => {
+    render(
+      <Menu portal open align="end" side="top" anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={() => {}} />)
+    const menu = screen.getByRole('menu')
+    expect(menu.style.right).not.toBe('')
+    expect(menu.style.bottom).not.toBe('')
+    expect(menu.style.left).toBe('')
+    expect(menu.style.top).toBe('')
   })
 })
 
