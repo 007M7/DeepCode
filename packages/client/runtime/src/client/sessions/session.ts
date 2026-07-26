@@ -661,8 +661,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         kind: 'tool-result', seq: event.seq, time: event.time,
         callId: data.subCallId,
         call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
-        // Duration source: the paired start's time when observed.
-        callTime: started === undefined ? event.time : started.time,
+        // Duration source: the paired start's time when observed; null =
+        // unknown (settle-only window), matching the native tool-result
+        // contract so views never present a fabricated zero duration.
+        callTime: started === undefined ? null : started.time,
         content: data.content, isError: data.isError,
         callView: null, resultView: null,
       }

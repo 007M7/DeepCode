@@ -688,6 +688,9 @@ describe('run_code sub-dispatch indexing', () => {
       isError: false, content: [{ type: 'text', text: 'demo.txt' }],
     })
     expect(subs?.[1]).toMatchObject({ callId: 'p1:code:2', isError: true })
+    // No paired start in the window: duration is UNKNOWN (null), never a
+    // fabricated zero-duration span.
+    expect(subs?.[0]).toMatchObject({ callTime: null })
     // Sub-dispatches never join the surface flow.
     expect(session.getSnapshot().nodes.some(n => n.kind === 'tool-result' && n.callId.includes(':code:'))).toBe(false)
   })
