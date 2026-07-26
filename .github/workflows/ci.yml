@@ -236,22 +236,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
-
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        run: |
-          corepack enable
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ matrix.node }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ matrix.node }}-pnpm-
+          cache: pnpm
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
@@ -324,17 +314,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack and resolve pnpm store path
+      - name: Resolve pnpm store path
         id: pnpm-store
-        run: |
-          corepack enable
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
       # Master refreshes the caches that pull requests restore without saving.
+      # The store cache stays a hand-rolled actions/cache step rather than
+      # setup-node's `cache: pnpm`: the enterprise pull-request jobs above
+      # restore exactly this key and path, and setup-node's built-in cache
+      # uses its own key format — converting this producer would silently
+      # starve their documented restore-only optimization.
       - uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
@@ -498,31 +493,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
+      # The Windows lanes deliberately skip the store cache like the required
+      # windows job; an empty cache input disables setup-node's caching.
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: ${{ matrix.platform == 'linux' && 'pnpm' || '' }}
 
       - name: Report runner capacity
         run: >-
           node -e "const os = require('node:os');
           console.log(JSON.stringify({ arch: process.arch, cpus: os.cpus().length,
           memoryGiB: Math.round(os.totalmem() / 2 ** 30) }))"
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-
-      - name: Resolve pnpm store path
-        if: matrix.platform == 'linux'
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
-        if: matrix.platform == 'linux'
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
@@ -598,36 +582,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
+      # Unlike the larger-runner suite, both platforms cache the store here:
+      # the consolidated topology measures cache mechanics as workload.
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
 
       - name: Report runner capacity
         run: >-
           node -e "const os = require('node:os');
           console.log(JSON.stringify({ arch: process.arch, cpus: os.cpus().length,
           memoryGiB: Math.round(os.totalmem() / 2 ** 30) }))"
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-
-      - name: Resolve pnpm store path (Linux)
-        if: matrix.platform == 'linux'
-        id: pnpm-store-linux
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve pnpm store path (Windows)
-        if: matrix.platform == 'windows'
-        id: pnpm-store-windows
-        shell: pwsh
-        run: '"path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT'
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store-linux.outputs.path || steps.pnpm-store-windows.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - uses: actions/cache@v4
         if: matrix.platform == 'linux'
