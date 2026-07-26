@@ -12,6 +12,8 @@
 - **快照**（`pnpm run test:snapshot`）：无密钥预期输出覆盖对外行为（传输契约与呈现），持久化日志则固定组装后的后端行为。ACP 启动真实的自动化服务器示例、回放录制会话，并对归一化 JSON-RPC 与重新持久化的日志执行 diff（[ACP 快照 Agent Note](../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md)）；headless 通过真实单次运行进程固定 `stream-json`。TUI 旅程通过真实循环与工具回放主会话与子会话 JSONL，再将 ANSI 投影为语义化终端状态输出；包级快照保留瞬态状态，真实 PTY 覆盖进程边界（[TUI 快照 Agent Note](../.agents/notes/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md)）。当模型 transcript（文本记录）发生变化时使用 `pnpm run test:snapshot:record`，回放输入仍然有效时使用 `pnpm run test:snapshot:refresh`；请审查每一处 JSONL 与预期输出差异。一个 ACP 场景（`text-turn`）固定完整的系统提示词与工具 schema 内容；其他 fixture（测试前置数据）将其 token 化，因此修改只会扰动一行（[pinned-header Agent Note](../.agents/notes/archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)）。
 - **Web 浏览器快照**（豁免门禁的 `pnpm run test:web`）：真实 chromium 在进程内 web 组装之上回放已录制 fixture，与会话区 aria 预期输出比对（`apps/web/tests/snapshots/`）；`DSH_SNAPSHOT=record`/`refresh` 的语义与暂缓的 CI 浏览器决策见 [web e2e 车道 Agent Note](../.agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md)。
 
+签入仓库的会话格式 JSONL 使用规范打包行布局，无密钥快照门禁会通过 `session` header 发现每一份此类 fixture。仍携带旧版 fixture 改动的在途分支应合并当前 `master`，并通过 `pnpm run migrate:packed-session-fixtures` 运行[临时迁移器](../scripts/migrate-packed-session-fixtures.ts)；待所有受影响分支收敛后，[移除提案](../.agents/notes/proposed/process/2026-07-26-remove-packed-session-fixture-migrator.md)会移除该命令及这些链接。
+
 ## 带密钥策略：推理在这里很便宜
 
 我们是 DeepSeek，不要吝惜真实 API 测试。无密钥测试只能证明底层通路；只有带密钥运行才能证明 agent（智能体）能对接真实模型正常工作。覆盖文件写入提示词、包含多个轮次的对话、工具使用和流中取消。价值最高的是**冒烟测试**：启动真实示例、发送一条提示词，并检查外部世界；它们能捕获「单元测试全绿、产品却坏了」这一类 mock 无法发现的问题（[事故复盘 0001](postmortem/0001-acp-default-export-drops-inject.md)）。自动跳过让无密钥 CI 和无密钥贡献者不受阻塞；它不是成本信号。每个示例都提供无密钥和带密钥冒烟测试（[examples/AGENTS.md](../examples/AGENTS.md)）。
