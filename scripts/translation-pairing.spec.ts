@@ -1,15 +1,10 @@
-/** Regression tests for the bilingual cutoff and structural signature. */
+/** Regression tests for the bilingual corpus scope and structural signature. */
 
 import { describe, expect, it } from 'vitest'
 import {
-  datedDocumentDate,
-  isIsoDate,
   isTranslationScopeFile,
   parseTranslationMarkdown,
   parseTranslationPairingManifest,
-  requiresPairByDate,
-  requiresTranslationPair,
-  translationDocumentClass,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -19,78 +14,30 @@ function signature(markdown: string) {
 }
 
 describe('translation pairing manifest', () => {
-  it('accepts a real ISO cutoff and string-array fields', () => {
+  it('accepts an exclusions-only manifest', () => {
     expect(parseTranslationPairingManifest(JSON.stringify({
-      requiredSince: '2026-07-14',
-      required: ['README.md'],
-      requiredClasses: ['non-readme'],
       excluded: ['docs/generated/'],
     }))).toEqual({
-      requiredSince: '2026-07-14',
-      required: ['README.md'],
-      requiredClasses: ['non-readme'],
       excluded: ['docs/generated/'],
     })
   })
 
-  it.each(['2026-7-14', '2026-02-29', '2026-13-01', 'not-a-date'])('rejects invalid cutoff %s', (cutoff) => {
-    expect(isIsoDate(cutoff)).toBe(false)
+  it.each([
+    ['required', ['packages/README.md']],
+    ['requiredClasses', ['readme']],
+    ['requiredSince', '2026-07-14'],
+  ] as const)('rejects obsolete policy field %s instead of accepting an inert requirement', (field, value) => {
     expect(() => parseTranslationPairingManifest(JSON.stringify({
-      requiredSince: cutoff,
-      required: [],
-      requiredClasses: [],
       excluded: [],
-    }))).toThrow('requiredSince must be a valid YYYY-MM-DD date')
+      [field]: value,
+    }))).toThrow(`unsupported field(s): ${field}; every in-scope document is required`)
   })
 
-  it('rejects non-string manifest arrays', () => {
+  it('rejects a missing or non-string exclusion list', () => {
+    expect(() => parseTranslationPairingManifest('{}')).toThrow('excluded must be an array of strings')
     expect(() => parseTranslationPairingManifest(JSON.stringify({
-      requiredSince: '2026-07-14',
-      required: [42],
-      requiredClasses: [],
-      excluded: [],
-    }))).toThrow('required must be an array of strings')
-  })
-
-  it('rejects unknown and duplicate document classes', () => {
-    const manifest = (requiredClasses: string[]) => JSON.stringify({
-      requiredSince: '2026-07-14',
-      required: [],
-      requiredClasses,
-      excluded: [],
-    })
-    expect(() => parseTranslationPairingManifest(manifest(['guide']))).toThrow('requiredClasses must contain only')
-    expect(() => parseTranslationPairingManifest(manifest(['readme', 'readme']))).toThrow('requiredClasses must not contain duplicates')
-  })
-})
-
-describe('document-class pairing frontier', () => {
-  const manifest = parseTranslationPairingManifest(JSON.stringify({
-    requiredSince: '2026-07-14',
-    required: ['docs/legacy/README.md'],
-    requiredClasses: ['non-readme'],
-    excluded: [],
-  }))
-
-  it('classifies README basenames case-insensitively', () => {
-    expect(translationDocumentClass('packages/core/README.md')).toBe('readme')
-    expect(translationDocumentClass('missions/readme.md')).toBe('readme')
-    expect(translationDocumentClass('docs/readme-guide.md')).toBe('non-readme')
-  })
-
-  it('requires every non-README while retaining explicit README entries', () => {
-    expect(requiresTranslationPair('docs/guide.md', manifest)).toBe(true)
-    expect(requiresTranslationPair('docs/legacy/README.md', manifest)).toBe(true)
-    expect(requiresTranslationPair('docs/new/README.md', manifest)).toBe(false)
-  })
-
-  it('requires both document classes after the README frontier closes', () => {
-    const closed = parseTranslationPairingManifest(JSON.stringify({
-      ...manifest,
-      requiredClasses: ['non-readme', 'readme'],
-    }))
-    expect(requiresTranslationPair('docs/guide.md', closed)).toBe(true)
-    expect(requiresTranslationPair('future/subtree/README.md', closed)).toBe(true)
+      excluded: [42],
+    }))).toThrow('excluded must be an array of strings')
   })
 })
 
@@ -121,22 +68,6 @@ describe('translation scope discovery', () => {
     'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/README.md',
   ])('excludes non-source or non-README path %s', (file) => {
     expect(isTranslationScopeFile(file)).toBe(false)
-  })
-})
-
-describe('date-based pairing frontier', () => {
-  const cutoff = '2026-07-14'
-
-  it('enforces the cutoff day and every later day, but not the preceding day', () => {
-    expect(requiresPairByDate('.agents/notes/2026-07-13-before.md', cutoff)).toBe(false)
-    expect(requiresPairByDate('.agents/notes/2026-07-14-at-cutoff.md', cutoff)).toBe(true)
-    expect(requiresPairByDate('.agents/notes/2026-07-15-after.md', cutoff)).toBe(true)
-  })
-
-  it('matches only a date at the start of the basename', () => {
-    expect(datedDocumentDate('.agents/notes/2026-07-14-proposal.md')).toBe('2026-07-14')
-    expect(datedDocumentDate('docs/release-notes-2026-07-14-alpha.md')).toBeUndefined()
-    expect(requiresPairByDate('docs/release-notes-2026-07-14-alpha.md', cutoff)).toBe(false)
   })
 })
 

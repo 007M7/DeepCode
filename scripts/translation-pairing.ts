@@ -1,7 +1,7 @@
 /**
  * Pure parsing and structural helpers for the bilingual-document pairing
- * gate. Kept separate from the CLI so cutoff and signature behavior can be
- * regression-tested without reading or mutating the repository tree.
+ * gate. Kept separate from the CLI so corpus discovery and signature behavior
+ * can be regression-tested without reading or mutating the repository tree.
  */
 
 import { fromMarkdown } from 'mdast-util-from-markdown'
@@ -11,21 +11,10 @@ import type { Nodes } from 'mdast'
 
 /** Validated shape of `scripts/translation-pairing.manifest.json`. */
 export interface TranslationPairingManifest {
-  required: string[]
-  /** Document classes whose complete in-scope population must be paired. */
-  requiredClasses: TranslationDocumentClass[]
+  /** Source documents exempt from pairing because they are generated, instructional, or bilingual by construction. */
   excluded: string[]
-  /** Date-named documents on or after this day must merge bilingual. */
-  requiredSince: string
 }
 
-/** Stable classes used to close one translation rollout without enumerating files. */
-export type TranslationDocumentClass = 'readme' | 'non-readme'
-
-const TRANSLATION_DOCUMENT_CLASSES: TranslationDocumentClass[] = ['readme', 'non-readme']
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-const DATED_DOCUMENT = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
 const README_ARTIFACT = /(?:^|\/)readme(?:\.md|\.zh\.md|\.i18n\.yaml)$/i
 const NON_SOURCE_DIRECTORIES = new Set([
   'node_modules',
@@ -84,37 +73,17 @@ export function isTranslationScopeFile(file: string): boolean {
     || file.startsWith('python/'))
 }
 
-/** Whether a string names one real calendar day in canonical ISO form. */
-export function isIsoDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false
-  const date = new Date(`${value}T00:00:00.000Z`)
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
-}
-
-/** Read one manifest string-array field or fail before enforcement starts. */
-function stringArrayField(record: Record<string, unknown>, field: 'required' | 'excluded'): string[] {
-  const value = record[field]
+/** Read the manifest exclusion list or fail before enforcement starts. */
+function excludedField(record: Record<string, unknown>): string[] {
+  const value = record.excluded
   if (!Array.isArray(value)) {
-    throw new Error(`translation-pairing.manifest.json: ${field} must be an array of strings`)
+    throw new Error('translation-pairing.manifest.json: excluded must be an array of strings')
   }
   const entries: unknown[] = value
   if (!entries.every((entry): entry is string => typeof entry === 'string')) {
-    throw new Error(`translation-pairing.manifest.json: ${field} must be an array of strings`)
+    throw new Error('translation-pairing.manifest.json: excluded must be an array of strings')
   }
   return entries
-}
-
-/** Read and validate the manifest's closed document-class set. */
-function requiredClassesField(record: Record<string, unknown>): TranslationDocumentClass[] {
-  const value = record.requiredClasses
-  if (!Array.isArray(value) || !value.every((entry): entry is TranslationDocumentClass =>
-    typeof entry === 'string' && TRANSLATION_DOCUMENT_CLASSES.includes(entry as TranslationDocumentClass))) {
-    throw new Error('translation-pairing.manifest.json: requiredClasses must contain only "readme" and "non-readme"')
-  }
-  if (new Set(value).size !== value.length) {
-    throw new Error('translation-pairing.manifest.json: requiredClasses must not contain duplicates')
-  }
-  return value
 }
 
 /** Parse and validate the checked-in bilingual manifest. */
@@ -124,39 +93,11 @@ export function parseTranslationPairingManifest(content: string): TranslationPai
     throw new Error('translation-pairing.manifest.json: expected an object')
   }
   const record = value as Record<string, unknown>
-  const requiredSince = record.requiredSince
-  if (typeof requiredSince !== 'string' || !isIsoDate(requiredSince)) {
-    throw new Error(`translation-pairing.manifest.json: requiredSince must be a valid YYYY-MM-DD date; got ${JSON.stringify(requiredSince)}`)
+  const unsupported = Object.keys(record).filter(field => field !== 'excluded')
+  if (unsupported.length > 0) {
+    throw new Error(`translation-pairing.manifest.json: unsupported field(s): ${unsupported.join(', ')}; every in-scope document is required`)
   }
-  return {
-    required: stringArrayField(record, 'required'),
-    requiredClasses: requiredClassesField(record),
-    excluded: stringArrayField(record, 'excluded'),
-    requiredSince,
-  }
-}
-
-/** Classify a Markdown source by whether its basename is README, case-insensitively. */
-export function translationDocumentClass(file: string): TranslationDocumentClass {
-  return /(?:^|\/)readme\.md$/i.test(file) ? 'readme' : 'non-readme'
-}
-
-/** Whether the manifest requires this in-scope source to have a complete pair. */
-export function requiresTranslationPair(file: string, manifest: TranslationPairingManifest): boolean {
-  return manifest.required.includes(file)
-    || manifest.requiredClasses.includes(translationDocumentClass(file))
-    || requiresPairByDate(file, manifest.requiredSince)
-}
-
-/** Return the leading date of a `yyyy-mm-dd-*.md` basename, if present. */
-export function datedDocumentDate(file: string): string | undefined {
-  return DATED_DOCUMENT.exec(file)?.[1]
-}
-
-/** Whether a date-named document falls on or after the pairing cutoff. */
-export function requiresPairByDate(file: string, requiredSince: string): boolean {
-  const date = datedDocumentDate(file)
-  return date !== undefined && date >= requiredSince
+  return { excluded: excludedField(record) }
 }
 
 /** The structural surface compared between the two sides of a pair. */

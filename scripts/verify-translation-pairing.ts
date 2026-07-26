@@ -1,8 +1,7 @@
 /**
  * Enforce complete English/Chinese pairs, matching structure, and recorded git
- * blob hashes under the bilingual manifest. Required files and date-named docs
- * at or after `requiredSince`, plus every source in a required document class,
- * must be paired; excluded docs may have neither a counterpart nor sidecar.
+ * blob hashes for every in-scope document. The manifest contains only explicit
+ * exclusions, which may have neither a counterpart nor a sidecar.
  * `--list` reports state and `--write` records both sides after human review.
  * Translation quality remains a review responsibility.
  * See `docs/i18n/README.md` for the owning contract.
@@ -16,9 +15,7 @@ import {
   parseTranslationMarkdown,
   parseTranslationPairingManifest,
   isTranslationScopeFile,
-  requiresTranslationPair,
   TRANSLATION_SCOPE_GLOB_EXCLUDES,
-  translationDocumentClass,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -119,26 +116,17 @@ if (writeMode) {
 const errors: string[] = []
 const state = new Map<string, 'ok' | 'out-of-sync' | 'missing'>()
 
-// 1. Explicit manifest entries name existing source documents.
-for (const req of manifest.required) {
-  if (!existsSync(join(root, req))) {
-    errors.push(`${req}: listed in translation-pairing.manifest.json \`required\` but the file does not exist`)
-  }
-}
-
-// 2. Every source selected explicitly, by document class, or by the dated-document
-// cutoff merges bilingual. Class enforcement closes a rollout for future files too.
+// 1. Every discovered, non-excluded source merges bilingual.
 for (const source of sources) {
   if (isExcluded(source)) continue
-  if (!requiresTranslationPair(source, manifest)) continue
   const { zh } = pairPaths(source)
   if (!existsSync(join(root, zh))) {
-    errors.push(`${source}: required to merge bilingual as a ${translationDocumentClass(source)} document (docs/i18n/README.md); add the counterpart and record the pair`)
+    errors.push(`${source}: in-scope documentation must merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
     state.set(source, 'missing')
   }
 }
 
-// 3. Every pair that exists at all is complete and consistent. Anchor on the
+// 2. Every pair that exists at all is complete and consistent. Anchor on the
 // union of .zh.md files and .i18n.yaml records so a half-deleted pair is
 // caught from either remnant.
 const pairAnchors = new Set<string>()
@@ -198,7 +186,7 @@ for (const source of [...pairAnchors].sort()) {
   if (!state.has(source)) state.set(source, 'ok')
 }
 
-// Complete the state map for --list: any in-scope, non-excluded document with no pair yet is backlog.
+// Complete the state map for --list: any in-scope, non-excluded document with no pair is missing.
 for (const source of sources) {
   if (!isExcluded(source) && !state.has(source)) state.set(source, 'missing')
 }
@@ -207,9 +195,7 @@ if (listMode) {
   const order = { 'out-of-sync': 0, missing: 1, ok: 2 } as const
   const rows = [...state.entries()].sort((a, b) => order[a[1]] - order[b[1]] || a[0].localeCompare(b[0]))
   for (const [file, status] of rows) {
-    const required = requiresTranslationPair(file, manifest)
-    const tag = required ? `  (required ${translationDocumentClass(file)})` : '  (backlog)'
-    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? tag : ''}`)
+    console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? '  (required)' : ''}`)
   }
   const counts = { 'ok': 0, 'out-of-sync': 0, 'missing': 0 }
   for (const status of state.values()) counts[status]++
@@ -218,7 +204,7 @@ if (listMode) {
 }
 
 if (errors.length === 0) {
-  console.log(`verify-translation-pairing: ${pairAnchors.size} pair(s) checked against ${manifest.required.length} explicit requirements and required classes [${manifest.requiredClasses.join(', ')}], all consistent.`)
+  console.log(`verify-translation-pairing: ${pairAnchors.size} pair(s) checked across all in-scope documentation, all consistent.`)
   process.exit(0)
 }
 

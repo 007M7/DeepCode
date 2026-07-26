@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This repo's documentation is read by people and agents both inside and outside the company, so the README, Agent Notes, and docs tree are maintained in English and Simplified Chinese. This page defines the pairing contract, the enforcement gate, and the rollout policy; [translation-rules.md](translation-rules.md) defines how to translate; [terminology.md](terminology.md) is the terminology source of truth. The committed agent workflow lives in [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md).
+This repo's documentation is read by people and agents both inside and outside the company, so every document in scope is maintained in English and Simplified Chinese. This page defines the pairing contract, enforcement gate, scope, and exclusions; [translation-rules.md](translation-rules.md) defines how to translate; [terminology.md](terminology.md) is the terminology source of truth. The committed agent workflow lives in [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md).
 
 ## The pairing contract
 
@@ -23,20 +23,19 @@ This repo's documentation is read by people and agents both inside and outside t
 
 `pnpm run verify-translation-pairing` (part of `doc-sync`, which contributors run locally for documentation changes and CI runs exhaustively) enforces the contract mechanically:
 
-1. Every file listed as `required`, and every document whose class appears in `requiredClasses`, in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair. The classes are `non-readme` and `readme`; class matching is case-insensitive on the basename, so `missions/readme.md` is a README.
-2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table row and column counts, list kinds, ordered-list starts, item counts, and every link target apart from the switcher.
+1. Every document in scope has a complete pair. README discovery is case-insensitive on the basename, so `missions/readme.md` is in scope alongside the other documentation roots.
+2. Every pair artifact that exists at all is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table row and column counts, list kinds, ordered-list starts, item counts, and every link target apart from the switcher.
 3. Files listed as `excluded` have no `.zh.md` and no `.i18n.yaml` at all.
-4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new date-named Agent Notes merge bilingual from birth.
 
 Source-oriented code gates consume an exact `.zh.md` fence sequence as a derivative of its unsuffixed sibling instead of compiling or manifesting the same code twice. The sequence must match in length, order, fence kind, and byte-exact body; otherwise both copies remain independently checked and the pairing gate reports the structural mismatch.
 
-`pnpm run verify-translation-pairing --list` prints the current pairing state of every document in scope — missing, out-of-sync, or ok — and is the work list for translation batches. It never fails; it reports.
+`pnpm run verify-translation-pairing --list` prints the current pairing state of every document in scope — missing, out-of-sync, or ok. It never fails; `missing` and `out-of-sync` rows identify violations that the normal check rejects.
 
 The practical rule this gate creates: **when a PR edits either side of a paired document, the same PR updates the counterpart and re-records the pair** (run the [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill, then `--write`), exactly like the repo's existing doc-sync rule for code and READMEs. A PR that leaves a pair out of sync goes red in CI.
 
 The gate's limit, stated plainly: **a green gate means the pair was confirmed consistent at these exact contents, not that the confirmation was sound.** It checks hashes and shape; it cannot judge whether the two sides actually say the same thing, or whether the wording is accurate, well-termed, and natural — that is the reviewer's half of the contract, per [translation-rules.md](translation-rules.md). A re-recorded pair with a sloppy counterpart passes the gate; it must not pass review.
 
-## Scope, exclusions, and rollout
+## Scope and exclusions
 
 **Scope**: every non-vendor README, plus every document under `.agents/notes/**`, `docs/**`, and `python/**`. README matching is case-insensitive on the basename and covers future directories without another manifest edit. Dependency and ignored build-output trees are discovery exclusions, not source documentation.
 
@@ -47,7 +46,7 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 - `docs/i18n/terminology.md` and [style-samples.md](style-samples.md) — both are bilingual by construction.
 - [translation-prompt.md](translation-prompt.md) — the automated pipeline's prompt template; its body is machine-consumed verbatim, so a paired translation would change pipeline behavior.
 
-**Enforcement frontier**: `requiredClasses` closes a whole document class after its back-catalog has been translated. Both `non-readme` and `readme` are closed: every current or future in-scope document must merge bilingual. The manifest's `required` list retains already-admitted files, and a date-named document (`yyyy-mm-dd-*.md`, i.e. an Agent Note) dated on or after `requiredSince` must merge with its pair regardless of class. `--list` reports any unclosed-class backlog while every existing pair remains governed by the full contract.
+**Universal requirement**: every current or future document in scope must merge as a complete bilingual pair. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) contains only explicit exclusions; there is no per-file rollout list, date cutoff, or README-specific policy class.
 
 ## Division of labor
 
