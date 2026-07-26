@@ -331,19 +331,29 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
               for (const context of result.additionalContexts ?? []) {
                 exec.deferContext(context)
               }
-              exec.agent?.session.append('tool/code-dispatch', {
-                parentCallId: exec.callId,
-                subCallId,
-                name,
-                // The SIBLING parse of the dispatched value: byte-identical JSON,
-                // but a separate object — a tool mutating its args cannot desync
-                // this record from what it actually received.
-                arguments: normalized.logged,
-                isError: result.isError,
-                // The registry deep-froze this projection at result finalization;
-                // append snapshots it again, so the log copy stays detached.
-                content: result.content,
-              })
+              if (exec.agent !== undefined) {
+                // The durable copy may be reshaped (e.g. spilled to a preview +
+                // locator) by the log-shaping waterfall; the program's value and
+                // the model contract are untouched.
+                const logged = await registry.shapeDispatchLog({
+                  exec, agent: exec.agent, subCallId, name, isError: result.isError,
+                  // The registry deep-froze this projection at result
+                  // finalization; append snapshots the final copy again, so the
+                  // log stays detached.
+                  content: result.content,
+                })
+                exec.agent.session.append('tool/code-dispatch', {
+                  parentCallId: exec.callId,
+                  subCallId,
+                  name,
+                  // The SIBLING parse of the dispatched value: byte-identical JSON,
+                  // but a separate object — a tool mutating its args cannot desync
+                  // this record from what it actually received.
+                  arguments: normalized.logged,
+                  isError: result.isError,
+                  content: logged,
+                })
+              }
               resolve(result.isError
                 ? { isError: true, message: result.error.message }
                 : { isError: false, value: result.value })

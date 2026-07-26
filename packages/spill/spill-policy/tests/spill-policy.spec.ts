@@ -230,6 +230,97 @@ describe('read skip', () => {
   })
 })
 
+describe('the durable dispatch-log arm', () => {
+  /** Boot code mode + the policy + the worker runtime; run one program via the real bridge. */
+  async function runCodeWith(program: string, maxInlineBytes: number) {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(StubStore)
+    await ctx.plugin(SpillPolicy, { maxInlineBytes })
+    await ctx.plugin(WorkerCodeRuntime, {})
+    const events: { type: string; data: unknown }[] = []
+    const agent = {
+      session: {
+        header: { id: SessionId('dispatch-spill'), cwd: '/workspace' },
+        append: (type: string, data: unknown) => { events.push({ type, data }) },
+      },
+    }
+    ctx.tools.register(textTool('huge_read', 'H'.repeat(2_000)))
+    ctx.tools.register(textTool('small_read', 'tiny'))
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('parent-1'),
+      name: 'run_code',
+      arguments: { code: program, description: 'Drive dispatch-log spilling' },
+      agent: agent as never,
+    })
+    return { ctx, result, events, spill: ctx.spillStore as StubStore }
+  }
+
+  it('bounds the tool/code-dispatch copy of an oversized sub-result while the program value stays whole', async () => {
+    const { result, events, spill } = await runCodeWith(
+      'const blocks = await tools.huge_read({});\nreturn blocks[0].text.length', 200)
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    // The program received the COMPLETE text (length 2000), untouched by spill.
+    expect(result.value).toMatchObject({ result: 2_000 })
+    // The durable settle event carries the bounded projection + locator.
+    const settle = events.find(event => event.type === 'tool/code-dispatch')
+    expect(settle).toBeDefined()
+    const logged = (settle!.data as { content: { type: string; text: string }[] }).content
+    expect(logged).toHaveLength(1)
+    const loggedText = logged[0]!.text
+    expect(Buffer.byteLength(loggedText, 'utf8')).toBeLessThanOrEqual(200)
+    expect(loggedText).toContain('Full formatted result stored at: /spill/huge_read.txt')
+    // The artifact holds the full text under the dispatch label and sub-call id.
+    const save = spill.saves.find(entry => entry.source.label === 'dispatch')
+    expect(save).toMatchObject({
+      source: { toolName: 'huge_read', callId: 'parent-1:code:1', label: 'dispatch' },
+    })
+    expect(save?.content).toBe('H'.repeat(2_000))
+  })
+
+  it('leaves a within-cap sub-result log untouched and saves nothing for it', async () => {
+    const { events, spill } = await runCodeWith(
+      'return await tools.small_read({})', 200)
+    const settle = events.find(event => event.type === 'tool/code-dispatch')
+    expect((settle!.data as { content: { type: string; text: string }[] }).content)
+      .toEqual([{ type: 'text', text: 'tiny' }])
+    expect(spill.saves.filter(entry => entry.source.label === 'dispatch')).toHaveLength(0)
+  })
+
+  it('a saveText failure keeps the complete content in the durable log (best-effort)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(StubStore)
+    await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
+    await ctx.plugin(WorkerCodeRuntime, {})
+    ;(ctx.spillStore as StubStore).fail = true
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const events: { type: string; data: unknown }[] = []
+    const agent = {
+      session: {
+        header: { id: SessionId('dispatch-spill-fail'), cwd: '/workspace' },
+        append: (type: string, data: unknown) => { events.push({ type, data }) },
+      },
+    }
+    ctx.tools.register(textTool('huge_read', 'H'.repeat(2_000)))
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('parent-2'),
+      name: 'run_code',
+      arguments: { code: 'return (await tools.huge_read({}))[0].text.length', description: 'Fail the spill backend' },
+      agent: agent as never,
+    })
+    expect(result.isError).toBe(false)
+    const settle = events.find(event => event.type === 'tool/code-dispatch')
+    expect((settle!.data as { content: { text: string }[] }).content[0]!.text).toBe('H'.repeat(2_000))
+    expect(warn).toHaveBeenCalled()
+  })
+})
+
 describe('nested-call skip', () => {
   it('leaves nested composite results complete and spillable only through their outer call', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 10 })

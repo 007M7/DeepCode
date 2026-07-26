@@ -1202,7 +1202,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/spill/spill-policy/src/index.ts:51`](../packages/spill/spill-policy/src/index.ts)
+Source: [`packages/spill/spill-policy/src/index.ts:60`](../packages/spill/spill-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-storage-domain`
 
@@ -1704,13 +1704,21 @@ export interface Config {
    * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
+  /**
+   * Concurrency cap for a `run_code` program's overlapping sub-calls
+   * (default 10, the loop scheduler's own default). Sub-calls follow the
+   * native scheduling contract — only calls whose tools classify
+   * concurrency-safe overlap; exclusive calls form barriers — so `1`
+   * restores strictly serial dispatch. Must be a positive integer.
+   */
+  maxParallelSubCalls?: number
 }
 
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:529`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:562`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 
