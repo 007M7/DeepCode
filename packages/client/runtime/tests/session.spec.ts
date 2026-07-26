@@ -659,6 +659,9 @@ describe('run_code sub-dispatch indexing', () => {
     expect(subs?.[0]).toMatchObject({
       kind: 'tool-result', callId: 'p1:code:1',
       call: { name: 'bash', argsRaw: '{"command":"ls","description":"列目录"}' },
+      // The settle event carries no start time: callTime stays null (never a
+      // fabricated zero-duration).
+      callTime: null,
       isError: false, content: [{ type: 'text', text: 'demo.txt' }],
     })
     expect(subs?.[1]).toMatchObject({ callId: 'p1:code:2', isError: true })

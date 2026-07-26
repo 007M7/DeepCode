@@ -638,7 +638,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         kind: 'tool-result', seq: event.seq, time: event.time,
         callId: data.subCallId,
         call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
-        callTime: event.time,
+        // The settle event is the only timestamp this event carries; the
+        // start time is unknown (null per the ToolResultNode contract), so
+        // duration-aware consumers never see a fabricated zero-duration call.
+        callTime: null,
         content: data.content, isError: data.isError,
         callView: null, resultView: null,
       }
