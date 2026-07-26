@@ -190,3 +190,13 @@
   padding: 0 24px 8px;
   overflow-y: auto;
 }
+
+/* Visually-hidden text seat (close button accessible name from slot content). */
+.hiddenLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

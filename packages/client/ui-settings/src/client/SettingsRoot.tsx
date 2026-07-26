@@ -1,15 +1,15 @@
 /**
  * Settings shell root: the sidebar-foot trigger row plus the centered modal
- * panel (figma 501:29947, 1080x700) with the section nav rail. Modal open
- * state and the active section id are component-local viewing state; the
- * section ledger arrives through the injected face (nav labels are
- * registrant-localized — the shell owns no locale/theme subscription).
+ * panel (figma 501:29947, 1080x700) with the section nav rail. The shell is
+ * a pure composition face — every piece of text (trigger label, panel title,
+ * close label, sections) arrives from registrants through slots; accessible
+ * names resolve to that content (trigger: its own text; dialog:
+ * aria-labelledby the title node; close: visually-hidden slot text). Modal
+ * open state and the active section id are component-local viewing state.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'
-import {
-  IconCloseOutline16, IconDataOutline16, IconSettingsOutline14, IconSettingsOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutline16, IconDataOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps } from './contract/slots.ts'
 import css from './SettingsRoot.module.css'
 
@@ -20,7 +20,6 @@ function navIcon(id: string) {
 }
 
 type PanelProps = {
-  translate: SettingsRootComponentProps['translate']
   rows: ReturnType<SettingsRootComponentProps['sections']>
   renderSlot: SettingsRootComponentProps['renderSlot']
   onClose: () => void
@@ -31,11 +30,12 @@ type PanelProps = {
  * header button, a mask click, and document-level Escape (mounted only while
  * open, so the listener lifetime is the panel's).
  */
-function SettingsPanel({ translate, rows, renderSlot, onClose }: PanelProps) {
+function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
   // Local selection; entries can unmount underneath it, so the render-time
   // projection falls back to the first row when the id is gone.
   const [activeId, setActiveId] = useState<string | undefined>(undefined)
   const active = rows.find((r) => r.id === activeId)?.id ?? rows[0]?.id
+  const titleId = useId()
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -52,9 +52,9 @@ function SettingsPanel({ translate, rows, renderSlot, onClose }: PanelProps) {
   return (
     <div className={css.overlay} role="presentation">
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
-      <div className={css.panel} role="dialog" aria-modal="true" aria-label={translate('settings:title')}>
-        <nav className={css.nav} aria-label={translate('settings:title')}>
-          <div className={css.navTitle}>{translate('settings:title')}</div>
+      <div className={css.panel} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <nav className={css.nav}>
+          <div className={css.navTitle} id={titleId}>{renderSlot('settings.header', {})}</div>
           <div className={css.navList}>
             {rows.map((row) => (
               <button
@@ -72,8 +72,9 @@ function SettingsPanel({ translate, rows, renderSlot, onClose }: PanelProps) {
         </nav>
         <div className={css.content}>
           <div className={css.header}>
-            <button ref={closeButton} type="button" className={css.close} aria-label={translate('settings:close')} onClick={onClose}>
+            <button ref={closeButton} type="button" className={css.close} onClick={onClose}>
               <IconCloseOutline16 size={14} />
+              <span className={css.hiddenLabel}>{renderSlot('settings.close', {})}</span>
             </button>
           </div>
           <div className={css.options}>
@@ -91,13 +92,13 @@ function SettingsPanel({ translate, rows, renderSlot, onClose }: PanelProps) {
  * @returns the settings shell element tree.
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
-  const { wide, translate, subscribeSections, sectionsVersion, sections, renderSlot } = props
+  const { wide, subscribeSections, sectionsVersion, sections, renderSlot } = props
   const [open, setOpen] = useState(false)
   const close = useCallback(() => { setOpen(false) }, [])
 
-  // The ledger tick is the shell's only subscription: sections re-register
-  // with freshly localized labels on locale change, so the version bump also
-  // re-renders the shell's own translate()-read chrome copy.
+  // The ledger tick keeps the nav rows fresh: registrants re-register with
+  // freshly localized text on locale change, and the trigger/header/close
+  // seats re-render through their own outlets' subscriptions.
   // State = ledger version: same-version notifications dedupe to no render.
   const [, setSectionsRev] = useState(() => sectionsVersion())
   useEffect(
@@ -111,15 +112,13 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
       <button
         type="button"
         className={clsx(css.trigger, !wide && css.rail)}
-        aria-label={translate('settings:trigger')}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => { setOpen(true) }}
       >
-        <IconSettingsOutline14 size={wide ? 14 : 18} />
-        {wide && <span className={css.triggerLabel}>{translate('settings:trigger')}</span>}
+        {renderSlot('settings.trigger', { wide })}
       </button>
-      {open && <SettingsPanel translate={translate} rows={rows} renderSlot={renderSlot} onClose={close} />}
+      {open && <SettingsPanel rows={rows} renderSlot={renderSlot} onClose={close} />}
     </>
   )
 }

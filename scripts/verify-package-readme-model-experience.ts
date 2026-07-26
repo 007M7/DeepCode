@@ -60,6 +60,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-workspace': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-theme': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-settings': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
+  'packages/client/ui-settings-general': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-models': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/locale': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/web': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },

@@ -6,13 +6,14 @@ import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
 
 afterEach(cleanup)
 
-const DICT: Record<string, string> = {
-  'settings:trigger': 'Settings',
-  'settings:title': 'Settings',
-  'settings:close': 'Close',
-}
-
 type Row = { id: string; order: number; label: string }
+
+/** Slot-content stand-ins: the shell renders whatever the seats contribute. */
+const SEAT_CONTENT: Record<string, string> = {
+  'settings.trigger': 'Settings',
+  'settings.header': 'Settings Title',
+  'settings.close': 'Close',
+}
 
 function mount({
   wide = true,
@@ -26,8 +27,10 @@ function mount({
   let version = 0
   const listeners = new Set<() => void>()
   const renderSlot = vi.fn(
-    ((_key: string, _owner: unknown, opts?: { only?: string }) =>
-      <div data-testid={`section-${opts?.only ?? 'all'}`} />) as SettingsRootComponentProps['renderSlot'],
+    ((key: string, _owner: unknown, opts?: { only?: string }) => {
+      if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`} />
+      return SEAT_CONTENT[key]
+    }) as SettingsRootComponentProps['renderSlot'],
   )
   // Global standard kit stubs: the shell consumes neither hook.
   const unusedHook = (() => { throw new Error('unused by SettingsRoot') }) as never
@@ -35,7 +38,6 @@ function mount({
     useSessions: unusedHook,
     useWorkspaces: unusedHook,
     wide,
-    translate: (ref) => DICT[ref] ?? ref,
     sectionsVersion: () => version,
     subscribeSections: (listener) => {
       listeners.add(listener)
@@ -60,19 +62,41 @@ function openPanel() {
 }
 
 describe('SettingsRoot trigger', () => {
-  it('renders the wide row with the label and opens the dialog', () => {
-    mount()
+  it('renders the trigger seat content as the accessible name (no aria-label of its own)', () => {
+    const { renderSlot } = mount()
     const trigger = screen.getByRole('button', { name: 'Settings' })
-    expect(trigger.textContent).toContain('Settings')
+    expect(trigger.hasAttribute('aria-label')).toBe(false)
+    expect(renderSlot).toHaveBeenCalledWith('settings.trigger', { wide: true })
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(trigger)
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Settings', expanded: true })).toBeTruthy()
   })
 
-  it('drops the label in the rail state', () => {
-    mount({ wide: false })
-    expect(screen.getByRole('button', { name: 'Settings' }).textContent).toBe('')
+  it('hands the rail state to the trigger seat', () => {
+    const { renderSlot } = mount({ wide: false })
+    expect(renderSlot).toHaveBeenCalledWith('settings.trigger', { wide: false })
+  })
+})
+
+describe('SettingsPanel chrome seats', () => {
+  it('names the dialog via aria-labelledby pointing at the header seat node', () => {
+    mount()
+    openPanel()
+    const dialog = screen.getByRole('dialog')
+    const titleId = dialog.getAttribute('aria-labelledby')!
+    expect(titleId).toBeTruthy()
+    const title = document.getElementById(titleId)!
+    expect(title.textContent).toBe('Settings Title')
+    expect(screen.getByRole('dialog', { name: 'Settings Title' })).toBeTruthy()
+  })
+
+  it('names the close button through the visually-hidden close seat text', () => {
+    mount()
+    openPanel()
+    const close = screen.getByRole('button', { name: 'Close' })
+    expect(close.hasAttribute('aria-label')).toBe(false)
+    expect(close.textContent).toContain('Close')
   })
 })
 
@@ -143,7 +167,8 @@ describe('SettingsPanel navigation', () => {
     const { renderSlot } = mount({ rows: [] })
     openPanel()
     expect(screen.getByRole('dialog')).toBeTruthy()
-    expect(renderSlot).not.toHaveBeenCalled()
+    const sectionCalls = renderSlot.mock.calls.filter(c => c[0] === 'settings.section')
+    expect(sectionCalls).toHaveLength(0)
   })
 
   it('drops the ledger subscription on unmount', () => {

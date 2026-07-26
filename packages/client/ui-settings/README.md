@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-ui-settings
 
-Settings shell plugin: the sidebar trigger row and the modal settings panel occupying `sidebar.settings`; declares the `settings.section` list slot that section plugins contribute pages into. The shell projects the section ledger into navigation and renders only the active section (`only` filtering).
+Settings shell plugin: a pure composition face. It occupies `sidebar.settings` with the trigger chrome and the modal settings panel, and declares the slots registrants fill: `settings.trigger` / `settings.header` / `settings.close` (chrome content) and `settings.section` (one page per feature). The shell ships no copy and reads no locale state — all text arrives from registrants (ui-settings-general owns chrome and General; features own their sections and rows), so the section ledger bump is its only re-render trigger.
 
 ## Model Experience
 
@@ -12,4 +12,4 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **Panel is browser-preference scope only** — host-side settings (permission mode, tool-call mode) render as skeletons in the General section; no RPC surface exists yet.
+- **Panel is browser-preference scope only** — host-side settings surfaces (permission mode, tool-call mode) have no RPC backing yet; their skeletons live in ui-settings-general.

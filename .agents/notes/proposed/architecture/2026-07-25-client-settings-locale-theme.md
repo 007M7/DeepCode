@@ -10,9 +10,9 @@ The browser client's existing Settings is written directly inside the Sidebar, a
 
 ## Proposal
 
-**Collaboration doctrine (how every later module joins Settings): feature owners self-register.** The Settings shell provides only the composition surface (the top-level section list plus the item list inside General) and neither imports nor enumerates any feature; for a feature to appear in Settings, its own plugin registers into the corresponding slot — locale registers the Language row, ui-theme registers the Appearance row, ui-models registers the Models top-level panel. No separate `ui-settings-*` package is created for "a feature's settings page": the settings surface belongs to the feature package itself (shipping the Theme feature means Theme's settings choices ship with ui-theme). The only content the shell carries itself is the first top-level directory, General (skeleton rows plus the item slot declaration), because it belongs to no single feature.
+**Collaboration doctrine (how every later module joins Settings): feature owners self-register.** The Settings shell is a pure composition surface: it only declares slots and renders the chrome structure — zero copy, no locale dependency, and neither importing nor enumerating any feature; for a feature to appear in Settings, its own plugin registers into the corresponding slot — locale registers the Language row, ui-theme registers the Appearance row, ui-models registers the Models top-level panel. No separate `ui-settings-*` package is created for "a feature's settings page": the settings surface belongs to the feature package itself (shipping the Theme feature means Theme's settings choices ship with ui-theme). Content that belongs to no single feature (the trigger/title/close chrome copy, the General directory with its skeleton rows, the `settings` dictionary) is owned by `ui-settings-general` — the owner of the ownerless copy, not a feature satellite package.
 
-The Sidebar declares the `sidebar.settings` single slot; `ui-settings` occupies it and declares the `settings.section` list slot. Each section is contributed by a feature plugin; the Settings shell only reads entry metadata from the slot ledger to build the navigation, rendering the current section via `only`. General is registered by the shell itself (order 0) and declares the `settings.general.item` list slot, into which the feature plugins' preference rows slot by order.
+The Sidebar declares the `sidebar.settings` single slot; `ui-settings` occupies it and declares four slots: `settings.trigger` / `settings.header` / `settings.close` (chrome content seats, single) and `settings.section` (top-level pages, list). Accessible names all resolve from slot content: the trigger's accessible name is its text content, the dialog points at the header content node via aria-labelledby, and close is a visually hidden text seat. Each section is contributed by a feature plugin; the shell only reads entry metadata from the slot ledger to build the navigation, rendering the current section via `only`. General is registered by `ui-settings-general` (order 0) and declares the `settings.general.item` list slot, into which the feature plugins' preference rows slot by order.
 
 The Settings entry is the Settings row in the sidebar Foot; clicking it directly opens a 1080×700 centered overlay (black 24% mask); the close button, a mask click, and ESC all close it. There is no intermediate menu form of any kind.
 
@@ -28,13 +28,14 @@ The theme service never touches the DOM. `ui-layout` reads the Theme getter init
 
 | Registration surface | Owning plugin | First-phase content |
 |---|---|---|
-| General section (order 0) | built into the `ui-settings` shell | Permission and Tool Call visual skeletons (no write operations) plus the `settings.general.item` slot declaration |
+| chrome content (trigger/header/close) | `ui-settings-general` | Settings entry-row icon and copy, panel title, close hidden text |
+| General section (order 0) | `ui-settings-general` | Permission and Tool Call visual skeletons (no write operations) plus the `settings.general.item` slot declaration |
 | Language row (item order 0) | `locale` | Selector dropdown; 中文/English genuinely switch |
 | Appearance row (item order 10) | `ui-theme` | Light/Dark/System three cubes genuinely switch (the selected state reflects preference) |
 | Models section (order 10) | `ui-models` | Navigation item only, with an empty content area; later model-management features land in that package |
 | Plugin | none | Not built this phase, and the navigation does not show the item (once a later plugin feature package registers the section it appears automatically) |
 
-The first phase localizes only the copy inside the Settings overlay; dictionaries stay close to their owners — shell copy (the chrome plus the General skeletons) lives in the `settings` namespace, and feature-row copy lives in each feature package (`settings.locale`, `settings.theme`, `settings.models`).
+The first phase localizes only the copy inside the Settings overlay; dictionaries stay close to their owners — the chrome plus the General skeletons live in `ui-settings-general`'s `settings` namespace, and feature-row copy lives in each feature package (`settings.locale`, `settings.theme`, `settings.models`).
 
 ### Slot topology
 
@@ -42,16 +43,19 @@ The first phase localizes only the copy inside the Settings overlay; dictionarie
 root
 └─ sidebar
    └─ sidebar.settings                   single/root
-      └─ ui-settings（壳）
+      └─ ui-settings（壳，零文案）
+         ├─ settings.trigger             single/root  ui-settings-general 注册
+         ├─ settings.header              single/root  ui-settings-general 注册
+         ├─ settings.close               single/root  ui-settings-general 注册
          └─ settings.section             list/root
-            ├─ general (order 0)         ui-settings 壳自带
+            ├─ general (order 0)         ui-settings-general 注册
             │  └─ settings.general.item  list/root
             │     ├─ language (0)        locale 注册
             │     └─ appearance (10)     ui-theme 注册
             └─ models (order 10)         ui-models 注册
 ```
 
-Section and item contributions both use declaration-aware deferral (ui-slots' `deferRegistration()`: ledger-judged presence, `refresh()` for localized labels, one-call disposal) and do not depend on the client manifest's apply order. The `settings.general.item` SlotMap entry's canonical home is the ui-settings contract; locale/ui-theme, because of the reference cycle (the shell consumes ctx.locale), consume that entry as verbatim duplicated merges, with declaration merging guaranteeing the copies agree.
+Section and item contributions both use declaration-aware deferral (ui-slots' `deferRegistration()`: ledger-judged presence, `refresh()` for localized labels, one-call disposal) and do not depend on the client manifest's apply order. The SlotMap types split homes: trigger/header/close/section have their canonical home in the ui-settings contract (the consumers, general and models, both depend on the shell — no cycle); `settings.general.item`'s canonical home is the locale package — it is the lowest common dependency of all item registrants (a settings row always carries copy), while the declarer general's contract is unreachable from locale/ui-theme (it would form a cycle); ui-theme consumes it through a re-export seam.
 
 ### Future work: promote slot declarations to first-class injectable waits
 

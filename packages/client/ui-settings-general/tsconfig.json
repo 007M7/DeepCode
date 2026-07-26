@@ -21,7 +21,10 @@
       "path": "../runtime"
     },
     {
-      "path": "../ui-sidebar"
+      "path": "../ui-settings"
+    },
+    {
+      "path": "../locale"
     },
     {
       "path": "../../support/invariants"

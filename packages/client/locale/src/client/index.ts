@@ -15,6 +15,7 @@ import { createLanguageRowStore } from './settings-store.ts'
 
 export type { LanguageRowComponentProps, LanguageRowInjected } from './LanguageRow.tsx'
 export type { LanguageOptionRow, LanguageRowState } from './settings-store.ts'
+export type { SettingsGeneralItemOwnerProps } from './settings-contract.ts'
 
 /** Translate a key with optional params. */
 export type Translate = (key: string, params?: Record<string, unknown>) => string

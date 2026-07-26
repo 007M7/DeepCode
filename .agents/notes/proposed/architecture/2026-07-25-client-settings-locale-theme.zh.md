@@ -10,9 +10,9 @@ Status: proposed
 
 ## Proposal
 
-**协作导向（后续所有模块接入 Settings 的方式）：功能属主自注册。** Settings 壳只提供组合面（一级 section 列表 + General 内的 item 列表），不 import 也不枚举任何功能；一个功能要出现在 Settings 里，由它自己的插件向对应坑位注册——locale 注册 Language 行，ui-theme 注册 Appearance 行，ui-models 注册 Models 一级面板。不为「某功能的设置页」单开 `ui-settings-*` 包：设置面属于功能包本身（做 Theme 功能，Theme 的设置选择就随 ui-theme 一起交付）。壳自带的唯一内容是第一个一级目录 General（骨架行 + item 坑位声明），因为它不属于任何单一功能。
+**协作导向（后续所有模块接入 Settings 的方式）：功能属主自注册。** Settings 壳是纯组合面：只声明坑位、渲染 chrome 结构，零文案、不依赖 locale、不 import 也不枚举任何功能；一个功能要出现在 Settings 里，由它自己的插件向对应坑位注册——locale 注册 Language 行，ui-theme 注册 Appearance 行，ui-models 注册 Models 一级面板。不为「某功能的设置页」单开 `ui-settings-*` 包：设置面属于功能包本身（做 Theme 功能，Theme 的设置选择就随 ui-theme 一起交付）。不属于任何单一功能的内容（trigger/标题/close 的 chrome 文案、General 目录与骨架行、`settings` 字典）由 `ui-settings-general` 拥有——它是「无主文案」的属主，不是功能卫星包。
 
-Sidebar 声明 `sidebar.settings` 单坑位，`ui-settings` 占用它并声明 `settings.section` list 坑位。每个 section 由功能插件贡献；Settings 壳只从 slot ledger 读取 entry metadata 生成导航，通过 `only` 渲染当前 section。General 由壳自己注册（order 0）并声明 `settings.general.item` list 坑位，功能插件的偏好行按 order 排入。
+Sidebar 声明 `sidebar.settings` 单坑位，`ui-settings` 占用它并声明四个坑：`settings.trigger` / `settings.header` / `settings.close`（chrome 内容座，single）与 `settings.section`（一级页面，list）。无障碍名全部解析自坑内容：trigger 的可达名即其文本内容，dialog 经 aria-labelledby 指向 header 内容节点，close 是视觉隐藏文本座。每个 section 由功能插件贡献；壳只从 slot ledger 读取 entry metadata 生成导航，通过 `only` 渲染当前 section。General 由 `ui-settings-general` 注册（order 0）并声明 `settings.general.item` list 坑位，功能插件的偏好行按 order 排入。
 
 Settings 入口是 sidebar Foot 的 Settings 行，点击直接打开 1080×700 居中浮层（黑 24% 遮罩）；close 按钮、点击遮罩、ESC 均关闭。无任何中间菜单形态。
 
@@ -28,13 +28,14 @@ Theme service 不操作 DOM。`ui-layout` 初始读取 Theme getter，随后订�
 
 | 注册面 | 属主插件 | 首期内容 |
 |---|---|---|
-| General section（order 0）| `ui-settings` 壳自带 | Permission、Tool Call 视觉骨架（无写操作）+ `settings.general.item` 坑位声明 |
+| chrome 内容（trigger/header/close）| `ui-settings-general` | 设置入口行图标+文案、面板标题、close 隐藏文本 |
+| General section（order 0）| `ui-settings-general` | Permission、Tool Call 视觉骨架（无写操作）+ `settings.general.item` 坑位声明 |
 | Language 行（item order 0）| `locale` | Selector 下拉，中文/English 真实可切 |
 | Appearance 行（item order 10）| `ui-theme` | Light/Dark/System 三 cube 真实可切（选中态看 preference） |
 | Models section（order 10）| `ui-models` | 仅导航项，内容区为空；后续模型管理功能落在该包 |
 | Plugin | 无 | 首期不做，导航不出现该项（后续插件功能包注册 section 即自动出现） |
 
-首期只翻译 Settings 浮层内文案；字典就近——壳文案（chrome + General 骨架）归 `settings` namespace，功能行文案归各功能包（`settings.locale`、`settings.theme`、`settings.models`）。
+首期只翻译 Settings 浮层内文案；字典就近——chrome + General 骨架归 `ui-settings-general` 的 `settings` namespace，功能行文案归各功能包（`settings.locale`、`settings.theme`、`settings.models`）。
 
 ### Slot topology
 
@@ -42,16 +43,19 @@ Theme service 不操作 DOM。`ui-layout` 初始读取 Theme getter，随后订�
 root
 └─ sidebar
    └─ sidebar.settings                   single/root
-      └─ ui-settings（壳）
+      └─ ui-settings（壳，零文案）
+         ├─ settings.trigger             single/root  ui-settings-general 注册
+         ├─ settings.header              single/root  ui-settings-general 注册
+         ├─ settings.close               single/root  ui-settings-general 注册
          └─ settings.section             list/root
-            ├─ general (order 0)         ui-settings 壳自带
+            ├─ general (order 0)         ui-settings-general 注册
             │  └─ settings.general.item  list/root
             │     ├─ language (0)        locale 注册
             │     └─ appearance (10)     ui-theme 注册
             └─ models (order 10)         ui-models 注册
 ```
 
-section/item contribution 均使用 declaration-aware deferral（ui-slots 的 `deferRegistration()`：ledger 判在位、`refresh()` 换本地化 label、一键 dispose），不依赖 client manifest 的 apply 顺序。`settings.general.item` 的 SlotMap 条目正家在 ui-settings contract；locale/ui-theme 因引用环（壳消费 ctx.locale）以逐字重复合并的方式消费该条目，declaration merging 保证副本一致。
+section/item contribution 均使用 declaration-aware deferral（ui-slots 的 `deferRegistration()`：ledger 判在位、`refresh()` 换本地化 label、一键 dispose），不依赖 client manifest 的 apply 顺序。SlotMap 类型分家：trigger/header/close/section 正家在 ui-settings contract（消费者 general/models 均依赖壳，无环）；`settings.general.item` 正家在 locale 包——它是全部 item 注册方的最低公共依赖（设置行必带文案），而声明方 general 的 contract 对 locale/ui-theme 不可达（会成环）；ui-theme 经 re-export seam 消费。
 
 ### Future work：坑位声明升格为可 inject 的一等等待物
 

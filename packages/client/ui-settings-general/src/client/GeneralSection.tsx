@@ -1,13 +1,23 @@
 /**
- * Shell-owned General section (figma 501:29983 'Options'): Permission and
- * Tool Call skeleton rows, then the feature-contributed preference rows from
- * the `settings.general.item` slot (locale → Language, ui-theme →
- * Appearance). The section column stacks rows; each row draws its own
- * internals and separator.
+ * The General section (figma 501:29983 'Options'): Permission and Tool Call
+ * skeleton rows, then the feature-contributed preference rows from the
+ * `settings.general.item` slot (locale → Language, ui-theme → Appearance).
+ * The section column stacks rows; each row draws its own internals and
+ * separator.
  */
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { GeneralSectionComponentProps } from './contract/slots.ts'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './GeneralSection.module.css'
+
+/** Injected face of the General section: the settings-namespace translate. */
+export interface GeneralSectionInjected {
+  /** Translate a `settings` dictionary key to the active-locale text. */
+  t: (key: string) => string
+}
+
+/** Full component props: section owner share + item render share + inject face. */
+export type GeneralSectionComponentProps =
+  PropsRuntime<'settings.section'> & PropsRenderSlots<'settings.general.item'> & GeneralSectionInjected
 
 /**
  * Render the General section content column.
