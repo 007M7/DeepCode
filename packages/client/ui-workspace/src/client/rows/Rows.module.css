@@ -150,12 +150,61 @@
 }
 
 .projectRow:hover .rowActions,
-.sessionRow:hover .rowActions {
+.sessionRow:hover .rowActions,
+.projectRow.menuOpen .rowActions,
+.sessionRow.menuOpen .rowActions {
   display: inline-flex;
 }
 
-.sessionRow:hover .time {
+.sessionRow:hover .time,
+.sessionRow.menuOpen .time {
   display: none;
+}
+
+/* An open row menu pins the hover affordances (figma: the row keeps its
+   hover fill while its dropdown is up). */
+.projectRow.menuOpen,
+.sessionRow.menuOpen {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Drag reorder insert line (workspace-group roots): 2px accent above or
+   below the hovered row, drawn with box-shadow so no layout shift. */
+.sessionRow.dropBefore {
+  box-shadow: 0 -2px 0 0 var(--dsw-alias-state-business-primary);
+}
+
+.sessionRow.dropAfter {
+  box-shadow: 0 2px 0 0 var(--dsw-alias-state-business-primary);
+}
+
+/* Hover-card body (figma 169:16903): dark surface, fixed colors both themes. */
+.hoverContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hoverTitle {
+  font-size: 14px;
+  line-height: 20px;
+  color: #FFFFFF;
+  overflow-wrap: break-word;
+}
+
+.hoverTime {
+  font-size: 12px;
+  line-height: 16px;
+  color: #CFD3D6;
+}
+
+.hoverStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #ADB2B8;
 }
 
 .iconButton {
