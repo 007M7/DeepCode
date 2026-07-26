@@ -48,25 +48,25 @@ describe('PermissionService', () => {
   it('current() derives from the effective knobs: composition defaults hit workspace-write, a switch hits its preset', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-current')
-    expect(ctx.permission.current(session.events)).toBe('workspace-write')
+    expect(ctx.permission.current(session)).toBe('workspace-write')
     ctx.permission.set(session, 'danger-full-access')
-    expect(ctx.permission.current(session.events)).toBe('danger-full-access')
+    expect(ctx.permission.current(session)).toBe('danger-full-access')
   })
 
   it('a knob state matching no table entry derives custom — a state, not an error', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-custom')
     session.append('sandbox/mode', { mode: 'read-only' })
-    expect(ctx.permission.current(session.events)).toBe(CUSTOM_PRESET)
+    expect(ctx.permission.current(session)).toBe(CUSTOM_PRESET)
     ctx.permission.set(session, 'danger-full-access')
-    expect(ctx.permission.current(session.events)).toBe('danger-full-access')
+    expect(ctx.permission.current(session)).toBe('danger-full-access')
     expect(() => ctx.permission.resolve(CUSTOM_PRESET)).toThrow(/unknown preset/)
   })
 
   it('composition defaults outside the table derive custom at zero events', async () => {
     const ctx = await mounted({ approvalDefault: 'never' })
     const session = freshSession('sess-defaults-custom')
-    expect(ctx.permission.current(session.events)).toBe(CUSTOM_PRESET)
+    expect(ctx.permission.current(session)).toBe(CUSTOM_PRESET)
   })
 
   it('the fold breaks bundle ties; a stale fold no longer matching falls back to table order', async () => {
@@ -77,10 +77,10 @@ describe('PermissionService', () => {
     } } })
     const session = freshSession('sess-tie')
     ctx.permission.set(session, 'agentish')
-    expect(ctx.permission.current(session.events)).toBe('agentish')
+    expect(ctx.permission.current(session)).toBe('agentish')
     session.append('approval/policy', { policy: 'never' })
     session.append('sandbox/mode', { mode: 'danger-full-access' })
-    expect(ctx.permission.current(session.events)).toBe('danger-full-access')
+    expect(ctx.permission.current(session)).toBe('danger-full-access')
   })
 
   it('set() writes through: one preset event plus both knob events', async () => {
@@ -140,6 +140,47 @@ describe('PermissionService', () => {
     const session = freshSession('sess-standin')
     ctx.permission.set(session, 'workspace-write')
     expect(session.events).toHaveLength(0)
-    expect(ctx.permission.current(session.events)).toBe('workspace-write')
+    expect(ctx.permission.current(session)).toBe('workspace-write')
+  })
+
+  it('derives current() from an inherited header baseline and switches AWAY from it for real', async () => {
+    const ctx = await mounted()
+    // A delegated child: danger-full-access baseline over the composition's
+    // workspace-write/ask defaults — the child header, not the event log,
+    // carries the effective knobs.
+    const id = SessionId('sess-inherited-preset')
+    const child = new Session(id, undefined, {
+      version: 0,
+      id,
+      createdAt: 0,
+      sandboxMode: 'danger-full-access',
+      approvalPolicy: 'never',
+    })
+    expect(ctx.permission.current(child)).toBe('danger-full-access')
+
+    // Selecting workspace-write must APPEND both knob switches: folding only
+    // events would believe workspace-write is already active and silently
+    // leave enforcement at the inherited danger-full-access.
+    ctx.permission.set(child, 'workspace-write')
+    expect(child.events.some(e => e.type === 'sandbox/mode' && e.data.mode === 'workspace-write')).toBe(true)
+    expect(child.events.some(e => e.type === 'approval/policy' && e.data.policy === 'ask')).toBe(true)
+    expect(ctx.permission.current(child)).toBe('workspace-write')
+  })
+
+  it('ignores a seed-carried preset selection in favor of the delegation baseline', async () => {
+    const ctx = await mounted()
+    const id = SessionId('sess-seeded-preset')
+    const seeded = new Session(id, undefined, {
+      version: 0,
+      id,
+      createdAt: 0,
+      sandboxMode: 'danger-full-access',
+      approvalPolicy: 'never',
+      seedLength: 1,
+    })
+    // The fork seed carried the PARENT's old selection event; the baseline
+    // captured after it owns the child's truth.
+    seeded.append('permission/preset', { preset: 'workspace-write' })
+    expect(ctx.permission.current(seeded)).toBe('danger-full-access')
   })
 })

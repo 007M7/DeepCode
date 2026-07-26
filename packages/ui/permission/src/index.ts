@@ -12,12 +12,12 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { SANDBOX_MODES, sandboxOverrideOf, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 // Side-effect type import: declaration-merges `ctx.bash` (the capability fact
 // `sandboxMode` this service reads), without a value dependency on the seam.
 import type {} from '@deepseek-ai/dsh-bash'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
-import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import { APPROVAL_POLICIES, approvalOverrideOf, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 
 declare module 'cordis' {
   interface Context {
@@ -139,17 +139,22 @@ export class PermissionService extends Service {
   }
 
   /**
-   * Resolve the preset matching the effective knob values. A still-matching
-   * last selection wins shared-bundle ties; otherwise the first table match
-   * wins, or {@link CUSTOM_PRESET} when no entry matches.
-   * @param events - the session's events in log order.
+   * Resolve the preset matching the effective knob values — the same
+   * override chains execution reads (own post-seed switches, else the
+   * inherited header baseline, else the composition defaults), so a
+   * delegated child's inherited knobs derive its real preset. A
+   * still-matching last OWN selection wins shared-bundle ties (a seed-carried
+   * selection is stale parent history, subsumed by the baseline); otherwise
+   * the first table match wins, or {@link CUSTOM_PRESET} when no entry
+   * matches.
+   * @param session - the session whose preset to derive.
    * @returns the effective preset name, or `custom` when nothing matches.
    */
-  current(events: readonly SessionEvent[]): string {
-    const sandbox = effectiveSandboxMode(events) ?? this.ctx.bash.sandboxMode
-    const approval = effectiveApprovalPolicy(events) ?? this.ctx.approval.config.policy ?? 'ask'
+  current(session: Session): string {
+    const sandbox = sandboxOverrideOf(session) ?? this.ctx.bash.sandboxMode
+    const approval = approvalOverrideOf(session) ?? this.ctx.approval.config.policy ?? 'ask'
     const matches = (spec: PresetSpec): boolean => spec.sandbox === sandbox && spec.approval === approval
-    const folded = effectivePermissionPreset(events)
+    const folded = effectivePermissionPreset(session.events.slice(session.header.seedLength ?? 0))
     if (folded !== undefined) {
       const spec = this.presets[folded]
       if (spec !== undefined && matches(spec)) return folded
@@ -197,14 +202,17 @@ export class PermissionService extends Service {
    */
   set(session: Session, name: string): void {
     const spec = this.resolve(name)
-    if (this.current(session.events) !== name) {
+    if (this.current(session) !== name) {
       session.append('permission/preset', { preset: name })
     }
-    const events = session.events
-    if (spec.sandbox !== (effectiveSandboxMode(events) ?? this.ctx.bash.sandboxMode)) {
+    // Compare against the SAME override chains current() derives from: a
+    // child inheriting a wider baseline must get real knob switches when the
+    // user selects a narrower preset — an event-only fold would believe the
+    // preset is already active and silently leave enforcement at the baseline.
+    if (spec.sandbox !== (sandboxOverrideOf(session) ?? this.ctx.bash.sandboxMode)) {
       setSandboxMode(session, spec.sandbox)
     }
-    if (spec.approval !== (effectiveApprovalPolicy(events) ?? this.ctx.approval.config.policy ?? 'ask')) {
+    if (spec.approval !== (approvalOverrideOf(session) ?? this.ctx.approval.config.policy ?? 'ask')) {
       setApprovalPolicy(session, spec.approval)
     }
   }

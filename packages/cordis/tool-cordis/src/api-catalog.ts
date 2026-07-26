@@ -399,8 +399,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Owns the deployment\'s permission presets and their write path.',
     methods: [
       {
-        signature: 'current(events: readonly SessionEvent[]): string',
-        jsDoc: '/**\n * Resolve the preset matching the effective knob values. A still-matching\n * last selection wins shared-bundle ties; otherwise the first table match\n * wins, or {@link CUSTOM_PRESET} when no entry matches.\n * @param events - the session\'s events in log order.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
+        signature: 'current(session: Session): string',
+        jsDoc: '/**\n * Resolve the preset matching the effective knob values — the same\n * override chains execution reads (own post-seed switches, else the\n * inherited header baseline, else the composition defaults), so a\n * delegated child\'s inherited knobs derive its real preset. A\n * still-matching last OWN selection wins shared-bundle ties (a seed-carried\n * selection is stale parent history, subsumed by the baseline); otherwise\n * the first table match wins, or {@link CUSTOM_PRESET} when no entry\n * matches.\n * @param session - the session whose preset to derive.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
       },
       {
         signature: 'resolve(name: string): PresetSpec',

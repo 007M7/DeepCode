@@ -263,7 +263,7 @@ overrideOf(session: Session): ApprovalPolicy | undefined
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:213`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:236`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -781,13 +781,18 @@ Owns the deployment's permission presets and their write path. Requires a confin
 
 ```ts cordis-catalog
 /**
- * Resolve the preset matching the effective knob values. A still-matching
- * last selection wins shared-bundle ties; otherwise the first table match
- * wins, or {@link CUSTOM_PRESET} when no entry matches.
- * @param events - the session's events in log order.
+ * Resolve the preset matching the effective knob values — the same
+ * override chains execution reads (own post-seed switches, else the
+ * inherited header baseline, else the composition defaults), so a
+ * delegated child's inherited knobs derive its real preset. A
+ * still-matching last OWN selection wins shared-bundle ties (a seed-carried
+ * selection is stale parent history, subsumed by the baseline); otherwise
+ * the first table match wins, or {@link CUSTOM_PRESET} when no entry
+ * matches.
+ * @param session - the session whose preset to derive.
  * @returns the effective preset name, or `custom` when nothing matches.
  */
-current(events: readonly SessionEvent[]): string
+current(session: Session): string
 
 /**
  * Resolve a preset's knob bundle.
@@ -815,7 +820,7 @@ optionOf(name: string): PresetOption
 set(session: Session, name: string): void
 ```
 
-Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
+Types: [Session](../core-data-structures/session.md)
 
 Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/src/index.ts)
 

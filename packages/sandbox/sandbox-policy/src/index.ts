@@ -19,9 +19,9 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { SANDBOX_MODES, effectiveSandboxMode } from './session-mode.ts'
+import { sandboxOverrideOf } from './session-mode.ts'
 
-export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
+export { SANDBOX_MODES, effectiveSandboxMode, sandboxOverrideOf, setSandboxMode } from './session-mode.ts'
 
 /** Resolve filesystem identity before lexical normalization can erase symlink-sensitive components. */
 function resolveWorkspaceRoot(path: string): string {
@@ -121,14 +121,7 @@ export class SandboxPolicyService extends Service {
    *   vocabulary (a corrupt or foreign log; durable-boundary validation).
    */
   overrideOf(session: Session): SandboxMode | undefined {
-    const own = effectiveSandboxMode(session.events.slice(session.header.seedLength ?? 0))
-    if (own !== undefined) return own
-    const baseline = session.header.sandboxMode
-    if (baseline === undefined) return undefined
-    if (!SANDBOX_MODES.includes(baseline as SandboxMode)) {
-      throw new Error(`session header sandboxMode "${baseline}" is outside the closed mode vocabulary`)
-    }
-    return baseline as SandboxMode
+    return sandboxOverrideOf(session)
   }
 }
 

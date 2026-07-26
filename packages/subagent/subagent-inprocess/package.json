@@ -38,6 +38,14 @@
     "@deepseek-ai/dsh-user-approval": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-sandbox-policy": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-user-approval": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",

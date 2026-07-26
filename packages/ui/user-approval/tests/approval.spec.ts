@@ -636,4 +636,12 @@ describe('delegation inheritance (overrideOf over the header baseline)', () => {
 
     expect(() => ctx.approval.overrideOf(child)).toThrow(/approvalPolicy/)
   })
+
+  it('rejects a malformed baseline even when an own switch would win (validation is unconditional)', async () => {
+    const ctx = await mounted()
+    const child = inheritedSession('sess-appr-invalid-own', { approvalPolicy: 'always' })
+    setApprovalPolicy(child, 'never')
+
+    expect(() => ctx.approval.overrideOf(child)).toThrow(/approvalPolicy/)
+  })
 })

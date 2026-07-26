@@ -195,4 +195,14 @@ describe('delegation inheritance (overrideOf over the header baseline)', () => {
 
     expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/sandboxMode/)
   })
+
+  it('rejects a malformed baseline even when an own switch would win (validation is unconditional)', async () => {
+    const ctx = await mounted()
+    const child = inheritedSession('sess-inherit-invalid-own', { sandboxMode: 'yolo' })
+    // A corrupt or foreign durable record must fail loud on EVERY read — an
+    // own override must not paper over the malformed header.
+    setSandboxMode(child, 'read-only')
+
+    expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/sandboxMode/)
+  })
 })

@@ -139,6 +139,29 @@ export function effectiveApprovalPolicy(events: readonly SessionEvent[]): Approv
 }
 
 /**
+ * The session's complete approval-policy OVERRIDE chain — the one home every
+ * consumer (this service's policy tier, the permission presets) resolves
+ * through: the fold of the session's OWN switches (events past the seed
+ * boundary — a fork seed's stale parent switch is subsumed by the delegation
+ * baseline captured after it), else the header's inherited baseline. Never
+ * the configured default. The durable baseline is validated UNCONDITIONALLY —
+ * a corrupt or foreign header must fail loud on every read, not only when no
+ * own switch happens to shadow it.
+ * @param session - the session whose override chain to resolve.
+ * @returns the effective override, or `undefined` for a session following
+ *   the configured default.
+ * @throws when the header baseline is outside the closed policy vocabulary.
+ */
+export function approvalOverrideOf(session: Session): ApprovalPolicy | undefined {
+  const baseline = session.header.approvalPolicy
+  if (baseline !== undefined && !APPROVAL_POLICIES.includes(baseline as ApprovalPolicy)) {
+    throw new Error(`session header approvalPolicy "${baseline}" is outside the closed policy vocabulary`)
+  }
+  const own = effectiveApprovalPolicy(session.events.slice(session.header.seedLength ?? 0))
+  return own ?? baseline as ApprovalPolicy | undefined
+}
+
+/**
  * Whether the log currently sits inside an open turn (a `turn/start` not yet
  * closed by a `turn/end`) — the {@link ApprovalService.request} precondition.
  * The audit pair must be turn-enclosed: the turn is the durable log's
@@ -342,14 +365,7 @@ export class ApprovalService extends Service {
    *   vocabulary (a corrupt or foreign log; durable-boundary validation).
    */
   overrideOf(session: Session): ApprovalPolicy | undefined {
-    const own = effectiveApprovalPolicy(session.events.slice(session.header.seedLength ?? 0))
-    if (own !== undefined) return own
-    const baseline = session.header.approvalPolicy
-    if (baseline === undefined) return undefined
-    if (!APPROVAL_POLICIES.includes(baseline as ApprovalPolicy)) {
-      throw new Error(`session header approvalPolicy "${baseline}" is outside the closed policy vocabulary`)
-    }
-    return baseline as ApprovalPolicy
+    return approvalOverrideOf(session)
   }
 
   /**

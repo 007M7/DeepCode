@@ -55,6 +55,29 @@ export function effectiveSandboxMode(events: readonly SessionEvent[]): SandboxMo
 }
 
 /**
+ * The session's complete sandbox-mode OVERRIDE chain — the one home every
+ * consumer (the policy service, the permission presets) resolves through:
+ * the fold of the session's OWN switches (events past the seed boundary — a
+ * fork seed's stale parent switch is subsumed by the delegation baseline
+ * captured after it), else the header's inherited baseline. Never the
+ * deployment default. The durable baseline is validated UNCONDITIONALLY — a
+ * corrupt or foreign header must fail loud on every read, not only when no
+ * own switch happens to shadow it.
+ * @param session - the session whose override chain to resolve.
+ * @returns the effective override, or `undefined` for a session following
+ *   the deployment default.
+ * @throws when the header baseline is outside the closed mode vocabulary.
+ */
+export function sandboxOverrideOf(session: Session): SandboxMode | undefined {
+  const baseline = session.header.sandboxMode
+  if (baseline !== undefined && !SANDBOX_MODES.includes(baseline as SandboxMode)) {
+    throw new Error(`session header sandboxMode "${baseline}" is outside the closed mode vocabulary`)
+  }
+  const own = effectiveSandboxMode(session.events.slice(session.header.seedLength ?? 0))
+  return own ?? baseline as SandboxMode | undefined
+}
+
+/**
  * THE write path for a session's sandbox-mode override: appends exactly one
  * `sandbox/mode` event — the switch IS its event; nothing mutates mode state
  * out of band. Takes effect on the session's next confined call (bash or fs)
