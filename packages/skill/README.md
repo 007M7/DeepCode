@@ -1,5 +1,7 @@
 # skill/ - skill capability family
 
+English | [中文](README.zh.md)
+
 The canonical three-package capability seam for reusable agent instructions: a provider registry, a local implementation, and the model-facing catalog/loader consumer. All are **product** packages.
 
 | Package | Role | ctx key |
