@@ -379,8 +379,10 @@ declare module 'cordis' {
     /**
      * One drain chain reached its terminal turn: that turn's `turn/end` is
      * already committed. Automatically recovered failed turns do not emit this
-     * notification. `reason` says why; model-request recovery is exhausted when
-     * an error reaches it.
+     * notification, and neither does a run that aborts or fails before its
+     * `turn/start` commits — there is no durable turn to settle against.
+     * `reason` says why; model-request recovery is exhausted when an error
+     * reaches it.
      * @param agent - the agent whose turn closed.
      * @param turn - the terminal turn number.
      * @param reason - why the terminal turn ended, with live error facts when it failed.

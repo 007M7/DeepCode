@@ -201,9 +201,18 @@ export class ReactLoopAgent implements Agent {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const { message } = this.queued.shift()!
 
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
     const admission = new AbortController()
     this.abort = admission
+    // Claimed admission is part of the running interval: it is cancellable
+    // activity, so observers (and their cancel routing) must see it.
+    if (!this.busy) {
+      this.busy = true
+      emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
+    }
+    // The admission body runs synchronously up to the prompt-submit
+    // waterfall's first await, so the waterfall snapshots its listeners
+    // before a disposal initiated by the running-status emit above can
+    // unregister a vetoing plugin.
     this.done = this.loopCtx.agents.withInitiator(this, async () => {
       const signal = admission.signal
       const trigger: TurnTrigger = { kind: 'message', source: message.source }
@@ -235,11 +244,19 @@ export class ReactLoopAgent implements Agent {
       // still owns the slot here and releasing it unconditionally is exact.
       this.abort = undefined
       if (admitted === undefined) {
+        // A synchronously aborted admission would otherwise publish idle
+        // inside send()'s own synchronous extent, before any post-send
+        // subscriber could observe the transition.
+        await Promise.resolve()
         this.continueOrIdle()
         return
       }
       await this.run(trigger, admitted)
     })
+    // Published only after the abort owner and pending done are installed: a
+    // dequeue listener that cancels or disposes must find live cancellation
+    // and quiescence ownership, not the previous activity's settled state.
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
   }
 
   /**
@@ -260,6 +277,7 @@ export class ReactLoopAgent implements Agent {
     const signal = controller.signal
     const turn = this.lastTurn + 1
     let step = 0
+    let opened = false
     let reason: TurnEndReason = { kind: 'completed' }
     let idle: IdleReason = { kind: 'completed' }
     let retry = false
@@ -272,6 +290,7 @@ export class ReactLoopAgent implements Agent {
       // Committed: publish the turn to the machine's own bookkeeping and let
       // the admitted input enter the log it now belongs to.
       this.turnOpen = true
+      opened = true
       this.lastTurn = turn
       for (const input of admitted) {
         this.session.append('user/message', input, { surfaceOp: 'append' })
@@ -368,7 +387,10 @@ export class ReactLoopAgent implements Agent {
     if (retry) {
       await this.run({ kind: 'retry' })
     } else {
-      emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
+      // agent/idle names only committed turns: a run aborted or rejected
+      // before turn/start has no durable turn/end for consumers to settle
+      // against, so it exits without the notification.
+      if (opened) emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
       this.continueOrIdle()
     }
   }
@@ -592,7 +614,9 @@ export class ReactLoopAgent implements Agent {
     if (this.abort !== undefined) return
     if (this.queued.some(item => item.wakeup)) {
       this.kick()
-    } else if (this.busy) {
+    } else {
+      // Every caller sits inside an admission or run whose install marked the
+      // interval busy, so the flag is still set here.
       this.busy = false
       emitAgentEvent(this.loopCtx, this, 'agent/status', 'idle')
     }
