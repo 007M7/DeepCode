@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tasks-local
 
+English | [中文](README.zh.md)
+
 Process-local implementation of the [`@deepseek-ai/dsh-tasks`](../tasks/README.md) registry seam: `LocalTaskService` keeps every record in memory, issues per-kind `<kind>-N` ids, and hands out fresh snapshots, never live state. It has no config; load it as a plugin and it registers as `ctx.tasks`.
 
 ## Lifecycle
