@@ -11,7 +11,7 @@ Each tool is registered independently; a product that wants only one disables th
 | Tool | Args | Behavior |
 |---|---|---|
 | `web_search` | `query` (string) | Discovery. Returns an optional answer plus source URLs. `max_results` is **not** model-facing — the tool sets the bound (the `searchMaxResults` config, default 8) and passes it to the seam. |
-| `web_fetch` | `url` (string) | Retrieves a specific URL. HTML bodies are rendered to markdown-ish text; text bodies pass through. A non-2xx status is reported, not an error. The tool-call timeout is deployment policy (`dsh-timeout-policy`), not a model argument. |
+| `web_fetch` | `url` (string) | Retrieves a specific URL. HTML bodies are rendered to markdown (turndown with GFM tables/strikethrough); text bodies pass through. A non-2xx status is reported, not an error. The tool-call timeout is deployment policy (`dsh-timeout-policy`), not a model argument. |
 
 Both tools opt into concurrent scheduling because provider reads return content without mutating parent-agent state.
 
@@ -126,6 +126,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **`htmlToMarkdown` is a minimal regex converter, not an HTML parser** — it strips script/style/noscript, keeps headings/bullets/links, and decodes about a dozen named entities; tables, images, and nested formatting are lost.
+- **HTML→markdown conversion falls back to raw HTML on pathological input** — [turndown](https://github.com/mixmark-io/turndown) (with GFM tables/strikethrough) converts fetched HTML through a real DOM, but its recursive walk overflows on absurdly deep nesting (thousands of levels); such a body passes through unconverted rather than erroring ([Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)).
 - **The model-facing surface is minimal by design, with promotions deferred** — `max_results` stays a config bound (not a model argument), and `web_fetch` takes only `url` (no `format`/`prompt`/LLM-summarization mode); both are named later steps in [the seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md).
 - **No web-specific permission policy** — both tools execute without requesting `ctx.approval`; a deployment that needs confirmation must add a `tools/pre-execute` policy, and the package does not define persistent URL/domain grants.

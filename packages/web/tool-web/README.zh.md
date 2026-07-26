@@ -11,7 +11,7 @@
 | 工具 | 参数 | 行为 |
 |---|---|---|
 | `web_search` | `query`（string） | 发现。返回可选答案与源 URL。`max_results` **不** 面向模型：工具设置上限（`searchMaxResults` 配置，默认 8）并传给 seam。 |
-| `web_fetch` | `url`（string） | 获取特定 URL。HTML 主体渲染为近似 markdown 的文本；文本主体原样通过。非 2xx 状态会报告，而非报错。工具调用超时是部署策略（`dsh-timeout-policy`），不是模型参数。 |
+| `web_fetch` | `url`（string） | 获取特定 URL。HTML 主体渲染为 markdown（turndown，带 GFM 表格／删除线）；文本主体原样通过。非 2xx 状态会报告，而非报错。工具调用超时是部署策略（`dsh-timeout-policy`），不是模型参数。 |
 
 两个工具都选择并发调度，因为提供方读取会返回内容，不会修改父 agent 状态。
 
@@ -126,6 +126,6 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 ## 已知限制与暂缓事项
 
-- **`htmlToMarkdown` 是最小正则转换器，不是 HTML parser**：它会移除 script/style/noscript，保留标题／项目符号／链接，并解码约十余个命名 entity；表格、图片与嵌套格式会丢失。
+- **HTML→markdown 转换在病态输入上回退为原始 HTML**：[turndown](https://github.com/mixmark-io/turndown)（带 GFM 表格／删除线）通过真实 DOM 转换抓取到的 HTML，但其递归遍历在极深嵌套（数千层）上会栈溢出；此类主体不经转换原样通过，而非报错（[决策记录](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)）。
 - **面向模型的表层有意保持最小，提升项暂缓**：`max_results` 保持为配置上限（不是模型参数），`web_fetch` 只接受 `url`（没有 `format`／`prompt`／LLM 摘要模式）；两项都列为 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) 中的后续步骤。
 - **没有 web 专用权限策略**：两个工具都不会请求 `ctx.approval` 就直接执行；需要确认的部署必须添加 `tools/pre-execute` 策略，该包不定义持久 URL／domain 授权。

@@ -1672,7 +1672,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/tool-web/src/index.ts:29`](../packages/web/tool-web/src/index.ts)
+Source: [`packages/web/tool-web/src/index.ts:28`](../packages/web/tool-web/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-workflow`
 

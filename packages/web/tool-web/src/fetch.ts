@@ -6,12 +6,29 @@
  */
 
 import type { Context } from 'cordis'
+import TurndownService from 'turndown'
+import { gfm } from '@joplin/turndown-plugin-gfm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { WebFetchBody, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { htmlToMarkdown } from './html.ts'
+
+/**
+ * The shared HTML→markdown converter: turndown over its bundled domino DOM,
+ * with GitHub-flavored tables/strikethrough (`@joplin/turndown-plugin-gfm`).
+ * The style options are fixed model-facing presentation (matching the repo's
+ * markdown conventions), not deployment tunables. `remove` drops non-content
+ * elements wholesale — turndown's default keeps their text. The instance is
+ * stateless across `turndown()` calls and safe to share.
+ */
+const turndown = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced',
+  bulletListMarker: '-',
+})
+turndown.use(gfm)
+turndown.remove(['script', 'style', 'noscript'])
 
 /**
  * Validate value constraints the schema DSL can't express: a non-blank `url`.
@@ -30,14 +47,23 @@ export function parseFetchArgs(args: { url: string }): { url: string } {
 /**
  * Render a fetched body to model-facing markdown text.
  *
- * @param body - the decoded body; `html` is converted via
- *   {@link htmlToMarkdown}, `text` passes through verbatim.
+ * @param body - the decoded body; `html` is converted via turndown, `text`
+ *   passes through verbatim. When turndown throws (deeply pathological HTML
+ *   overflows its recursive DOM walk), the raw HTML passes through instead —
+ *   a degraded page beats an error for a body the provider already decoded.
  * @returns the text for the tool's output block.
  */
 export function renderBody(body: WebFetchBody): string {
   switch (body.kind) {
     case 'html':
-      return htmlToMarkdown(body.content)
+      try {
+        return turndown.turndown(body.content)
+      } catch {
+        // turndown's DOM walk recurses per element; pathological nesting (a
+        // few thousand levels) throws RangeError. Provider errors stay
+        // structured WebErrors upstream; conversion failure downgrades to raw HTML.
+        return body.content
+      }
     case 'text':
       return body.content
     /* v8 ignore next 2 -- WebFetchBody is a closed union; this arm is unreachable and only makes adding a kind a compile error. */

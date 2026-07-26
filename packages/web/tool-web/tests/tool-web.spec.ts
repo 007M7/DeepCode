@@ -14,7 +14,6 @@ import {
   presentSearchCall,
   presentFetchCall,
   renderBody,
-  htmlToMarkdown,
   WEB_SEARCH_MAX_RESULTS,
 } from '@deepseek-ai/dsh-tool-web'
 
@@ -82,6 +81,11 @@ describe('search formatting', () => {
     expect(parseSearchArgs({ query: 'hi' })).toEqual({ query: 'hi' })
   })
 
+  it('falls back to the raw URL as a source label when the URL is unparseable', () => {
+    const out = formatSearchOutput({ truncated: false, sources: [{ url: 'not a url' }] })
+    expect(out).toContain('[not a url](not a url)')
+  })
+
   it('presents a search call as a search-kind card titled by the query', () => {
     expect(presentSearchCall({ query: 'find me' })).toEqual({ card: 'generic', title: 'find me', kind: 'search', rawInput: 'find me' })
   })
@@ -112,6 +116,29 @@ describe('fetch formatting', () => {
     expect(renderBody({ kind: 'html', content: '<p>y</p>' })).toBe('y')
   })
 
+  it('converts html via turndown: entities, links, tables, nesting; drops script/style/noscript', () => {
+    expect(renderBody({
+      kind: 'html',
+      content: '<style>.x{}</style><script>bad()</script><noscript>ns</noscript><p>Tom &amp; Jerry &copy; R&eacute;sum&eacute;</p><a href="https://a.test">link</a>',
+    })).toBe('Tom & Jerry © Résumé\n\n[link](https://a.test)')
+    expect(renderBody({ kind: 'html', content: '<h2>Heading</h2><ul><li>one</li><li>two</li></ul>' }))
+      .toBe('## Heading\n\n-   one\n-   two')
+    expect(renderBody({ kind: 'html', content: '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>' }))
+      .toBe('| A   | B   |\n| --- | --- |\n| 1   | 2   |')
+    expect(renderBody({ kind: 'html', content: '<p><strong>bold <em>italic</em></strong></p><blockquote><p>quoted</p></blockquote>' }))
+      .toBe('**bold _italic_**\n\n> quoted')
+  })
+
+  it('falls back to the raw html body when turndown throws on pathological nesting', { timeout: 60_000 }, () => {
+    // Nesting past V8's default stack overflows turndown/domino's recursive
+    // walk with a RangeError (measured: 4k levels throw on the main thread,
+    // 8k in a worker); 20k adds margin over either stack size. The raw body
+    // must pass through instead of throwing.
+    const depth = 20_000
+    const pathological = '<div>'.repeat(depth) + 'x' + '</div>'.repeat(depth)
+    expect(renderBody({ kind: 'html', content: pathological })).toBe(pathological)
+  })
+
   it('validates url (non-empty), no timeout parameter', () => {
     expect(() => parseFetchArgs({ url: ' ' })).toThrow('non-empty')
     expect(parseFetchArgs({ url: 'https://a.test' })).toEqual({ url: 'https://a.test' })
@@ -119,46 +146,6 @@ describe('fetch formatting', () => {
 
   it('presents a fetch call as a fetch-kind card titled by the url', () => {
     expect(presentFetchCall({ url: 'https://a.test' })).toEqual({ card: 'generic', title: 'https://a.test', kind: 'fetch', rawInput: 'https://a.test' })
-  })
-})
-
-describe('htmlToMarkdown', () => {
-  it('drops scripts/styles, keeps text, decodes entities, converts links', () => {
-    const md = htmlToMarkdown('<style>.x{}</style><script>bad()</script><p>Tom &amp; Jerry</p><a href="https://a.test">link</a>')
-    expect(md).not.toContain('bad()')
-    expect(md).not.toContain('.x{}')
-    expect(md).toContain('Tom & Jerry')
-    expect(md).toContain('[link](https://a.test)')
-  })
-
-  it('decodes numeric entities and collapses whitespace', () => {
-    expect(htmlToMarkdown('<p>a&#39;b</p>')).toBe("a'b")
-    expect(htmlToMarkdown('<div>x</div>\n\n\n<div>y</div>')).toBe('x\n\ny')
-  })
-
-  it('decodes hex entities and named entities, and leaves unknown/out-of-range ones intact', () => {
-    expect(htmlToMarkdown('<p>&#x41;&#X42;</p>')).toBe('AB')
-    expect(htmlToMarkdown('<p>&copy; &mdash;</p>')).toBe('© —')
-    expect(htmlToMarkdown('<p>&notareal;</p>')).toBe('&notareal;')
-    // An out-of-range code point keeps the original entity text (fromCodePoint fallback).
-    expect(htmlToMarkdown('<p>&#x110000;</p>')).toBe('&#x110000;')
-    expect(htmlToMarkdown('<p>&#1114112;</p>')).toBe('&#1114112;')
-  })
-
-  it('renders a link with an empty label as its bare href', () => {
-    expect(htmlToMarkdown('<a href="https://a.test"></a>')).toBe('https://a.test')
-  })
-
-  it('converts headings and list items to markdown', () => {
-    expect(htmlToMarkdown('<h2>Heading</h2><p>after</p>')).toContain('## Heading')
-    const list = htmlToMarkdown('<ul><li>one</li><li>two</li></ul>')
-    expect(list).toContain('- one')
-    expect(list).toContain('- two')
-  })
-
-  it('falls back to the raw URL as a source label when the URL is unparseable', () => {
-    const out = formatSearchOutput({ truncated: false, sources: [{ url: 'not a url' }] })
-    expect(out).toContain('[not a url](not a url)')
   })
 })
 

@@ -14,7 +14,6 @@ import { applyWebFetchTool } from './fetch.ts'
 
 export { WEB_SEARCH_MAX_RESULTS, applyWebSearchTool, formatSearchOutput, parseSearchArgs, presentSearchCall } from './search.ts'
 export { applyWebFetchTool, formatFetchOutput, parseFetchArgs, presentFetchCall, renderBody } from './fetch.ts'
-export { htmlToMarkdown } from './html.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-web'
