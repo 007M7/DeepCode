@@ -52,6 +52,7 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
       current,
       cell: (id) => cells.get(id),
     },
+    workspaces: { list: observable<unknown>({ items: [] }) },
   }
   return {
     host,

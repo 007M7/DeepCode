@@ -18,6 +18,7 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const selection = useSession(snapshot => snapshot.modelSelection)
   const removed = useSession(snapshot => snapshot.removed)
+  const intent = useSession(snapshot => snapshot.intent)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -48,8 +49,8 @@ export function ModelSelector({
   const busy = selection.status === 'selecting'
 
   useEffect(() => {
-    refreshModels()
-  }, [refreshModels])
+    if (intent === null) refreshModels()
+  }, [intent, refreshModels])
 
   useEffect(() => {
     if (!open) return
@@ -150,6 +151,11 @@ export function ModelSelector({
     || selection.groups.some(group => group.id === selection.current?.provider)
     || selection.failures.some(failure => failure.id === selection.current?.provider)
   const label = choices[selectedIndex]?.model.name ?? selection.current?.model ?? '选择模型'
+
+  // A frontend Session Intent has no Host session/model route yet. It shares
+  // the resident composer during attachment, so suppress both the control and
+  // its directory RPC until publication clears the intent.
+  if (intent !== null) return null
 
   return (
     <div

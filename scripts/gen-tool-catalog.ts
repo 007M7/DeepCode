@@ -11,6 +11,8 @@ import { basename, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
@@ -39,6 +41,7 @@ import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
+import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
@@ -263,7 +266,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-goal',
     source: 'packages/goal/tool-goal/src/index.ts',
     requires: ['ctx.tools', 'ctx.agents', 'ctx.goals', 'ctx.systemPrompt', 'a calling Agent in an authorized open turn'],
-    writes: ['tool/call', 'context/message goal snapshot for mutations', 'tool/result'],
+    writes: ['tool/call', 'user/message goal snapshot for mutations', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(GoalService)
@@ -317,6 +320,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-session-query',
+    dir: 'tool-session-query',
+    source: 'packages/session-query/tool-session-query/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.sessionQuery', 'a calling Agent for workspace authority'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionQuerySqlite, { path: ':memory:' })
+      await ctx.plugin(ToolSessionQuery)
+    },
+    note:
+      'The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-subagent',
     dir: 'tool-subagent',
     source: 'packages/subagent/tool-subagent/src/index.ts',
@@ -336,7 +353,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-tasks',
     source: 'packages/tasks/tool-tasks/src/index.ts',
     requires: ['ctx.tools', 'ctx.tasks', 'ctx.systemPrompt'],
-    writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
+    writes: ['tool/call', 'tool/result', 'user/message via agent.inject() for background completion notices'],
     async mount(ctx) {
       await ctx.plugin(TaskService)
       await ctx.plugin(ToolTasks)
@@ -354,7 +371,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTodo)
     },
     note:
-      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

@@ -23,13 +23,14 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
 | `@deepseek-ai/dsh-tool-pty` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.pty`, `ctx.systemPrompt`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
-| `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `context/message goal snapshot for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
+| `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `user/message goal snapshot for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflows`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.skills` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
-| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
-| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan. |
+| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
+| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflows`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 
@@ -778,6 +779,239 @@ Load the full instructions for an available skill. Call this with the exact skil
 
 Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-session-query`
+
+### `session_event_read`
+
+Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Target event sequence number."
+    },
+    "before": {
+      "type": "integer",
+      "description": "Number of preceding raw events to summarize. Omit for none."
+    },
+    "after": {
+      "type": "integer",
+      "description": "Number of following raw events to summarize. Omit for none."
+    }
+  },
+  "required": [
+    "seq"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_event_search`
+
+Search prior events in one authorized session; the current session excludes the step performing this call.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "query": {
+      "type": "string",
+      "description": "Literal full-text query over the target session."
+    },
+    "seq_from": {
+      "type": "integer",
+      "description": "Inclusive event sequence lower bound."
+    },
+    "seq_to": {
+      "type": "integer",
+      "description": "Inclusive event sequence upper bound."
+    },
+    "time_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+    },
+    "time_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+    },
+    "event_types": {
+      "type": "array",
+      "description": "Event types to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "description": "Event surfaces to include.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "current",
+          "shadowed",
+          "log-only"
+        ]
+      }
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_event_trace`
+
+Read every direct replacement and provenance relationship for one event in an authorized session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Target event sequence number."
+    }
+  },
+  "required": [
+    "seq"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_search`
+
+Search prior sessions in the caller workspace and return the strongest matching event from each session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Literal full-text query over prior session history."
+    },
+    "session_ids": {
+      "type": "array",
+      "description": "Optional session ids to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_at_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time lower bound."
+    },
+    "created_at_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time upper bound."
+    },
+    "parent_session_ids": {
+      "type": "array",
+      "description": "Optional direct parent session ids.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "include_root_sessions": {
+      "type": "boolean",
+      "description": "Include sessions with no parent in the parent filter."
+    },
+    "availability": {
+      "type": "array",
+      "description": "Require at least one selected source availability.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "live",
+          "persisted"
+        ]
+      }
+    },
+    "event_seq_from": {
+      "type": "integer",
+      "description": "Inclusive event sequence lower bound."
+    },
+    "event_seq_to": {
+      "type": "integer",
+      "description": "Inclusive event sequence upper bound."
+    },
+    "event_time_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+    },
+    "event_time_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+    },
+    "event_types": {
+      "type": "array",
+      "description": "Event types to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "event_surfaces": {
+      "type": "array",
+      "description": "Event surfaces to include.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "current",
+          "shadowed",
+          "log-only"
+        ]
+      }
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_trace`
+
+Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    }
+  }
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.
+
 ## `@deepseek-ai/dsh-tool-subagent`
 
 ### `subagent`
@@ -929,7 +1163,7 @@ Record and update a structured task list for the current work. Send the ENTIRE l
 
 Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
-todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.
+todo_write is session-owned state; UIs render the latest todo/write event as a checklist.
 
 ## `@deepseek-ai/dsh-tool-workflow`
 

@@ -235,12 +235,16 @@ export class SlotsService extends Service {
     }
   }
 
-  /** Build (once) the host face the installed renderer reads; sessions resolve lazily at first render. */
+  /** Build once after both object-layer services mount; session cells still resolve lazily. */
   private hostFace(): SlotRendererHost {
     if (this._host !== undefined) return this._host
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) {
       throw new Error("renderSlot('root') before the sessions service mounted — boot order puts runtime apply first")
+    }
+    const workspaces = this.ctx.get('workspaces')
+    if (workspaces === undefined) {
+      throw new Error("renderSlot('root') before the workspaces service mounted — boot order puts runtime apply first")
     }
     // Identity-stable view: current rides the list snapshot (arbitrated), but
     // the provider consumes it as its own observable; one cached object keeps
@@ -262,6 +266,7 @@ export class SlotsService extends Service {
         current,
         cell: id => sessions.cell(id),
       },
+      workspaces: { list: workspaces.list },
     }
     return this._host
   }

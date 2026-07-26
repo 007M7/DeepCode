@@ -38,8 +38,12 @@ const ready: ModelSelectionSnapshot = {
   error: null,
 }
 
-function setup(selection: ModelSelectionSnapshot = ready, removed = false) {
-  let current = { modelSelection: selection, removed } as unknown as ConversationSnapshot
+function setup(
+  selection: ModelSelectionSnapshot = ready,
+  removed = false,
+  intent: ConversationSnapshot['intent'] = null,
+) {
+  let current = { modelSelection: selection, removed, intent } as unknown as ConversationSnapshot
   const useSession = ((selector: (snapshot: ConversationSnapshot) => unknown) =>
     selector(current)) as ModelSelectorProps['useSession']
   const refreshModels = vi.fn()
@@ -50,6 +54,8 @@ function setup(selection: ModelSelectionSnapshot = ready, removed = false) {
     useSession,
     useSessions: ((selector: (snapshot: never) => unknown) =>
       selector({} as never)) as ModelSelectorProps['useSessions'],
+    useWorkspaces: ((selector: (snapshot: never) => unknown) =>
+      selector({} as never)) as ModelSelectorProps['useWorkspaces'],
     refreshModels,
     retryModelOperation,
     selectModel,
@@ -60,8 +66,16 @@ function setup(selection: ModelSelectionSnapshot = ready, removed = false) {
     refreshModels,
     retryModelOperation,
     selectModel,
-    update(next: ModelSelectionSnapshot, nextRemoved = removed) {
-      current = { modelSelection: next, removed: nextRemoved } as unknown as ConversationSnapshot
+    update(
+      next: ModelSelectionSnapshot,
+      nextRemoved = removed,
+      nextIntent: ConversationSnapshot['intent'] = intent,
+    ) {
+      current = {
+        modelSelection: next,
+        removed: nextRemoved,
+        intent: nextIntent,
+      } as unknown as ConversationSnapshot
       view.rerender(<ModelSelector {...props} />)
     },
   }
@@ -189,5 +203,18 @@ describe('model selector', () => {
   it('disables the trigger only when the session is removed', () => {
     setup(ready, true)
     expect(trigger().disabled).toBe(true)
+  })
+
+  it('waits for a frontend Session Intent to publish before rendering or loading models', () => {
+    const b = setup(ready, false, {
+      target: { kind: 'workspace-intent' },
+      phase: 'connecting',
+    })
+    expect(screen.queryByRole('button', { name: /选择模型，当前/ })).toBeNull()
+    expect(b.refreshModels).not.toHaveBeenCalled()
+
+    b.update(ready, false, null)
+    expect(trigger().textContent).toBe('DeepSeek-V4-Flash')
+    expect(b.refreshModels).toHaveBeenCalledOnce()
   })
 })

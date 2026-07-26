@@ -6,14 +6,7 @@ import type { Context } from 'cordis'
 import { spawnHarness, waitForIdle } from './harness.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
-/**
- * With-key smoke for the in-process spawn backend: a REAL parent agent delegates
- * to a REAL child (via the `subagent` tool → spawn backend) that uses the REAL
- * bash tool to write a file, and we verify the WORLD (the file on disk) — not
- * the agent's self-report. This is the "green units, broken product" guard:
- * mocks prove the plumbing, only a real model proves a parent can actually drive
- * a child to do real work. Key-gated (self-skips without DEEPSEEK_API_KEY).
- */
+/** Key-gated smoke for a real parent delegating filesystem work to a real child. */
 
 let ctx: Context | undefined
 let workdir: string | undefined
@@ -31,13 +24,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('spawn backend with-key smoke', (
     ctx = await spawnHarness(workdir)
     const parent = ctx.agentLoop.create(SessionId('e2e-parent'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    parent.send([{ type: 'text', text:
+    parent.followup([{ type: 'text', text:
       'Use the subagent tool to delegate this exact task: "Use the bash tool to write the text '
       + 'SUBAGENT_WAS_HERE into a file named proof.txt in the current directory." '
       + 'After the subagent finishes, tell me it is done.' }])
     await waitForIdle(ctx, parent)
 
-    // Verify the WORLD: the child actually wrote the file.
+    // Assert the filesystem effect independently of the model response.
     const proof = await readFile(join(workdir, 'proof.txt'), 'utf8')
     expect(proof).toContain('SUBAGENT_WAS_HERE')
 

@@ -44,6 +44,24 @@ describe('normalizeStdout', () => {
     expect(out).not.toContain(ctx.sessionIds[0] as string)
   })
 
+  it('scrubs every filesystem spelling of the cwd longest-first', () => {
+    const longCwd = String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp-snapshot`
+    const aliasedCtx: NormalizeContext = {
+      sessionIds: [],
+      cwd: String.raw`C:\Users\RUNNER~1\AppData\Local\Temp\acp-snapshot`,
+      cwdAliases: [
+        longCwd,
+        String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp`,
+      ],
+    }
+    const raw = JSON.stringify({
+      cwd: longCwd,
+      path: `${longCwd}\\nested\\proof.txt`,
+    })
+    const frame = JSON.parse(normalizeStdout(raw, aliasedCtx)) as { cwd: string; path: string }
+    expect(frame).toEqual({ cwd: '{{cwd}}', path: '{{cwd}}/nested/proof.txt' })
+  })
+
   it('canonicalizes only cwd-rooted path separators', () => {
     const windowsCtx: NormalizeContext = {
       sessionIds: [],
@@ -105,22 +123,54 @@ Additional instructions from: nested\AGENTS.md`,
     expect(out).not.toContain('"id"')
   })
 
-  it('stabilizes the timestamp carried by session title updates', () => {
+  it('stabilizes only the top-level event timestamp and spill byte count in event-read text', () => {
     const raw = JSON.stringify({
       jsonrpc: '2.0',
       method: 'session/update',
       params: {
-        sessionId: ctx.sessionIds[0],
         update: {
-          sessionUpdate: 'session_info_update',
-          title: 'Stable title',
-          updatedAt: '2026-07-20T17:03:13.689Z',
+          sessionUpdate: 'tool_call_update',
+          content: [{
+            type: 'content',
+            content: {
+              type: 'text',
+              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {\n    "time": 31337,\n    "note": "model-visible"\n  }\n}\n```\n\nAfter:\n  "time": 424242,\n  neighbor semantic text\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
+            },
+          }],
         },
       },
     })
     const out = normalizeStdout(raw, ctx)
-    expect(out).toContain('"updatedAt":"{{updatedAt}}"')
-    expect(out).not.toContain('2026-07-20T17:03:13.689Z')
+    expect(out).toContain('\\"time\\": {{eventTime}}')
+    expect(out).toContain('\\"time\\": 31337')
+    expect(out).toContain('\\"time\\": 424242')
+    expect(out).toContain('Omitted {{eventOmittedBytes}} bytes')
+    expect(out).not.toContain('1784876275593')
+    expect(out).not.toContain('39387')
+  })
+
+  it('preserves event-like timestamps in unrelated output text', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        update: {
+          sessionUpdate: 'tool_call_update',
+          content: [{
+            type: 'content',
+            content: {
+              type: 'text',
+              text: 'bash output:\n```json\n{\n  "time": 1784876275593,\n  "data": {}\n}\n```\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
+            },
+          }],
+        },
+      },
+    })
+    const out = normalizeStdout(raw, ctx)
+    expect(out).toContain('1784876275593')
+    expect(out).toContain('39387')
+    expect(out).not.toContain('{{eventTime}}')
+    expect(out).not.toContain('{{eventOmittedBytes}}')
   })
 
   it('throws on a non-JSON stdout line (the purity check)', () => {

@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules'
-import { bootWebShell } from '@deepseek-ai/dsh-client-web'
+import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules/client'
+import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
 
 const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
@@ -15,6 +15,7 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-model-selector', dir: 'ui-model-selector', url: '/plugins/ui-model-selector.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-workspace', dir: 'ui-workspace', url: '/plugins/ui-workspace.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-sidebar'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
@@ -73,26 +74,29 @@ afterEach(() => {
 function titleSurfaces(label: string): { sidebar: string; breadcrumb: string; documentTitle: string } {
   const tree = screen.getByRole('tree', { name: 'Sessions' })
   const sidebar = within(tree).getByText(label).textContent ?? ''
-  const breadcrumb = within(screen.getByRole('navigation', { name: '会话层级' }))
+  const breadcrumb = within(screen.getByRole('navigation', { name: 'Session hierarchy' }))
     .getByRole('button', { name: label }).textContent ?? ''
   return { sidebar, breadcrumb, documentTitle: document.title }
 }
 
-it('projects initial and revised durable titles through the built nine-plugin fixture app', async () => {
+it('projects titles and routes the next turn through the selected model in the built fixture app', async () => {
   const root = document.querySelector<HTMLElement>('#root')
   if (root === null) throw new Error('snapshot root missing')
   act(() => {
-    unmount = bootWebShell(root, {
+    const entry = new AppWebEntry(root, {
       fetchBundle: (url) => {
         const code = bundles.get(url)
         return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
       },
       executeBundle: (code) => { (0, eval)(code) },
     })
+    void entry.run()
+    unmount = () => { entry.dispose() }
   })
 
-  const projectLabel = await screen.findByText('fixture', {}, { timeout: 10_000 })
-  const projectRow = projectLabel.closest<HTMLElement>('[role="treeitem"]')
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  const projectCount = await within(tree).findByText('4 sessions')
+  const projectRow = projectCount.closest<HTMLElement>('[role="treeitem"]')
   if (projectRow === null) throw new Error('fixture project row missing')
   fireEvent.click(projectRow)
 
@@ -109,6 +113,22 @@ it('projects initial and revised durable titles through the built nine-plugin fi
   act(() => { timing.appendTitle('fx-alpha', revisedLabel) })
   await waitFor(() => { expect(document.title).toBe(`${revisedLabel} — DeepSeek Harness`) })
   const revised = titleSurfaces(revisedLabel)
+
+  const modelTrigger = await screen.findByRole('button', {
+    name: '选择模型，当前 DeepSeek-V4-Flash',
+  })
+  fireEvent.click(modelTrigger)
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /GPT-5/ }))
+  await waitFor(() => { expect(modelTrigger.textContent).toBe('GPT-5') })
+
+  // fx-alpha starts in the running state. Selecting above is intentionally
+  // allowed for the next turn; stop the fixture's resident run before sending
+  // the route-report prompt.
+  fireEvent.click(screen.getByRole('button', { name: 'Stop generating' }))
+  const composer = await screen.findByPlaceholderText('Message the agent')
+  fireEvent.change(composer, { target: { value: 'report model' } })
+  fireEvent.keyDown(composer, { key: 'Enter' })
+  await screen.findByText('当前模型：openai/gpt-5', {}, { timeout: 10_000 })
 
   await expect(`${JSON.stringify({ initial, revised }, null, 2)}\n`)
     .toMatchFileSnapshot('./snapshots/session-title.json')

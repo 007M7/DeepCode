@@ -44,7 +44,7 @@ describe('session-query semantic extraction', () => {
     const events: SessionEvent[] = [
       { type: 'user/message', seq: 0, time: 1, data: { content: messageContent, source: { kind: 'user' } }, surfaceOp: 'append' },
       { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: messageContent, provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
-      { type: 'context/message', seq: 2, time: 3, data: { content: messageContent, source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 2, time: 3, data: { content: messageContent, source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: 'append' },
       { type: 'steering/message', seq: 3, time: 4, data: { turn: 1, content: messageContent, source: { kind: 'user' } }, surfaceOp: 'append' },
       { type: 'prompt/blocked', seq: 4, time: 5, data: { content: [{ type: 'text', text: 'unsafe' }], source: { kind: 'user' }, reason: 'policy' } },
       { type: 'tool/call', seq: 5, time: 6, data: { turn: 1, step: 1, callId, name: 'bash', arguments: '{"cmd":"pwd"}' } },
@@ -213,8 +213,10 @@ it('registers exact and abstract search behavior under one ctx key', async () =>
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   const fiber = await ctx.plugin(TestSessionQueryService)
+  const session = ctx.sessions.create(id)
   await expect(ctx.sessionQuery.searchSessions({ query: 'AI' })).resolves.toEqual({ items: [] })
-  await expect(ctx.sessionQuery.searchEvents({ sessionId: id, query: 'AI' })).resolves.toEqual({ items: [] })
+  await expect(ctx.sessionQuery.searchEvents({ sessionId: id, query: 'AI' }))
+    .resolves.toEqual({ session: session.header, items: [] })
   await fiber.dispose()
   expect(ctx.sessionQuery).toBeUndefined()
 })

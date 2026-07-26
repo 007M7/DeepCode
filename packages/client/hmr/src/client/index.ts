@@ -64,20 +64,11 @@
  */
 import type { Context } from 'cordis'
 import type { Entry, Loader } from '@cordisjs/plugin-loader'
-import type { WebBootGraph } from '@deepseek-ai/dsh-client-modules'
+import type { PluginsEventFrame } from '../events.ts'
+import { EVENTS_ENDPOINT } from '../events.ts'
 
-/**
- * Frames on the `GET /plugins/events` system SSE channel (owned host-side by
- * dsh-host-webserver's PluginEventFrame). Mirrored here because this is a
- * wire boundary: frames arrive as JSON text and are validated at the parse
- * point, not shared as a same-process typed seam.
- */
-export type PluginsEventFrame =
-  | { type: 'graph'; graph: WebBootGraph }
-  | { type: 'rebuilt'; id: string; rev: string }
-
-/** System SSE endpoint pushing graph/rebuilt frames (wire protocol constant). */
-export const EVENTS_ENDPOINT = '/plugins/events'
+export type { PluginsEventFrame } from '../events.ts'
+export { EVENTS_ENDPOINT } from '../events.ts'
 
 /** Cordis plugin name. */
 export const name = 'client-hmr'

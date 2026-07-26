@@ -20,15 +20,15 @@ afterEach(cleanup)
 const SID = 's1' as SessionId
 
 const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessageNode => ({
-  kind: 'assistant', seq, turn, step: seq, blocks: [{ kind: 'text', text: `t${seq}` }],
+  kind: 'assistant', seq, time: seq * 1_000, turn, step: seq, blocks: [{ kind: 'text', text: `t${seq}` }],
   ...(usage === undefined ? {} : { usage }),
 })
 
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
+    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
     modelSelection: { current: null, groups: [], failures: [], status: 'idle', error: null },
   }
 }
@@ -66,7 +66,7 @@ describe('deriveStats', () => {
 
   it('cache hit stays null with no cache accounting; non-assistant nodes ignored', () => {
     const tool: ToolResultNode = {
-      kind: 'tool-result', seq: 5, callId: 'c', call: null, content: [],
+      kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
       isError: false, callView: null, resultView: null,
     }
     const stats = deriveStats([tool, assistant(1, 1)])
@@ -113,8 +113,9 @@ describe('bash sample row', () => {
   const CHILD = 'child-1' as SessionId
 
   const result = (callId: string): ToolResultNode => ({
-    kind: 'tool-result', seq: 3, callId,
+    kind: 'tool-result', seq: 3, time: 3_000, callId,
     call: { name: 'bash', argsRaw: '{"command":"make build","description":"Build"}' },
+    callTime: 2_000,
     content: [], isError: false, callView: null, resultView: null,
   })
 
@@ -127,6 +128,8 @@ describe('bash sample row', () => {
         [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, updatedAt: 0 },
       },
       current: undefined,
+      intent: undefined,
+      phase: 'ready',
     } as SessionListState)
   }
 

@@ -15,9 +15,6 @@
       "path": "../../packages/host/apiproxy"
     },
     {
-      "path": "../../packages/host/runtime"
-    },
-    {
       "path": "../../packages/host/webserver"
     },
     {
@@ -25,6 +22,9 @@
     },
     {
       "path": "../../packages/ui/app-boot"
+    },
+    {
+      "path": "../../packages/ui/tui"
     },
     {
       "path": "../../packages/util/paths"

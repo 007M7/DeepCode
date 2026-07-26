@@ -68,7 +68,7 @@ describe('startInProcessRun', () => {
         turn,
         trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
       })
-      session.append('context/message', {
+      session.append('user/message', {
         content: [{ type: 'text', text: 'late metadata' }],
         source: { kind: 'plugin', plugin: 'late-metadata' },
       }, { surfaceOp: 'append' })
@@ -87,7 +87,7 @@ describe('startInProcessRun', () => {
 
   it('seeds a forked child but reads only the child-owned output', async () => {
     const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
-    parent.send([{ type: 'text', text: 'parent question' }])
+    parent.followup([{ type: 'text', text: 'parent question' }])
     await parent.whenIdle()
     const seed = parent.session.events.slice()
     const run = await startInProcessRun(request(parent), { seed })

@@ -42,7 +42,7 @@ Parity rule: **the declaring entry holds the exclusive right to render its child
 
 | Share | Type | Source of truth | Contents |
 |---|---|---|---|
-| runtime | `PropsRuntime<K>` | SlotMap entry for K | `OwnerOf<K>` (render-site params) + session-scope standard `useSession`/`sessionId` + global `useSessions` |
+| runtime | `PropsRuntime<K>` | SlotMap entry for K | `OwnerOf<K>` (render-site params) + session-scope standard `useSession`/`sessionId` + global `useSessions`/`useWorkspaces` |
 | child render | `PropsRenderSlots<S>` | register's `children` keys | `renderSlot(key, owner)`, key statically narrowed to S; chain keys add `renderSlotChain` |
 | store | `PropsStore<H>` | store factory return type | `useStore` selector hook + `actions.*` (draft-param stripped) |
 | business | `I` | inject return type | plain data + callbacks (hooks banned) |
@@ -84,7 +84,7 @@ An inject factory takes what its declarations earn it — `sessionId` for sessio
 
 ### Data-boundary discipline
 
-Hooks are framework-made only: `useSession`, `useSessions`, `useStore`, `renderSlot` are the four seats, implemented once with framework-guaranteed correctness; business code passes plain data and callbacks between parent and child (a component's own behavioral hooks that subscribe to nothing external remain fine). Live data has exactly three channels: what the parent knows travels as owner props at the renderSlot site; what only the component knows is local state; what must be shared across entries or survive remounts is a declared store. Derivation is a pure function over framework-hook data (`useMemo`), never a subscription of its own.
+Hooks are framework-made only: `useSession`, `useSessions`, `useWorkspaces`, `useStore`, `renderSlot` are the five seats, implemented once with framework-guaranteed correctness; business code passes plain data and callbacks between parent and child (a component's own behavioral hooks that subscribe to nothing external remain fine). Live data has exactly three channels: what the parent knows travels as owner props at the renderSlot site; what only the component knows is local state; what must be shared across entries or survive remounts is a declared store. Derivation is a pure function over framework-hook data (`useMemo`), never a subscription of its own.
 
 ### Tree context and the renderer seam
 

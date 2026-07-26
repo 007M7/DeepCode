@@ -84,6 +84,22 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('rejects a fractional creation timestamp without reserving its session id', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = { ...meta('fractional-created-at'), createdAt: 1.5 }
+        await expect(persistence.create(m))
+          .rejects.toThrow('session metadata createdAt must be a non-negative safe integer')
+
+        const valid = meta('fractional-created-at')
+        await persistence.create(valid)
+        await persistence.append(valid.id, oneTurnLog())
+        expect((await persistence.load(valid.id)).meta.createdAt).toBe(valid.createdAt)
+      } finally {
+        await dispose()
+      }
+    })
+
     it('crash recovery: load preserves an interrupted (unclosed) turn and closes it with turn/end {interrupted}', async () => {
       const { persistence, dispose } = await make()
       try {
@@ -217,6 +233,23 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         expect((await persistence.list()).map(m => m.id)).not.toContain(SessionId('empty'))
         expect((await persistence.listSnapshots()).map(snapshot => snapshot.header.id))
           .not.toContain(SessionId('empty'))
+      } finally {
+        await dispose()
+      }
+    })
+
+    it('rejects pre-aborted observation reads with the exact cancellation reason', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const reason = new Error('persistence observation cancelled')
+        const controller = new AbortController()
+        await expect(persistence.listSnapshots(controller.signal)).resolves.toEqual([])
+        controller.abort(reason)
+
+        await expect(persistence.list(controller.signal)).rejects.toBe(reason)
+        await expect(persistence.listSnapshots(controller.signal)).rejects.toBe(reason)
+        await expect(persistence.inspect(SessionId('cancelled-inspect'), controller.signal))
+          .rejects.toBe(reason)
       } finally {
         await dispose()
       }

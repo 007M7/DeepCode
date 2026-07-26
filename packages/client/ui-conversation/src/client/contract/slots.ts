@@ -1,17 +1,7 @@
-/**
- * Slot-ring contract for the conversation package: the 'conversation.view'
- * slot this package declares (the view ring — one list entry per conversation
- * view tab), the chat view's per-tool row hole ('conversation.chat.toolview',
- * keyed on the wire tool name), and the composed props shapes its registrants
- * mount into the layout-owned slots (conversation / details /
- * conversation.empty) plus its own slots. Terminal slot design (§3): full
- * component props are the automatic shares — PropsRuntime<K> (framework
- * standard kit) & PropsRenderSlots<S> (declared children) & PropsStore<H>
- * (declared store's read/write faces) & the injected business face declared
- * here.
- */
+/** Conversation slot declarations and their composed component props. */
+import type { RefObject } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { PendingInteraction, SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -51,6 +41,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       scope: 'session'
       owner: ComposerControlOwnerProps
     }
+    /** Shared Workspace picker hole used by the page-local Session Intent hero. */
+    'conversation.empty.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
   }
 }
 
@@ -103,15 +95,9 @@ export type ConvViewProps = PropsRuntime<'conversation.view'>
 /** The shared chat store handle type (apply constructs one; the conversation, details, and chat-view registrations all declare it). */
 export type ChatStore = ReturnType<typeof createChatStore>
 
-/**
- * Injected share of the conversation slot: plain data and callbacks only
- * (design §5 — hooks are framework-made). The store lines that used to ride
- * here live in the declared {@link ChatStore}; ancestry derives from the
- * standard useSessions hook in-component; views render through the declared
- * 'conversation.view' child slot, with this face projecting the tab strip.
- */
+/** Business callbacks injected into the conversation slot. */
 export interface ConversationInjected {
-  /** View tab read face (uSES triple over the 'conversation.view' slot ledger). */
+  /** Views projected from the `conversation.view` slot ledger. */
   views: {
     list(): readonly ViewTab[]
     subscribe(fn: () => void): () => void
@@ -121,8 +107,12 @@ export interface ConversationInjected {
   send(text: string, mode: 'queue' | 'steer'): void
   /** Cancel the in-flight turn (failure surfaces via snapshot.promptError). */
   stop(): void
-  /** Navigate to another session (breadcrumb ancestors). */
-  open(id: SessionId): void
+  /** Select a real Session through the runtime navigation owner. */
+  open(sessionId: SessionId): void
+  /** Update the scoped Session's retained prompt. */
+  updateSessionPrompt(text: string): void
+  /** Retry the scoped Session's retained prompt. */
+  retrySessionPrompt(): void
 }
 
 /**
@@ -133,7 +123,6 @@ export interface ConversationInjected {
  * with zero owner changes.
  */
 export interface ComposerChainProps {
-  /** The session's live pending waits, in arrival order (snapshot reference). */
   interactions: readonly PendingInteraction[]
 }
 
@@ -153,7 +142,6 @@ export type ConversationSlotProps =
 export interface ChatViewInjected {
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
   openDetails(target: SelectionTarget): void
-  /** Pull one older history page. */
   loadOlder(): void
 }
 
@@ -174,11 +162,24 @@ export interface DetailsInjected {
 /** Full details-slot component props: selection arrives through the shared store, call material through useSession. */
 export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected
 
-/** Injected share of the no-session empty-state slot. */
-export interface EmptyStateInjected {
-  /** The create → navigate → first-send chain, in one service call. */
-  startSession(opts: { cwd?: string; text: string; mode: 'queue' | 'steer' }): Promise<void>
+/** Owner share common to the empty hero's Workspace picker. */
+export interface EmptyWorkspaceOwnerProps {
+  open: boolean
+  anchorRef?: RefObject<HTMLElement>
+  onPick(workspaceId: WorkspaceId): void
+  onClose(): void
 }
 
-/** Full empty-state component props (root slot: no store; cwd options derive from useSessions in-component). */
-export type EmptyStateSlotProps = PropsRuntime<'conversation.empty'> & EmptyStateInjected
+/** Runtime-owned actions injected into the empty-state occupant. */
+export interface EmptyStateInjected {
+  /** Replace the current Session intent, optionally preserving a prompt while retargeting. */
+  startSession(workspaceId?: WorkspaceId, prompt?: string): void
+  /** Update the current Session intent's controlled prompt. */
+  updateSessionPrompt(text: string): void
+  /** Materialize and send the current Session intent. */
+  sendSession(): void
+}
+
+/** Full empty-state component props: runtime projections, picker child slot, and injected actions. */
+export type EmptyStateSlotProps =
+  PropsRuntime<'conversation.empty'> & PropsRenderSlots<'conversation.empty.workspace'> & EmptyStateInjected

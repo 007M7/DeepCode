@@ -22,7 +22,11 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.register({
     name: 'conversation.composer.control',
     inject: (sessionId: SessionId): ModelSelectorInjected => {
-      const session = sessions.manager.get(sessionId)
+      const binding = sessions.binding(sessionId)
+      if (binding === undefined) {
+        throw new Error(`ui-model-selector: session "${sessionId}" resolved no binding`)
+      }
+      const { session } = binding
       return {
         refreshModels: () => { void session.refreshModels() },
         retryModelOperation: () => session.retryModelOperation(),

@@ -96,23 +96,23 @@ describe('tool-pairing boundaries', () => {
       content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
       provenance: { provider: 'mock', model: 'mock' },
     }, SURFACE)
-    midStep.append('context/message', {
+    midStep.append('user/message', {
       content: [{ type: 'text', text: 'background update' }],
       source: { kind: 'plugin', plugin: 'test' },
     }, SURFACE)
     midStep.append('tool/result', {
       turn: 1, step: 1, callId: CallId('c1'), content: [], isError: false,
     }, SURFACE)
-    expect(before(midStep, 'context/message')).toBe(false)
-    expect(after(midStep, 'context/message')).toBe(false)
+    expect(before(midStep, 'user/message')).toBe(false)
+    expect(after(midStep, 'user/message')).toBe(false)
 
     const free = new Session(SessionId('neutral-free'))
-    free.append('context/message', {
+    free.append('user/message', {
       content: [{ type: 'text', text: 'idle injection' }],
       source: { kind: 'user' },
     }, SURFACE)
-    expect(before(free, 'context/message')).toBe(true)
-    expect(after(free, 'context/message')).toBe(true)
+    expect(before(free, 'user/message')).toBe(true)
+    expect(after(free, 'user/message')).toBe(true)
   })
 })
 

@@ -1,5 +1,7 @@
 # Subagent
 
+English | [中文](subagent.zh.md)
+
 The subagent seam — an agent delegating work to a child agent. Like [bash](bash.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). But it differs from every other seam on one axis: **multiple provider implementations coexist** in one context, registered by name (`ctx.subagents`), where bash allows only one executor. The registry shape mirrors the [LLM adapter registry](llm-streaming.md), not the single-service bash executor.
 
 Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumer is [dsh-tool-subagent](../../packages/subagent/tool-subagent). The proposal and rationale: [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md).
@@ -17,16 +19,13 @@ A provider advertises its **start-time** features on a static descriptor the ser
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
  * degradation" rule). These static flags cover features needed before a run exists; runtime
  * capabilities such as steering and resume are optional {@link SubagentRun} methods whose presence
- * is the capability.
+ * is the capability. Each flag corresponds one-to-one to a {@link SubagentStartRequest} option:
+ * `depthLimit` to `maxDepth`; the other names match.
  */
 interface SubagentCapabilities {
-  /** Honor {@link SubagentStartRequest.outputSchema} (structured final output). */
   readonly outputSchema: boolean
-  /** Enforce {@link SubagentStartRequest.maxDepth} (recursion cap). */
   readonly depthLimit: boolean
-  /** Enforce {@link SubagentStartRequest.toolFilter} (child tool scoping). */
   readonly toolFilter: boolean
-  /** Honor {@link SubagentStartRequest.persona} (a per-child persona). */
   readonly persona: boolean
 }
 ```
@@ -43,16 +42,12 @@ The tool layer builds this request from the model input and its own config; the 
  * passes it to {@link SubagentProvider.start}.
  */
 interface SubagentStartRequest {
-  /** The task/prompt for the child agent (a user message in the child session). */
+  /** Content delivered as the child's user message. */
   readonly prompt: ContentBlock[]
   /**
-   * The spawning ("parent") agent — the one whose tool call started this
-   * subagent. REQUIRED: in-process backends read `parent.session.header` for
-   * the working directory, the `parentSession` lineage to stamp on the child,
-   * and the parent's delegation depth. The out-of-process backend (ACP) reads
-   * exactly one field — the session header's cwd, the child's workspace when
-   * no deployment `cwd` override is configured; nothing else crosses the
-   * process boundary.
+   * The spawning agent. In-process providers derive workspace, lineage, and
+   * delegation depth from its durable session state. ACP reads only its cwd,
+   * and only when no deployment `cwd` override is configured.
    */
   readonly parent: Agent
   /**
@@ -63,7 +58,6 @@ interface SubagentStartRequest {
    * afterward.
    */
   readonly signal: AbortSignal
-  /** Per-child agent options (model and plugin-defined extension fields). */
   readonly agentOptions?: AgentOptions
   /**
    * Object-rooted JSON Schema within `assertObjectJsonSchema`'s enforced subset. Start rejects
@@ -135,9 +129,9 @@ interface SubagentResult {
 interface SubagentStopReasonMap {
   /** The child finished its turn normally. */
   completed: 'completed'
-  /** The run was cancelled by its request signal or by disposal. */
+  /** Cancelled through the request signal or disposal. */
   aborted: 'aborted'
-  /** The child failed (model error, transport error). */
+  /** Model or transport failure. */
   error: 'error'
   /** The child hit its token ceiling before finishing. */
   'max-tokens': 'max-tokens'
@@ -178,9 +172,8 @@ interface SubagentRun {
    */
   readonly result: Promise<SubagentResult>
   /**
-   * Cancel remaining work, reach child quiescence, and release the run's
-   * resources (in-process: dispose the owned agent and remove its session;
-   * ACP: kill and reap the subprocess). Idempotent.
+   * Cancel remaining work, reach child quiescence, and release resources.
+   * Idempotent.
    */
   dispose(): Promise<void>
   /**
@@ -204,12 +197,9 @@ Each provider is a named child-agent transport, and multiple providers may coexi
 
 ```ts type-equiv
 /**
- * A subagent backend: one transport for running a child agent (in-process
- * spawn/fork, ACP to another process, …). Implementations register under a
- * unique name via {@link SubagentService.registerProvider}; multiple providers
- * coexist in one context (unlike the single-implementation bash seam). The
- * Providers are trusted same-process implementations; callers treat their
- * descriptors and returned values as borrowed immutable data.
+ * One registered transport for running child agents. Providers are trusted
+ * same-process implementations; callers treat descriptors and returned values
+ * as borrowed immutable data.
  */
 interface SubagentProvider {
   /** Unique registry name (e.g. `spawn`, `fork`, `acp`). */

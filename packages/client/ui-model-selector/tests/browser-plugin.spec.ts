@@ -13,7 +13,7 @@ import { apply, inject } from '../src/client/index.ts'
 
 const SID = 'selector-session' as SessionId
 
-async function bench() {
+async function bench(hasBinding = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const slots = ctx.get('slots') as SlotsService
@@ -31,7 +31,7 @@ async function bench() {
       value: { selected: target },
     })),
   }
-  ctx.provide('sessions', { manager: { get: () => session } })
+  ctx.provide('sessions', { binding: () => hasBinding ? { session } : undefined })
   ctx.provide('conversation', {})
   return { ctx, slots, session }
 }
@@ -44,7 +44,7 @@ describe('model-selector browser plugin', () => {
   it('fails loud when the conversation control slot is not declared', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
-    ctx.provide('sessions', { manager: { get: vi.fn() } })
+    ctx.provide('sessions', { binding: vi.fn() })
     ctx.provide('conversation', {})
     await expect(ctx.plugin({ inject: [...inject], apply }))
       .rejects.toThrow(/slot "conversation\.composer\.control" is not declared/)
@@ -70,6 +70,14 @@ describe('model-selector browser plugin', () => {
       .resolves.toBe(true)
     await expect(injected.selectModel({ provider: 'deepseek', model: 'rejected' }))
       .resolves.toBe(false)
+  })
+
+  it('fails loud when slot injection resolves no Session binding', async () => {
+    const { ctx, slots } = await bench(false)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = slots.entries('conversation.composer.control')[0]
+    expect(() => (entry?.inject as (sessionId: SessionId) => unknown)(SID))
+      .toThrow(`ui-model-selector: session "${SID}" resolved no binding`)
   })
 
   it('unregisters the occupant when its plugin fiber is disposed', async () => {

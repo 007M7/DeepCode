@@ -288,11 +288,12 @@ export class LocalPtySession implements PtyBackendSession {
     if (sanitized.prompt) {
       const foregroundPgid = this.inspector.foregroundPgid(this.pid)
       if (this.shellPgid === undefined) this.shellPgid = foregroundPgid
-      if (foregroundPgid !== undefined && foregroundPgid === this.shellPgid) {
-        this.promptSeen = true
-        this.promptTextSeen = sanitized.promptText === true
-        this.lastOutputAt = Date.now()
-      }
+      // Bash can print PROMPT_COMMAND before the kernel publishes its return
+      // to the foreground process group. Retain the marker; polling below is
+      // the authority that accepts it only after bash owns the foreground.
+      this.promptSeen = true
+      this.promptTextSeen = sanitized.promptText === true
+      this.lastOutputAt = Date.now()
     } else if (this.promptSeen && sanitized.promptText === true) {
       this.promptTextSeen = true
     }
@@ -312,8 +313,11 @@ export class LocalPtySession implements PtyBackendSession {
       return
     }
     if (this.promptSeen && this.promptTextSeen && Date.now() - this.lastOutputAt >= this.config.pollIntervalMs) {
-      this.settleActive('stdin_read')
-      return
+      const pgid = this.inspector.foregroundPgid(this.pid)
+      if (this.shellPgid !== undefined && pgid === this.shellPgid) {
+        this.settleActive('stdin_read')
+        return
+      }
     }
     const elapsed = Date.now() - operation.startedAt
     const startupHasOutput = !this.initializing || this.scrollback.snapshot().text.length > 0
@@ -324,7 +328,14 @@ export class LocalPtySession implements PtyBackendSession {
         return
       }
     }
-    if (startupHasOutput && Date.now() - this.lastOutputAt >= this.config.idleSilenceMs) {
+    // A prompt candidate can race bash's foreground handoff, but an interactive
+    // child also inherits PROMPT_COMMAND. Silence therefore remains the bound
+    // on waiting for shell ownership instead of letting a child marker suppress
+    // readiness until the absolute timeout. One final poll lets a foreground
+    // handoff coincident with that boundary win before the fallback settles.
+    const idleFor = Date.now() - this.lastOutputAt
+    const handoffGrace = this.promptSeen ? this.config.pollIntervalMs : 0
+    if (startupHasOutput && idleFor >= this.config.idleSilenceMs && idleFor - this.config.idleSilenceMs >= handoffGrace) {
       this.settleActive('inferred_idle')
       return
     }
