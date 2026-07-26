@@ -3,8 +3,9 @@ import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
+import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -65,7 +66,7 @@ function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
 async function harness() {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(TaskService)
+  await ctx.plugin(LocalTaskService)
   ctx.tasks.attachSurface('test-surface')
   return ctx
 }
@@ -81,14 +82,14 @@ function waitResolverCount(ctx: Context, id: TaskId): number {
   return task.waitResolvers.size
 }
 
-describe('TaskService.start', () => {
+describe('LocalTaskService.start', () => {
   it('preserves the SessionId brand on public owner snapshots', () => {
     expectTypeOf<TaskSnapshot['ownerSession']>().toEqualTypeOf<SessionId | undefined>()
   })
 
   it('refuses to register while no control surface is attached', async () => {
     const ctx = new Context()
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     expect(() => ctx.tasks.start(producer().spec))
       .toThrow('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
   })
@@ -109,7 +110,7 @@ describe('TaskService.start', () => {
   })
 })
 
-describe('TaskService reads and settlement', () => {
+describe('LocalTaskService reads and settlement', () => {
   it('stream kinds read a consuming delta; terminal reads mark reported', async () => {
     const ctx = await harness()
     const chunks = ['first', '', 'rest']
@@ -229,7 +230,7 @@ describe('TaskService reads and settlement', () => {
   })
 })
 
-describe('TaskService.kill', () => {
+describe('LocalTaskService.kill', () => {
   it('cancels a live task with the forwarded reason and suppresses the notice', async () => {
     const ctx = await harness()
     const seen: TaskSnapshot[] = []
@@ -284,7 +285,7 @@ describe('TaskService.kill', () => {
   })
 })
 
-describe('TaskService.wait', () => {
+describe('LocalTaskService.wait', () => {
   it('resolves with the terminal snapshot when the task settles, marked reported', async () => {
     const ctx = await harness()
     const seen: TaskSnapshot[] = []
@@ -394,7 +395,7 @@ describe('TaskService.wait', () => {
   })
 })
 
-describe('TaskService owner isolation', () => {
+describe('LocalTaskService owner isolation', () => {
   it('fences read/kill/wait to the owning session and keeps unowned tasks open', async () => {
     const ctx = await harness()
     const owner = stubAgent(ctx, 'owner')
@@ -433,7 +434,7 @@ describe('TaskService owner isolation', () => {
 
   it('rejects an owned registration when no agent registry is mounted', async () => {
     const ctx = new Context()
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     ctx.tasks.attachSurface('test-surface')
     expect(() => ctx.tasks.start(producer({ owner: stubAgent(ctx, 'a') }).spec))
       .toThrow('background task ownership requires the agent registry')
@@ -498,7 +499,7 @@ describe('TaskService owner isolation', () => {
   })
 })
 
-describe('TaskService owner cleanup', () => {
+describe('LocalTaskService owner cleanup', () => {
   it('drains the owner: cancels live tasks, awaits settlement, drops snapshots', async () => {
     const ctx = await harness()
     const owner = stubAgent(ctx, 'owner')
@@ -580,7 +581,7 @@ describe('TaskService owner cleanup', () => {
   it('registers owner cleanup on the agent scope rather than the tasks fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const tasksFiber = await ctx.plugin(TaskService)
+    const tasksFiber = await ctx.plugin(LocalTaskService)
     ctx.tasks.attachSurface('test-surface')
     const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
@@ -646,11 +647,11 @@ describe('TaskService owner cleanup', () => {
   })
 })
 
-describe('TaskService disposal', () => {
+describe('LocalTaskService disposal', () => {
   it('cancels live tasks, awaits settlement, and silences listeners', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const fiber = await ctx.plugin(TaskService)
+    const fiber = await ctx.plugin(LocalTaskService)
     const surface = await ctx.plugin(Object.assign((inner: Context) => {
       inner.tasks.attachSurface('test-surface')
     }, { inject: ['tasks'] }))
@@ -678,7 +679,7 @@ describe('TaskService disposal', () => {
   it('force-fails a throwing cancel so service disposal does not await producer done', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const fiber = await ctx.plugin(TaskService)
+    const fiber = await ctx.plugin(LocalTaskService)
     ctx.tasks.attachSurface('test-surface')
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const seen: TaskSnapshot[] = []
@@ -716,7 +717,7 @@ describe('TaskService disposal', () => {
   it('detaches owner effects from still-live agent scopes when the service unloads', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const tasksFiber = await ctx.plugin(TaskService)
+    const tasksFiber = await ctx.plugin(LocalTaskService)
     ctx.tasks.attachSurface('test-surface')
     const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
@@ -741,7 +742,7 @@ describe('TaskService disposal', () => {
 
   it('detaching the last surface re-arms the register fence', async () => {
     const ctx = new Context()
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     const detachA1 = ctx.tasks.attachSurface('a')
     const detachA2 = ctx.tasks.attachSurface('a') // duplicate name counts independently
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {

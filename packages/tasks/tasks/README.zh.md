@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-进程局部的后台任务注册表（`ctx.tasks`）。它为长时间运行的生产方提供共享 id、owner 隔离、读取、取消、等待、通知和清理。生产方插件使用其不透明 id namespace 扩展 `TaskKindMap`。
+后台任务注册表 seam（`ctx.tasks`）。抽象的 `TaskService` 及其词汇类型在同一份契约下为长时间运行的生产方提供共享 id、owner 隔离、读取、取消、等待、通知和清理；进程局部注册表位于 [`dsh-tasks-local`](../tasks-local/README.md)。生产方插件使用其不透明 id namespace 扩展 `TaskKindMap`。
 
-## 服务 API
+## 服务契约
 
 - `start(spec): TaskId` 验证控制表层、spec、精确的存活 owner，以及可选的正 `outputLimitBytes`，然后只调用生产方的 `run()` 一次。启动方抛出异常时不注册任何内容；成功返回会直接提交，不再执行其他可能失败的步骤。
 - `get(id, caller?)` 和 `list(caller?)` 返回非消费式快照。列表只包含调用方拥有及无 owner 的任务。
@@ -18,13 +18,9 @@
 
 `outputLimitBytes` 是生产方拥有的模型呈现策略，会原样携带到快照中。控制表层在添加状态或通知元数据后应用它；注册表不会重写生产方输出，也不会为省略此字段的生产方虚构默认值。
 
-## 生命周期
+实现还必须兑现契约的生命周期语义：注册的存续期长于生产方与控制表层的 fiber，owner 释放和服务释放会取消存活工作并等待守约的生产方，结算遵循首次结果优先（一条终止记录、一轮故障隔离的监听器通知，然后释放等待方）。
 
-任务属于其 owner 和后端，而不是生产方工具 fiber，因此重载生产方或表层不会停止任务。某个 owner 的第一个任务会把一个受等待的 effect 附加到精确的 `Agent` scope。owner 释放会取消该对象的任务，等待生产方完全停稳，并移除其快照；复用 agent 或 Session id 无法重定向旧清理。
-
-服务释放会关闭监听器、取消所有存活任务、等待其记录，并从仍存活的 owner scope 分离 effect。如果拆卸取消抛出异常，服务会强制把记录标为失败，并警告工作可能遗留，而不会死锁。取消已返回但始终不终止 `done` 时，系统无法将其与缓慢停止区分开，拆卸可能因此停滞。
-
-参见[任务类型目录](../../../docs/core-data-structures/tasks.md)和[运行时 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)。
+参见[任务类型目录](../../../docs/core-data-structures/tasks.md)、[运行时 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)和 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)。
 
 ## 模型体验
 
@@ -36,8 +32,6 @@
 
 ## 已知限制与暂缓事项
 
-- **任务只存在于进程本地**：持久或跨重启执行需要独立生命周期。
-- **服务与实现没有拆分**：第二个后端必须先定义塑造该边界的生命周期。
 - **流输出只有一个消费游标**：独立观察者需要游标或快照 API。
 - **前台工作无法提升**：生产方在启动前选择前台或后台。
-- **静默无效的取消可能使拆卸停滞**：只有显式抛出异常才能安全地强制标为失败。
+- **契约是进程内的**：`TaskStart.run()` 传入回调和确切的 `Agent` 对象；持久或跨进程后端必须先重塑身份、重启、所有权与观察语义，才能实现此 seam。
