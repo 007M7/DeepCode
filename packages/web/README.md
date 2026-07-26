@@ -1,5 +1,7 @@
 # web/ - web capability family
 
+English | [中文](README.zh.md)
+
 The web access capability seam: an abstract web interface, search/fetch provider implementations, and the model-facing web tools. All **product** packages.
 
 | Package | Role | ctx key |

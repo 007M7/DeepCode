@@ -1,9 +1,15 @@
-/** Shared Workspace picker for the sidebar and New Session hero. */
+/**
+ * Workspace pick/create flow. WorkspaceCreateFlow is the reusable core
+ * (menu + path/create dialogs) consumed directly by WorkspaceBrowser (same
+ * package) and wrapped by WorkspacePicker for the conversation empty-state
+ * slot registration.
+ */
+import type { RefObject } from 'react'
 import { useCallback, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { WorkspaceId, WorkspaceListState, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
 
@@ -13,14 +19,35 @@ const CREATE_NEW = '::create-new'
 
 type ModalKind = 'path' | 'create' | null
 
-export function WorkspacePicker({
+/** Core flow props: the owner supplies popover control and pick semantics. */
+export interface WorkspaceCreateFlowProps {
+  /** Popover visibility (anchor button toggle state, owner-local). */
+  open: boolean
+  /** The anchor button element — the popover's placement anchor. */
+  anchorRef?: RefObject<HTMLElement | null> | undefined
+  /** Selector hook over the workspace list (framework standard hook). */
+  useWorkspaces: <S>(selector: (state: WorkspaceListState) => S) => S
+  /** Create or adopt a real Host Workspace. */
+  createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
+  /** A real Workspace was picked or created. */
+  onPick: (workspaceId: WorkspaceId) => void
+  /** Close the popover (outside click / Escape / post-pick). */
+  onClose: () => void
+}
+
+/**
+ * Render the pick menu plus the two create dialogs.
+ * @param props - owner-controlled flow props.
+ * @returns menu + dialog elements.
+ */
+export function WorkspaceCreateFlow({
   open,
   anchorRef,
   useWorkspaces,
+  createWorkspace,
   onPick,
   onClose,
-  createWorkspace,
-}: WorkspacePickerProps) {
+}: WorkspaceCreateFlowProps) {
   const workspaceSnapshot = useWorkspaces(state => state)
   const workspaces = workspaceSnapshot.items
   const getAnchorRect = useCallback(
@@ -192,5 +219,31 @@ export function WorkspacePicker({
         {modalError !== null && <div className={css.modalError} role="alert">{modalError}</div>}
       </Modal>
     </>
+  )
+}
+
+/**
+ * The conversation empty-state registration: adapts the owner share to the
+ * core flow (all state and semantics live in the flow / the owner).
+ * @param props - empty-state slot props (owner share + injected creation callback).
+ * @returns the flow element.
+ */
+export function WorkspacePicker({
+  open,
+  anchorRef,
+  useWorkspaces,
+  onPick,
+  onClose,
+  createWorkspace,
+}: WorkspacePickerProps) {
+  return (
+    <WorkspaceCreateFlow
+      open={open}
+      anchorRef={anchorRef}
+      useWorkspaces={useWorkspaces}
+      createWorkspace={createWorkspace}
+      onPick={onPick}
+      onClose={onClose}
+    />
   )
 }

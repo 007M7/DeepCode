@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-connection
 
+English | [中文](README.zh.md)
+
 Wire consumer layer: the client plugin's apply mounts `ctx.connection` (shared api client + single-consumer stream-loop starter); the export face carries the wire contract types, the `AbstractApiClient` seam, and the loop's sink/config types. The platform subclasses (WebApiClient/FixtureApiClient), the ConnectionController loop, and the fixture data source are package-internal — apply selects and drives them; tests reach them via src. Contract: api-contracts v3 §3.
 
 ## Keyless fixture

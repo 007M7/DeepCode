@@ -1,0 +1,131 @@
+# @deepseek-ai/dsh-tool-web
+
+[English](README.md) | 中文
+
+面向模型的 web 工具套件 `web_search` 与 `web_fetch`，构建于 [web 能力 seam](../web/README.md)（`ctx.web`）之上。它只拥有面向模型的事项：工具名称、JSON schema、snake_case 参数名称、提示词区段、结果数量上限、结果格式、HTML→markdown 呈现，以及 `presentCall`。所有 web 访问都通过 `ctx.web`；该包绝不导入具体提供方。两个工具都不公开面向模型的超时：每个工具的协作式工具调用预算通过配置在此声明（`fetchTimeoutMs`／`searchTimeoutMs`，附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md)（`tools/execute` 包装层）强制执行；每个工具只把 `exec.signal` 转发给 seam。
+
+每个工具独立注册；只需要其中一个工具的产品可以通过配置禁用另一个（`{ search: false }`／`{ fetch: false }`）。
+
+## 工具
+
+| 工具 | 参数 | 行为 |
+|---|---|---|
+| `web_search` | `query`（string） | 发现。返回可选答案与源 URL。`max_results` **不** 面向模型：工具设置上限（`searchMaxResults` 配置，默认 8）并传给 seam。 |
+| `web_fetch` | `url`（string） | 获取特定 URL。HTML 主体渲染为近似 markdown 的文本；文本主体原样通过。非 2xx 状态会报告，而非报错。工具调用超时是部署策略（`dsh-timeout-policy`），不是模型参数。 |
+
+两个工具都选择并发调度，因为提供方读取会返回内容，不会修改父 agent 状态。
+
+规范化 seam 结果也是规范工具值：`WebSearchResult` 与 `WebFetchResult`。原生 renderer 保留下述答案／源与抓取主体文本；提供方搜索／主体上限仍是获取限制，而非仅呈现截断。
+
+## 配置
+
+| Key | 默认值 | 含义 |
+|---|---|---|
+| `search` | `true` | 注册 `web_search`。 |
+| `fetch` | `true` | 注册 `web_fetch`。 |
+| `searchMaxResults` | `8` | 一次 `web_search` 调用返回的源数量上限（seam 截断更长的提供方列表并标记）。 |
+| `fetchTimeoutMs` | `30000` | `web_fetch` 的协作式工具调用超时预算（ms）。 |
+| `searchTimeoutMs` | `30000` | `web_search` 的协作式工具调用超时预算（ms）。 |
+
+`fetchTimeoutMs`／`searchTimeoutMs` 声明每个工具的协作式超时预算（附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) 强制执行；面向模型的 schema 不公开超时参数。
+
+```yaml
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+```
+
+## 稳定注册
+
+工具注册遵循产品**启用状态**，而非后端可用性。即使选中的提供方缺失、错误配置、存在歧义或暂时不可用，工具仍保持可见；seam 在执行时解析提供方，执行以结构化 `WebError`（例如 `WEB_PROVIDER_UNAVAILABLE`、`WEB_PROVIDER_AMBIGUOUS`）失败，`ToolRegistry.execute()` 会把它转为模型可读、hook／UI 可路由的错误工具结果。这样无需把插件加载顺序、credential 状态或 HMR 时机纳入面向模型契约，也能保持模型 schema 稳定。要彻底移除 web 工具，请在此处通过配置将其禁用。
+
+工具绝不会调用提供方的 `available()`，也不会枚举提供方；唯一执行路径是 `ctx.web.search()`／`ctx.web.fetch()`，提供方不可用会作为选择机制在执行时抛出的结构化 `WebError` code 到达工具。提供方选择完全留在 seam 内，只有一个 owner。
+
+## 模型体验
+
+### 系统提示词
+
+#### 模型看到的内容
+
+搜索与抓取分别贡献以下 web-search 和 web-fetch 指引。scope 工具限制不会移除这些独立注册的区段。
+
+##### Web 搜索指引
+
+```markdown
+Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
+```
+
+##### Web 抓取指引
+
+```markdown
+Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for example a result from web_search). It returns the page content decoded to text. Cite the URL as a markdown link when you use its content.
+```
+
+#### Token 影响
+
+每个通过配置启用的工具会为每次请求增加固定指引成本，即使限制隐藏了其 schema。
+
+#### KV Cache 影响
+
+只要启用工具、scope 与指引文本不变，前缀就保持稳定。配置启用状态或插件生命周期可能使从第一个变化的提示词区段起的复用失效；scope schema 限制不会移除该区段。
+
+### 工具 schema
+
+#### 模型看到的内容
+
+模型会看到生成的 [`web_search` 与 `web_fetch` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-web)。结果数量与超时预算属于部署设置，不是模型参数。
+
+#### Token 影响
+
+每次请求承担固定 schema 成本；通过配置禁用会同时移除 schema 与指引，scope 限制只移除 schema。
+
+#### KV Cache 影响
+
+只要定义与可见性不变，前缀就保持稳定。配置启用状态、插件生命周期或 scope 限制可能使从第一个变化的 schema token 起的复用失效。
+
+### 搜索结果
+
+#### 模型看到的内容
+
+可选的提供方答案之后是 `Sources:`，再跟随数据相关、形状精确为 `- [<title-or-url>](<url>)` 的行，并可添加后缀 ` — <snippet> (<publishedAt>)`。既无答案也无源时，结果显示 `No results found.`。列表达到上限时会添加 `(Showing the first <count> sources. Refine the query for more.)`；每项结果都以 `Cite the relevant URLs above as markdown links in your answer.` 结尾。
+
+#### Token 影响
+
+数据相关结果会重复发送直到压缩，源数量由 `searchMaxResults` 限制。
+
+#### KV Cache 影响
+
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 配置项失效。
+
+### 抓取结果
+
+#### 模型看到的内容
+
+成功抓取的精确形状是 `Fetched <finalUrl> (HTTP <statusCode>)`、一个空行，以及提供方拥有的解码主体。发生截断时会再添加一个空行和 `(Content truncated. Fetch a more specific URL or section for the full text.)`；失败变为 `Error: <message>`。查询与 URL 保留在调用历史中。
+
+#### Token 影响
+
+提供方上限限制主体大小；保留的调用参数与结果会重复发送直到压缩，超时策略可以把迟到结果替换为简短错误。
+
+#### KV Cache 影响
+
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 配置项失效。
+
+### 参数错误
+
+#### 模型看到的内容
+
+空输入精确地变为 `Error: query must be a non-empty string` 或 `Error: url must be a non-empty string`。
+
+#### Token 影响
+
+只有失败调用会增加这些保留 token。
+
+#### KV Cache 影响
+
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 配置项失效。
+
+## 已知限制与暂缓事项
+
+- **`htmlToMarkdown` 是最小正则转换器，不是 HTML parser**：它会移除 script/style/noscript，保留标题／项目符号／链接，并解码约十余个命名 entity；表格、图片与嵌套格式会丢失。
+- **面向模型的表层有意保持最小，提升项暂缓**：`max_results` 保持为配置上限（不是模型参数），`web_fetch` 只接受 `url`（没有 `format`／`prompt`／LLM 摘要模式）；两项都列为 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) 中的后续步骤。
+- **没有 web 专用权限策略**：两个工具都不会请求 `ctx.approval` 就直接执行；需要确认的部署必须添加 `tools/pre-execute` 策略，该包不定义持久 URL／domain 授权。
