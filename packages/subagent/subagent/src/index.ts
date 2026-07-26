@@ -251,11 +251,15 @@ export class SubagentService extends Service {
    * live-preferred corpus without loading or resuming an Agent. The lineage
    * trace supplies stable candidate order and live status; each candidate is
    * then inspected independently for exactly one supported descriptor in its
-   * own suffix.
+   * own suffix. Session-query reads take no signal, so cancellation is
+   * cooperative: the scan rechecks `signal` after every un-signalled await and
+   * stops between candidates instead of draining a slow or large catalog after
+   * the caller has gone.
    * @param parentSessionId - parent whose direct children are listed.
+   * @param signal - caller-owned cancellation observed between query awaits.
    * @returns child and diagnostic entries in lineage-trace order.
    */
-  async listChildren(parentSessionId: SessionId): Promise<SubagentListEntry[]> {
+  async listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]> {
     const query = this.ctx.get('sessionQuery')
     if (query === undefined) {
       throw new SubagentError(
@@ -266,7 +270,8 @@ export class SubagentService extends Service {
     const trace = await query.traceSession(parentSessionId)
     const entries: SubagentListEntry[] = []
     for (const node of trace.descendants) {
-      const entry = await this.inspectChild(query, parentSessionId, node.session)
+      assertListingNotCancelled(signal)
+      const entry = await this.inspectChild(query, parentSessionId, node.session, signal)
       if (entry !== undefined) entries.push(entry)
     }
     return entries
@@ -277,10 +282,12 @@ export class SubagentService extends Service {
     query: SessionQueryService,
     parentSessionId: SessionId,
     candidate: SessionRecord,
+    signal?: AbortSignal,
   ): Promise<SubagentListEntry | undefined> {
     const childId = candidate.header.id
     try {
       const records = await query.listEvents(childId)
+      assertListingNotCancelled(signal)
       // Fork seeds replay ancestor events, so only this child's suffix owns its descriptor.
       const seedLength = candidate.header.seedLength ?? 0
       const descriptorSeqs = records
@@ -294,6 +301,7 @@ export class SubagentService extends Service {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const seq = descriptorSeqs[0]!
       const window = await query.readEvent({ sessionId: childId, seq })
+      assertListingNotCancelled(signal)
       assertSessionHeadersCompatible(window.session, candidate.header)
       if (window.session.parentSession !== parentSessionId || window.target.type !== 'subagent/descriptor') {
         return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
@@ -451,6 +459,13 @@ export class SubagentService extends Service {
 }
 
 export default SubagentService
+
+/** Stop a cooperative listing scan at its next cancellation checkpoint. */
+function assertListingNotCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new SubagentError('subagent listing was cancelled', 'CANCELLED')
+  }
+}
 
 /** Map isolated session-query failures to the fixed child diagnostic taxonomy. */
 function perChildDiagnosticReason(error: unknown): 'corrupt' | 'unavailable' | undefined {

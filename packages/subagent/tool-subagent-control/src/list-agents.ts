@@ -23,10 +23,12 @@ export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'list_agents',
     description:
-      'List your background subagents: every subagent you started that can receive `send_message`, '
-      + 'whether it is still working (running) or has finished its current turn (complete — a follow-up '
-      + 'message starts a new turn on the same conversation). Children that could not be read are '
-      + 'reported as diagnostics instead of being silently dropped.',
+      'List your background subagents by durable id and label. Status is a snapshot of the stored '
+      + 'record: running means the subagent session is currently live in this process, complete means '
+      + 'it exists only in storage and a `send_message` starts a new turn on the same conversation. '
+      + 'The snapshot is not a delivery promise — `send_message` performs the authoritative check and '
+      + 'may still fail. Children that could not be read are reported as diagnostics instead of being '
+      + 'silently dropped.',
     parameters: {},
     output: {
       schema: {
@@ -70,7 +72,9 @@ export function apply(ctx: Context): void {
         // Non-agent callers have no session whose children could be listed.
         throw new Error('list_agents requires a calling agent (exec.agent was undefined)')
       }
-      return await ctx.subagents.listChildren(parent.id)
+      // The registry drains started tool bodies, so the scan must observe the
+      // call's signal rather than finish a slow catalog after cancellation.
+      return await ctx.subagents.listChildren(parent.id, exec.signal)
     },
   }))
 }

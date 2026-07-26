@@ -387,6 +387,60 @@ describe('SubagentService.listChildren', () => {
     ])
   })
 
+  it('stops the scan at the between-candidates checkpoint when the signal aborts', async () => {
+    const { ctx, parent } = await setup([textResponse('one'), textResponse('two')])
+    await startChild(ctx, parent, 'first child')
+    await startChild(ctx, parent, 'second child')
+    const controller = new AbortController()
+    const query = ctx.get('sessionQuery')!
+    const originalListEvents = query.listEvents.bind(query)
+    let inspected = 0
+    query.listEvents = (sessionId) => {
+      inspected += 1
+      // Cancel while the first candidate's read is in flight: the loop's next
+      // between-candidates checkpoint must stop before the second read.
+      controller.abort()
+      return originalListEvents(sessionId)
+    }
+    await expect(ctx.subagents.listChildren(parent.id, controller.signal)).rejects.toThrow(
+      expect.objectContaining({ code: 'CANCELLED' }) as Error,
+    )
+    expect(inspected).toBe(1)
+  })
+
+  it('stops after a per-child read when the signal aborts mid-inspection', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    await startChild(ctx, parent, 'cancelled mid-read')
+    const controller = new AbortController()
+    const query = ctx.get('sessionQuery')!
+    const originalReadEvent = query.readEvent.bind(query)
+    let exactReads = 0
+    query.readEvent = async (request) => {
+      exactReads += 1
+      const window = await originalReadEvent(request)
+      controller.abort()
+      return window
+    }
+    // The post-read checkpoint throws a subagent error, which is not a
+    // session-query failure and therefore propagates instead of becoming a
+    // per-child diagnostic.
+    await expect(ctx.subagents.listChildren(parent.id, controller.signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'CANCELLED' }) as Error)
+    expect(exactReads).toBe(1)
+  })
+
+  it('a pre-aborted signal stops before any candidate read', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    await startChild(ctx, parent, 'never read')
+    const controller = new AbortController()
+    controller.abort()
+    const query = ctx.get('sessionQuery')!
+    query.listEvents = () => Promise.reject(new Error('must not be called'))
+    await expect(ctx.subagents.listChildren(parent.id, controller.signal)).rejects.toThrow(
+      expect.objectContaining({ code: 'CANCELLED' }) as Error,
+    )
+  })
+
   it('returns an empty array for a parent with no children', async () => {
     const { ctx, parent } = await setup([])
     await ctx.sessions.flush(parent.session)
