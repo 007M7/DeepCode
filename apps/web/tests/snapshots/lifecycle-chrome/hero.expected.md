@@ -12,9 +12,9 @@
   - img
 - textbox "Search name, keywords..."
 - tree "Sessions": No sessions yet
-- button "Settings":
+- button "设置":
   - img
-  - text: Settings
+  - text: 设置
 - text: Let's start building
 - button "Choose workspace":
   - img
