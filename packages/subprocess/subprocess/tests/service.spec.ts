@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { SubprocessService } from '@deepseek-ai/dsh-subprocess'
-import type { SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { scrubbedParentEnv, SubprocessService } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessDisposeGraces, SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 /**
  * Minimal concrete service: a hand-built handle. The seam is spawn-only —
@@ -11,18 +11,20 @@ import type { SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from
 class StubSubprocessService extends SubprocessService {
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     const read: SubprocessOutputRead = { text: '', nextOffset: 0, lossy: false }
-    let killed = false
+    const collected = spec.stdio.stdout !== 'pipe' && spec.stdio.stdout !== 'inherit'
+      ? { stdout: { readFrom: () => read } }
+      : {}
     return {
       pid: spec.argv.length,
-      stdout: { readFrom: () => read },
-      stderr: { readFrom: () => read },
-      done: Promise.resolve({
-        exitCode: killed ? null : 0,
-        signal: null,
-        stdout: { text: 'ok', truncated: false },
-        stderr: { text: '', truncated: false },
-      }),
-      kill: () => { killed = true },
+      stdin: undefined,
+      stdout: undefined,
+      stderr: undefined,
+      collected,
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      kill: () => {},
+      terminate: () => {},
+      waitForExit: () => Promise.resolve(true),
+      dispose: (_graces: SubprocessDisposeGraces) => Promise.resolve(),
     }
   }
 }
@@ -34,22 +36,40 @@ describe('SubprocessService seam', () => {
     const handle = ctx.subprocess.spawn({
       argv: ['true'],
       cwd: '/stub',
-      stdoutMaxBytes: 1,
-      stderrMaxBytes: 1,
-      maxSpillBytes: 1,
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 1 }, stderr: 'inherit' },
       graceMs: 1,
     })
     expect(handle.pid).toBe(1)
-    expect(handle.stdout.readFrom(0)).toEqual({ text: '', nextOffset: 0, lossy: false })
+    expect(handle.collected.stdout!.readFrom(0)).toEqual({ text: '', nextOffset: 0, lossy: false })
     handle.kill()
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    await expect(handle.dispose({ eofGraceMs: 1, graceMs: 1 })).resolves.toBeUndefined()
     const outcome = await handle.done
-    expect(outcome.stdout.text).toBe('ok')
+    expect(outcome.exitCode).toBe(0)
   })
 
-  it('loading a second implementation throws (one processes service per context — cordis standard)', async () => {
+  it('loading a second implementation throws (one subprocess service per context — cordis standard)', async () => {
     const ctx = new Context()
     await ctx.plugin(StubSubprocessService)
-    class SecondManager extends StubSubprocessService {}
-    await expect(ctx.plugin(SecondManager)).rejects.toThrow(/service "subprocess" has been registered/)
+    class SecondService extends StubSubprocessService {}
+    await expect(ctx.plugin(SecondService)).rejects.toThrow(/service "subprocess" has been registered/)
+  })
+
+  it('scrubbedParentEnv drops credential-shaped and DSH_ names but keeps PATH', () => {
+    process.env.DSH_SCRUB_PROBE = 'stale'
+    process.env.SCRUB_PROBE_TOKEN = 'secret'
+    process.env.SCRUB_PROBE_PLAIN = 'visible'
+    try {
+      const env = scrubbedParentEnv()
+      expect(env.DSH_SCRUB_PROBE).toBeUndefined()
+      expect(env.SCRUB_PROBE_TOKEN).toBeUndefined()
+      expect(env.SCRUB_PROBE_PLAIN).toBe('visible')
+      expect(env.PATH).toBeDefined()
+    } finally {
+      delete process.env.DSH_SCRUB_PROBE
+      delete process.env.SCRUB_PROBE_TOKEN
+      delete process.env.SCRUB_PROBE_PLAIN
+    }
   })
 })

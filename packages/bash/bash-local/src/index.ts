@@ -11,8 +11,8 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
-import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
+import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 
 /**
@@ -53,6 +53,16 @@ export interface Config {
 
 /** The shape after schemastery applied the defaults (cwd has none). */
 type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
+
+/** Project a settled collect-mode reader into the final CollectedOutput shape. */
+function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
+  const read = reader.readFrom(0)
+  return {
+    text: read.text,
+    truncated: read.lossy,
+    ...read.spillPath !== undefined ? { spillPath: read.spillPath } : {},
+  }
+}
 
 function assertPositiveFinite(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
@@ -127,36 +137,58 @@ export class LocalBashExecutor extends BashExecutor {
     }
   }
 
-  /** Map one resolved bash spec onto a fully-specified process spawn. */
+  /** Map one resolved bash spec onto a fully-specified subprocess spawn. */
   // XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
   private spawnSpec(spec: BashExecSpec, stdoutMaxBytes: number, signal: AbortSignal | undefined): SubprocessSpawnSpec {
+    const collect = (maxBytes: number): SubprocessCollect =>
+      ({ maxBytes, spill: { maxBytes: this.config.maxSpillBytes } })
     return {
       argv: ['bash', '-c', spec.command],
       cwd: spec.workdir,
-      stdoutMaxBytes,
-      stderrMaxBytes: this.config.maxOutputBytes,
-      maxSpillBytes: this.config.maxSpillBytes,
+      stdio: {
+        stdin: spec.stdin !== undefined ? { data: spec.stdin } : 'ignore',
+        stdout: collect(stdoutMaxBytes),
+        stderr: collect(this.config.maxOutputBytes),
+      },
       graceMs: this.config.graceMs,
       signal,
-      stdin: spec.stdin,
       env: { ...ENV_OVERRIDES, ...spec.env },
       dshEnv: spec.dshEnv,
     }
   }
 
+  /** The collect-mode readers the executor itself requested (present by construction). */
+  private static collected(handle: SubprocessHandle): { stdout: SubprocessOutputReader; stderr: SubprocessOutputReader } {
+    const { stdout, stderr } = handle.collected
+    if (stdout === undefined || stderr === undefined) {
+      throw new Error('bash-local: subprocess implementation dropped a requested collect stream')
+    }
+    return { stdout, stderr }
+  }
+
   async run(spec: BashExecSpec): Promise<BashRunResult> {
     // One deadline combines timeout and upstream cancellation; disposal clears its timer.
     using d = deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')
-    const outcome = await this.ctx.subprocess.spawn(this.spawnSpec(spec, spec.stdoutMaxBytes, d.signal)).done
+    const handle = this.ctx.subprocess.spawn(this.spawnSpec(spec, spec.stdoutMaxBytes, d.signal))
+    const outcome = await handle.done
+    const collected = LocalBashExecutor.collected(handle)
     // Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.
     const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
     const aborted = d.signal.aborted && !timedOut
-    return { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }
+    return {
+      ...outcome,
+      timedOut,
+      aborted,
+      timeoutMs: spec.timeoutMs,
+      stdout: finalOutput(collected.stdout),
+      stderr: finalOutput(collected.stderr),
+    }
   }
 
   start(spec: BashExecSpec): BashProcess {
     // Background runs ignore timeoutMs; callers stop them through kill() or spec.signal.
     const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, this.config.maxOutputBytes, spec.signal))
+    const collected = LocalBashExecutor.collected(running)
 
     // A spawn failure produces no process output, so the subprocess service has nothing
     // to buffer; the note is delivered exactly once through the read path.
@@ -180,7 +212,7 @@ export class LocalBashExecutor extends BashExecutor {
         }
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
-        this.onProcessDone(proc, running.stderr.readFrom(0).text)
+        this.onProcessDone(proc, collected.stderr.readFrom(0).text)
       }, (error: unknown) => {
         // Background spawn failures settle as killed and surface through the read path.
         proc.status = 'killed'
@@ -188,8 +220,8 @@ export class LocalBashExecutor extends BashExecutor {
         this.onProcessDone(proc, spawnFailureNote)
       }),
       readOutput: (): BashProcessRead => {
-        const out = running.stdout.readFrom(stdoutOffset)
-        const err = running.stderr.readFrom(stderrOffset)
+        const out = collected.stdout.readFrom(stdoutOffset)
+        const err = collected.stderr.readFrom(stderrOffset)
         stdoutOffset = out.nextOffset
         stderrOffset = err.nextOffset
 
@@ -211,7 +243,7 @@ export class LocalBashExecutor extends BashExecutor {
       kill: (): boolean => {
         if (proc.status !== 'running') return false
         proc.status = 'killed'
-        running.kill()
+        running.terminate()
         return true
       },
     }

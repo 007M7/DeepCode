@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { DshEnvironment } from '@deepseek-ai/dsh-subprocess'
-import { killGroup, OutputCollector, spawnProcess } from '../src/spawn.ts'
-import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
+import { killGroup, OutputCollector, spawnSubprocess } from '../src/spawn.ts'
+import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 
 const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
   failNextClose: { value: false },
@@ -33,15 +33,25 @@ vi.mock('node:fs', async (importOriginal) => {
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-spec-'))
 
-function spec(command: string, overrides: Partial<Parameters<typeof spawnProcess>[0]> = {}) {
+type SpecOverrides = Partial<Parameters<typeof spawnSubprocess>[0]> & {
+  stdoutMaxBytes?: number
+  stderrMaxBytes?: number
+  maxSpillBytes?: number
+  stdin?: string
+}
+
+function spec(command: string, overrides: SpecOverrides = {}) {
+  const { stdoutMaxBytes = 64_000, stderrMaxBytes = 64_000, maxSpillBytes = 64 * 1024 * 1024, stdin, ...rest } = overrides
   return {
     argv: ['bash', '-c', command],
     cwd: process.cwd(),
-    stdoutMaxBytes: 64_000,
-    stderrMaxBytes: 64_000,
-    maxSpillBytes: 64 * 1024 * 1024,
+    stdio: {
+      stdin: stdin !== undefined ? { data: stdin } : 'ignore' as const,
+      stdout: { maxBytes: stdoutMaxBytes, spill: { maxBytes: maxSpillBytes } },
+      stderr: { maxBytes: stderrMaxBytes, spill: { maxBytes: maxSpillBytes } },
+    },
     graceMs: 3_000,
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -62,10 +72,20 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
 async function waitForStdout(running: SubprocessHandle, expected: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (running.stdout.readFrom(0).text.includes(expected)) return
+    if (running.collected.stdout!.readFrom(0).text.includes(expected)) return
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
+}
+
+/** Await settlement and project both collected streams like a batch outcome. */
+async function finish(running: SubprocessHandle) {
+  const outcome = await running.done
+  const final = (reader: SubprocessOutputReader | undefined) => {
+    const read = reader!.readFrom(0)
+    return { text: read.text, truncated: read.lossy, ...read.spillPath !== undefined ? { spillPath: read.spillPath } : {} }
+  }
+  return { ...outcome, stdout: final(running.collected.stdout), stderr: final(running.collected.stderr) }
 }
 
 async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> {
@@ -82,9 +102,9 @@ async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> 
   throw new Error(`pid file ${path} was not written after ${timeoutMs}ms`)
 }
 
-describe('spawnProcess', () => {
+describe('spawnSubprocess', () => {
   it('captures stdout on success', async () => {
-    const result = await spawnProcess(spec('echo hello')).done
+    const result = await finish(spawnSubprocess(spec('echo hello')))
     expect(result.exitCode).toBe(0)
     expect(result.signal).toBeNull()
     expect(result.stdout.text).toBe('hello\n')
@@ -93,33 +113,33 @@ describe('spawnProcess', () => {
   })
 
   it('captures stderr separately', async () => {
-    const result = await spawnProcess(spec('echo oops >&2')).done
+    const result = await finish(spawnSubprocess(spec('echo oops >&2')))
     expect(result.exitCode).toBe(0)
     expect(result.stdout.text).toBe('')
     expect(result.stderr.text).toBe('oops\n')
   })
 
   it('captures both streams', async () => {
-    const result = await spawnProcess(spec('echo out; echo err >&2')).done
+    const result = await finish(spawnSubprocess(spec('echo out; echo err >&2')))
     expect(result.stdout.text).toBe('out\n')
     expect(result.stderr.text).toBe('err\n')
   })
 
   it('reports non-zero exit codes', async () => {
-    const result = await spawnProcess(spec('exit 42')).done
+    const result = await finish(spawnSubprocess(spec('exit 42')))
     expect(result.exitCode).toBe(42)
     expect(result.signal).toBeNull()
   })
 
   it('passes the ambient TERM through untouched (terminal policy is the caller\'s)', async () => {
-    const result = await spawnProcess(spec('echo "${TERM:-unset}"', {
+    const result = await finish(spawnSubprocess(spec('echo "${TERM:-unset}"', {
       env: { TERM: 'callers-choice' },
-    })).done
+    })))
     expect(result.stdout.text).toBe('callers-choice\n')
   })
 
   it('runs in the requested cwd', async () => {
-    const result = await spawnProcess(spec('pwd', { cwd: '/tmp' })).done
+    const result = await finish(spawnSubprocess(spec('pwd', { cwd: '/tmp' })))
     expect(result.stdout.text.trim()).toMatch(/\/tmp$/)
   })
 
@@ -129,7 +149,7 @@ describe('spawnProcess', () => {
     // assert the kill itself lands as SIGTERM.
     const controller = new AbortController()
     const start = Date.now()
-    const running = spawnProcess(spec('sleep 60', { signal: controller.signal }))
+    const running = spawnSubprocess(spec('sleep 60', { signal: controller.signal }))
     setTimeout(() => { controller.abort('deadline') }, 100)
     const result = await running.done
     expect(Date.now() - start).toBeLessThan(5_000)
@@ -137,10 +157,21 @@ describe('spawnProcess', () => {
     expect(result.exitCode).toBeNull()
   })
 
-  it('escalates to SIGKILL when SIGTERM is trapped', async () => {
-    const running = spawnProcess(spec('trap \'\' TERM; echo ready; while :; do sleep 60 & wait $!; done', { graceMs: 200 }))
+  it('terminate() escalates to SIGKILL when SIGTERM is trapped', async () => {
+    const running = spawnSubprocess(spec('trap \'\' TERM; echo ready; while :; do sleep 60 & wait $!; done', { graceMs: 200 }))
     await waitForStdout(running, 'ready\n')
-    running.kill()
+    running.terminate()
+    const result = await running.done
+    expect(result.signal).toBe('SIGKILL')
+  })
+
+  it('kill() sends one signal Node-style, without escalation', async () => {
+    const running = spawnSubprocess(spec('trap \'\' TERM; echo armed; sleep 60', { graceMs: 100 }))
+    await waitForStdout(running, 'armed\n')
+    running.kill() // trapped SIGTERM, no SIGKILL follow-up
+    await new Promise(resolve => setTimeout(resolve, 400))
+    expect(running.collected.stdout).toBeDefined()
+    running.kill('SIGKILL') // explicit signal choice, still no timers
     const result = await running.done
     expect(result.signal).toBe('SIGKILL')
   })
@@ -149,7 +180,7 @@ describe('spawnProcess', () => {
     // The subshell writes the sleep's pid then waits on it; killing the
     // group must take the sleep down with bash.
     const pidFile = join(spillDir, `grandchild-${Date.now()}.pid`)
-    const running = spawnProcess(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
+    const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
     const grandchild = await waitForPidFile(pidFile)
     expect(grandchild).toBeGreaterThan(0)
 
@@ -161,7 +192,7 @@ describe('spawnProcess', () => {
 
   it('aborts via AbortSignal mid-run', async () => {
     const controller = new AbortController()
-    const running = spawnProcess(spec('sleep 60', { signal: controller.signal }))
+    const running = spawnSubprocess(spec('sleep 60', { signal: controller.signal }))
     setTimeout(() => { controller.abort('user cancelled') }, 50)
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
@@ -170,19 +201,19 @@ describe('spawnProcess', () => {
   it('throws when the signal is already aborted before spawn', () => {
     const controller = new AbortController()
     controller.abort('too late')
-    expect(() => spawnProcess(spec('echo hi', { signal: controller.signal })))
+    expect(() => spawnSubprocess(spec('echo hi', { signal: controller.signal })))
       .toThrow(/aborted before spawn: too late/)
   })
 
   it('rejects with a spawn error for a nonexistent cwd', async () => {
-    await expect(spawnProcess(spec('echo hi', { cwd: '/nonexistent-dir-dsh-test' })).done)
+    await expect(spawnSubprocess(spec('echo hi', { cwd: '/nonexistent-dir-dsh-test' })).done)
       .rejects.toThrow(/ENOENT/)
   })
 
-  it('kill() is idempotent (second call does not restart escalation)', async () => {
-    const running = spawnProcess(spec('sleep 60'))
-    running.kill()
-    running.kill()
+  it('terminate() is idempotent (second call does not restart escalation)', async () => {
+    const running = spawnSubprocess(spec('sleep 60'))
+    running.terminate()
+    running.terminate()
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
   })
@@ -190,10 +221,10 @@ describe('spawnProcess', () => {
   it('bounds inherited-pipe draining after the shell exits', async () => {
     const pidFile = join(spillDir, `pipe-holder-${Date.now()}.pid`)
     const started = Date.now()
-    const running = spawnProcess(spec(`sleep 60 & echo $! > ${pidFile}; echo shell-done`, { graceMs: 100 }))
+    const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; echo shell-done`, { graceMs: 100 }))
     const descendant = await waitForPidFile(pidFile)
     try {
-      const result = await running.done
+      const result = await finish(running)
       expect(Date.now() - started).toBeLessThan(1_000)
       expect(result.exitCode).toBe(0)
       expect(result.stdout.text).toBe('shell-done\n')
@@ -206,7 +237,7 @@ describe('spawnProcess', () => {
 
 describe('stdin and extra env (set by in-process plugins)', () => {
   it('writes stdin to the command and closes it', async () => {
-    const result = await spawnProcess(spec('cat', { stdin: 'hello from stdin\n' })).done
+    const result = await finish(spawnSubprocess(spec('cat', { stdin: 'hello from stdin\n' })))
     expect(result.exitCode).toBe(0)
     expect(result.stdout.text).toBe('hello from stdin\n')
   })
@@ -214,7 +245,7 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   it('a command that reads stdin sees EOF when none is supplied', async () => {
     // No stdin → fd 0 is /dev/null, so `cat` reads EOF and exits 0 with no
     // output (it does NOT block).
-    const result = await spawnProcess(spec('cat')).done
+    const result = await finish(spawnSubprocess(spec('cat')))
     expect(result.exitCode).toBe(0)
     expect(result.stdout.text).toBe('')
   })
@@ -222,25 +253,25 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
     // With no bytes, fd 0 remains the pre-seam `ignore` default (/dev/null, a character device).
     // Supplied bytes use Node's spawn pipe, which is an AF_UNIX socket rather than a FIFO.
-    const none = await spawnProcess(spec('test -c /dev/stdin && echo char || echo other')).done
+    const none = await finish(spawnSubprocess(spec('test -c /dev/stdin && echo char || echo other')))
     expect(none.stdout.text).toBe('char\n')
-    const piped = await spawnProcess(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })).done
+    const piped = await finish(spawnSubprocess(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })))
     expect(piped.stdout.text).toBe('socket\n')
   })
 
   it('merges ordinary extra env entries onto the scrubbed environment', async () => {
-    const result = await spawnProcess(spec('echo "$EXTRA_ONE/$EXTRA_TWO"', {
+    const result = await finish(spawnSubprocess(spec('echo "$EXTRA_ONE/$EXTRA_TWO"', {
       env: { EXTRA_ONE: 'alpha', EXTRA_TWO: 'beta' },
-    })).done
+    })))
     expect(result.stdout.text).toBe('alpha/beta\n')
   })
 
   it('an explicit extra env entry overrides the credential scrub', async () => {
     // EXPLICIT_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
     // entry is still honored — the scrub only drops AMBIENT process.env creds.
-    const result = await spawnProcess(spec('echo "$EXPLICIT_OVERRIDE_KEY"', {
+    const result = await finish(spawnSubprocess(spec('echo "$EXPLICIT_OVERRIDE_KEY"', {
       env: { EXPLICIT_OVERRIDE_KEY: 'explicit-wins' },
-    })).done
+    })))
     expect(result.stdout.text).toBe('explicit-wins\n')
   })
 
@@ -248,20 +279,20 @@ describe('stdin and extra env (set by in-process plugins)', () => {
     // The child exits without reading, so closing a stdin pipe holding ~1 MiB triggers EPIPE.
     // The handler swallows that write error and `done` reports the child's real exit.
     const big = 'x'.repeat(1024 * 1024)
-    const result = await spawnProcess(spec('exit 7', { stdin: big })).done
+    const result = await finish(spawnSubprocess(spec('exit 7', { stdin: big })))
     expect(result.exitCode).toBe(7)
   })
 })
 
 describe('output truncation and spill', () => {
   it('applies stdout and stderr caps independently', async () => {
-    const result = await spawnProcess(
+    const result = await finish(spawnSubprocess(
       spec('printf "%.0sx" $(seq 1 500); printf "%.0se" $(seq 1 500) >&2', {
         stdoutMaxBytes: 500,
         stderrMaxBytes: 100,
       }),
       { spillDir },
-    ).done
+    ))
     expect(result.stdout.truncated).toBe(false)
     expect(result.stdout.text).toBe('x'.repeat(500))
     expect(result.stderr.truncated).toBe(true)
@@ -270,10 +301,10 @@ describe('output truncation and spill', () => {
 
   it('keeps the tail and spills the full stream to disk', async () => {
     // 200 numbered lines of ~10 bytes; cap at 500 bytes keeps a late tail.
-    const result = await spawnProcess(
+    const result = await finish(spawnSubprocess(
       spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
-    ).done
+    ))
     expect(result.stdout.truncated).toBe(true)
     expect(result.stdout.text.length).toBeLessThanOrEqual(500)
     expect(result.stdout.text).toContain('line-0200')
@@ -285,10 +316,10 @@ describe('output truncation and spill', () => {
   })
 
   it('does not truncate output exactly at the cap', async () => {
-    const result = await spawnProcess(
+    const result = await finish(spawnSubprocess(
       spec('printf "%.0sx" $(seq 1 500)', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
-    ).done
+    ))
     expect(result.stdout.truncated).toBe(false)
     expect(result.stdout.text.length).toBe(500)
     expect(result.stdout.spillPath).toBeUndefined()
@@ -296,10 +327,10 @@ describe('output truncation and spill', () => {
 
   it('settles with the tail and no spill path when final spill close fails', async () => {
     failNextClose.value = true
-    const result = await spawnProcess(
+    const result = await finish(spawnSubprocess(
       spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
-    ).done
+    ))
     expect(failNextClose.value).toBe(false)
     expect(result.exitCode).toBe(0)
     expect(result.stdout.truncated).toBe(true)
@@ -403,7 +434,7 @@ describe('killGroup', () => {
   })
 
   it('swallows ESRCH for vanished groups', async () => {
-    const running = spawnProcess(spec('true'))
+    const running = spawnSubprocess(spec('true'))
     await running.done
     expect(() => { killGroup(running.pid, 'SIGTERM') }).not.toThrow()
   })
@@ -412,7 +443,7 @@ describe('killGroup', () => {
     // Cleanup code commonly kills handles in a finally; after settlement the
     // group is gone and the pid may be reused, so a late kill must be inert
     // (no signal to a possibly-recycled pgid, no referenced timer delaying exit).
-    const running = spawnProcess(spec('true'))
+    const running = spawnSubprocess(spec('true'))
     await running.done
     const spy = vi.spyOn(process, 'kill')
     try {
@@ -424,17 +455,137 @@ describe('killGroup', () => {
   })
 })
 
+describe('stdio dispositions', () => {
+  it("'pipe' exposes raw streams for caller-owned protocol decoding", async () => {
+    const running = spawnSubprocess({
+      ...spec('cat'),
+      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: 1000 } },
+    })
+    expect(running.stdin).toBeDefined()
+    expect(running.stdout).toBeDefined()
+    expect(running.stderr).toBeUndefined()
+    expect(running.collected.stdout).toBeUndefined()
+    expect(running.collected.stderr).toBeDefined()
+
+    const echoed = new Promise<string>((resolve) => {
+      let text = ''
+      running.stdout!.on('data', (chunk: Buffer) => { text += chunk.toString('utf8') })
+      running.stdout!.on('end', () => { resolve(text) })
+    })
+    running.stdin!.end('through the pipe\n')
+    const outcome = await running.done
+    expect(outcome.exitCode).toBe(0)
+    expect(await echoed).toBe('through the pipe\n')
+  })
+
+  it('a collect mode without spill keeps only the in-memory tail (no file)', async () => {
+    const running = spawnSubprocess({
+      ...spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done'),
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 100 }, stderr: { maxBytes: 100 } },
+    }, { spillDir })
+    await running.done
+    const read = running.collected.stdout!.readFrom(0)
+    expect(read.lossy).toBe(true)
+    expect(read.text).toContain('line-0200')
+    expect(read.spillPath).toBeUndefined()
+  })
+})
+
+describe('dispose ladder', () => {
+  it('tier 1: a cooperative child exits on stdin EOF without any signal', async () => {
+    const running = spawnSubprocess({
+      ...spec('read -r line; exit 0'),
+      stdio: { stdin: 'pipe', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
+    })
+    await running.dispose({ eofGraceMs: 5_000, graceMs: 200 })
+    const outcome = await running.done
+    expect(outcome.exitCode).toBe(0)
+    expect(outcome.signal).toBeNull()
+  })
+
+  it('tier 2: an EOF-deaf child dies by SIGTERM', async () => {
+    const running = spawnSubprocess({
+      ...spec('sleep 60'),
+      stdio: { stdin: 'pipe', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
+    })
+    await running.dispose({ eofGraceMs: 100, graceMs: 5_000 })
+    const outcome = await running.done
+    expect(outcome.signal).toBe('SIGTERM')
+  })
+
+  it('tier 3: a TERM-trapping child dies by SIGKILL, and dispose() is idempotent', async () => {
+    const running = spawnSubprocess(spec('trap \'\' TERM; echo armed; sleep 60'))
+    await waitForStdout(running, 'armed\n')
+    const first = running.dispose({ eofGraceMs: 50, graceMs: 200 })
+    const second = running.dispose({ eofGraceMs: 50, graceMs: 200 })
+    expect(second).toBe(first)
+    await first
+    const outcome = await running.done
+    expect(outcome.signal).toBe('SIGKILL')
+  })
+})
+
+describe('windows tree semantics (injected platform)', () => {
+  it('kill and terminate route through taskkill by root pid', async () => {
+    const killed: number[] = []
+    const running = spawnSubprocess(spec('sleep 60', { graceMs: 100 }), {
+      spillDir,
+      platform: 'win32',
+      taskkill: (pid) => {
+        killed.push(pid)
+        // Simulate the forced tree termination taskkill performs.
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Already gone — matches taskkill's tolerated not-found status.
+        }
+      },
+    })
+    running.terminate()
+    const outcome = await running.done
+    expect(killed).toContain(running.pid)
+    expect(outcome.signal).toBe('SIGKILL')
+  })
+
+  it('waitForExit falls back to direct-child liveness where groups do not exist', async () => {
+    const running = spawnSubprocess(spec('true'), { spillDir, platform: 'win32', taskkill: () => {} })
+    await running.done
+    await expect(running.waitForExit()).resolves.toBe(true)
+  })
+})
+
+describe('waitForExit', () => {
+  it('waits for the whole detached tree, not just the shell', async () => {
+    const pidFile = join(spillDir, `tree-wait-${Date.now()}.pid`)
+    const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
+    const grandchild = await waitForPidFile(pidFile)
+    running.terminate()
+    await running.done
+    await expect(running.waitForExit()).resolves.toBe(true)
+    await expect(waitGone(grandchild, 100)).resolves.toBeUndefined()
+  })
+
+  it('an aborted wait reports false while the tree lives', async () => {
+    const running = spawnSubprocess(spec('sleep 60'))
+    const controller = new AbortController()
+    controller.abort()
+    await expect(running.waitForExit(controller.signal)).resolves.toBe(false)
+    running.terminate()
+    await running.done
+  })
+})
+
 describe('argv validation', () => {
   it('rejects an empty argv before spawning', () => {
-    expect(() => spawnProcess({ ...spec('true'), argv: [] })).toThrow(/non-empty program name/)
+    expect(() => spawnSubprocess({ ...spec('true'), argv: [] })).toThrow(/non-empty program name/)
   })
 
   it('rejects an empty program name before spawning', () => {
-    expect(() => spawnProcess({ ...spec('true'), argv: [''] })).toThrow(/non-empty program name/)
+    expect(() => spawnSubprocess({ ...spec('true'), argv: [''] })).toThrow(/non-empty program name/)
   })
 
   it('spawns argv verbatim without shell interpretation', async () => {
-    const result = await spawnProcess({ ...spec('unused'), argv: ['printf', '%s', '$HOME'] }).done
+    const result = await finish(spawnSubprocess({ ...spec('unused'), argv: ['printf', '%s', '$HOME'] }))
     expect(result.stdout.text).toBe('$HOME')
   })
 })
@@ -449,14 +600,14 @@ describe('abort edge cases', () => {
       addEventListener() {},
       removeEventListener() {},
     } as unknown as AbortSignal
-    expect(() => spawnProcess(spec('echo hi', { signal: bare })))
+    expect(() => spawnSubprocess(spec('echo hi', { signal: bare })))
       .toThrow(/aborted before spawn: aborted/)
   })
 
   it('reports the terminating signal of an externally self-killed command', async () => {
     // spawnProcess reports the raw signal; whether it counts as timeout/cancel is the
     // executor's classification (a self-kill is neither) — see executor.spec.ts.
-    const result = await spawnProcess(spec('kill -TERM $$')).done
+    const result = await finish(spawnSubprocess(spec('kill -TERM $$')))
     expect(result.signal).toBe('SIGTERM')
   })
 })
@@ -467,7 +618,7 @@ describe('environment and spill-file hardening', () => {
     process.env.DSH_TEST_TOKEN = 'also-secret'
     process.env.DSH_TEST_PLAIN = 'visible'
     try {
-      const result = await spawnProcess(spec('echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${DSH_TEST_PLAIN:-absent}]"')).done
+      const result = await finish(spawnSubprocess(spec('echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${DSH_TEST_PLAIN:-absent}]"')))
       expect(result.stdout.text.trim()).toBe('[absent|absent|absent]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
@@ -479,9 +630,9 @@ describe('environment and spill-file hardening', () => {
   it('injects only the current trusted DSH environment after scrubbing ambient values', async () => {
     process.env.DSH_STALE = 'old-value'
     try {
-      const result = await spawnProcess(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {
+      const result = await finish(spawnSubprocess(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {
         dshEnv: { DSH_SHELL: '1', DSH_SESSION_ID: 'current-session' },
-      })).done
+      })))
       expect(result.stdout.text.trim()).toBe('[absent|1|current-session]')
     } finally {
       delete process.env.DSH_STALE
@@ -489,21 +640,21 @@ describe('environment and spill-file hardening', () => {
   })
 
   it('rejects DSH variables on the ordinary env channel', () => {
-    expect(() => spawnProcess(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
+    expect(() => spawnSubprocess(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
       .toThrow(/DSH_WRONG_CHANNEL.*dshEnv/)
   })
 
   it('rejects ordinary variables on the managed env channel', () => {
     const invalid = { PATH: '/wrong-channel' } as unknown as DshEnvironment
-    expect(() => spawnProcess(spec('true', { dshEnv: invalid })))
+    expect(() => spawnSubprocess(spec('true', { dshEnv: invalid })))
       .toThrow(/managed child env.*PATH.*use env/)
   })
 
   it('creates spill files with owner-only permissions and random names', async () => {
-    const result = await spawnProcess(
+    const result = await finish(spawnSubprocess(
       spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
-    ).done
+    ))
     const path = result.stdout.spillPath!
     expect(path).toMatch(/dsh-subprocess-\d+-\d+-[0-9a-f]{12}-stdout\.log$/)
     const mode = statSync(path).mode & 0o777
@@ -511,9 +662,9 @@ describe('environment and spill-file hardening', () => {
   })
 
   it('defaults spills into a private per-process directory', async () => {
-    const result = await spawnProcess(
+    const result = await finish(spawnSubprocess(
       spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
-    ).done
+    ))
     const dir = dirname(result.stdout.spillPath!)
     expect(dir).toMatch(/dsh-subprocess-/)
     const mode = statSync(dir).mode & 0o777
@@ -533,7 +684,7 @@ describe('environment and spill-file hardening', () => {
 
   it('honors AbortSignal on background-style runs (no timeout)', async () => {
     const controller = new AbortController()
-    const running = spawnProcess(spec('sleep 60', { signal: controller.signal }))
+    const running = spawnSubprocess(spec('sleep 60', { signal: controller.signal }))
     setTimeout(() => { controller.abort() }, 50)
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')

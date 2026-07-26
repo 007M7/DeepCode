@@ -1,33 +1,36 @@
 /**
- * Process plumbing for the local subprocess service: detached process-group
- * spawn, tail-keep output with spill files, and SIGTERM→SIGKILL escalation.
+ * Process plumbing for the local subprocess service: detached process-tree
+ * spawn with per-stream stdio dispositions, tail-keep collection with spill
+ * files, tree-scoped signalling (POSIX groups; Windows taskkill), the
+ * SIGTERM→SIGKILL escalation, and the cooperative EOF-first dispose ladder.
  * This layer reacts to an abort signal; callers own deadlines and classify
  * causes.
  * @module dsh-subprocess-local/spawn
  */
 
-import { type ChildProcessByStdio, spawn } from 'node:child_process'
-import type { Readable, Writable } from 'node:stream'
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
+import type { Readable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
-import type { CollectedOutput, DshEnvironment, SubprocessHandle, SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
+import { DSH_ENV_PREFIX, scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import type {
+  CollectedOutput,
+  DshEnvironment,
+  SubprocessCollect,
+  SubprocessDisposeGraces,
+  SubprocessHandle,
+  SubprocessOutcome,
+  SubprocessOutputMode,
+  SubprocessSpawnSpec,
+} from '@deepseek-ai/dsh-subprocess'
 
 /**
- * Credential-shaped env vars are NOT forwarded to children (the harness's
- * own DEEPSEEK_API_KEY must not leak into `env` output, tool results, or
- * spill files). Same default pattern as Codex's env policy; a future config
- * can whitelist specific vars when a workflow genuinely needs one.
- */
-export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
-
-/**
- * Build a child environment from scrubbed ambient values, ordinary caller
- * entries, and a managed `DSH_*` snapshot. Ambient managed names are removed;
- * ordinary and managed entries reject the other channel's namespace before
- * `dshEnv` merges last.
+ * Build a child environment from the scrubbed parent base, ordinary caller
+ * entries, and a managed `DSH_*` snapshot. Ordinary and managed entries
+ * reject the other channel's namespace before `dshEnv` merges last.
  * @param extra - caller entries; `DSH_*` names are rejected.
  * @param dshEnv - managed entries; non-`DSH_*` names are rejected.
  * @returns the environment to hand to `spawn` for the child process.
@@ -36,10 +39,6 @@ export function childEnv(
   extra?: Readonly<Record<string, string>>,
   dshEnv?: DshEnvironment,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith(DSH_ENV_PREFIX)) env[key] = value
-  }
   for (const key of Object.keys(extra ?? {})) {
     if (key.startsWith(DSH_ENV_PREFIX)) {
       throw new Error(`ordinary child env cannot set reserved variable "${key}"; use dshEnv`)
@@ -50,13 +49,17 @@ export function childEnv(
       throw new Error(`managed child env cannot set ordinary variable "${key}"; use env`)
     }
   }
-  return { ...env, ...extra, ...dshEnv }
+  return { ...scrubbedParentEnv(), ...extra, ...dshEnv }
 }
 
-/** Injectable knobs so tests can exercise spill behavior without the OS tmpdir. */
+/** Injectable knobs so tests can exercise spill and platform behavior deterministically. */
 export interface SpawnInternals {
   /** Directory for spill files (defaults to the OS temp dir). */
   spillDir?: string
+  /** Windows tree-termination runner (defaults to `taskkill /PID <pid> /T /F`). */
+  taskkill?: (pid: number) => void
+  /** Host platform override for signalling decisions. */
+  platform?: NodeJS.Platform
 }
 
 let spillCounter = 0
@@ -73,9 +76,11 @@ function privateSpillDir(): string {
 }
 
 /**
- * Collects one stream with a bounded in-memory tail. On first overflow a
- * spill file is created and every chunk (including those already collected)
- * is appended there while the full stream remains within `maxSpillBytes`.
+ * Collects one stream with a bounded in-memory tail. With a spill cap, on
+ * first overflow a spill file is created and every chunk (including those
+ * already collected) is appended there while the full stream remains within
+ * the cap; without one, only the in-memory tail is ever retained (the
+ * diagnostic-tail shape — a language server's stderr).
  *
  * Tail-keep rationale (pi/OpenCode): errors and final results cluster at the
  * end of command output; the spill file covers the head.
@@ -86,23 +91,25 @@ export class OutputCollector {
   private dropped = false
   private spillFd: number | undefined
   private spillFile: string | undefined
-  private spillDisabled = false
+  private spillDisabled: boolean
   /** Total bytes ever pushed (not just retained). */
   private total = 0
 
   constructor(
     private readonly maxBytes: number,
-    private readonly maxSpillBytes: number,
+    private readonly maxSpillBytes: number | undefined,
     private readonly label: string,
     private readonly spillDir: string,
-  ) {}
+  ) {
+    this.spillDisabled = maxSpillBytes === undefined
+  }
 
   /**
    * Ingest one stream chunk, counting it toward the whole-stream total. On
-   * first overflow of the in-memory cap a spill file is opened and every chunk
-   * (already-collected ones included) is appended there from then on; the
-   * in-memory tail then drops whole chunks from its head (or the head of a
-   * single over-cap chunk) until it fits the cap again.
+   * first overflow of the in-memory cap a spill file is opened (when spilling
+   * is enabled) and every chunk (already-collected ones included) is appended
+   * there from then on; the in-memory tail then drops whole chunks from its
+   * head (or the head of a single over-cap chunk) until it fits the cap again.
    * @param chunk - the raw bytes from one stream 'data' event.
    */
   push(chunk: Buffer): void {
@@ -130,7 +137,7 @@ export class OutputCollector {
 
   /** Open the spill file lazily and append `chunk` (and any prior chunks once). */
   private spillAll(chunk: Buffer): void {
-    if (this.total > this.maxSpillBytes) {
+    if (this.maxSpillBytes !== undefined && this.total > this.maxSpillBytes) {
       this.discardSpill()
       return
     }
@@ -194,22 +201,30 @@ export class OutputCollector {
   }
 
   /**
-   * Close the spill file (if any) and return the final output. A failed close
-   * (delayed writeback fault) stops advertising the spill path — the file may
-   * be missing its tail — but still returns the in-memory result.
+   * Close the spill file once the stream has ended. A failed close (delayed
+   * writeback fault) stops advertising the spill path — the file may be
+   * missing its tail — while every in-memory read keeps working. Idempotent;
+   * the spawn path seals both collectors at settlement so reads after exit
+   * never point at a still-open file.
+   */
+  seal(): void {
+    if (this.spillFd === undefined) return
+    try {
+      closeSync(this.spillFd)
+    } catch {
+      // A delayed writeback failure makes the spill unreliable; keep the
+      // in-memory result but stop advertising that file.
+      this.spillFile = undefined
+    }
+    this.spillFd = undefined
+  }
+
+  /**
+   * Seal the spill file and return the final output.
    * @returns the final collected output: tail text, truncation flag, and the spill path when intact.
    */
   finalize(): CollectedOutput {
-    if (this.spillFd !== undefined) {
-      try {
-        closeSync(this.spillFd)
-      } catch {
-        // A delayed writeback failure makes the spill unreliable; keep finalize
-        // total but stop advertising that file.
-        this.spillFile = undefined
-      }
-      this.spillFd = undefined
-    }
+    this.seal()
     return {
       text: Buffer.concat(this.chunks).toString('utf8'),
       truncated: this.dropped,
@@ -219,9 +234,9 @@ export class OutputCollector {
 }
 
 /**
- * Send `sig` to a detached process group. Never throws: delivery races process
- * exit and may run in a timer callback, so failures are contained and a
- * non-positive pid is a no-op.
+ * Send `sig` to a detached POSIX process group. Never throws: delivery races
+ * process exit and may run in a timer callback, so failures are contained and
+ * a non-positive pid is a no-op.
  * @param pid - the group leader's pid; non-positive means the spawn failed and the call is a no-op.
  * @param sig - the signal to deliver to the whole group.
  */
@@ -235,14 +250,60 @@ export function killGroup(pid: number, sig: NodeJS.Signals): void {
 }
 
 /**
- * Spawn one isolated detached process group and collect its output.
- * Runtime exits resolve as {@link SubprocessOutcome}; only spawn failures reject.
- * @param spec - fully resolved argv, cwd, limits, and cancellation.
- * @param internals - test-only spill-directory override.
- * @returns live process handle and outcome promise.
+ * Terminate one Windows process tree with `taskkill /T /F`. Contained like
+ * POSIX group signalling — delivery races tree exit, so an absent tree, a
+ * nonzero status, or a missing taskkill binary must not break idempotent
+ * teardown.
+ * @param pid - root process id; non-positive is a no-op.
  */
-export function spawnProcess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): SubprocessHandle {
+export function taskkillProcessTree(pid: number): void {
+  if (pid <= 0) return
+  // Outcome deliberately unchecked: an already-absent tree (status 128) and
+  // exit races are as tolerable here as ESRCH is for a POSIX group signal.
+  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
+}
+
+/**
+ * Signal a detached process tree with platform-correct semantics: POSIX
+ * signals the negative process-group id and falls back to the direct child
+ * when the group is gone; Windows terminates the tree via taskkill (any
+ * signal value force-terminates — Node maps signals to TerminateProcess).
+ */
+function signalTree(
+  platform: NodeJS.Platform,
+  pid: number,
+  sig: NodeJS.Signals,
+  child: ChildProcess,
+  taskkill: (pid: number) => void,
+): void {
+  if (platform === 'win32') {
+    taskkill(pid)
+    return
+  }
+  if (pid <= 0) return
+  try {
+    process.kill(-pid, sig)
+  } catch {
+    try {
+      child.kill(sig)
+    } catch {
+      // The direct child already exited; teardown remains idempotent.
+    }
+  }
+}
+
+/**
+ * Spawn one isolated detached process tree with the spec's per-stream stdio
+ * dispositions. Runtime exits resolve `done` as {@link SubprocessOutcome};
+ * only spawn failures reject.
+ * @param spec - fully resolved argv, cwd, stdio, grace, cancellation, environment.
+ * @param internals - test-only spill-directory, platform, and taskkill overrides.
+ * @returns live subprocess handle.
+ */
+export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): SubprocessHandle {
   const spillDir = internals.spillDir ?? privateSpillDir()
+  const platform = internals.platform ?? process.platform
+  const taskkill = internals.taskkill ?? taskkillProcessTree
 
   if (spec.signal?.aborted) {
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
@@ -252,41 +313,66 @@ export function spawnProcess(spec: SubprocessSpawnSpec, internals: SpawnInternal
     throw new Error('invalid argv: expected a non-empty program name at argv[0]')
   }
 
-  // Keep absent stdin as /dev/null; literal tuples preserve non-null output types.
-  const env = childEnv(spec.env, spec.dshEnv)
-  const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
-    ? spawn(program, args, { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
-    : spawn(program, args, { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+  const isCollect = (mode: SubprocessOutputMode): mode is SubprocessCollect =>
+    mode !== 'pipe' && mode !== 'inherit'
+  const outMode = spec.stdio.stdout
+  const errMode = spec.stdio.stderr
+  const stdinMode = spec.stdio.stdin
 
-  const stdout = new OutputCollector(spec.stdoutMaxBytes, spec.maxSpillBytes, 'stdout', spillDir)
-  const stderr = new OutputCollector(spec.stderrMaxBytes, spec.maxSpillBytes, 'stderr', spillDir)
-  child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk) })
-  child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk) })
+  const env = childEnv(spec.env, spec.dshEnv)
+  const child = spawn(program, args, {
+    cwd: spec.cwd,
+    env,
+    stdio: [
+      stdinMode === 'ignore' ? 'ignore' : 'pipe',
+      outMode === 'inherit' ? 'inherit' : 'pipe',
+      errMode === 'inherit' ? 'inherit' : 'pipe',
+    ],
+    // `detached` gives teardown a tree root on POSIX (its own process group);
+    // Windows terminates by root pid through taskkill /T instead.
+    detached: platform !== 'win32',
+  })
+
+  const collectStream = (mode: SubprocessOutputMode, stream: Readable | null, label: string): OutputCollector | undefined => {
+    if (!isCollect(mode) || stream === null) return undefined
+    const collector = new OutputCollector(mode.maxBytes, mode.spill?.maxBytes, label, spillDir)
+    stream.on('data', (chunk: Buffer) => { collector.push(chunk) })
+    return collector
+  }
+  const stdoutCollector = collectStream(outMode, child.stdout, 'stdout')
+  const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
 
   let graceTimer: NodeJS.Timeout | undefined
   let settled = false
 
-  // Failed spawns use pid -1 so kill remains a no-op.
+  // Failed spawns use pid -1 so signalling remains a no-op.
   const pid = child.pid ?? -1
 
-  const kill = (): void => {
-    if (graceTimer !== undefined) return // escalation already in flight
-    // After settlement the group is gone and the pid may be reused; callers
-    // commonly kill() in a finally, so this must not re-signal or start a
-    // timer that outlives the handle.
+  const kill = (sig: NodeJS.Signals = 'SIGTERM'): void => {
+    // After settlement the tree is gone and the pid may be reused; callers
+    // commonly kill() in a finally, so this must not re-signal.
     if (settled) return
-    killGroup(pid, 'SIGTERM')
-    graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
+    signalTree(platform, pid, sig, child, taskkill)
+  }
+
+  const terminate = (): void => {
+    if (graceTimer !== undefined) return // escalation already in flight
+    if (settled) return
+    signalTree(platform, pid, 'SIGTERM', child, taskkill)
+    graceTimer = setTimeout(() => {
+      if (!settled) signalTree(platform, pid, 'SIGKILL', child, taskkill)
+    }, spec.graceMs)
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
-  const onAbort = (): void => { kill() }
+  const onAbort = (): void => { terminate() }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
 
-  // Stdin writes are best-effort; process exit and captured output remain authoritative.
-  if (child.stdin !== null) {
+  // Batch stdin is written and closed up front; process exit and captured
+  // output remain authoritative, so write errors (EPIPE) are best-effort.
+  if (typeof stdinMode === 'object' && child.stdin !== null) {
     child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
-    child.stdin.end(spec.stdin)
+    child.stdin.end(stdinMode.data)
   }
 
   const done = new Promise<SubprocessOutcome>((resolve, reject) => {
@@ -294,15 +380,14 @@ export function spawnProcess(spec: SubprocessSpawnSpec, internals: SpawnInternal
     const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return
       settled = true
-      child.stdout.destroy()
-      child.stderr.destroy()
+      // Only harness-collected pipes are force-closed at the drain boundary;
+      // a 'pipe'-mode stream belongs to the caller and closes with the child.
+      if (stdoutCollector !== undefined) child.stdout?.destroy()
+      if (stderrCollector !== undefined) child.stderr?.destroy()
+      stdoutCollector?.seal()
+      stderrCollector?.seal()
       cleanup()
-      resolve({
-        exitCode,
-        signal,
-        stdout: stdout.finalize(),
-        stderr: stderr.finalize(),
-      })
+      resolve({ exitCode, signal })
     }
     child.on('error', (error) => {
       // No meaningful close outcome follows a spawn failure.
@@ -311,6 +396,9 @@ export function spawnProcess(spec: SubprocessSpawnSpec, internals: SpawnInternal
       reject(error)
     })
     child.on('exit', (exitCode, signal) => {
+      // A surviving descendant that inherited a pipe must not hold the
+      // outcome open indefinitely: after exit, the same bounded grace that
+      // governs kills also bounds the close wait.
       pipeDrainTimer = setTimeout(() => { settle(exitCode, signal) }, spec.graceMs)
     })
     child.on('close', settle)
@@ -321,5 +409,82 @@ export function spawnProcess(spec: SubprocessSpawnSpec, internals: SpawnInternal
     }
   })
 
-  return { pid, stdout, stderr, done, kill }
+  /** Whether the detached tree's root (or POSIX group) is still alive. */
+  const treeAlive = (): boolean => {
+    if (pid <= 0) return false
+    if (platform === 'win32') {
+      // Windows has no group-liveness probe; the direct child's exit is the
+      // observable boundary (taskkill /T already took the tree with it).
+      return child.exitCode === null && child.signalCode === null
+    }
+    try {
+      process.kill(-pid, 0)
+      return true
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ESRCH') return false
+      /* v8 ignore start -- EPERM and non-POSIX negative-pid failures are platform defenses; CI runs
+         tree-lifecycle tests on POSIX hosts where absence reports ESRCH. */
+      if (code === 'EPERM') return true
+      return child.exitCode === null && child.signalCode === null
+      /* v8 ignore stop */
+    }
+  }
+
+  const waitForExit = async (signal?: AbortSignal): Promise<boolean> => {
+    while (treeAlive()) {
+      if (signal?.aborted) return false
+      await yieldToEventLoop()
+    }
+    return true
+  }
+
+  /** Race settlement against a timer without leaving listeners or live timers behind. */
+  const settlesWithin = async (ms: number): Promise<boolean> => {
+    if (settled) return true
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<false>((resolve) => {
+      // `.unref()` so a pending grace timer never keeps the parent's loop alive.
+      timer = setTimeout(() => { resolve(false) }, ms)
+      timer.unref()
+    })
+    try {
+      return await Promise.race([done.then(() => true, () => true), timeout])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+
+  let disposal: Promise<void> | undefined
+  const dispose = (graces: SubprocessDisposeGraces): Promise<void> => (disposal ??= (async () => {
+    // 1. Close a piped stdin and allow cooperative teardown and flush.
+    if (stdinMode === 'pipe') child.stdin?.end()
+    if (await settlesWithin(graces.eofGraceMs)) return
+    // 2. POSIX gets a catchable graceful signal; Windows taskkill force-terminates.
+    if (platform !== 'win32') {
+      kill('SIGTERM')
+      if (await settlesWithin(graces.graceMs)) return
+    }
+    // 3. Force-kill the tree and await a bounded exit edge.
+    kill('SIGKILL')
+    if (!(await settlesWithin(graces.graceMs))) {
+      throw new Error(`child process did not exit within ${graces.graceMs}ms after forced termination`)
+    }
+  })())
+
+  return {
+    pid,
+    stdin: stdinMode === 'pipe' ? child.stdin ?? undefined : undefined,
+    stdout: outMode === 'pipe' ? child.stdout ?? undefined : undefined,
+    stderr: errMode === 'pipe' ? child.stderr ?? undefined : undefined,
+    collected: {
+      ...stdoutCollector !== undefined ? { stdout: stdoutCollector } : {},
+      ...stderrCollector !== undefined ? { stderr: stderrCollector } : {},
+    },
+    done,
+    kill,
+    terminate,
+    waitForExit,
+    dispose,
+  }
 }
