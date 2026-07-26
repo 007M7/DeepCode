@@ -1,0 +1,123 @@
+# EXPERIMENT: run the blocking Windows CI gates on a Linux runner through
+# Wine, and execute the gate commands with a real Windows Node.js binary.
+# Dependency provisioning happens natively on Linux with
+# `supportedArchitectures` extended to win32-x64 so the Windows
+# esbuild/rolldown/rollup binaries are present in the store. The pnpm-run/cmd
+# shim layer is deliberately bypassed (a Linux install writes POSIX shims
+# only), so each gate invokes its tool's JavaScript entrypoint directly — the
+# same commands run-gates ultimately spawns. Owning rationale and promotion
+# criteria:
+# .agents/notes/proposed/process/2026-07-27-wine-windows-gates-experiment.md
+name: Experiment Wine Windows gates
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/exp-wine-windows.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+
+jobs:
+  wine-blocking-gates:
+    name: wine / blocking windows gates
+    # Deliberately the cheapest hosted substrate: if Wine holds up here, the
+    # lane needs no special pool at all.
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      WINEDEBUG: '-all'
+      WINEARCH: win64
+      # Skip Wine Mono / Gecko installers: Node needs neither.
+      WINEDLLOVERRIDES: 'mscoree,mshtml='
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack and install with win32-x64 artifacts
+        run: |
+          corepack enable
+          # Experiment-only install-time override: also materialize the
+          # win32-x64 platform packages (@esbuild/win32-x64, rolldown and
+          # rollup MSVC bindings) that the Windows toolchain resolves at
+          # runtime. supportedArchitectures is not recorded in the lockfile,
+          # so --frozen-lockfile stays valid.
+          cat >> pnpm-workspace.yaml <<'EOF'
+
+          supportedArchitectures:
+            os: [current, win32]
+            cpu: [current, x64]
+          EOF
+          pnpm install --frozen-lockfile
+
+      - name: Install Wine (64-bit)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine64
+          WINE_BIN=$(command -v wine || command -v wine64)
+          echo "WINE_BIN=$WINE_BIN" >> "$GITHUB_ENV"
+          "$WINE_BIN" --version
+
+      - name: Fetch Windows Node.js
+        run: |
+          version=$(curl -fsSL https://nodejs.org/dist/index.json \
+            | jq -r --arg p "v${PRIMARY_NODE_VERSION}." '[.[] | select(.version | startswith($p))][0].version')
+          echo "Windows Node: $version"
+          curl -fsSL -o "$RUNNER_TEMP/node-win.zip" \
+            "https://nodejs.org/dist/${version}/node-${version}-win-x64.zip"
+          unzip -q "$RUNNER_TEMP/node-win.zip" -d "$RUNNER_TEMP/node-win"
+          echo "NODE_WIN=$RUNNER_TEMP/node-win/node-${version}-win-x64/node.exe" >> "$GITHUB_ENV"
+
+      - name: Boot Wine prefix and smoke Windows Node
+        run: |
+          "$WINE_BIN" wineboot --init || true
+          wineserver -w || true
+          "$WINE_BIN" "$NODE_WIN" -p "'smoke: ' + process.platform + ' ' + process.arch + ' ' + process.version"
+
+      # The continue-on-error gates below mirror ci-windows-blocking
+      # (scripts/run-gates.ts): `build` = tsc -b + tsdown, `production site` =
+      # vitepress build. Each reports independently so one failure does not
+      # hide the others' results; the summary step at the end owns the job
+      # conclusion.
+      - name: 'Gate: tsc -b (Windows node under Wine)'
+        id: tsc
+        continue-on-error: true
+        timeout-minutes: 45
+        run: '"$WINE_BIN" "$NODE_WIN" node_modules/typescript/bin/tsc -b --pretty false'
+
+      - name: 'Gate: tsdown (Windows node under Wine)'
+        id: tsdown
+        continue-on-error: true
+        timeout-minutes: 30
+        run: '"$WINE_BIN" "$NODE_WIN" node_modules/tsdown/dist/run.mjs'
+
+      - name: 'Gate: production site (Windows node under Wine)'
+        id: site
+        continue-on-error: true
+        timeout-minutes: 30
+        working-directory: website
+        run: '"$WINE_BIN" "$NODE_WIN" node_modules/vitepress/bin/vitepress.js build .'
+
+      - name: Report gate outcomes
+        env:
+          TSC: ${{ steps.tsc.outcome }}
+          TSDOWN: ${{ steps.tsdown.outcome }}
+          SITE: ${{ steps.site.outcome }}
+        run: |
+          echo "tsc: $TSC"
+          echo "tsdown: $TSDOWN"
+          echo "production site: $SITE"
+          [ "$TSC" = success ] && [ "$TSDOWN" = success ] && [ "$SITE" = success ]
