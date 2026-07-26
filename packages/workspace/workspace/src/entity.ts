@@ -15,6 +15,17 @@ import type { WorkspaceRecord } from './spec.ts'
 import type { Workspace, WorkspaceId } from './types.ts'
 import { realpathNormalize } from './paths.ts'
 
+/** An insertSessionBefore request named a session or anchor not on the account (storage failures stay plain errors). */
+export class WorkspaceMoveInvalidError extends Error {
+  /**
+   * @param message - Which id was unaccounted and where.
+   */
+  constructor(message: string) {
+    super(message)
+    this.name = 'WorkspaceMoveInvalidError'
+  }
+}
+
 /**
  * The registry-owned machinery an entity mutates through. Entities never see
  * the registry itself — only the open table, the canonical session-path
@@ -137,30 +148,27 @@ export class WorkspaceEntity implements Workspace {
       : { ...record, sessionIds: [sessionId, ...record.sessionIds] })
   }
 
-  /**
-   * Test the durable candidate account without applying header projection.
-   * @param sessionId - Candidate session id.
-   * @returns whether this workspace's stored account contains the id.
-   */
-  hasSession(sessionId: SessionId): boolean {
-    return this.record.sessionIds.includes(sessionId)
-  }
-
-  /**
-   * Move one validated accounted session to the front without touching peers.
-   * @param sessionId - Accounted session whose activity was observed.
-   */
-  async touchSession(sessionId: SessionId): Promise<void> {
-    if (
-      this.host.sessionPath(sessionId) !== this.record.path
-      || this.record.sessionIds[0] === sessionId
-    ) return
-    await this.mutate(record => !record.sessionIds.includes(sessionId) || record.sessionIds[0] === sessionId
-      ? record
-      : {
-        ...record,
-        sessionIds: [sessionId, ...record.sessionIds.filter(id => id !== sessionId)],
-      })
+  async insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void> {
+    await this.mutate((record) => {
+      if (!record.sessionIds.includes(sessionId)) {
+        throw new WorkspaceMoveInvalidError(
+          `cannot move session '${sessionId}' in workspace '${record.path}': the session is not accounted`,
+        )
+      }
+      if (beforeSessionId !== undefined && !record.sessionIds.includes(beforeSessionId)) {
+        throw new WorkspaceMoveInvalidError(
+          `cannot move session '${sessionId}' before '${beforeSessionId}' in workspace '${record.path}': `
+          + 'the anchor session is not accounted',
+        )
+      }
+      if (beforeSessionId === sessionId) return record
+      const without = record.sessionIds.filter(id => id !== sessionId)
+      const at = beforeSessionId === undefined ? without.length : without.indexOf(beforeSessionId)
+      const sessionIds = [...without.slice(0, at), sessionId, ...without.slice(at)]
+      return sessionIds.every((id, index) => id === record.sessionIds[index])
+        ? record
+        : { ...record, sessionIds }
+    })
   }
 
   async detachSession(sessionId: SessionId): Promise<void> {

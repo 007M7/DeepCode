@@ -44,3 +44,29 @@ export const workspaceCreateValueSchema = z.object({
   workspace: workspaceViewSchema,
   created: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.create'>>>
+
+/** workspace.rename request payload: the new title must be non-blank. */
+export const workspaceRenameRequestSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  title: z.string(),
+}).refine(
+  payload => payload.title.trim() !== '',
+  { message: 'workspace.rename requires a non-blank title' },
+) satisfies z.ZodType<Wire<RequestPayload<'workspace.rename'>>>
+
+/** workspace.rename response value. */
+export const workspaceRenameValueSchema = z.object({
+  workspace: workspaceViewSchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.rename'>>>
+
+/** workspace.insertSessionBefore request payload (anchor omitted = append to end). */
+export const workspaceInsertSessionBeforeRequestSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  sessionId: sessionIdSchema,
+  beforeSessionId: sessionIdSchema.optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.insertSessionBefore'>>>
+
+/** workspace.insertSessionBefore response value. */
+export const workspaceInsertSessionBeforeValueSchema = z.object({
+  workspace: workspaceViewSchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.insertSessionBefore'>>>
