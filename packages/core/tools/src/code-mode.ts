@@ -12,7 +12,8 @@ import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from './schema.ts'
-import type { ToolDefinition, ToolRegistry } from './index.ts'
+import { TOOL_REGISTRY_SCHEDULER } from './index.ts'
+import type { ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -247,49 +248,103 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
-      // The per-run scheduler, reusing the NATIVE concurrency contract
-      // (isConcurrencySafe classification through registry.executionMode):
-      // submitted calls start strictly in submission order; consecutive
-      // parallel-classified calls overlap up to maxParallel; an
-      // exclusive-classified call waits for the pool to drain, runs alone,
-      // and bars later calls until it settles — exactly the loop scheduler's
-      // group semantics, adapted to calls that arrive over time.
+      // The per-run scheduler, reusing the NATIVE concurrency contract through
+      // the registry's staged view (the loop scheduler's own seam): submitted
+      // calls START strictly in submission order; only the around-dispatch/body
+      // stage overlaps — ordered pre-execute runs at start time and ordered
+      // post-execute/context commitment runs in submission order through the
+      // commit cursor below, so stateful policy listeners observe submission
+      // order exactly as they do under the native loop. Consecutive
+      // parallel-classified calls overlap up to maxParallel; an exclusive call
+      // waits for the pool to drain, runs alone, and bars later calls.
+      // Classification is re-read via executionMode() immediately before each
+      // start (a registry mutation while queued can flip a call exclusive),
+      // matching the native scheduler's lazy reclassification.
       interface PendingDispatch {
-        run(): Promise<void>
-        mode: 'parallel' | 'exclusive'
+        /** Ordered stage: append the start event, prepare, dispatch (body overlaps), park for commit. */
+        start(): Promise<void>
+        classify(): 'parallel' | 'exclusive'
         abandon(): void
+        /** Ordered stage: post-execute + context deferral + settle event, in submission order. */
+        commit(): Promise<void>
+        /** Set once the dispatch stage settles; commit() runs after this resolves. */
+        dispatched?: Promise<void>
       }
       const pendingQueue: PendingDispatch[] = []
       const inFlight = new Set<Promise<void>>()
+      /** Tracked settle-event side work (log shaping + append), drained at run settlement. */
+      const logWork = new Set<Promise<void>>()
+      const commitQueue: PendingDispatch[] = []
+      let committing = false
       let exclusiveActive = false
-      const pump = (): void => {
-        for (;;) {
-          const head = pendingQueue[0]
-          if (head === undefined) return
-          if (runController.signal.aborted) {
-            pendingQueue.shift()
-            head.abandon()
-            continue
+      let pumping = false
+      /** Ordered commit cursor: drain the head-of-line settled dispatches one at a time. */
+      const commitReady = async (): Promise<void> => {
+        if (committing) return
+        committing = true
+        try {
+          while (commitQueue.length > 0) {
+            const head = commitQueue[0]
+            /* v8 ignore next -- the loop condition bounds the index. */
+            if (head === undefined) break
+            if (head.dispatched === undefined) break
+            await head.dispatched
+            commitQueue.shift()
+            await head.commit()
           }
-          if (exclusiveActive || inFlight.size >= (head.mode === 'exclusive' ? 1 : maxParallel)) return
-          if (head.mode === 'exclusive') {
-            if (inFlight.size > 0) return
-            exclusiveActive = true
-          }
-          pendingQueue.shift()
-          const flight = head.run().finally(() => {
-            inFlight.delete(flight)
-            if (head.mode === 'exclusive') exclusiveActive = false
-            pump()
-          })
-          inFlight.add(flight)
+        } finally {
+          committing = false
         }
       }
-      /** Every in-flight dispatch settled and nothing can start (the run is aborted at call time). */
+      const pump = (): void => {
+        // The finally-driven re-entry below would otherwise recurse.
+        if (pumping) return
+        pumping = true
+        try {
+          for (;;) {
+            const head = pendingQueue[0]
+            if (head === undefined) return
+            if (runController.signal.aborted) {
+              pendingQueue.shift()
+              head.abandon()
+              continue
+            }
+            // Reclassify at start time (fail-closed on registry changes).
+            const mode = head.classify()
+            if (exclusiveActive || inFlight.size >= (mode === 'exclusive' ? 1 : maxParallel)) return
+            if (mode === 'exclusive') {
+              if (inFlight.size > 0) return
+              exclusiveActive = true
+            }
+            pendingQueue.shift()
+            commitQueue.push(head)
+            const flight = head.start().finally(() => {
+              inFlight.delete(flight)
+              if (mode === 'exclusive') exclusiveActive = false
+              // Commit ordering and slot refill are independent: the cursor
+              // may wait head-of-line on an earlier dispatch while later
+              // slots keep starting.
+              void commitReady()
+              pump()
+            })
+            inFlight.add(flight)
+          }
+        } finally {
+          pumping = false
+        }
+      }
+      /** Every in-flight dispatch settled AND committed; nothing can start (the run is aborted at call time). */
       const drainDispatches = async (): Promise<void> => {
         // Abandon queued-unstarted tasks first, then await the live set until quiescent.
         pump()
         while (inFlight.size > 0) await Promise.allSettled([...inFlight])
+        await commitReady()
+        // Every settle's shaped append lands inside the open run_code turn.
+        while (logWork.size > 0) {
+          const pending = [...logWork]
+          await Promise.allSettled(pending)
+          for (const done of pending) logWork.delete(done)
+        }
       }
 
       // Read through a call, not a bare property: the abort state genuinely
@@ -313,51 +368,85 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           signal: runController.signal,
         }
         type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue }
+        const scheduler = registry[TOOL_REGISTRY_SCHEDULER]
         const outcome = await new Promise<DispatchOutcome>((resolve, reject) => {
+          // Set by start(): what commit() finalizes in submission order.
+          let parked:
+            | { kind: 'post-result' | 'final-result'; exec: ToolRunContext; result: ToolExecutionResult }
+            | undefined
+          const settle = (result: ToolExecutionResult): void => {
+            // The program gets its value NOW: log shaping (e.g. a spill
+            // backend) must never delay the binding or occupy a dispatch
+            // slot. The shaped append is tracked side work; the run's
+            // settlement drains logWork so every settle event still lands
+            // inside the open turn (shapeDispatchLog is contained, so this
+            // chain cannot reject).
+            resolve(result.isError
+              ? { isError: true, message: result.error.message }
+              : { isError: false, value: result.value })
+            const agent = exec.agent
+            if (agent === undefined) return
+            logWork.add((async () => {
+              // The durable copy may be reshaped (e.g. spilled to a preview +
+              // locator) by the log-shaping waterfall; the program's value
+              // and the model contract are untouched.
+              const logged = await registry.shapeDispatchLog({
+                exec, agent, subCallId, name, isError: result.isError,
+                // The registry deep-froze this projection at result
+                // finalization; append snapshots the final copy again, so
+                // the log stays detached.
+                content: result.content,
+              })
+              agent.session.append('tool/code-dispatch', {
+                parentCallId: exec.callId,
+                subCallId,
+                name,
+                // The SIBLING parse of the dispatched value: byte-identical JSON,
+                // but a separate object — a tool mutating its args cannot desync
+                // this record from what it actually received.
+                arguments: normalized.logged,
+                isError: result.isError,
+                content: logged,
+              })
+            })())
+          }
           pendingQueue.push({
-            // Classified at submission against the same agent view the SDK
+            // Re-read per pump pass against the same agent view the SDK
             // declared; fail-closed exclusive when undeclared/invalid.
-            mode: registry.executionMode(input).kind,
+            classify: () => registry.executionMode(input).kind,
             abandon: () => {
               reject(new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} tool call abandoned`))
             },
-            run: async () => {
+            start(): Promise<void> {
               exec.agent?.session.append('tool/code-dispatch-start', {
                 parentCallId: exec.callId,
                 subCallId,
                 name,
                 arguments: normalized.logged,
               })
-              const result = await registry.execute(input)
+              // Ordered prepare (pre-execute/guards) runs here — starts are
+              // strictly submission-ordered; only dispatch overlaps.
+              this.dispatched = (async () => {
+                const prepared = await scheduler.prepare(input)
+                if (prepared.kind === 'dispatch') {
+                  const dispatchOutcome = await scheduler.dispatch(prepared.exec)
+                  parked = { kind: dispatchOutcome.kind, exec: prepared.exec, result: dispatchOutcome.result }
+                  return
+                }
+                parked = { kind: prepared.kind, exec: prepared.exec, result: prepared.result }
+              })()
+              return this.dispatched
+            },
+            async commit(): Promise<void> {
+              /* v8 ignore next -- commit() runs only after this.dispatched resolved, which set parked. */
+              if (parked === undefined) return
+              const result = parked.kind === 'post-result'
+                ? await scheduler.finalize(parked.exec, parked.result)
+                : scheduler.finish(parked.exec, parked.result)
               for (const context of result.additionalContexts ?? []) {
                 exec.deferContext(context)
               }
-              if (exec.agent !== undefined) {
-                // The durable copy may be reshaped (e.g. spilled to a preview +
-                // locator) by the log-shaping waterfall; the program's value and
-                // the model contract are untouched.
-                const logged = await registry.shapeDispatchLog({
-                  exec, agent: exec.agent, subCallId, name, isError: result.isError,
-                  // The registry deep-froze this projection at result
-                  // finalization; append snapshots the final copy again, so the
-                  // log stays detached.
-                  content: result.content,
-                })
-                exec.agent.session.append('tool/code-dispatch', {
-                  parentCallId: exec.callId,
-                  subCallId,
-                  name,
-                  // The SIBLING parse of the dispatched value: byte-identical JSON,
-                  // but a separate object — a tool mutating its args cannot desync
-                  // this record from what it actually received.
-                  arguments: normalized.logged,
-                  isError: result.isError,
-                  content: logged,
-                })
-              }
-              resolve(result.isError
-                ? { isError: true, message: result.error.message }
-                : { isError: false, value: result.value })
+              settle(result)
             },
           })
           pump()

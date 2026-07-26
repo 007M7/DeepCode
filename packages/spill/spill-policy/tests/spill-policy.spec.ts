@@ -290,6 +290,66 @@ describe('the durable dispatch-log arm', () => {
     expect(spill.saves.filter(entry => entry.source.label === 'dispatch')).toHaveLength(0)
   })
 
+  it('a slow spill backend never delays the program value or a later dispatch slot', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(StubStore)
+    await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
+    await ctx.plugin(WorkerCodeRuntime, {})
+    // A spill backend that hangs until released.
+    let releaseSave!: () => void
+    const gate = new Promise<void>((resolve) => { releaseSave = resolve })
+    const store = ctx.spillStore as StubStore
+    const realSave = store.saveText.bind(store)
+    store.saveText = async (input) => {
+      await gate
+      return realSave(input)
+    }
+    const events: { type: string; data: unknown }[] = []
+    const agent = {
+      session: {
+        header: { id: SessionId('dispatch-slow-spill'), cwd: '/workspace' },
+        append: (type: string, data: unknown) => { events.push({ type, data }) },
+      },
+    }
+    ctx.tools.register(textTool('huge_read', 'H'.repeat(2_000)))
+    ctx.tools.register(textTool('small_read', 'tiny'))
+    let smallAfterHuge = false
+    const runPromise = ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('parent-3'),
+      name: 'run_code',
+      arguments: {
+        // The program takes BOTH values while the spill backend hangs: the
+        // huge read's binding resolves immediately (its logged copy is side
+        // work), so the small read proceeds without waiting.
+        code: 'const big = await tools.huge_read({});\nconst small = await tools.small_read({});\nreturn big[0].text.length + small[0].text.length',
+        description: 'Prove log shaping is off the program path',
+      },
+      agent: agent as never,
+    }).then((result) => {
+      return result
+    })
+    // The run cannot COMPLETE while the settle append is gated (drain waits
+    // for logWork), but the program itself already ran both calls; release
+    // the backend and observe the settle events land inside the turn.
+    await vi.waitFor(() => {
+      // The second dispatch STARTED while the first one's spill hung.
+      smallAfterHuge = events.some(event => event.type === 'tool/code-dispatch-start'
+        && (event.data as { name: string }).name === 'small_read')
+      if (!smallAfterHuge) throw new Error('small_read not started yet')
+    })
+    releaseSave()
+    const result = await runPromise
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: 2_004 })
+    const settles = events.filter(event => event.type === 'tool/code-dispatch')
+    expect(settles).toHaveLength(2)
+    expect(smallAfterHuge).toBe(true)
+  })
+
   it('a saveText failure keeps the complete content in the durable log (best-effort)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
