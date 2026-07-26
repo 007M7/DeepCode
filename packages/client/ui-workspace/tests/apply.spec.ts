@@ -19,7 +19,10 @@ async function bench() {
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
-  ctx.provide('workspaces', { create, connectWorkspace, rename, insertSessionBefore } as never)
+  ctx.provide('workspaces', {
+    create, connectWorkspace, rename, insertSessionBefore,
+    list: { getSnapshot: () => ({ recentWorkspaceId: undefined }) },
+  } as never)
   ctx.provide('sessions', { open, clear } as never)
   return { ctx, slots: ctx.get('slots') as SlotsService, create, connectWorkspace, rename, insertSessionBefore, open, clear }
 }

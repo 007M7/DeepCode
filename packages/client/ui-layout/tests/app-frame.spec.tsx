@@ -151,22 +151,22 @@ describe('AppFrame', () => {
     expect(slotCalls.find((c) => c.key === 'details')!.props).toEqual({})
   })
 
-  it('renders the New Session view state through the empty seat while no session is current', () => {
-    // No current session = the pure view state: the conversation.empty slot
-    // renders in the center column; no session slot dispatches.
+  it('keeps the conversation slot mounted while no session is current', () => {
+    // No current session: the session-maybe conversation shell owns the New
+    // Session view itself — the center column renders it unconditionally.
     sessionMode.current = false
-    const { slotCalls, getByTestId, queryByTestId } = mountFrame()
-    expect(getByTestId('empty-content')).toBeTruthy()
-    expect(queryByTestId('center-content')).toBeNull()
-    expect(slotCalls.map((c) => c.key)).toContain('conversation.empty')
-    expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
+    const { slotCalls, getByTestId } = mountFrame()
+    expect(getByTestId('center-content')).toBeTruthy()
+    expect(slotCalls.map((c) => c.key)).toContain('conversation')
   })
 
-  it('keeps the loading branch until both object-layer baselines are ready', () => {
+  it('renders both column occupants before baselines settle (no loading gate)', () => {
+    // The loading branch is gone: fixed tree positions from first paint, the
+    // occupants render their own pending states.
     baselinesReady.current = false
-    const { slotCalls, getByRole } = mountFrame()
-    expect(getByRole('status').textContent).toContain('Loading workspaces and sessions')
-    expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
+    const { slotCalls } = mountFrame()
+    expect(slotCalls.map((c) => c.key)).toContain('conversation')
+    expect(slotCalls.map((c) => c.key)).toContain('details')
   })
 
   it('sidebar slot receives live concession output as owner props', () => {

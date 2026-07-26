@@ -662,14 +662,15 @@ describe('standard-kit synthesis', () => {
     expect(seen2.at(-1)!['SessionProvider']).toBeUndefined()
   })
 
-  it('fails loud when a session slot renders outside SessionProvider', () => {
+  it('renders nothing for a strict session slot while no session is current', () => {
+    // Strict session entries decline (render null) without a session; the
+    // loud path is reserved for a missing root binding provider.
     const h = makeHost()
     h.declare('k.session', SINGLE_SESSION)
     h.add('k.session', { component: () => <b>x</b> })
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => mountRoot(h, { 'k.session': SINGLE_SESSION },
-      (renderSlot) => renderSlot('k.session', {}))).toThrow(/outside SessionProvider/)
-    spy.mockRestore()
+    const { view } = mountRoot(h, { 'k.session': SINGLE_SESSION },
+      (renderSlot) => renderSlot('k.session', {}))
+    expect(view.container.querySelector('b')).toBeNull()
   })
 
   it('delivers the store pair for store-declaring entries and writes through baked actions', () => {

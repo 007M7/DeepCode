@@ -9,7 +9,10 @@ async function bench(declare = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const layout = { toggleSidebar: vi.fn() }
-  const workspaces = { connectWorkspace: vi.fn(async () => 'blank-1' as never) }
+  const workspaces = {
+    connectWorkspace: vi.fn(async () => 'blank-1' as never),
+    list: { getSnapshot: () => ({ recentWorkspaceId: undefined }) },
+  }
   const sessions = { open: vi.fn(), clear: vi.fn() }
   ctx.provide('layout', layout)
   ctx.provide('sessions', sessions as never)
