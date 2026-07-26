@@ -24,6 +24,8 @@ import { saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/navigation-panes', import.meta.url))
 const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
+const WATERFALL_EXPECTED = join(SNAPSHOT_DIR, 'waterfall.expected.md')
+const DETAILS_EXPECTED = join(SNAPSHOT_DIR, 'details-open.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
 
@@ -148,6 +150,9 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     for (const tag of ['turn 0', 'turn 1', 'turn 2']) {
       await expect.poll(() => page.getByText(tag, { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     }
+    const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(WATERFALL_EXPECTED, snapshot, MODE)
   }, 60_000)
 
   it.skipIf(MODE === 'record')('opens the details column from the bash row and closes it', async () => {
@@ -167,6 +172,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // The open panel shows the selected call's name, arguments, and durable
     // result (NAVIGATION_OK appears in the chat row too, hence >= 2 total).
     await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
+    // Golden of the open panel: tool name header, Input args, Output result.
+    const snapshot = (await captureStableAria(page, '[class*="detailsCol"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(DETAILS_EXPECTED, snapshot, MODE)
     await page.getByRole('button', { name: '关闭详情' }).click()
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 10_000 }).not.toBeNull()
   }, 60_000)
@@ -174,6 +183,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['seed.jsonl', 'trajectory.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'seed.jsonl', 'trajectory.expected.md', 'waterfall.expected.md', 'details-open.expected.md',
+    ])
   })
 })

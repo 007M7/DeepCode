@@ -20,13 +20,22 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, fixtureUserPrompts, launchWebScaffold, recordFixture,
-  watchConsole, webSnapshotMode, type WebScaffold,
+  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/steering', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
+// Two goldens for the two distinct states this interaction produces: the
+// mid-turn moment (steer ACCEPTED but deliberately invisible — the loop
+// drains steering at the step boundary, so no interjection bubble exists
+// while the question still blocks the step) and the settled transcript
+// (badged bubble in place, final reply obeying it). The pair pins the
+// timing semantics visually: if the client ever starts rendering pending
+// steers eagerly, the mid-steer golden flips first.
+const MID_EXPECTED = join(SNAPSHOT_DIR, 'mid-steer.expected.md')
+const SETTLED_EXPECTED = join(SNAPSHOT_DIR, 'settled.expected.md')
 const MODE = webSnapshotMode()
 
 const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop.'
@@ -104,6 +113,17 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     }, { sessionId: liveSessionId!, text: STEER })
     expect(reply.result?.ok).toBe(true)
 
+    if (MODE !== 'record') {
+      // Mid-turn golden: the ACCEPTED steer is durable in the inbox but the
+      // loop drains steering only at the step boundary, so no steering/message
+      // exists yet and no interjection bubble renders — the composer still
+      // blocks, alone. The DOM is stable here (no further SSE frames can
+      // arrive until the question is answered), making this state capturable.
+      expect(await page.getByText('插话').count()).toBe(0)
+      const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+      await compareOrRefreshGolden(MID_EXPECTED, snapshot, MODE)
+    }
+
     // Answer the composer; the tool result closes the step, the loop drains
     // the steer as steering/message, and the steered continuation runs the
     // final model call.
@@ -137,10 +157,14 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     await expect.poll(() => page.getByText('Interjection:', { exact: false }).count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => page.getByText('BANANA', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.locator('[data-question-key]').count()).toBe(0)
+    // Settled golden: badge + interjection between the question round trip
+    // and the obeying reply, composer takeover gone.
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(SETTLED_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 200_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'mid-steer.expected.md', 'settled.expected.md'])
   })
 })

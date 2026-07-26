@@ -25,6 +25,9 @@ import { saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/lifecycle-chrome', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
+// Post-reload golden: the same settled conversation rebuilt purely from
+// persistence + history — byte-equal rendering is exactly the recovery claim.
+const RELOADED_EXPECTED = join(SNAPSHOT_DIR, 'reloaded.expected.md')
 const MODE = webSnapshotMode()
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
@@ -112,6 +115,10 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     // Expand back and confirm the tree still lists the materialized session.
     await page.getByRole('button', { name: 'Open sidebar' }).click()
     await expect.poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count(), { timeout: 10_000 }).toBe(1)
+    // Golden of the recovered conversation region: rebuilt from the log, it
+    // must render the same settled transcript the live turn produced.
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(RELOADED_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
@@ -147,6 +154,6 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'hero.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'hero.expected.md', 'reloaded.expected.md'])
   })
 })

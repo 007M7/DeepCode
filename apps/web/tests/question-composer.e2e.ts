@@ -23,6 +23,9 @@ import { saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/question-composer', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
+// Second golden: the answered transcript — the question resolved into its
+// tool round trip and the final reply, the state the waiting golden cannot see.
+const ANSWERED_EXPECTED = join(SNAPSHOT_DIR, 'answered.expected.md')
 const MODE = webSnapshotMode()
 
 const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "color", question "Which color do you prefer?", header "Pick one", and options labeled "Blue" and "Green". After I answer, reply with the single word DONE and stop.'
@@ -90,10 +93,14 @@ describe('web e2e: resident question composer round trip', () => {
     // Composer gone; regular input restored.
     expect(await page.locator('[data-question-key]').count()).toBe(0)
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
+    // Golden of the answered transcript: the ask_user_question round trip
+    // rendered as history (question tool row + DONE), composer takeover gone.
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(ANSWERED_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 200_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md', 'answered.expected.md'])
   })
 })

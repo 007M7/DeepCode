@@ -20,13 +20,20 @@ import { deriveReplayScript, parseSessionLog } from '@deepseek-ai/dsh-llm-replay
 import type { ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, fixtureUserPrompts, launchWebScaffold, recordFixture,
-  watchConsole, webSnapshotMode, type WebScaffold,
+  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/live-interactions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
+// One golden per interactive end-state: what the user is left looking at
+// after cancel, after a non-retryable failure (pins the FIXME(web-error-surface)
+// gap as a reviewable artifact: NO error copy in the tree), and after retry
+// recovery — three genuinely different terminal surfaces of one fixture.
+const CANCEL_EXPECTED = join(SNAPSHOT_DIR, 'cancel.expected.md')
+const ERROR_EXPECTED = join(SNAPSHOT_DIR, 'error-auth.expected.md')
+const RETRY_EXPECTED = join(SNAPSHOT_DIR, 'retry.expected.md')
 const MODE = webSnapshotMode()
 
 // The recorded base: one text-only turn whose derived script the sidecars
@@ -123,6 +130,10 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // Composer recovered; no streaming node lingers.
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
+    // Golden of the aborted end-state: the prompt bubble plus the frozen
+    // partial ('partial' is the hang entry's replayed prefix) and no more.
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
+    await compareOrRefreshGolden(CANCEL_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
@@ -144,6 +155,10 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // "no crash, composer recovers, turn logged as error".
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
+    // Golden of the same gap: the prompt bubble alone, no error copy in the
+    // tree — the diff that changes when web-error-surface lands.
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
+    await compareOrRefreshGolden(ERROR_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
@@ -167,10 +182,16 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // only on change, so attempt count is invisible there).
     expect(sessionEvents.filter(e => e.type === 'llm/retry').length).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByText('event sourcing', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThan(0)
+    // Golden of the recovered end-state: indistinguishable from a clean
+    // completion — retries are deliberately invisible in the transcript.
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
+    await compareOrRefreshGolden(RETRY_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'session.jsonl', 'cancel.expected.md', 'error-auth.expected.md', 'retry.expected.md',
+    ])
   })
 })
