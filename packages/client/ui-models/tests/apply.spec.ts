@@ -1,0 +1,95 @@
+/** Models section registration: declaration-aware deferral, locale re-registration, and HMR recovery. */
+import { Context } from 'cordis'
+import { describe, expect, it } from 'vitest'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { apply, inject } from '@deepseek-ai/dsh-client-ui-models/client'
+import { ModelsSection } from '../src/client/ModelsSection.tsx'
+
+async function bench() {
+  const ctx = new Context()
+  await ctx.plugin(SlotsService).await()
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
+  return { ctx, slots: ctx.get('slots') as SlotsService, locale }
+}
+
+function declare(slots: SlotsService): () => void {
+  return slots.register(
+    { name: 'root', children: { 'settings.section': { kind: 'list', scope: 'root' } } } as never,
+    () => null,
+  )
+}
+
+describe('ui-models apply', () => {
+  it('declares the services it uses', () => {
+    expect(inject).toEqual(['slots', 'locale'])
+  })
+
+  it('registers the models nav entry for declarations before or after apply', async () => {
+    const before = await bench()
+    declare(before.slots)
+    await before.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = before.slots.entries('settings.section')[0]!
+    expect(entry.component).toBe(ModelsSection)
+    expect(entry.options).toEqual({ id: 'models', order: 10, label: '模型' })
+
+    const after = await bench()
+    await after.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(after.slots.entries('settings.section')).toHaveLength(0)
+    declare(after.slots)
+    await Promise.resolve()
+    expect(after.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
+    // The self-inflicted ledger notifications hit the duplicate guard.
+    expect(after.slots.entries('settings.section')).toHaveLength(1)
+  })
+
+  it('re-registers with fresh label text on locale change', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    b.locale.setLocale('en')
+    expect(b.slots.entries('settings.section')[0]!.options.label).toBe('Models')
+    b.locale.setLocale('zh')
+    expect(b.slots.entries('settings.section')[0]!.options.label).toBe('模型')
+  })
+
+  it('locale change while the slot is undeclared stays a no-op', async () => {
+    const b = await bench()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    b.locale.setLocale('en')
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
+    b.locale.setLocale('zh')
+  })
+
+  it('re-registers after an HMR collapse re-declares the slot (stale disposer must not block)', async () => {
+    const b = await bench()
+    const redeclare = declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries('settings.section')).toHaveLength(1)
+    // Declarer unload: the cascade removes our entry while our local
+    // disposer variable goes stale.
+    redeclare()
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
+    declare(b.slots)
+    await Promise.resolve()
+    expect(b.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
+    // The locale path also recovers through the same ledger re-check.
+    b.locale.setLocale('en')
+    expect(b.slots.entries('settings.section')[0]!.options.label).toBe('Models')
+    b.locale.setLocale('zh')
+  })
+
+  it('registers the zh/en nav dictionaries and disposes everything with the fiber', async () => {
+    const b = await bench()
+    declare(b.slots)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(b.locale.bind('settings.models')('nav')).toBe('模型')
+    await fiber.dispose()
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
+    // The (ns, locale) seats are free again — the dictionary disposers ran.
+    expect(() => b.locale.register('settings.models', 'zh', {})).not.toThrow()
+    expect(() => b.locale.register('settings.models', 'en', {})).not.toThrow()
+  })
+})

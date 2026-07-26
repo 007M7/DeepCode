@@ -2,7 +2,7 @@
 
 import type { Context } from 'cordis'
 import type {
-  IApiClient, RpcError, WorkspaceId, WorkspaceView,
+  IApiClient, RpcError, SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
@@ -97,6 +97,35 @@ export class WorkspacesService {
   async create(input: { name: string } | { path: string }): Promise<WorkspaceView> {
     const result = await this.manager.create(input)
     if (!result.ok) throw new Error(`workspace create failed: ${result.error.code}: ${result.error.message}`)
+    return result.value.workspace
+  }
+
+  /**
+   * Rename a Workspace.
+   * @param workspaceId - target workspace.
+   * @param title - new display title (trimmed non-empty by the Host).
+   * @returns the renamed Workspace view.
+   */
+  async rename(workspaceId: WorkspaceId, title: string): Promise<WorkspaceView> {
+    const result = await this.manager.rename(workspaceId, title)
+    if (!result.ok) throw new Error(`workspace rename failed: ${result.error.code}: ${result.error.message}`)
+    return result.value.workspace
+  }
+
+  /**
+   * Move a session within its Workspace's manual order (DOM-insertBefore-like).
+   * @param workspaceId - owning workspace.
+   * @param sessionId - accounted session to move.
+   * @param beforeSessionId - accounted anchor to insert before; omitted appends.
+   * @returns the updated Workspace view.
+   */
+  async insertSessionBefore(
+    workspaceId: WorkspaceId,
+    sessionId: SessionId,
+    beforeSessionId?: SessionId,
+  ): Promise<WorkspaceView> {
+    const result = await this.manager.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
+    if (!result.ok) throw new Error(`workspace move failed: ${result.error.code}: ${result.error.message}`)
     return result.value.workspace
   }
 

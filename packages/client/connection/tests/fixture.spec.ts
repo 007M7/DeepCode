@@ -311,6 +311,60 @@ describe('createFixtureApi', () => {
     expect(rootPath.result.value.workspace.title).toBe('/')
   })
 
+  it('workspace.rename covers not-found, conflict, no-op, and the changed frame', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        if (seen.length >= 2) abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const wsid = 'fx-ws-fixture' as WorkspaceId
+    const missing = await api.workspace.rename(req({ workspaceId: 'fx-ws-void' as WorkspaceId, title: 'x' }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'fx-ws-void' } } })
+
+    await api.workspace.create(req({ name: 'occupied' }))
+    const conflict = await api.workspace.rename(req({ workspaceId: wsid, title: ' occupied ' }))
+    expect(conflict.result).toMatchObject({ ok: false, error: { code: 'workspace-name-conflict', details: { name: 'occupied' } } })
+
+    const noop = await api.workspace.rename(req({ workspaceId: wsid, title: ' fixture ' }))
+    if (!noop.result.ok) throw new Error('no-op rename failed')
+    expect(noop.result.value.workspace.title).toBe('fixture')
+
+    const renamed = await api.workspace.rename(req({ workspaceId: wsid, title: 'renamed' }))
+    if (!renamed.result.ok) throw new Error('rename failed')
+    expect(renamed.result.value.workspace.title).toBe('renamed')
+    await consuming
+    // Only the create and the effective rename emit frames; the no-op stays silent.
+    expect(seen.map(f => f.type)).toEqual(['host/workspace-changed', 'host/workspace-changed'])
+  })
+
+  it('workspace.insertSessionBefore moves, appends, no-ops, and rejects invalid ids', async () => {
+    const api = createFixtureApi()
+    const wsid = 'fx-ws-fixture' as WorkspaceId
+    const missing = await api.workspace.insertSessionBefore(req({ workspaceId: 'fx-ws-void' as WorkspaceId, sessionId: sid('fx-alpha') }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
+    const ghost = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-ghost') }))
+    expect(ghost.result).toMatchObject({ ok: false, error: { code: 'workspace-move-invalid', details: { sessionId: 'fx-ghost' } } })
+    const badAnchor = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-alpha'), beforeSessionId: sid('fx-ghost') }))
+    expect(badAnchor.result).toMatchObject({ ok: false, error: { code: 'workspace-move-invalid', details: { beforeSessionId: 'fx-ghost' } } })
+
+    const moved = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-gamma'), beforeSessionId: sid('fx-beta') }))
+    if (!moved.result.ok) throw new Error('move failed')
+    expect(moved.result.value.workspace.sessionIds).toEqual(['fx-alpha', 'fx-gamma', 'fx-beta'])
+    const appended = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-alpha') }))
+    if (!appended.result.ok) throw new Error('append failed')
+    expect(appended.result.value.workspace.sessionIds).toEqual(['fx-gamma', 'fx-beta', 'fx-alpha'])
+    const before = appended.result.value.workspace.updatedAt
+    const noop = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-alpha') }))
+    if (!noop.result.ok) throw new Error('no-op move failed')
+    expect(noop.result.value.workspace.sessionIds).toEqual(['fx-gamma', 'fx-beta', 'fx-alpha'])
+    expect(noop.result.value.workspace.updatedAt).toBe(before)
+  })
+
   it('session.create({workspaceId}) lands on the account and unknown ids error', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
@@ -558,6 +612,15 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const workspace = await client.workspace.create({ name: 'via-client' })
     if (!workspace.result.ok) throw new Error('workspace create failed')
     expect(workspace.result.value.workspace.title).toBe('via-client')
+    const wsid = workspace.result.value.workspace.workspaceId
+    const renamed = await client.workspace.rename({ workspaceId: wsid, title: 'via-client-2' })
+    if (!renamed.result.ok) throw new Error('workspace rename failed')
+    expect(renamed.result.value.workspace.title).toBe('via-client-2')
+    const attached = await client.sessions.create({ workspaceId: wsid })
+    if (!attached.result.ok) throw new Error('attached create failed')
+    const moved = await client.workspace.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
+    if (!moved.result.ok) throw new Error('workspace move failed')
+    expect(moved.result.value.workspace.sessionIds).toEqual([attached.result.value.sessionId])
   })
 
   it('maps empty, prompt-reject, and workspace-first query scenarios', async () => {
