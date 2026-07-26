@@ -80,6 +80,13 @@ jobs:
           resolve TSC_JS node_modules/typescript/bin/tsc
           resolve TSDOWN_JS node_modules/tsdown/dist/run.mjs
           resolve VITEPRESS_JS website/node_modules/vitepress/bin/vitepress.js node_modules/vitepress/bin/vitepress.js
+          # VitePress links vue into the site's node_modules at build time;
+          # Wine cannot CREATE Windows symlinks (ENOTSUP) but follows
+          # pre-existing Unix ones, so lay the link down host-side.
+          if [ -d node_modules/vue ] && [ ! -e website/node_modules/vue ]; then
+            mkdir -p website/node_modules
+            ln -s ../../node_modules/vue website/node_modules/vue
+          fi
 
       - name: Install Wine (64-bit)
         run: |
