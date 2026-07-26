@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-08-background-subagent-tasks.zh.md)
+
 ## Problem
 
 The [subagent seam](2026-06-21-subagent-capability-seam.md) returns a `SubagentRun`, but the model-facing tool originally collected every run synchronously. Independent, slow delegations therefore held the parent call open or ran serially.

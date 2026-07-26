@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-session-reference`
 
+English | [中文](README.zh.md)
+
 `ctx.sessionReferences` prepares bounded, read-only snapshots of other sessions as prompt-prefix context. It consumes `ctx.sessionQuery` and the backend-independent compact checkpoint marker; SQLite FTS is not required. The standard TUI bundle mounts it, while other hosts may call the service directly.
 
 ## Public API

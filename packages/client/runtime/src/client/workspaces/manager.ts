@@ -1,7 +1,7 @@
 /** Workspace baseline, incremental-frame, and unary-action owner. */
 
 import type {
-  HostFrame, IApiClient, RpcError, RpcRequest, RpcResult, WorkspaceView,
+  HostFrame, IApiClient, RpcError, RpcRequest, RpcResult, SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
@@ -144,6 +144,40 @@ export class WorkspaceManager {
   }
 
   /**
+   * Rename a Workspace, then publish its returned snapshot without waiting
+   * for the changed frame.
+   * @param workspaceId - target workspace.
+   * @param title - new display title.
+   * @returns the wire result.
+   */
+  async rename(workspaceId: WorkspaceId, title: string): Promise<RpcResult<{ workspace: WorkspaceView }>> {
+    const { result } = await this.api.workspace.rename({ workspaceId, title })
+    if (result.ok) this.upsert(result.value.workspace)
+    return result
+  }
+
+  /**
+   * Move a session within its Workspace's manual order, then publish the
+   * returned snapshot without waiting for the changed frame.
+   * @param workspaceId - owning workspace.
+   * @param sessionId - accounted session to move.
+   * @param beforeSessionId - accounted anchor to insert before; omitted appends.
+   * @returns the wire result.
+   */
+  async insertSessionBefore(
+    workspaceId: WorkspaceId,
+    sessionId: SessionId,
+    beforeSessionId?: SessionId,
+  ): Promise<RpcResult<{ workspace: WorkspaceView }>> {
+    const { result } = await this.api.workspace.insertSessionBefore({
+      workspaceId, sessionId,
+      ...beforeSessionId === undefined ? {} : { beforeSessionId },
+    })
+    if (result.ok) this.upsert(result.value.workspace)
+    return result
+  }
+
+  /**
    * Host-frame entry. Non-workspace frames are ignored so the runtime can
    * fan one host stream out to both object managers.
    * @param envelope - host stream envelope.
@@ -189,6 +223,11 @@ export class WorkspaceManager {
   private upsert(view: WorkspaceView, identity?: Workspace): void {
     this.refreshFrames?.push(view)
     const index = this.items.findIndex(item => item.getSnapshot().view?.workspaceId === view.workspaceId)
+    // Mutation responses and changed frames race (two carriers, no ordering):
+    // reject a snapshot strictly older than the installed projection so a
+    // late unary response cannot roll back a newer frame.
+    const installed = index === -1 ? undefined : this.items[index]?.getSnapshot().view
+    if (installed !== undefined && Date.parse(view.updatedAt) < Date.parse(installed.updatedAt)) return
     if (identity !== undefined) {
       this.items = index === -1
         ? [identity, ...this.items]

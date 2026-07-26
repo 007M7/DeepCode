@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-bash-sandbox
 
+English | [中文](README.zh.md)
+
 Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) and a [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) (which owns the default mode + workspace root, shared with the sandboxed filesystem) — no alternate tool plugin is needed; `dsh-tool-bash` detects the executor's `sandboxMode` capability and adds the escalation fields.
 
 The package root exports the default and named `SandboxBashExecutor` plugin plus its `Config`; quoting and result-classification helpers stay internal.

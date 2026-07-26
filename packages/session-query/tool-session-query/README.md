@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-session-query
 
+English | [中文](README.zh.md)
+
 Workspace-authorized model tools over `ctx.sessionQuery`. The opt-in package depends only on the unified interface and registers `session_search`, `session_event_search`, `session_trace`, `session_event_trace`, and `session_event_read`; shipped host compositions do not mount it by default.
 
 ## Configuration

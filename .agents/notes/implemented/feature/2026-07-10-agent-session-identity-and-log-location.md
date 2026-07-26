@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-10-agent-session-identity-and-log-location.zh.md)
+
 ## Problem
 
 An agent can identify its workspace through `session.header.cwd`, but a model using bash cannot reliably identify the session that owns the call or the durable transcript that records it. Searching `./.sessions` guesses deployment config and JSONL layout; custom roots, alternate persistence backends, resume, forks, and concurrent parent/child agents make that guess unreliable. Hooks have the same need for transcript location, while future plugins may need to expose other harness-owned environment facts to shell commands.

@@ -36,7 +36,6 @@
 | Agent Note | Agent Note | Agent Note（agent 决策记录） | 智能体注记、智能体笔记 | 本仓库中由 agent 撰写的提案与决策记录 |
 | agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
-| backlog | backlog | backlog（待翻清单） | | 仅在双语翻译语境里括注`待翻清单` |
 | blob hash | blob hash | | | `git hash-object` 的结果 |
 | Cordis | Cordis | | | |
 | dispose | dispose | dispose（资源释放） | | |
@@ -103,7 +102,6 @@
 | deploy root | 部署根目录 | | | |
 | durability | 持久性 | | | |
 | feature requirement | 功能依赖 | | | 功能或功能选项通过 `requires` 声明的关系 |
-| enforcement frontier | 执行红线 | | 强制边界 | i18n 配对机制用语：manifest `required` 清单所划的门禁生效范围；与金标样例（style-samples ⑦）一致 |
 | ergonomics | 易用性 / 开发体验 | | 人体工学 | API 或面向模型的接口用「易用性」；工具链或开发者工作流用「开发体验」 |
 | event | 事件 | | | |
 | event log | 事件日志 | | | |
