@@ -95,7 +95,7 @@ export function canonicalSessionFixture(content: string, label = '<session-fixtu
  * @param root - repository root.
  * @returns Stable repository-relative paths.
  */
-export function discoverJsonlFiles(root: string): string[] {
+function discoverJsonlFiles(root: string): string[] {
   return execFileSync(
     'git',
     ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '*.jsonl'],
