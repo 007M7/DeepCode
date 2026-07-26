@@ -1,11 +1,14 @@
 /**
  * Print the minimal-update briefing for out-of-sync translation pairs:
- * `pnpm run gen-translation-brief [pair paths...]`. With no arguments it
- * discovers every out-of-sync pair; with arguments (any file of a pair) it
- * briefs exactly those pairs and fails loud on in-sync, incomplete, or
- * out-of-scope requests. The briefing contract lives in
- * `scripts/translation-brief.ts`; the consuming workflow is
- * `.agents/skills/dsh-translate-docs/SKILL.md`.
+ * `pnpm run gen-translation-brief [--apply] [pair paths...]`. With no
+ * arguments it discovers every out-of-sync pair; with arguments (any file
+ * of a pair) it briefs exactly those pairs and fails loud on in-sync,
+ * incomplete, or out-of-scope requests. Each briefing maps the change at
+ * the narrowest safe granularity — code-fence-only splice, changed
+ * Markdown units, heading sections, whole document — and `--apply` writes
+ * the computed counterpart for pairs whose change is code-fence-only.
+ * The briefing contract lives in `scripts/translation-brief.ts`; the
+ * consuming workflow is `.agents/skills/dsh-translate-docs/SKILL.md`.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -15,19 +18,25 @@ import { basename, join, resolve, sep } from 'node:path'
 import {
   isTranslationScopeFile,
   pairAnchorOfArgument,
+  parseTranslationMarkdown,
   parseTranslationPairingManifest,
   TRANSLATION_SCOPE_GLOB_EXCLUDES,
+  translationStructureDiff,
+  translationStructureSignature,
 } from './translation-pairing.ts'
 import {
-  changedLinesOfDiff,
-  extractCounterpartSections,
-  headingSections,
-  mapHunksToSections,
-  matchTerminologyRows,
-  parseUnifiedDiffHunks,
+  changedSpanIndices,
+  computeMechanicalUpdate,
+  firstOccurrenceContext,
+  markdownUnits,
+  relevantTerminologyRows,
   renderTranslationBrief,
+  sectionSpans,
+  spansAligned,
+  type BriefBundle,
   type BriefDirection,
-  type CounterpartSection,
+  type BriefScope,
+  type MarkdownSpan,
 } from './translation-brief.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -121,15 +130,107 @@ function loadPair(anchor: string): PairState | string {
   }
 }
 
-/** Whether two documents' heading sequences align one to one. */
-function headingsAligned(a: string, b: string): boolean {
-  const aHeads = headingSections(a)
-  const bHeads = headingSections(b)
-  return aHeads.length === bHeads.length && aHeads.every((heading, index) => heading.depth === bHeads[index]?.depth)
+/** Assemble bundles for the given changed + first-occurrence span indices. */
+function bundlesFor(
+  indices: number[],
+  extraIndices: number[],
+  confirmed: MarkdownSpan[],
+  current: MarkdownSpan[],
+  counterpart: MarkdownSpan[],
+): BriefBundle[] {
+  const extras = new Set(extraIndices)
+  return [...new Set([...indices, ...extraIndices])].sort((left, right) => left - right).map((index) => {
+    const confirmedSpan = confirmed[index]
+    const currentSpan = current[index]
+    const counterpartSpan = counterpart[index]
+    if (confirmedSpan === undefined || currentSpan === undefined || counterpartSpan === undefined) {
+      throw new Error(`gen-translation-brief: span ${index} is unmapped despite alignment`)
+    }
+    return {
+      index,
+      label: currentSpan.label,
+      reason: extras.has(index) && confirmedSpan.text === currentSpan.text ? 'first-occurrence' as const : undefined,
+      confirmedSourceText: confirmedSpan.text,
+      currentSourceText: currentSpan.text,
+      counterpartText: counterpartSpan.text,
+      counterpartStartLine: counterpartSpan.startLine,
+    }
+  })
 }
 
-/** Render the briefing for one drifted side of a pair. */
-function briefDirection(pair: PairState, direction: BriefDirection): string {
+interface PlannedBrief {
+  scope: BriefScope
+  /** Old + new text of the changed spans, for terminology matching. */
+  changedText: string
+  /** Computed counterpart for a mechanical scope, for `--apply`. */
+  mechanicalResult?: string | undefined
+}
+
+/** Choose the narrowest safely mapped granularity for one drifted side. */
+function planScope(
+  sourceLast: string,
+  sourceCurrent: string,
+  counterpartCurrent: string,
+  direction: BriefDirection,
+  bothDrifted: boolean,
+): PlannedBrief {
+  const wholeChangedText = `${sourceLast}\n${sourceCurrent}`
+  if (bothDrifted) {
+    return {
+      scope: { kind: 'document', reason: 'BOTH sides changed since the pair was last confirmed consistent, so no side is a trustworthy mapping anchor; decide which side owns each divergence.' },
+      changedText: wholeChangedText,
+    }
+  }
+  const mechanical = computeMechanicalUpdate(sourceLast, sourceCurrent, counterpartCurrent)
+  if (mechanical !== undefined) {
+    return { scope: { kind: 'mechanical' }, changedText: wholeChangedText, mechanicalResult: mechanical }
+  }
+  for (const [kind, spansOf] of [['units', markdownUnits], ['sections', sectionSpans]] as const) {
+    const confirmed = spansOf(sourceLast)
+    const current = spansOf(sourceCurrent)
+    const counterpart = spansOf(counterpartCurrent)
+    if (!spansAligned(confirmed, current) || !spansAligned(confirmed, counterpart)) continue
+    const changed = changedSpanIndices(confirmed, current)
+    if (changed.length === 0) continue
+    const changedText = changed.map(index => `${confirmed[index]?.text ?? ''}\n${current[index]?.text ?? ''}`).join('\n')
+    const rows = relevantTerminologyRows(terminology, direction, changedText)
+    const occurrence = direction === 'en-to-zh'
+      ? firstOccurrenceContext(sourceLast, sourceCurrent, confirmed, current, rows, new Set(changed))
+      : { notes: [], extraSpanIndices: [] }
+    return {
+      scope: {
+        kind,
+        bundles: bundlesFor(changed, occurrence.extraSpanIndices, confirmed, current, counterpart),
+        firstOccurrenceNotes: occurrence.notes,
+      },
+      changedText,
+    }
+  }
+  return {
+    scope: { kind: 'document', reason: 'Neither fine-grained units nor heading sections align one to one across the last-confirmed source, current source, and current counterpart.' },
+    changedText: wholeChangedText,
+  }
+}
+
+/** Validate a computed mechanical counterpart and write it. */
+function applyMechanical(counterpartPath: string, sourceCurrent: string, result: string): void {
+  const counterpartBase = basename(counterpartPath)
+  const sourceBase = counterpartBase.endsWith('.zh.md')
+    ? counterpartBase.replace(/\.zh\.md$/, '.md')
+    : counterpartBase.replace(/\.md$/, '.zh.md')
+  const errors = translationStructureDiff(
+    translationStructureSignature(parseTranslationMarkdown(sourceCurrent), counterpartBase),
+    translationStructureSignature(parseTranslationMarkdown(result), sourceBase),
+  )
+  if (errors.length > 0) {
+    throw new Error(`gen-translation-brief: computed mechanical update for ${counterpartPath} violates the pair structure: ${errors.join('; ')}`)
+  }
+  writeFileSync(join(root, counterpartPath), result)
+  console.error(`gen-translation-brief: applied code-fence splice to ${counterpartPath}; review the diff, then record the pair.`)
+}
+
+/** Render (and under `--apply`, apply) the briefing for one drifted side. */
+function briefDirection(pair: PairState, direction: BriefDirection, apply: boolean): string {
   const sourceIsEnglish = direction === 'en-to-zh'
   const sourcePath = sourceIsEnglish ? pair.anchor : pair.zh
   const counterpartPath = sourceIsEnglish ? pair.zh : pair.anchor
@@ -137,25 +238,29 @@ function briefDirection(pair: PairState, direction: BriefDirection): string {
   const sourceCurrent = readFileSync(join(root, sourcePath), 'utf8')
   const counterpartCurrent = readFileSync(join(root, counterpartPath), 'utf8')
   const diff = diffTexts(sourceLast, sourceCurrent)
-  const bothDrifted = pair.enDrifted && pair.zhDrifted
-
-  let counterpartSections: CounterpartSection[] | undefined
-  if (!bothDrifted && headingsAligned(sourceLast, counterpartCurrent)) {
-    const sections = mapHunksToSections(parseUnifiedDiffHunks(diff), headingSections(sourceLast))
-    counterpartSections = extractCounterpartSections(counterpartCurrent, sections)
+  const planned = planScope(sourceLast, sourceCurrent, counterpartCurrent, direction, pair.enDrifted && pair.zhDrifted)
+  if (apply && planned.mechanicalResult !== undefined) {
+    applyMechanical(counterpartPath, sourceCurrent, planned.mechanicalResult)
   }
   return renderTranslationBrief({
     sourcePath,
     counterpartPath,
     direction,
     diff,
-    counterpartSections,
-    bothDrifted,
-    terminology: matchTerminologyRows(terminology, changedLinesOfDiff(diff)),
+    scope: planned.scope,
+    terminology: relevantTerminologyRows(terminology, direction, planned.changedText),
   })
 }
 
-const requested = process.argv.slice(2).map(pairAnchorOfArgument)
+const argv = process.argv.slice(2)
+const flags = argv.filter(argument => argument.startsWith('--'))
+const unknownFlags = flags.filter(flag => flag !== '--apply')
+if (unknownFlags.length > 0) {
+  console.error(`gen-translation-brief: unknown flag(s): ${unknownFlags.join(', ')} (only --apply is supported)`)
+  process.exit(2)
+}
+const applyMode = flags.includes('--apply')
+const requested = argv.filter(argument => !argument.startsWith('--')).map(pairAnchorOfArgument)
 
 let anchors: string[]
 if (requested.length > 0) {
@@ -182,8 +287,8 @@ for (const anchor of anchors) {
     if (requested.length > 0) skipped.push(`${anchor}: pair is consistent with its record — nothing to brief`)
     continue
   }
-  if (pair.enDrifted) briefs.push(briefDirection(pair, 'en-to-zh'))
-  if (pair.zhDrifted) briefs.push(briefDirection(pair, 'zh-to-en'))
+  if (pair.enDrifted) briefs.push(briefDirection(pair, 'en-to-zh', applyMode))
+  if (pair.zhDrifted) briefs.push(briefDirection(pair, 'zh-to-en', applyMode))
 }
 
 if (problems.length > 0 || skipped.length > 0) {
