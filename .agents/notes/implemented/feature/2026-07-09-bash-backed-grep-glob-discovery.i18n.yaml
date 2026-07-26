@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write
+2026-07-09-bash-backed-grep-glob-discovery.md: 9c25afb44885ca2519c5d74a3d721b34fe3561de
+2026-07-09-bash-backed-grep-glob-discovery.zh.md: d0dee8e49e0a500c87afbd59423fb65416c1dcc8

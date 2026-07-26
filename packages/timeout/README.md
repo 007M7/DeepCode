@@ -1,5 +1,7 @@
 # timeout/ — tool-call timeout policy
 
+English | [中文](README.zh.md)
+
 The tool-call timeout policy plugin. A single **product** package: it is a deployment-policy consumer of the `tools/execute` around-dispatch seam (owned by [`dsh-tools`](../core/tools)) and the pure [`dsh-timeout`](../util/timeout) library — not a swappable capability with an interface/implementation split, so it needs no seam trio.
 
 | Package | Role | ctx key |

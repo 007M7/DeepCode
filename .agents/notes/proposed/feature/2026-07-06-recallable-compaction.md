@@ -2,6 +2,8 @@
 
 Status: proposed
 
+English | [中文](2026-07-06-recallable-compaction.zh.md)
+
 ## Problem
 
 Compaction is a one-way door. The summary the model sees carries no reference to what it shadows — the `shadowedRange` provenance lives only on the log-only `compact/summary` event — and no tool lets the model read a shadowed span back. Whatever the summarizer drops is gone from the model's reachable world, even though the append-only log holds every byte. Repeated compaction compounds this: the head checkpoint is rewritten every pass, so the request prefix takes a full prompt-cache miss each time, and earlier summaries are re-summarized generation after generation.
