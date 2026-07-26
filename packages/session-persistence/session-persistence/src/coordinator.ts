@@ -282,8 +282,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @returns stored header and events before any synthetic recovery closers.
    */
   inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return Promise.resolve(this.retirements.get(id))
-      .then(() => this.serialize(id, () => this.inspectCore(id, signal), signal))
+    // Waiting for an in-flight retirement drain must honor cancellation too: a
+    // slow drain would otherwise pin a cancelled inspect until it finishes,
+    // past the documented boundary. serialize() already races the signal for
+    // the queued read; do the same for the retirement wait.
+    const retired = Promise.resolve(this.retirements.get(id))
+    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
+    return waited.then(() => this.serialize(id, () => this.inspectCore(id, signal), signal))
   }
 
   private async inspectCore(
