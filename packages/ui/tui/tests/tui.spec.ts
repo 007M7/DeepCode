@@ -214,7 +214,7 @@ describe('TUI config', () => {
 })
 
 describe('resume command and /resume', () => {
-  const RESUME = 'RESUME_SESSION_ID={session} dsh'
+  const RESUME = 'dsh --resume {session}'
   const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
     ({ version: 0, id: SessionId(id), createdAt, cwd })
   const resumeEvents = (
@@ -242,7 +242,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output).toContain('To resume this session: RESUME_SESSION_ID=main-session dsh')
+    expect(result.terminal.output).toContain('To resume this session: dsh --resume main-session')
     expect(result.exit).toHaveBeenCalledWith(0)
     await dispose(result)
   })
@@ -1008,7 +1008,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
-    expect(result.terminal.output).toContain('RESUME_SESSION_ID=fallback-session')
+    expect(result.terminal.output).toContain('dsh --resume fallback-session')
     expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })

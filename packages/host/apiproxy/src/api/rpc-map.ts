@@ -19,6 +19,8 @@ export interface RpcMethodMap {
   'host.describe': HostApi['describe']
   'workspace.list': WorkspaceApi['list']
   'workspace.create': WorkspaceApi['create']
+  'workspace.rename': WorkspaceApi['rename']
+  'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

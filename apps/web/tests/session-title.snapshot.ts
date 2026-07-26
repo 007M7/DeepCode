@@ -94,10 +94,10 @@ it('projects initial and revised durable titles through the built nine-plugin fi
   })
 
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
-  const projectCount = await within(tree).findByText('4 sessions')
-  const projectRow = projectCount.closest<HTMLElement>('[role="treeitem"]')
-  if (projectRow === null) throw new Error('fixture project row missing')
-  fireEvent.click(projectRow)
+  // The fixture Intent selects the workspace, so the current-group effect
+  // already expanded it; clicking the header would now collapse (the twist
+  // stays live since intent stopped forcing expansion).
+  await within(tree).findByText('4 sessions')
 
   const initialLabel = 'Fixture 历史会话'
   const initialRowLabel = await screen.findByText(initialLabel)

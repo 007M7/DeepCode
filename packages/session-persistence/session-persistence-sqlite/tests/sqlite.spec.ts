@@ -580,6 +580,31 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await second.dispose()
   })
 
+  it('awaits in-flight readiness before surfacing snapshot-list cancellation', async () => {
+    const b = await backend()
+    const internals = b.ctx.sessionPersistence as unknown as { ready: Promise<void> }
+    const originalReady = internals.ready
+    const readiness = Promise.withResolvers<undefined>()
+    internals.ready = readiness.promise
+    const reason = new Error('SQLite snapshot readiness cancelled')
+    const controller = new AbortController()
+    const pending = b.ctx.sessionPersistence.listSnapshots(controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+
+    controller.abort(reason)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    readiness.resolve(undefined)
+    await expect(pending).rejects.toBe(reason)
+    internals.ready = originalReady
+    await b.dispose()
+  })
+
   it('exposes the schema version constant', () => {
     expect(SCHEMA_VERSION).toBe(10)
   })

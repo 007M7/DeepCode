@@ -2,7 +2,8 @@ import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
-import type { WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 
 async function bench() {
@@ -13,32 +14,33 @@ async function bench() {
     path: 'name' in input ? `/projects/${input.name}` : input.path,
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
-  ctx.provide('workspaces', { create })
-  return { ctx, slots: ctx.get('slots') as SlotsService, create }
+  const startSession = vi.fn()
+  const rename = vi.fn(async () => ({}))
+  const insertSessionBefore = vi.fn(async () => ({}))
+  const open = vi.fn()
+  ctx.provide('workspaces', { create, startSession, rename, insertSessionBefore } as never)
+  ctx.provide('sessions', { open } as never)
+  return { ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename, insertSessionBefore, open }
 }
 
-function declare(slots: SlotsService, name: 'sidebar.workspace' | 'conversation.empty.workspace'): () => void {
-  return slots.register(
-    { name: 'root', children: { [name]: { kind: 'single', scope: 'root' } } } as never,
-    () => null,
-  )
-}
+type HoleName = 'sidebar.workspaces' | 'conversation.empty.workspace'
 
-function injectedOf(slots: SlotsService, name: 'sidebar.workspace' | 'conversation.empty.workspace'): WorkspacePickerInjected {
-  const entry = slots.entries(name)[0]!
-  return (entry.inject as () => WorkspacePickerInjected)()
+/** Declare one or both holes with a single root registration ('root' is a single slot). */
+function declare(slots: SlotsService, ...names: HoleName[]): () => void {
+  const children = Object.fromEntries(names.map(name => [name, { kind: 'single', scope: 'root' }]))
+  return slots.register({ name: 'root', children } as never, () => null)
 }
 
 describe('ui-workspace apply', () => {
-  it('declares the independent Workspace service', () => {
-    expect(inject).toEqual(['slots', 'workspaces'])
+  it('declares the services it drives', () => {
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces'])
   })
 
-  it('registers the shared picker for declarations that arrive before or after apply', async () => {
+  it('registers browser and picker for declarations arriving before or after apply', async () => {
     const before = await bench()
-    declare(before.slots, 'sidebar.workspace')
+    declare(before.slots, 'sidebar.workspaces')
     await before.ctx.plugin({ inject: [...inject], apply }).await()
-    expect(before.slots.entries('sidebar.workspace')[0]!.component).toBe(WorkspacePicker)
+    expect(before.slots.entries('sidebar.workspaces')[0]!.component).toBe(WorkspaceBrowser)
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
@@ -47,23 +49,35 @@ describe('ui-workspace apply', () => {
     expect(after.slots.entries('conversation.empty.workspace')[0]!.component).toBe(WorkspacePicker)
   })
 
-  it('routes name and path creation to WorkspacesService', async () => {
+  it('routes browser actions and picker creation to the services', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.workspace')
+    declare(b.slots, 'sidebar.workspaces', 'conversation.empty.workspace')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const injected = injectedOf(b.slots, 'sidebar.workspace')
-    await injected.createWorkspace({ name: 'project' })
-    await injected.createWorkspace({ path: '/tmp/project' })
-    expect(b.create).toHaveBeenNthCalledWith(1, { name: 'project' })
-    expect(b.create).toHaveBeenNthCalledWith(2, { path: '/tmp/project' })
+
+    const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
+    browser.startSession('ws' as never, 'prompt')
+    expect(b.startSession).toHaveBeenCalledWith('ws', 'prompt')
+    browser.open('session' as never)
+    expect(b.open).toHaveBeenCalledWith('session')
+    await browser.renameWorkspace('ws' as never, 'renamed')
+    expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
+    await browser.insertSessionBefore('ws' as never, 's1' as never, 's2' as never)
+    expect(b.insertSessionBefore).toHaveBeenCalledWith('ws', 's1', 's2')
+    await browser.createWorkspace({ name: 'project' })
+    expect(b.create).toHaveBeenCalledWith({ name: 'project' })
+
+    const picker = (b.slots.entries('conversation.empty.workspace')[0]!.inject as () => WorkspacePickerInjected)()
+    await picker.createWorkspace({ path: '/tmp/project' })
+    expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
   })
 
-  it('unregisters picker entries on teardown', async () => {
+  it('unregisters both entries on teardown', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.workspace')
+    declare(b.slots, 'sidebar.workspaces', 'conversation.empty.workspace')
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     await fiber.dispose()
-    expect(b.slots.entries('sidebar.workspace')).toHaveLength(0)
+    expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
+    expect(b.slots.entries('conversation.empty.workspace')).toHaveLength(0)
   })
 })

@@ -20,6 +20,10 @@ The former gate-level and coarse primary shard jobs are absent from the workflow
 
 Linux primary work uses three independent 32-core jobs. Coverage runs alone with its own worker bound, and the static scheduler runs alone so its result has no post-build consumer tail. After static gates finish, that job publishes its emitted `apps/*/lib`, `packages/*/*/lib`, and `vendor/*/lib` tree as a run-scoped artifact. The third job restores that exact tree, then starts lint, Node 24 runtime compatibility, build-backed snapshots, and all artifact consumers without repeating the build. Generated NodeNext consumer directories are excluded from ESLint discovery because the artifact check removes them while these processes overlap. The pnpm store and ESLint cache are restored without putting cache uploads on the pull-request critical path. Performance reports use each job's `startedAt` to `completedAt` interval; runner queue delay is capacity evidence, not repository execution time.
 
+The gate dependencies remain explicit. Coverage consumes source and does not wait for build. Documentation typechecking builds its complete project-reference graph once. Snapshot replay and publication consumers wait for emitted output, while Node-version compatibility jobs exercise runtime-sensitive source loading without repeating the primary source-graph typecheck. PTY and subprocess suites keep their bounded inner concurrency rather than inheriting the runner's core count.
+
+The artifact boundary remains explicit. `scripts/publint-all.ts` calls publint's supported API against an in-memory publication view formed from each manifest's declared files plus npm's mandatory metadata, avoiding one package-manager pack process per package. `scripts/verify-built-package-invariants.mjs` stages the declared `lib/` files below the real package and imports its compiled self-reference through plain Node and Cordis Loader normalization; a runtime chunk omitted from the publication contract still fails.
+
 Windows shares one 32-core setup across the blocking build and production site plus observational built-artifact contracts. Linux owns the duplicate lint, coverage, and snapshot inventories because running those observational copies on Windows extends the paid critical path without adding a blocking platform claim.
 
 An [exact-head all-size benchmark](https://github.com/deepseek-harness/deepseek-harness/actions/runs/29908491351) ran the complete unsharded primary Node aggregate on every Linux pool before the eager-build correction:
@@ -53,6 +57,10 @@ Complete serial Linux, macOS, and Windows references run only when `master` move
 **Keep the three coarse primary Linux lanes.** The core, CPU, and production-site jobs met the latency targets, but they paid three setup waves and left primary Node work sharded after larger runners were available. The all-size trace showed that one unnecessary dependency, not a lack of host capacity, kept the single-box aggregate above one minute.
 
 **Keep the former gate-level shard topology as a manual reference.** A dormant second topology kept hundreds of workflow lines, selector modules, and scenario-partition behavior alive. The all-size and serial suites provide timing and completeness controls without preserving production code that no required job exercises.
+
+**Return to package-manager packing in each publication validator.** Rejected because it repeats a package-manager subprocess for every package. The manifest-derived publication view and staged compiled self-reference preserve the published-file contract with one in-process inventory.
+
+**Build before coverage or typecheck on every Node version.** Rejected because coverage is source-only and compiler analysis is not runtime-specific. Build-backed consumers still wait for emitted output, and compatibility jobs exercise the runtime-sensitive paths on every advertised Node line.
 
 **Use the 64-core pool for the complete primary aggregate.** Its sampled active time was three seconds lower than the 96-core result because hosted setup was nine seconds faster, but its repository gates were 5.72 seconds slower. The benchmark suite retains both pools because a sustained image or pricing change can reverse the comparison.
 

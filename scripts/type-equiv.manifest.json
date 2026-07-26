@@ -446,6 +446,16 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionTitleObservation",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionTitleObservationResult",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventRecord",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -482,6 +492,11 @@
     {
       "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventTrace",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventTraceObservation",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
@@ -1246,6 +1261,11 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventSearchPage",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventSearchHit",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -1614,6 +1634,16 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionTitleObservation",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionTitleObservationResult",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
       "symbol": "SessionEventRecord",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -1650,6 +1680,11 @@
     {
       "doc": "docs/core-data-structures/session-query.zh.md",
       "symbol": "SessionSearchPage",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventSearchPage",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
@@ -1695,6 +1730,11 @@
     {
       "doc": "docs/core-data-structures/session-query.zh.md",
       "symbol": "SessionEventTrace",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionEventTraceObservation",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
