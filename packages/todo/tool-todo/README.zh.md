@@ -16,7 +16,7 @@
 
 ## 验证
 
-除 schema 的类型／必填／枚举检查外，`execute` 还会拒绝空或重复的 `content`，以及同时存在多个 `in_progress` 任务的情况（连贯计划最多只有一个活跃任务）。顺序与保持列表最新的纪律由模型根据工具描述负责。
+除 schema 的类型／必填／枚举检查外，`execute` 还会拒绝空或重复的 `content`。任意数量的任务可以同时处于 `in_progress`——并行工作（并发 subagent、后台命令）确实会同时推进多个任务。顺序与保持列表最新的纪律由模型根据工具描述负责。
 
 ## 渲染
 
@@ -46,7 +46,7 @@
 
 #### 模型所见内容
 
-每个 assistant 工具调用都会在参数中保留整个替换列表。成功时精确返回 `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`。稳定失败文本为 ``Error: invalid todo: `content` must be a non-empty string``、`Error: invalid todos: duplicate content "<content>"`、`Error: invalid todos: at most one task may be in_progress, got <count>` 和 `Error: todo_write requires an owning agent session`。完整 `todo/write` 会话事件是 UI 与回放状态，而非第二条模型消息。
+每个 assistant 工具调用都会在参数中保留整个替换列表。成功时精确返回 `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`。稳定失败文本为 ``Error: invalid todo: `content` must be a non-empty string``、`Error: invalid todos: duplicate content "<content>"` 和 `Error: todo_write requires an owning agent session`。完整 `todo/write` 会话事件是 UI 与回放状态，而非第二条模型消息。
 
 #### Token 影响
 
