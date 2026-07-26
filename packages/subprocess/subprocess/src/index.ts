@@ -12,6 +12,7 @@
 
 import { Context, Service } from 'cordis'
 import { DSH_ENV_PREFIX } from './types.ts'
+import type { DshEnvironment, DshEnvironmentKey } from './types.ts'
 import type { SubprocessHandle, SubprocessSpawnSpec } from './types.ts'
 
 export { DSH_ENV_PREFIX } from './types.ts'
@@ -59,6 +60,27 @@ export function scrubbedParentEnv(): Record<string, string> {
     if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
   return env
+}
+
+/**
+ * Partition one mixed explicit-env map onto the spec's two channels: `DSH_*`
+ * names are deployment-owned facts for the child and take the managed
+ * {@link SubprocessSpawnSpec.dshEnv} channel (the ordinary channel rejects the
+ * reserved namespace), everything else stays ordinary `env`. For consumers
+ * whose configs expose a single env map (lsp-local servers, the ACP backend)
+ * rather than two channel-shaped fields.
+ * @param env - explicit entries from a consumer's config, both namespaces mixed.
+ * @returns the two spec channels, each safe for its validator.
+ */
+export function splitEnvChannels(env: Readonly<Record<string, string>>): { env: Record<string, string>; dshEnv: DshEnvironment } {
+  const ordinary: Record<string, string> = {}
+  const managed: Record<DshEnvironmentKey, string> = {}
+  const isDshKey = (key: string): key is DshEnvironmentKey => key.startsWith(DSH_ENV_PREFIX)
+  for (const [key, value] of Object.entries(env)) {
+    if (isDshKey(key)) managed[key] = value
+    else ordinary[key] = value
+  }
+  return { env: ordinary, dshEnv: managed }
 }
 
 declare module 'cordis' {

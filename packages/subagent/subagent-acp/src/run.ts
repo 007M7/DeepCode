@@ -25,8 +25,8 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
-import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
-import type { DshEnvironmentKey, SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { splitEnvChannels } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 /** Fixed response to child permission requests: reject by default, or select the first allow option. */
 export type PermissionPolicy = 'allow' | 'reject'
@@ -170,23 +170,14 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
 
   // Keep diagnostics on parent stderr ('inherit'); only ACP output contributes
   // to the result. The seam's scrub drops ambient credentials while spec.env
-  // (the child's own key) merges after it. Explicit DSH_* entries are the
-  // deployment's facts for the child and take the managed channel — the
-  // ordinary channel rejects that reserved namespace.
-  const env: Record<string, string> = {}
-  const dshEnv: Record<DshEnvironmentKey, string> = {}
-  const isDshKey = (key: string): key is DshEnvironmentKey => key.startsWith(DSH_ENV_PREFIX)
-  for (const [key, value] of Object.entries(spec.env)) {
-    if (isDshKey(key)) dshEnv[key] = value
-    else env[key] = value
-  }
+  // (the child's own key) merges after it; explicit DSH_* entries ride the
+  // managed channel via the seam's split.
   const child = spec.spawn({
     argv: [spec.command, ...spec.args],
     cwd: spec.cwd,
     stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
     graceMs: spec.disposeGraceMs,
-    env,
-    dshEnv,
+    ...splitEnvChannels(spec.env),
   })
   /* v8 ignore start -- 'pipe' dispositions expose both streams by the seam contract; defensive. */
   if (child.stdin === undefined || child.stdout === undefined) {

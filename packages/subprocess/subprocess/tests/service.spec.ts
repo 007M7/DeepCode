@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { scrubbedParentEnv, SubprocessService } from '@deepseek-ai/dsh-subprocess'
+import { scrubbedParentEnv, splitEnvChannels, SubprocessService } from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessDisposeGraces, SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 /**
@@ -71,5 +71,11 @@ describe('SubprocessService seam', () => {
       delete process.env.SCRUB_PROBE_TOKEN
       delete process.env.SCRUB_PROBE_PLAIN
     }
+  })
+
+  it('splitEnvChannels partitions a mixed map onto the two spec channels', () => {
+    const { env, dshEnv } = splitEnvChannels({ DSH_FACT: 'managed', PLAIN: 'ordinary', DEEPSEEK_API_KEY: 'explicit' })
+    expect(env).toEqual({ PLAIN: 'ordinary', DEEPSEEK_API_KEY: 'explicit' })
+    expect(dshEnv).toEqual({ DSH_FACT: 'managed' })
   })
 })

@@ -51,6 +51,15 @@ describe('LspConnection', () => {
     expect(conn.pid).toBeGreaterThan(0)
   })
 
+  it('routes explicit DSH_* env entries onto the managed channel', async () => {
+    // A configured DSH_* fact must reach the child: the ordinary channel
+    // rejects the reserved namespace, so the connection's spawn must split it
+    // onto dshEnv. The fixture echoes the named variable back as hover text.
+    const conn = connect({ LSP_FAKE_ECHO_ENV: 'DSH_LSP_TEST_FACT', DSH_LSP_TEST_FACT: 'managed' })
+    await conn.request('initialize', { capabilities: {} })
+    expect(await conn.request('textDocument/hover', {})).toEqual({ contents: 'managed' })
+  })
+
   it('rejects a request when the server replies with an error', async () => {
     const conn = connect({ LSP_FAKE_ERROR: '1' })
     await conn.request('initialize', { capabilities: {} })
