@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 // Assembled keyless snapshots of the New Session flow under the agent-parity
-// model: no session exists before a Workspace is chosen (the composer is
-// locked in the pure view state), picking one materializes the full
-// Session+Agent (reuse-or-create of the workspace's blank session), the
-// first accepted prompt flips blank and surfaces the session in lists, and
-// failures (attach rejection, prompt rejection) are ordinary error strips
-// with no client-side transaction state.
+// model: startup auto-connects the recent Workspace's blank session when one
+// exists; without any Workspace the composer is locked in the pure view
+// state until one is chosen. Picking one materializes the full Session+Agent
+// (reuse-or-create of the workspace's blank session), the first ACCEPTED
+// prompt flips blank and surfaces the session in lists, and failures leave
+// no client-side transaction state: a failed attach keeps the view state
+// locked, a rejected prompt keeps the session blank with the draft restored.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -227,20 +228,20 @@ it('New Session reuses the Workspace blank session and converts the single visib
   await findLockedComposer()
   await createWorkspaceViaPicker('nova')
   await findHeroComposer()
+  const tree = screen.getByRole('tree', { name: 'Sessions' })
+  await waitFor(() => { expect(within(tree).getByText('1 session')).toBeDefined() }, { timeout: 10_000 })
 
-  // Back out to the view state and choose the same workspace again: the
-  // existing blank session is reused — no second entity.
+  // New Session resolves through the recent Workspace and reuses its blank
+  // session in place: no locked interlude, no second entity.
   fireEvent.click(screen.getByRole('button', { name: 'New session' }))
-  await findLockedComposer()
-  await pickWorkspace('nova')
   const composer = await findHeroComposer()
+  await waitFor(() => { expect(within(tree).getByText('1 session')).toBeDefined() }, { timeout: 10_000 })
 
   setComposerText(composer, 'first light')
   fireEvent.keyDown(composer, { key: 'Enter' })
 
   // Conversion: the accepted prompt flips blank without adding a second row.
   await screen.findByText('first light', { exact: true }, { timeout: 10_000 })
-  const tree = screen.getByRole('tree', { name: 'Sessions' })
   await waitFor(() => { expect(within(tree).getByText('1 session')).toBeDefined() }, { timeout: 10_000 })
   const group = within(tree).getByText('1 session').closest('[role="treeitem"]')
   if (group === null) throw new Error('converted Session projection missing')
@@ -256,26 +257,32 @@ it('New Session reuses the Workspace blank session and converts the single visib
   `)
 })
 
-it('a failed Workspace attach surfaces in the view state and keeps the composer locked', async () => {
+it('a failed Workspace attach recovers by reusing the published blank session', async () => {
   boot('?fixture&fixtureAttach=fail')
 
+  // The rejected startup connect surfaces the locked view state first: the
+  // failure leaves no client-side transaction state to unwind.
   await findLockedComposer()
-  await pickWorkspace('fixture')
 
-  const alert = await screen.findByRole('alert', {}, { timeout: 10_000 })
-  const composer = await findLockedComposer()
+  // The host published the session before rejecting attachment (blank, with
+  // the workspace cwd), so the next connect — retry or manual pick — reuses
+  // it instead of minting a duplicate, and the hero opens on it.
+  await pickWorkspace('fixture')
+  const composer = await findHeroComposer()
   const tree = screen.getByRole('tree', { name: 'Sessions' })
   const group = within(tree).getByText('3 sessions').closest('[role="treeitem"]')
   if (group === null) throw new Error('fixture Workspace projection missing')
 
   expect({
-    error: visibleText(alert),
+    headline: visibleText(screen.getByText("Let's start building")),
     composerDisabled: composer.disabled,
+    chip: visibleText(workspaceChip()),
     workspace: visibleText(group),
   }).toMatchInlineSnapshot(`
     {
-      "composerDisabled": true,
-      "error": "session create failed: workspace-attach-failed: fixture rejected Workspace attachment for fx-1",
+      "chip": "fixture",
+      "composerDisabled": false,
+      "headline": "Let's start building",
       "workspace": "fixture3 sessions",
     }
   `)
@@ -293,7 +300,9 @@ it('a rejected first prompt keeps the session blank and the draft in the machine
 
   const alert = await screen.findByRole('alert', {}, { timeout: 10_000 })
   // Failure restore rides the machine (no pendingPrompt transaction): the
-  // draft returns to the same resident textarea one render later.
+  // draft returns to the same resident textarea one render later. The
+  // attempt flips the composer out of the hero (engaging = retry chrome),
+  // but acceptance never happened: the session row stays New Session.
   const retained = await screen.findByDisplayValue('do not lose this')
   const tree = screen.getByRole('tree', { name: 'Sessions' })
   const group = within(tree).getByText('1 session').closest('[role="treeitem"]')
@@ -302,13 +311,13 @@ it('a rejected first prompt keeps the session blank and the draft in the machine
   expect({
     error: visibleText(alert),
     prompt: (retained as HTMLTextAreaElement).value,
-    stillHero: screen.getByText("Let's start building").textContent,
+    blankRow: within(tree).getByText('New Session').textContent,
     workspace: visibleText(group),
   }).toMatchInlineSnapshot(`
     {
+      "blankRow": "New Session",
       "error": "fixture: prompt rejected before acceptance (agent-busy)",
       "prompt": "do not lose this",
-      "stillHero": "Let's start building",
       "workspace": "nova1 session",
     }
   `)
