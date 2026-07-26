@@ -14,7 +14,7 @@ The returned run id is minted in the parent namespace. The child server's sessio
 
 After publication, the provider sends the prompt and collects streamed `agent_message_chunk` text into `SubagentResult.output`. A prompt/transport failure resolves with `stopReason: 'error'`, or `aborted` when the required request signal or disposal requested cancellation.
 
-`dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, closes stdin, and waits `disposeEofGraceMs`. POSIX then escalates through SIGTERM and `disposeGraceMs` before SIGKILL; Windows force-terminates directly because Node maps both signals to `TerminateProcess`. After forced termination, every platform waits at most `disposeGraceMs` for exit and rejects on a signal error or missing exit. Every run uses a fresh process; process pooling is not implemented.
+`dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, then runs this backend's own teardown ladder (`disposeAcpChild`) over the seam's verbs: close stdin and wait `disposeEofGraceMs` for cooperative quiescence, then the handle's `terminate()` escalation (SIGTERM, the spawn grace, SIGKILL — Windows force-terminates directly), then a bounded whole-tree exit wait that rejects if survivors remain. Every run uses a fresh process; process pooling is not implemented.
 
 ## Capabilities and context
 

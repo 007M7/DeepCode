@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { scrubbedParentEnv, splitEnvChannels, SubprocessService } from '@deepseek-ai/dsh-subprocess'
-import type { SubprocessDisposeGraces, SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 /**
  * Minimal concrete service: a hand-built handle. The seam is spawn-only —
@@ -24,7 +24,6 @@ class StubSubprocessService extends SubprocessService {
       kill: () => {},
       terminate: () => {},
       waitForExit: () => Promise.resolve(true),
-      dispose: (_graces: SubprocessDisposeGraces) => Promise.resolve(),
     }
   }
 }
@@ -44,7 +43,6 @@ describe('SubprocessService seam', () => {
     handle.kill()
     handle.terminate()
     await expect(handle.waitForExit()).resolves.toBe(true)
-    await expect(handle.dispose({ eofGraceMs: 1, graceMs: 1 })).resolves.toBeUndefined()
     const outcome = await handle.done
     expect(outcome.exitCode).toBe(0)
   })

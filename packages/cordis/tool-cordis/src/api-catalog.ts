@@ -2222,12 +2222,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubprocessCollectedOutputs {\n    readonly stdout?: SubprocessOutputReader;\n    readonly stderr?: SubprocessOutputReader;\n}',
   },
   {
-    name: 'SubprocessDisposeGraces',
-    declaration: 'export interface SubprocessDisposeGraces {\n    eofGraceMs: number;\n    graceMs: number;\n}',
-  },
-  {
     name: 'SubprocessHandle',
-    declaration: 'export interface SubprocessHandle {\n    readonly pid: number;\n    readonly stdin: Writable | undefined;\n    readonly stdout: Readable | undefined;\n    readonly stderr: Readable | undefined;\n    readonly collected: SubprocessCollectedOutputs;\n    readonly done: Promise<SubprocessOutcome>;\n    kill(signal?: NodeJS.Signals): void;\n    terminate(): void;\n    waitForExit(signal?: AbortSignal): Promise<boolean>;\n    dispose(graces: SubprocessDisposeGraces): Promise<void>;\n}',
+    declaration: 'export interface SubprocessHandle {\n    readonly pid: number;\n    readonly stdin: Writable | undefined;\n    readonly stdout: Readable | undefined;\n    readonly stderr: Readable | undefined;\n    readonly collected: SubprocessCollectedOutputs;\n    readonly done: Promise<SubprocessOutcome>;\n    kill(signal?: NodeJS.Signals): void;\n    terminate(): void;\n    waitForExit(signal?: AbortSignal): Promise<boolean>;\n}',
   },
   {
     name: 'SubprocessOutcome',
