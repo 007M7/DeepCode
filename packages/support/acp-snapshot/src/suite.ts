@@ -71,12 +71,13 @@ export interface Scenario {
   recorded: boolean
   /**
    * Whether replay is driven by a hand-written `replay.override.json` sidecar
-   * (a `ReplayEntry[]` that REPLACES the script derived from `session.jsonl`)
-   * — the throw/hang cases chunks cannot express. The fixture guard requires
-   * the sidecar exactly when this is set: the harness forwards the file purely
-   * on existence, so an unregistered stray sidecar would silently replace the
-   * derived script — the guard fails loud on either mismatch. Defaults to
-   * false (replay derives from the fixture's `assistant/chunk` events).
+   * (a `ReplayOverrideDoc` that replaces or patches the script derived from
+   * `session.jsonl`) — the throw/hang cases chunks cannot express. The fixture
+   * guard requires the sidecar exactly when this is set: the harness forwards
+   * the file purely on existence, so an unregistered stray sidecar would
+   * silently alter the derived script. The guard fails loud on either
+   * mismatch. Defaults to false (replay derives from the fixture's
+   * `assistant/chunk` events).
    */
   overridden?: boolean
   /**

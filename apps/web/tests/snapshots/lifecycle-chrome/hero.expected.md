@@ -1,0 +1,35 @@
+- button "Collapse sidebar":
+  - img
+- button "New session":
+  - img
+  - text: New Session
+- text: Workspaces
+- button "Group by":
+  - img
+- button "Create workspace":
+  - img
+- button "Search sessions":
+  - img
+- textbox "Search name, keywords..."
+- tree "Sessions": No sessions yet
+- button "设置":
+  - img
+  - text: 设置
+- text: Let's start building
+- button "Choose workspace":
+  - img
+  - text: workspace
+  - img
+- textbox "Describe what you want to build"
+- button "Add attachment":
+  - img
+- combobox "Plan mode":
+  - option "Plan" [selected]
+  - option "Agent"
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- combobox "Model":
+  - option "DeepSeek-V4-Pro High" [selected]
+  - option "DeepSeek-V4-Pro"
+- button "Send message" [disabled]

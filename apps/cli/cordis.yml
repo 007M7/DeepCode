@@ -79,6 +79,11 @@
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
 
+# Transient-failure recovery around the loop's model calls (same policy as
+# the TUI's agent-spine composition; defaults: 2 retries, 500ms→10s backoff).
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
+
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
