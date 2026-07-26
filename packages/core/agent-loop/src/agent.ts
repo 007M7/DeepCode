@@ -196,10 +196,10 @@ export class ReactLoopAgent implements Agent {
   /** Claim and admit the next queued prompt, then start its turn. */
   private kick(): void {
     if (this.abort !== undefined || !this.queued.some(item => item.wakeup)) return
-    const item = this.queued.shift()
-    /* v8 ignore next -- unreachable: the some() guard above proves the queue is non-empty */
-    if (item === undefined) return
-    const { message } = item
+    // The some() guard above proves the queue is non-empty; the non-null
+    // assertion expresses that invariant.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const { message } = this.queued.shift()!
 
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
     const admission = new AbortController()
@@ -232,9 +232,8 @@ export class ReactLoopAgent implements Agent {
 
       // cancel() aborts but never clears the slot, and kick()/run()/retry()
       // all refuse to install a new owner while one exists, so the admission
-      // still owns the slot here.
-      /* v8 ignore next -- unreachable false arm: no writer replaces the abort owner mid-admission */
-      if (this.abort === admission) this.abort = undefined
+      // still owns the slot here and releasing it unconditionally is exact.
+      this.abort = undefined
       if (admitted === undefined) {
         this.continueOrIdle()
         return
@@ -297,11 +296,8 @@ export class ReactLoopAgent implements Agent {
           case 'request-failed': {
             // step() reports request failures only after step/start commits
             // and before its own step/end, so the step is always open here.
-            /* v8 ignore next -- unreachable false arm, see above */
-            if (this.stepOpen) {
-              this.stepOpen = false
-              this.session.append('step/end', { turn, step })
-            }
+            this.stepOpen = false
+            this.session.append('step/end', { turn, step })
             if (agentInterruptReasonOf(signal) === undefined) {
               const retryWindow = { requested: false }
               this.retryWindow = retryWindow
@@ -319,9 +315,9 @@ export class ReactLoopAgent implements Agent {
                 )
               } finally {
                 // Nothing else writes the window while the waterfall runs:
-                // cancel() only flips `requested` and a second run cannot start.
-                /* v8 ignore next -- unreachable false arm, see above */
-                if (this.retryWindow === retryWindow) this.retryWindow = undefined
+                // cancel() only flips `requested` and a second run cannot
+                // start, so unconditional retirement is exact.
+                this.retryWindow = undefined
               }
               retry = recoveryCompleted
                 && agentInterruptReasonOf(signal) === undefined
@@ -347,15 +343,10 @@ export class ReactLoopAgent implements Agent {
       }
       ({ reason, idle } = this.settle(turn, step, caught, signal))
     } finally {
+      // Every step-close happens before this point on both success and
+      // failure paths (step(), the request-failed branch, the catch), so the
+      // finally owes only the turn boundary.
       try {
-        // Every step-close before this point clears the flag on both success
-        // and failure paths (step(), the request-failed branch, the catch),
-        // so the finally never finds a step still open.
-        /* v8 ignore next 4 -- unreachable last-resort step close, see above */
-        if (this.stepOpen) {
-          this.stepOpen = false
-          this.session.append('step/end', { turn, step })
-        }
         if (this.turnOpen) {
           // Re-entrant turn/end listeners must route new input to a later turn.
           this.turnOpen = false
@@ -368,9 +359,9 @@ export class ReactLoopAgent implements Agent {
       }
       this.retryWindow = undefined
       // cancel() aborts but never clears the slot, and no second run can
-      // install a controller while this one is still unwinding.
-      /* v8 ignore next -- unreachable false arm, see above */
-      if (this.abort === controller) this.abort = undefined
+      // install a controller while this one is still unwinding, so the slot
+      // is still this run's controller here.
+      this.abort = undefined
       signal.removeEventListener('abort', cancelRetry)
     }
 
