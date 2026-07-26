@@ -9,7 +9,7 @@ import { resolve, sep } from 'node:path'
 export const agentNoteRoot = resolve(import.meta.dirname, '../.agents/notes')
 
 /** The closed set of active Agent Note lifecycles (top-level folders under .agents/notes/). */
-export const AGENT_NOTE_LIFECYCLES = ['proposed', 'implemented', 'rejected'] as const
+const AGENT_NOTE_LIFECYCLES = ['proposed', 'implemented', 'rejected'] as const
 
 /**
  * The closed set of Agent Note classes (nested folder under each lifecycle). Adding a
@@ -19,7 +19,7 @@ export const AGENT_NOTE_LIFECYCLES = ['proposed', 'implemented', 'rejected'] as 
 export const AGENT_NOTE_CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing'] as const
 
 /** Historical implemented notes live outside the active lifecycle tree. */
-export const AGENT_NOTE_ARCHIVE = 'archived'
+const AGENT_NOTE_ARCHIVE = 'archived'
 
 /** Non-Agent Note Markdown allowed to sit directly at a lifecycle root. */
 const ROOT_ALLOWLIST = new Set(['AGENTS.md', 'CLAUDE.md'])

@@ -11,7 +11,7 @@ export interface ArchiveManifest {
 }
 
 /** Hash one archived artifact independently of the repository's Git object format. */
-export function archiveContentHash(content: Buffer): string {
+function archiveContentHash(content: Buffer): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`
 }
 
