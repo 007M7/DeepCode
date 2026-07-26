@@ -249,102 +249,116 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
 
       let dispatches = 0
       // The per-run scheduler, reusing the NATIVE concurrency contract through
-      // the registry's staged view (the loop scheduler's own seam): submitted
-      // calls START strictly in submission order; only the around-dispatch/body
-      // stage overlaps — ordered pre-execute runs at start time and ordered
-      // post-execute/context commitment runs in submission order through the
-      // commit cursor below, so stateful policy listeners observe submission
-      // order exactly as they do under the native loop. Consecutive
-      // parallel-classified calls overlap up to maxParallel; an exclusive call
-      // waits for the pool to drain, runs alone, and bars later calls.
-      // Classification is re-read via executionMode() immediately before each
-      // start (a registry mutation while queued can flip a call exclusive),
-      // matching the native scheduler's lazy reclassification.
+      // the registry's staged view (the loop scheduler's own seam) — and the
+      // native loop's SEQUENCING: every ordered stage (the dispatch-start
+      // append, prepare = pre-execute/guards, finalize/finish = post-execute,
+      // context deferral, the settle append) runs inside ONE driver lane, so
+      // ordered policy stages never overlap each other and only the
+      // around-dispatch/body stage runs concurrently. Starts are strictly
+      // submission-ordered; results commit in submission order through the
+      // head-of-line cursor. Consecutive parallel-classified calls overlap up
+      // to maxParallel; an exclusive call waits for the pool to drain, runs
+      // alone, and holds its barrier until its COMMIT (post-execute included)
+      // completes, exactly like a native exclusive group. Classification is
+      // re-read via executionMode() immediately before each start (a registry
+      // mutation while queued can flip a call exclusive), matching the native
+      // scheduler's lazy reclassification.
       interface PendingDispatch {
-        /** Ordered stage: append the start event, prepare, dispatch (body overlaps), park for commit. */
+        /** Ordered stage: append the start event, await prepare (pre-execute/guards), launch the body into `flight`. */
         start(): Promise<void>
         classify(): 'parallel' | 'exclusive'
         abandon(): void
         /** Ordered stage: post-execute + context deferral + settle event, in submission order. */
         commit(): Promise<void>
-        /** Set once the dispatch stage settles; commit() runs after this resolves. */
-        dispatched?: Promise<void>
+        /** The launched around-dispatch/body stage; resolved until start() replaces it. */
+        flight: Promise<void>
+        /** True once the dispatch stage parked its outcome; the commit cursor waits on it. */
+        settled: boolean
+        /** The classification this entry started under; an exclusive holds its barrier through commit(). */
+        mode?: 'parallel' | 'exclusive'
       }
       const pendingQueue: PendingDispatch[] = []
       const inFlight = new Set<Promise<void>>()
       /** Tracked settle-event side work (log shaping + append), drained at run settlement. */
       const logWork = new Set<Promise<void>>()
       const commitQueue: PendingDispatch[] = []
-      let committing = false
       let exclusiveActive = false
-      let pumping = false
-      /** Ordered commit cursor: drain the head-of-line settled dispatches one at a time. */
-      const commitReady = async (): Promise<void> => {
-        if (committing) return
-        committing = true
-        try {
-          while (commitQueue.length > 0) {
-            const head = commitQueue[0]
-            /* v8 ignore next -- the loop condition bounds the index. */
-            if (head === undefined) break
-            /* v8 ignore next -- entries join commitQueue only after start() set dispatched (see pump). */
-            if (head.dispatched === undefined) break
-            await head.dispatched
-            commitQueue.shift()
-            await head.commit()
-          }
-        } finally {
-          committing = false
-        }
+      let driving = false
+      let driverRun: Promise<void> = Promise.resolve()
+      let wake: (() => void) | undefined
+      const wakeup = (): void => {
+        const release = wake
+        wake = undefined
+        release?.()
       }
-      const pump = (): void => {
-        // Defensive re-entry guard: today every caller (binding submission,
-        // flight.finally, drain) runs off promise callbacks, never while pump
-        // is on the stack, so this cannot fire — kept against a future
-        // synchronous caller.
-        /* v8 ignore next -- see the re-entry note above. */
-        if (pumping) return
-        pumping = true
-        try {
-          for (;;) {
-            const head = pendingQueue[0]
-            if (head === undefined) return
-            if (runController.signal.aborted) {
-              pendingQueue.shift()
-              head.abandon()
-              continue
+      /**
+       * The single ordered lane. Each pass commits the head-of-line settled
+       * dispatch (ordered post-execute), then starts the next queued entry if
+       * its slot is free (ordered pre-execute), and otherwise sleeps until a
+       * body settles or a new submission arrives. One run reaching the
+       * empty-queues/empty-pool state is quiescence.
+       */
+      const drive = (): Promise<void> => {
+        if (driving) return driverRun
+        driving = true
+        driverRun = (async () => {
+          try {
+            for (;;) {
+              // Arm before inspecting state so a settle or submission landing
+              // between the checks and the await below cannot be lost.
+              const signal = new Promise<void>((resolve) => { wake = resolve })
+              const commitHead = commitQueue[0]
+              if (commitHead !== undefined && commitHead.settled) {
+                commitQueue.shift()
+                await commitHead.commit()
+                // The barrier covers post-execute: later starts wait for the
+                // exclusive call's full pipeline, as under the native loop.
+                if (commitHead.mode === 'exclusive') exclusiveActive = false
+                continue
+              }
+              const head = pendingQueue[0]
+              if (head !== undefined) {
+                if (runController.signal.aborted) {
+                  pendingQueue.shift()
+                  head.abandon()
+                  continue
+                }
+                // Reclassify at start time (fail-closed on registry changes).
+                const mode = head.classify()
+                const capacity = !exclusiveActive
+                  && (mode === 'exclusive' ? inFlight.size === 0 : inFlight.size < maxParallel)
+                if (capacity) {
+                  if (mode === 'exclusive') exclusiveActive = true
+                  head.mode = mode
+                  pendingQueue.shift()
+                  // Joined before start() so the commit cursor sees submission
+                  // order; nothing commits it until `settled` flips.
+                  commitQueue.push(head)
+                  await head.start()
+                  const flight: Promise<void> = head.flight.finally(() => {
+                    inFlight.delete(flight)
+                    wakeup()
+                  })
+                  inFlight.add(flight)
+                  continue
+                }
+              }
+              if (pendingQueue.length === 0 && commitQueue.length === 0 && inFlight.size === 0) return
+              await signal
             }
-            // Reclassify at start time (fail-closed on registry changes).
-            const mode = head.classify()
-            if (exclusiveActive || inFlight.size >= (mode === 'exclusive' ? 1 : maxParallel)) return
-            // The guard above already returned for an exclusive head with any
-            // in-flight sibling, so claiming the barrier here is race-free.
-            if (mode === 'exclusive') exclusiveActive = true
-            pendingQueue.shift()
-            const flight = head.start().finally(() => {
-              inFlight.delete(flight)
-              if (mode === 'exclusive') exclusiveActive = false
-              // Commit ordering and slot refill are independent: the cursor
-              // may wait head-of-line on an earlier dispatch while later
-              // slots keep starting.
-              void commitReady()
-              pump()
-            })
-            // Joined AFTER start() ran synchronously, so every commitQueue
-            // entry already carries its `dispatched` promise.
-            commitQueue.push(head)
-            inFlight.add(flight)
+          } finally {
+            driving = false
+            wake = undefined
           }
-        } finally {
-          pumping = false
-        }
+        })()
+        return driverRun
       }
-      /** Every in-flight dispatch settled AND committed; nothing can start (the run is aborted at call time). */
+      /** Every dispatch settled AND committed; nothing can start (the run is aborted at call time). */
       const drainDispatches = async (): Promise<void> => {
-        // Abandon queued-unstarted tasks first, then await the live set until quiescent.
-        pump()
-        while (inFlight.size > 0) await Promise.allSettled([...inFlight])
-        await commitReady()
+        // The abort already fired: the driver abandons queued-unstarted
+        // entries, awaits the live pool, and drains the ordered commit lane —
+        // including a commit already in progress when the program returned.
+        await drive()
         // Every settle's shaped append lands inside the open run_code turn.
         while (logWork.size > 0) {
           const pending = [...logWork]
@@ -376,7 +390,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue }
         const scheduler = registry[TOOL_REGISTRY_SCHEDULER]
         const outcome = await new Promise<DispatchOutcome>((resolve, reject) => {
-          // Set by start(): what commit() finalizes in submission order.
+          // Set by the dispatch stage (or start() for a pre-settled result): what commit() finalizes in submission order.
           let parked:
             | { kind: 'post-result' | 'final-result'; exec: ToolRunContext; result: ToolExecutionResult }
             | undefined
@@ -417,34 +431,37 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             })())
           }
           pendingQueue.push({
-            // Re-read per pump pass against the same agent view the SDK
+            flight: Promise.resolve(),
+            settled: false,
+            // Re-read per driver pass against the same agent view the SDK
             // declared; fail-closed exclusive when undeclared/invalid.
             classify: () => registry.executionMode(input).kind,
             abandon: () => {
               reject(new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} tool call abandoned`))
             },
-            start(): Promise<void> {
+            async start(): Promise<void> {
               exec.agent?.session.append('tool/code-dispatch-start', {
                 parentCallId: exec.callId,
                 subCallId,
                 name,
                 arguments: normalized.logged,
               })
-              // Ordered prepare (pre-execute/guards) runs here — starts are
-              // strictly submission-ordered; only dispatch overlaps.
-              this.dispatched = (async () => {
-                const prepared = await scheduler.prepare(input)
-                if (prepared.kind === 'dispatch') {
-                  const dispatchOutcome = await scheduler.dispatch(prepared.exec)
+              // Ordered prepare runs INSIDE the driver lane: the next entry's
+              // pre-execute waits for this resolution, as under the native
+              // scheduler. Only the launched body below overlaps.
+              const prepared = await scheduler.prepare(input)
+              if (prepared.kind === 'dispatch') {
+                this.flight = scheduler.dispatch(prepared.exec).then((dispatchOutcome) => {
                   parked = { kind: dispatchOutcome.kind, exec: prepared.exec, result: dispatchOutcome.result }
-                  return
-                }
-                parked = { kind: prepared.kind, exec: prepared.exec, result: prepared.result }
-              })()
-              return this.dispatched
+                  this.settled = true
+                })
+                return
+              }
+              parked = { kind: prepared.kind, exec: prepared.exec, result: prepared.result }
+              this.settled = true
             },
             async commit(): Promise<void> {
-              /* v8 ignore next -- commit() runs only after this.dispatched resolved, which set parked. */
+              /* v8 ignore next -- commit() runs only after `settled` flipped, which set parked. */
               if (parked === undefined) return
               const result = parked.kind === 'post-result'
                 ? await scheduler.finalize(parked.exec, parked.result)
@@ -455,7 +472,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
               settle(result)
             },
           })
-          pump()
+          wakeup()
+          void drive()
         })
         // A budget expiry or outer cancel that lands while this call was in
         // flight already aborted the dispatch; stop the program now rather
