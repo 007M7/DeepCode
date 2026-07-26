@@ -50,11 +50,22 @@ export function apply(ctx: Context, config: Config): void {
   const instructionVersions: InstructionVersionCache = new WeakMap()
   const pendingVersionUpdates = new Map<ToolExecutionToken, InstructionVersionUpdate[]>()
   const baselineLoaded = new WeakSet<object>()
+  // Sessions whose lifecycle start this mount witnessed. A startup or resume
+  // emits agent/session-start before the first step; a hot remount attaches to
+  // an already-live session and never sees it. That difference is the only
+  // reliable way to tell a resumed session (re-compose the baseline from
+  // current files) from a remount over a live one (keep the single baseline
+  // already in the log) — the durable log looks identical in both cases.
+  const lifecycleWitnessed = new WeakSet<object>()
   const pendingByParent = new Map<ToolExecutionToken, {
     agent: Agent
     changes: WorkspaceInstructionChange[]
     versionUpdates: InstructionVersionUpdate[]
   }>()
+
+  ctx.on('agent/session-start', (agent: Agent) => {
+    lifecycleWitnessed.add(agent.session)
+  })
 
   ctx.on('session/event', (session, event) => {
     observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
@@ -62,11 +73,12 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
     if (baselineLoaded.has(agent.session)) return
-    // The guard is mount-local, but the baseline is durable: a hot remount
-    // over a live session must fold the already-appended baseline from the
-    // log instead of injecting a duplicate.
-    if (agent.session.events.some(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin' && event.data.source.plugin === 'workspace-context')) {
+    // A baseline already in the log with no witnessed lifecycle start is a hot
+    // remount over a live session: keep that single baseline and skip. A
+    // resumed session witnessed its start, so it falls through and re-composes.
+    if (!lifecycleWitnessed.has(agent.session)
+      && agent.session.events.some(event => event.type === 'user/message'
+        && event.data.source.kind === 'plugin' && event.data.source.plugin === 'workspace-context')) {
       baselineLoaded.add(agent.session)
       return
     }

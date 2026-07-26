@@ -1005,6 +1005,47 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('recomposes the baseline from current files when a resumed session edited it offline', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'old root rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(ctx, original)
+
+      // Offline edit to the baseline file, then resume on a fresh session whose
+      // seeded log already carries the original baseline. A resumed session is
+      // registered after this mount's apply(), so the remount guard never seeds
+      // it: its first step re-composes a fresh baseline from current files,
+      // reflecting the offline edit before the first resumed request. The old
+      // baseline stays in history unmutated (note: resume without mutating an
+      // earlier history event).
+      await write(join(root, 'AGENTS.md'), 'new root rule after offline edit')
+      const resumed = stubAgent(root, [...original.session.events])
+
+      // Resume announces its lifecycle start before the first step.
+      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      await composeBaselinePrefix(ctx, resumed)
+
+      const pluginMessages = resumed.session.events.filter(event =>
+        event.type === 'user/message' && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === 'workspace-context')
+      expect(pluginMessages).toHaveLength(2)
+      const latest = pluginMessages.at(-1)
+      expect(latest?.type === 'user/message' && blocksText(latest.data.content))
+        .toContain('new root rule after offline edit')
+      const original0 = pluginMessages[0]
+      expect(original0?.type === 'user/message' && blocksText(original0.data.content))
+        .toContain('old root rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('tracks only baseline files that were actually included under the byte budget', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

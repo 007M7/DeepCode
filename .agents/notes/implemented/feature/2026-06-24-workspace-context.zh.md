@@ -32,7 +32,7 @@ Status: implemented
 
 该注入成为一条带插件来源的持久 `user/message`。在产品主干中，工作区指令的注册先于 skill 目录，所以其 `agent/step` 监听器先注入。循环会在派生第一次请求前 drain 这两条消息。
 
-恢复 agent 会创建新的循环实例，并在其第一次请求前注入由当前文件组合的基线。这样，恢复时可以使用当前基线内容，而无需修改先前的历史事件。
+恢复 agent 会创建新的循环实例，并在其第一次请求前注入由当前文件组合的基线。这样，恢复时可以使用当前基线内容，而无需修改先前的历史事件。恢复与插件热重挂都会面对日志中已存在基线的情况；二者通过 `agent/session-start` 区分：启动或恢复会在第一步前发出该事件，而热重挂附着到一个已存活的会话、永远不会看到它。只有热重挂（未见证生命周期开始、且日志已有基线）才保留既有基线并跳过；恢复则重新组合。
 
 基线是一条 user 角色的 `<system-reminder>`，包含 `Instructions from: <path>` 章节，以及明确的权威性与优先级说明。这种熟悉的模型可见框架避免引入 harness 专用的 XML 词汇。项目路径相对于根目录；使用默认 home 时，用户全局路径为 `~/.dsh/AGENTS.md`，使用已配置 home 时则为 `$DSH_HOME/AGENTS.md`。文件内容中的字面量 `</system-reminder>` 会被转义。包 README 负责规定当前准确的[提示词形态](../../../../packages/context/workspace-context/README.md#prompt-shape)。
 

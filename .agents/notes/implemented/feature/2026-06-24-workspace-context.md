@@ -32,7 +32,7 @@ At the first `agent/step` of an agent-loop instance, the plugin injects one sour
 
 The injection becomes a durable `user/message` with plugin provenance. In the product spine workspace instructions are registered before the skills catalog, so their `agent/step` listener injects first. The loop drains both messages before deriving the first request.
 
-A resumed agent creates a new loop instance and injects a baseline composed from current files before its first request. This permits current baseline content on resume without mutating an earlier history event.
+A resumed agent creates a new loop instance and injects a baseline composed from current files before its first request. This permits current baseline content on resume without mutating an earlier history event. A resume and a hot plugin remount both face a log that already holds a baseline; they are told apart by `agent/session-start`, which a startup or resume emits before the first step while a remount attaches to an already-live session and never sees it. Only a remount (no witnessed lifecycle start, baseline already logged) keeps the existing baseline and skips; a resume re-composes.
 
 The baseline is a user-role `<system-reminder>` with `Instructions from: <path>` sections and explicit authority and precedence language. This familiar model-facing frame avoids a harness-specific XML vocabulary. Project paths are root-relative and the user-global path is `~/.dsh/AGENTS.md` for the default home or `$DSH_HOME/AGENTS.md` for a configured home. A literal `</system-reminder>` inside file content is escaped. The package README owns the exact current [prompt shape](../../../../packages/context/workspace-context/README.md#prompt-shape).
 
