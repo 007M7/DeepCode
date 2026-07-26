@@ -2859,6 +2859,25 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(events.terminal.output).toContain('was disposed')
     await dispose(events)
   })
+
+  it('rejects input after the agent is disposed out from under the TUI', async () => {
+    const result = await setup()
+
+    // The agent leaves the registry (e.g. an agent-loop-only reload) while the
+    // TUI stays mounted. A later send must report disposal, not drive the
+    // detached zombie agent.
+    agentEvents(result.ctx, result.agent).emit('agent/disposed')
+    await tick()
+    expect(result.terminal.output).toContain('was disposed')
+
+    result.terminal.send('drive the zombie')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toHaveLength(0)
+    expect(result.agent.steered).toHaveLength(0)
+    expect(result.terminal.output).toContain('is disposed')
+    await dispose(result)
+  })
 })
 
 describe('skill slash command', () => {

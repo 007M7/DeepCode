@@ -3217,6 +3217,11 @@ export function createTuiChat(
   })
   const disposeAgent = ctx.on('agent/disposed', (subject) => {
     if (subject !== agent) return
+    // The agent left the registry (e.g. an agent-loop-only reload) while the
+    // TUI stays mounted. Retained agents accept deliveries after detachment, so
+    // without this a later send would drive a zombie agent/session; mark
+    // disposed so dispatchMessage reports it instead.
+    disposed = true
     clearStatus()
     appendNotice(`Agent "${agent.id}" was disposed.`, 'warning')
   })
