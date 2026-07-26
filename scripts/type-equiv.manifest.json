@@ -2163,29 +2163,44 @@
       "source": "packages/workflow/workflow/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/process.md",
-      "symbol": "ProcessSpawnSpec",
-      "source": "packages/process/process/src/types.ts"
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessSpawnSpec",
+      "source": "packages/subprocess/subprocess/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/process.md",
-      "symbol": "ProcessHandle",
-      "source": "packages/process/process/src/types.ts"
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessHandle",
+      "source": "packages/subprocess/subprocess/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/process.md",
-      "symbol": "ProcessOutputReader",
-      "source": "packages/process/process/src/types.ts"
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessOutputReader",
+      "source": "packages/subprocess/subprocess/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/process.md",
-      "symbol": "ProcessOutputRead",
-      "source": "packages/process/process/src/types.ts"
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessOutputRead",
+      "source": "packages/subprocess/subprocess/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/process.md",
-      "symbol": "ProcessOutcome",
-      "source": "packages/process/process/src/types.ts"
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessOutcome",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "DshEnvironmentKey",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "DshEnvironment",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "CollectedOutput",
+      "source": "packages/subprocess/subprocess/src/types.ts"
     }
   ]
 }

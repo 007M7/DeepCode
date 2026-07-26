@@ -2,9 +2,9 @@ import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import type { DshEnvironment } from '@deepseek-ai/dsh-process'
+import type { DshEnvironment } from '@deepseek-ai/dsh-subprocess'
 import { killGroup, OutputCollector, spawnProcess } from '../src/spawn.ts'
-import type { ProcessHandle } from '@deepseek-ai/dsh-process'
+import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 
 const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
   failNextClose: { value: false },
@@ -31,7 +31,7 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-const spillDir = mkdtempSync(join(tmpdir(), 'dsh-proc-spec-'))
+const spillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-spec-'))
 
 function spec(command: string, overrides: Partial<Parameters<typeof spawnProcess>[0]> = {}) {
   return {
@@ -59,7 +59,7 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
   throw new Error(`pid ${pid} still alive after ${timeoutMs}ms`)
 }
 
-async function waitForStdout(running: ProcessHandle, expected: string, timeoutMs = 5_000): Promise<void> {
+async function waitForStdout(running: SubprocessHandle, expected: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (running.stdout.readFrom(0).text.includes(expected)) return
@@ -407,6 +407,21 @@ describe('killGroup', () => {
     await running.done
     expect(() => { killGroup(running.pid, 'SIGTERM') }).not.toThrow()
   })
+
+  it('handle.kill() after settlement signals nothing and starts no grace timer', async () => {
+    // Cleanup code commonly kills handles in a finally; after settlement the
+    // group is gone and the pid may be reused, so a late kill must be inert
+    // (no signal to a possibly-recycled pgid, no referenced timer delaying exit).
+    const running = spawnProcess(spec('true'))
+    await running.done
+    const spy = vi.spyOn(process, 'kill')
+    try {
+      running.kill()
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
 
 describe('argv validation', () => {
@@ -490,7 +505,7 @@ describe('environment and spill-file hardening', () => {
       { spillDir },
     ).done
     const path = result.stdout.spillPath!
-    expect(path).toMatch(/dsh-proc-\d+-\d+-[0-9a-f]{12}-stdout\.log$/)
+    expect(path).toMatch(/dsh-subprocess-\d+-\d+-[0-9a-f]{12}-stdout\.log$/)
     const mode = statSync(path).mode & 0o777
     expect(mode).toBe(0o600)
   })
@@ -500,7 +515,7 @@ describe('environment and spill-file hardening', () => {
       spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
     ).done
     const dir = dirname(result.stdout.spillPath!)
-    expect(dir).toMatch(/dsh-proc-/)
+    expect(dir).toMatch(/dsh-subprocess-/)
     const mode = statSync(dir).mode & 0o777
     expect(mode).toBe(0o700)
   })

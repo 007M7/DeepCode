@@ -1,21 +1,47 @@
-# Process Manager
+# Subprocess
 
-The child-process manager seam is split across interface ([dsh-process](../../packages/process/process), `ctx.processes`) and implementation ([dsh-process-local](../../packages/process/process-local)); its consumers are other capability seams — today the [bash executor family](bash.md), which passes `['bash', '-c', command]` argv and owns every default. This seam owns the managed `DSH_*` environment namespace and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports them so bash consumers keep one import root.
+The subprocess seam is split across interface ([dsh-subprocess](../../packages/subprocess/subprocess), `ctx.subprocess`) and implementation ([dsh-subprocess-local](../../packages/subprocess/subprocess-local)); its consumers are other capability seams — today the [bash executor family](bash.md), which passes `['bash', '-c', command]` argv and owns every default. This seam owns the managed `DSH_*` environment namespace and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports them so bash consumers keep one import root.
 
-Source: [`packages/process/process/src/types.ts`](../../packages/process/process/src/types.ts)
+Source: [`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts)
+
+## Managed environment namespace and captured output
+
+`DSH_*` variables are Harness-owned child-process facts; implementations discard ambient `DSH_*` names before merging the caller's snapshot, and each captured stream reports its truncation and spill-recovery state through `CollectedOutput`.
+
+```ts type-equiv
+/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
+type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+```
+
+```ts type-equiv
+/** Trusted DeepSeek Harness variables for one child-process execution. */
+type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+```
+
+```ts type-equiv
+/** One captured stream: the (possibly truncated) text plus recovery info. */
+interface CollectedOutput {
+  /** Collected text — the TAIL of the stream when truncated. */
+  text: string
+  /** True when bytes were dropped from `text`. */
+  truncated: boolean
+  /** Path to a file holding the COMPLETE stream, when truncated and available. */
+  spillPath?: string
+}
+```
 
 ## The fully-explicit spawn spec
 
-The seam applies no defaults: every limit and directory is explicit on the spec, so the caller's own config — not a hidden process-manager default — decides them. `argv` is never shell-interpreted.
+The seam applies no defaults: every limit and directory is explicit on the spec, so the caller's own config — not a hidden subprocess-service default — decides them. `argv` is never shell-interpreted.
 
 ```ts type-equiv
 /**
  * A fully-specified spawn request. This seam applies no defaults: every limit
  * and directory is explicit, so the caller's own config — not a hidden
- * process-manager default — decides them (the `dsh-bash` request/spec split
+ * subprocess-service default — decides them (the `dsh-bash` request/spec split
  * is the owning template).
  */
-interface ProcessSpawnSpec {
+interface SubprocessSpawnSpec {
   /** Executable and arguments; `argv[0]` is the program. Never shell-interpreted here. */
   argv: readonly string[]
   /** Working directory for the child. */
@@ -62,15 +88,15 @@ A spawn returns a live handle immediately. Output readers take whole-stream byte
  * A live child process. `kill()` starts the group SIGTERM→grace→SIGKILL
  * escalation; buffered output remains readable after exit.
  */
-interface ProcessHandle {
+interface SubprocessHandle {
   /** Process id (group leader); -1 when the spawn itself failed. */
   readonly pid: number
   /** Live stdout reader (also readable after exit). */
-  readonly stdout: ProcessOutputReader
+  readonly stdout: SubprocessOutputReader
   /** Live stderr reader (also readable after exit). */
-  readonly stderr: ProcessOutputReader
+  readonly stderr: SubprocessOutputReader
   /** Resolves when the process closes; rejects only for spawn-level failures. */
-  readonly done: Promise<ProcessOutcome>
+  readonly done: Promise<SubprocessOutcome>
   /** Begin SIGTERM→grace→SIGKILL on the process group. Idempotent. */
   kill(): void
 }
@@ -82,7 +108,7 @@ interface ProcessHandle {
  * whole-stream byte coordinates owned by the caller, so independent readers
  * cannot consume one another's output.
  */
-interface ProcessOutputReader {
+interface SubprocessOutputReader {
   /**
    * Read everything captured since `fromByte`. When that offset has slid out
    * of the in-memory tail window the read is `lossy` — it returns the whole
@@ -90,13 +116,13 @@ interface ProcessOutputReader {
    * @param fromByte - whole-stream offset to resume from (a prior read's `nextOffset`; 0 for the first read).
    * @returns the delta text, the next offset, the `lossy` flag, and the spill path when one exists.
    */
-  readFrom(fromByte: number): ProcessOutputRead
+  readFrom(fromByte: number): SubprocessOutputRead
 }
 ```
 
 ```ts type-equiv
-/** One incremental {@link ProcessOutputReader.readFrom} read. */
-interface ProcessOutputRead {
+/** One incremental {@link SubprocessOutputReader.readFrom} read. */
+interface SubprocessOutputRead {
   /** Stream text from the requested offset (the whole retained tail when lossy). */
   text: string
   /** Whole-stream offset to resume from on the next read. */
@@ -110,15 +136,15 @@ interface ProcessOutputRead {
 
 ## Outcomes carry no cause classification
 
-`done` reports raw exit facts. The manager kills on abort but never decides why — the caller reads the deadline signal it owns to classify timeout versus cancellation (the bash executor's `timedOut`/`aborted` split).
+`done` reports raw exit facts. The service kills on abort but never decides why — the caller reads the deadline signal it owns to classify timeout versus cancellation (the bash executor's `timedOut`/`aborted` split).
 
 ```ts type-equiv
 /**
  * Raw outcome of one closed process. Deliberately carries NO timeout or
- * cancellation classification: the manager kills on abort but does not decide
+ * cancellation classification: the service kills on abort but does not decide
  * why — the caller reads the signal it owns to classify causes.
  */
-interface ProcessOutcome {
+interface SubprocessOutcome {
   /** Exit code; null when the process died from a signal. */
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
@@ -130,4 +156,4 @@ interface ProcessOutcome {
 
 ## Service behavior
 
-The abstract [`ProcessManager`](../../packages/process/process/src/index.ts) seam defines `spawn` only; [`LocalProcessManager`](../../packages/process/process-local/src/index.ts) is the local implementation (detached groups, tail-keep spill-backed collection, credential scrub, kill-and-join disposal). See [`dsh-process`](../../packages/process/process/README.md) for the seam contract and [`dsh-process-local`](../../packages/process/process-local/README.md) for the mechanics.
+The abstract [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam defines `spawn` only; [`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) is the local implementation (detached groups, tail-keep spill-backed collection, credential scrub, kill-and-join disposal). See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the seam contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for the mechanics.

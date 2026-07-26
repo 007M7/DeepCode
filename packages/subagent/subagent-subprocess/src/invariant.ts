@@ -10,7 +10,7 @@ import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 const PACKAGE_NAME = '@deepseek-ai/dsh-subagent-subprocess'
 
 /** Cordis companion plugin name. */
-export const name = 'subagent-subprocess-invariant'
+export const name = 'subagent-subsubprocess-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 

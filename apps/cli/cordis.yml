@@ -89,8 +89,8 @@
   name: '@deepseek-ai/dsh-workspace'
 
 # Managed child-process groups for the bash executor (spawn/kill/output plumbing).
-- id: processes
-  name: '@deepseek-ai/dsh-process-local'
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
 
 - id: bash-local
   name: '@deepseek-ai/dsh-bash-local'

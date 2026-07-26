@@ -80,8 +80,8 @@ async function makeConsumer(): Promise<string> {
   await writeFile(join(dir, 'cordis.yml'), [
     '- id: mock-llm',
     "  name: './mock-llm.ts'",
-    '- id: processes',
-    "  name: '@deepseek-ai/dsh-process-local'",
+    '- id: subprocess',
+    "  name: '@deepseek-ai/dsh-subprocess-local'",
     '- id: bash',
     "  name: '@deepseek-ai/dsh-bash-local'",
     '- id: cli-agent',

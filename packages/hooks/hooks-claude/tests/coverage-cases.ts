@@ -10,7 +10,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import LocalProcessManager from '@deepseek-ai/dsh-process-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentService, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude'
@@ -42,7 +42,7 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   await mountAgentLoopTestDependencies(ctx)
   if (opts.sessionRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: opts.sessionRoot })
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(LocalProcessManager)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   await ctx.plugin(HooksClaude, { configPath, ...opts })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -361,7 +361,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = new Context()
       await mountAgentLoopTestDependencies(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
-      await ctx.plugin(LocalProcessManager)
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
       // Direct apply with only configPath — bypasses schemastery's defaults, so
       // the bridge must run on the raw minimal config (the per-hook timeout is
@@ -660,7 +660,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       await mountAgentLoopTestDependencies(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
       // Executor default cwd = serverDir (deliberately NOT the session cwd).
-      await ctx.plugin(LocalProcessManager)
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
       await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
       ctx.llm.registerAdapter(['mock'], adapter)
@@ -690,7 +690,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       await mountAgentLoopTestDependencies(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
       // Executor default cwd = serverDir (deliberately NOT the child session cwd).
-      await ctx.plugin(LocalProcessManager)
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
       await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
       ctx.llm.registerAdapter(['mock'], new MockAdapter([]))

@@ -33,7 +33,7 @@ export function createBuiltinRegistry(profile: ProjectProfile): FeatureRegistry 
       mode: 'exclusive',
       required: true,
       baseResources: [
-        { kind: 'npm-cordis-config-entry', id: 'processes', package: '@deepseek-ai/dsh-process-local' },
+        { kind: 'npm-cordis-config-entry', id: 'subprocess', package: '@deepseek-ai/dsh-subprocess-local' },
         { kind: 'npm-cordis-config-entry', id: 'tool-bash', package: '@deepseek-ai/dsh-tool-bash' },
       ],
       options: [

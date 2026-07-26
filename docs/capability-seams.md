@@ -83,7 +83,7 @@ flowchart LR
   pkg_goal["goal"]
   svc_goals["ctx.goals<br/>Same-session goal domain"]
   pkg_process["process"]
-  svc_processes["ctx.processes<br/>Process manager seam"]
+  svc_subprocess["ctx.subprocess<br/>Process manager seam"]
   pkg_process_local["process-local"]
   pkg_bash_local["bash-local"]
   pkg_bash_sandbox["bash-sandbox"]
@@ -167,8 +167,8 @@ flowchart LR
   pkg_modules --> svc_clientModuleHost
   pkg_permission --> svc_permission
   pkg_plan_mode --> svc_planMode
-  pkg_process --> svc_processes
-  pkg_process_local --> svc_processes
+  pkg_process --> svc_subprocess
+  pkg_process_local --> svc_subprocess
   pkg_pty --> svc_pty
   pkg_pty_local --> svc_pty
   pkg_sandbox --> svc_sandbox
@@ -239,8 +239,6 @@ flowchart LR
   svc_invariants --> pkg_session
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compact_basic
-  svc_processes --> pkg_bash_local
-  svc_processes --> pkg_bash_sandbox
   svc_pty --> pkg_tool_pty
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_pty_local
@@ -270,6 +268,8 @@ flowchart LR
   svc_storageDomain --> pkg_workspace
   svc_subagents --> pkg_tool_ralph
   svc_subagents --> pkg_tool_subagent
+  svc_subprocess --> pkg_bash_local
+  svc_subprocess --> pkg_bash_sandbox
   svc_systemPrompt --> pkg_agent_loop
   svc_systemPrompt --> pkg_tool_fs
   svc_systemPrompt --> pkg_tool_pty
@@ -324,7 +324,7 @@ flowchart LR
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`cli-demo`](../packages/examples/cli-demo), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`tui-demo`](../packages/examples/tui-demo) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
-| `ctx.processes` | `seam` | [`process`](../packages/process/process) | [`process-local`](../packages/process/process-local) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox) | - | The bash executors spawn their process groups through ctx.processes; the manager owns group lifetime, bounded spill-backed output, and kill escalation. |
+| `ctx.subprocess` | `seam` | `process` | `process-local` | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox) | - | The bash executors spawn their process groups through ctx.subprocess; the service owns group lifetime, bounded spill-backed output, and kill escalation. |
 | `ctx.bash` | `seam` | [`bash`](../packages/bash/bash) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox) | [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them. |
 | `ctx.bashEnv` | `core` | [`tool-bash`](../packages/bash/tool-bash) | - | - | - | Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace. |
 | `ctx.pty` | `seam` | [`pty`](../packages/pty/pty) | [`pty-local`](../packages/pty/pty-local) | [`tool-pty`](../packages/pty/tool-pty) | - | The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-pty exposes the owner-scoped model surface. |

@@ -2,13 +2,13 @@
 
 English | [中文](bash.zh.md)
 
-The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle. Raw process-group mechanics live behind the [process-manager seam](process.md).
+The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle. Raw process-group mechanics live behind the [subprocess seam](subprocess.md).
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
 ## Managed shell environment namespace
 
-`DSH_*` variables are Harness-owned child-process facts. The model-facing bash tool collects them through `ctx.bashEnv` and passes them through `BashExecRequest.dshEnv`; the process manager removes inherited `DSH_*` names before merging the current snapshot. The `DshEnvironmentKey`/`DshEnvironment` vocabulary is owned by the [process-manager seam](process.md) and re-exported by `dsh-bash`.
+`DSH_*` variables are Harness-owned child-process facts. The model-facing bash tool collects them through `ctx.bashEnv` and passes them through `BashExecRequest.dshEnv`; the subprocess service removes inherited `DSH_*` names before merging the current snapshot. The `DshEnvironmentKey`/`DshEnvironment` vocabulary is owned by the [subprocess seam](subprocess.md) and re-exported by `dsh-bash`.
 
 ## Request vs. spec: the `resolve()` split
 
@@ -135,7 +135,7 @@ interface BashRunResult {
 }
 ```
 
-Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info; when truncated, `text` is the **tail** and the complete stream spills to a private file. The shape is owned by the [process-manager seam](process.md) and re-exported by `dsh-bash`.
+Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info; when truncated, `text` is the **tail** and the complete stream spills to a private file. The shape is owned by the [subprocess seam](subprocess.md) and re-exported by `dsh-bash`.
 
 ## File sandbox: `BashSandboxInfo`
 
@@ -171,7 +171,7 @@ One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (o
 /**
  * A background process handle returned by {@link BashExecutor.start}. It is the
  * only access path; buffered output remains readable after exit. Composition
- * teardown (the process manager's disposal) kills running processes and
+ * teardown (the subprocess service's disposal) kills running processes and
  * awaits {@link done}; an executor-only reload leaves them running.
  */
 interface BashProcess {
@@ -217,4 +217,4 @@ interface BashProcessRead {
 
 ## The service
 
-`BashExecutor` owns `resolve`, foreground `run`, background-process `start`, and the `sandboxMode` capability fact. `dsh-bash-local` owns command defaulting, timeout/abort classification, the terminal environment, and the background read merge; process groups, bounded collectors, spill files, credential scrubbing, and disposal quiescence are the [process manager](process.md)'s. `dsh-tool-bash` owns model-facing rendering and adapts background handles into the [generic task runtime](tasks.md).
+`BashExecutor` owns `resolve`, foreground `run`, background-process `start`, and the `sandboxMode` capability fact. `dsh-bash-local` owns command defaulting, timeout/abort classification, the terminal environment, and the background read merge; process groups, bounded collectors, spill files, credential scrubbing, and disposal quiescence are the [subprocess service](subprocess.md)'s. `dsh-tool-bash` owns model-facing rendering and adapts background handles into the [generic task runtime](tasks.md).

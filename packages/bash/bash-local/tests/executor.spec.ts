@@ -4,15 +4,15 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import LocalProcessManager from '@deepseek-ai/dsh-process-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import type { BashProcess } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
 async function setup(config: ConstructorParameters<typeof LocalBashExecutor>[1] = {}) {
   const ctx = new Context()
-  await ctx.plugin(LocalProcessManager)
-  ;(ctx.processes as LocalProcessManager).internals = { spillDir }
+  await ctx.plugin(LocalSubprocessService)
+  ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
   // A short kill grace via the REAL config path, so escalation tests stay fast.
   await ctx.plugin(LocalBashExecutor, { graceMs: 200, ...config })
   const bash = ctx.bash as LocalBashExecutor
@@ -295,11 +295,11 @@ describe('LocalBashExecutor.start (background process handles)', () => {
   })
 })
 
-describe('process lifecycle ownership (the manager, not the executor)', () => {
-  it('a background process survives executor-fiber disposal and dies with the process manager', async () => {
+describe('process lifecycle ownership (the subprocess service, not the executor)', () => {
+  it('a background process survives executor-fiber disposal and dies with the subprocess service', async () => {
     const ctx = new Context()
-    const managerFiber = await ctx.plugin(LocalProcessManager)
-    ;(ctx.processes as LocalProcessManager).internals = { spillDir }
+    const managerFiber = await ctx.plugin(LocalSubprocessService)
+    ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
     const executorFiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
 
@@ -316,17 +316,17 @@ describe('process lifecycle ownership (the manager, not the executor)', () => {
     expect(proc.status).toBe('running')
     expect(() => process.kill(pid, 0)).not.toThrow()
 
-    // Manager disposal kills the group and AWAITS its exit (no orphans).
+    // Service disposal kills the group and AWAITS its exit (no orphans).
     await managerFiber.dispose()
     expect(() => process.kill(pid, 0)).toThrow()
     await proc.done
     expect(proc.status).toBe('killed')
   })
 
-  it('manager disposal escalates to SIGKILL for TERM-trapping children and settles handles', async () => {
+  it('service disposal escalates to SIGKILL for TERM-trapping children and settles handles', async () => {
     const ctx = new Context()
-    const managerFiber = await ctx.plugin(LocalProcessManager)
-    ;(ctx.processes as LocalProcessManager).internals = { spillDir }
+    const managerFiber = await ctx.plugin(LocalSubprocessService)
+    ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
     await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
 

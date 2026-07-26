@@ -2,16 +2,16 @@
  * Execution types for the bash executor seam. Background task semantics belong
  * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles. The
  * managed-environment and captured-output vocabulary is owned by the
- * process-manager seam and re-exported here so bash consumers keep one import
+ * subprocess seam and re-exported here so bash consumers keep one import
  * root.
  * @module dsh-bash/types
  */
 
 import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-process'
+import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-subprocess'
 
-export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-process'
-export type { CollectedOutput, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-process'
+export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
+export type { CollectedOutput, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-subprocess'
 
 /**
  * Sandbox facts for one run, present iff a sandboxing executor handled it.
@@ -154,7 +154,7 @@ export interface BashProcessRead {
 /**
  * A background process handle returned by {@link BashExecutor.start}. It is the
  * only access path; buffered output remains readable after exit. Composition
- * teardown (the process manager's disposal) kills running processes and
+ * teardown (the subprocess service's disposal) kills running processes and
  * awaits {@link done}; an executor-only reload leaves them running.
  */
 export interface BashProcess {

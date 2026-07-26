@@ -1,9 +1,9 @@
 /**
- * Vocabulary for the process-manager seam: fully-specified spawn requests,
+ * Vocabulary for the subprocess seam: fully-specified spawn requests,
  * bounded output with spill recovery, and live process handles. Command
  * defaulting, shell semantics, and presentation belong to consumers such as
  * the bash executor seam.
- * @module dsh-process/types
+ * @module dsh-subprocess/types
  */
 
 /** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
@@ -28,10 +28,10 @@ export interface CollectedOutput {
 /**
  * A fully-specified spawn request. This seam applies no defaults: every limit
  * and directory is explicit, so the caller's own config — not a hidden
- * process-manager default — decides them (the `dsh-bash` request/spec split
+ * subprocess-service default — decides them (the `dsh-bash` request/spec split
  * is the owning template).
  */
-export interface ProcessSpawnSpec {
+export interface SubprocessSpawnSpec {
   /** Executable and arguments; `argv[0]` is the program. Never shell-interpreted here. */
   argv: readonly string[]
   /** Working directory for the child. */
@@ -70,10 +70,10 @@ export interface ProcessSpawnSpec {
 
 /**
  * Raw outcome of one closed process. Deliberately carries NO timeout or
- * cancellation classification: the manager kills on abort but does not decide
+ * cancellation classification: the service kills on abort but does not decide
  * why — the caller reads the signal it owns to classify causes.
  */
-export interface ProcessOutcome {
+export interface SubprocessOutcome {
   /** Exit code; null when the process died from a signal. */
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
@@ -82,8 +82,8 @@ export interface ProcessOutcome {
   stderr: CollectedOutput
 }
 
-/** One incremental {@link ProcessOutputReader.readFrom} read. */
-export interface ProcessOutputRead {
+/** One incremental {@link SubprocessOutputReader.readFrom} read. */
+export interface SubprocessOutputRead {
   /** Stream text from the requested offset (the whole retained tail when lossy). */
   text: string
   /** Whole-stream offset to resume from on the next read. */
@@ -99,7 +99,7 @@ export interface ProcessOutputRead {
  * whole-stream byte coordinates owned by the caller, so independent readers
  * cannot consume one another's output.
  */
-export interface ProcessOutputReader {
+export interface SubprocessOutputReader {
   /**
    * Read everything captured since `fromByte`. When that offset has slid out
    * of the in-memory tail window the read is `lossy` — it returns the whole
@@ -107,22 +107,22 @@ export interface ProcessOutputReader {
    * @param fromByte - whole-stream offset to resume from (a prior read's `nextOffset`; 0 for the first read).
    * @returns the delta text, the next offset, the `lossy` flag, and the spill path when one exists.
    */
-  readFrom(fromByte: number): ProcessOutputRead
+  readFrom(fromByte: number): SubprocessOutputRead
 }
 
 /**
  * A live child process. `kill()` starts the group SIGTERM→grace→SIGKILL
  * escalation; buffered output remains readable after exit.
  */
-export interface ProcessHandle {
+export interface SubprocessHandle {
   /** Process id (group leader); -1 when the spawn itself failed. */
   readonly pid: number
   /** Live stdout reader (also readable after exit). */
-  readonly stdout: ProcessOutputReader
+  readonly stdout: SubprocessOutputReader
   /** Live stderr reader (also readable after exit). */
-  readonly stderr: ProcessOutputReader
+  readonly stderr: SubprocessOutputReader
   /** Resolves when the process closes; rejects only for spawn-level failures. */
-  readonly done: Promise<ProcessOutcome>
+  readonly done: Promise<SubprocessOutcome>
   /** Begin SIGTERM→grace→SIGKILL on the process group. Idempotent. */
   kill(): void
 }

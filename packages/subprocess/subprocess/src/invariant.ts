@@ -1,12 +1,12 @@
-/** Package-owned invariant companion for the process-manager seam. @module @deepseek-ai/dsh-process/invariant */
+/** Package-owned invariant companion for the subprocess seam. @module @deepseek-ai/dsh-subprocess/invariant */
 
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-process'
+const PACKAGE_NAME = '@deepseek-ai/dsh-subprocess'
 
 /** Cordis companion plugin name. */
-export const name = 'process-invariant'
+export const name = 'subprocess-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
@@ -14,7 +14,7 @@ export const inject = ['invariants']
 const install: InvariantInstaller = () => {}
 
 /**
- * Register the process-manager invariant companion.
+ * Register the subprocess invariant companion.
  * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */

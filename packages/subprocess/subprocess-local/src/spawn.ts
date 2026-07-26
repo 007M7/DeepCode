@@ -1,9 +1,9 @@
 /**
- * Process plumbing for the local process manager: detached process-group
+ * Process plumbing for the local subprocess service: detached process-group
  * spawn, tail-keep output with spill files, and SIGTERM→SIGKILL escalation.
  * This layer reacts to an abort signal; callers own deadlines and classify
  * causes.
- * @module dsh-process-local/spawn
+ * @module dsh-subprocess-local/spawn
  */
 
 import { type ChildProcessByStdio, spawn } from 'node:child_process'
@@ -12,8 +12,8 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-process'
-import type { CollectedOutput, DshEnvironment, ProcessHandle, ProcessOutcome, ProcessSpawnSpec } from '@deepseek-ai/dsh-process'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
+import type { CollectedOutput, DshEnvironment, SubprocessHandle, SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 /**
  * Credential-shaped env vars are NOT forwarded to children (the harness's
@@ -68,7 +68,7 @@ let defaultSpillDir: string | undefined
  * other local users read command output or pre-create symlinks.
  */
 function privateSpillDir(): string {
-  defaultSpillDir ??= mkdtempSync(join(tmpdir(), 'dsh-proc-'))
+  defaultSpillDir ??= mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
   return defaultSpillDir
 }
 
@@ -140,7 +140,7 @@ export class OutputCollector {
       // prediction and symlink planting in shared tmp dirs.
       this.spillFile = join(
         this.spillDir,
-        `dsh-proc-${process.pid}-${++spillCounter}-${randomBytes(6).toString('hex')}-${this.label}.log`,
+        `dsh-subprocess-${process.pid}-${++spillCounter}-${randomBytes(6).toString('hex')}-${this.label}.log`,
       )
       this.spillFd = openSync(this.spillFile, 'wx', 0o600)
       for (const prior of this.chunks) writeSync(this.spillFd, prior)
@@ -236,12 +236,12 @@ export function killGroup(pid: number, sig: NodeJS.Signals): void {
 
 /**
  * Spawn one isolated detached process group and collect its output.
- * Runtime exits resolve as {@link ProcessOutcome}; only spawn failures reject.
+ * Runtime exits resolve as {@link SubprocessOutcome}; only spawn failures reject.
  * @param spec - fully resolved argv, cwd, limits, and cancellation.
  * @param internals - test-only spill-directory override.
  * @returns live process handle and outcome promise.
  */
-export function spawnProcess(spec: ProcessSpawnSpec, internals: SpawnInternals = {}): ProcessHandle {
+export function spawnProcess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): SubprocessHandle {
   const spillDir = internals.spillDir ?? privateSpillDir()
 
   if (spec.signal?.aborted) {
@@ -264,12 +264,17 @@ export function spawnProcess(spec: ProcessSpawnSpec, internals: SpawnInternals =
   child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk) })
 
   let graceTimer: NodeJS.Timeout | undefined
+  let settled = false
 
   // Failed spawns use pid -1 so kill remains a no-op.
   const pid = child.pid ?? -1
 
   const kill = (): void => {
     if (graceTimer !== undefined) return // escalation already in flight
+    // After settlement the group is gone and the pid may be reused; callers
+    // commonly kill() in a finally, so this must not re-signal or start a
+    // timer that outlives the handle.
+    if (settled) return
     killGroup(pid, 'SIGTERM')
     graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
   }
@@ -284,8 +289,7 @@ export function spawnProcess(spec: ProcessSpawnSpec, internals: SpawnInternals =
     child.stdin.end(spec.stdin)
   }
 
-  const done = new Promise<ProcessOutcome>((resolve, reject) => {
-    let settled = false
+  const done = new Promise<SubprocessOutcome>((resolve, reject) => {
     let pipeDrainTimer: NodeJS.Timeout | undefined
     const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return

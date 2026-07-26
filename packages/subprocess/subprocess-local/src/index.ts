@@ -1,26 +1,26 @@
 /**
- * Local-subprocess implementation of the process-manager seam. Each spawn is
+ * Local-subprocess implementation of the subprocess seam. Each spawn is
  * a detached process group with bounded, spill-backed output; disposal kills
  * and joins live groups. It has no config: every limit arrives on the spec,
  * so the deployment-varying choices stay with the calling seam's config (the
  * bash executor's, today).
- * @module @deepseek-ai/dsh-process-local
+ * @module @deepseek-ai/dsh-subprocess-local
  */
 
 import { Context } from 'cordis'
-import { ProcessManager } from '@deepseek-ai/dsh-process'
-import type { ProcessHandle, ProcessSpawnSpec } from '@deepseek-ai/dsh-process'
+import { SubprocessService } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { spawnProcess } from './spawn.ts'
 import type { SpawnInternals } from './spawn.ts'
 
 /**
- * Local process manager: detached process groups, tail-keep truncation with
+ * Local subprocess service: detached process groups, tail-keep truncation with
  * bounded spill files, credential-scrubbed environment, and group
  * SIGTERM→grace→SIGKILL escalation.
  */
-export class LocalProcessManager extends ProcessManager {
+export class LocalSubprocessService extends SubprocessService {
   /** Live handles retained only so disposal can kill and join them. */
-  private live = new Set<ProcessHandle>()
+  private live = new Set<SubprocessHandle>()
   /** Test seam: spill knobs forwarded to spawnProcess. */
   internals: SpawnInternals = {}
 
@@ -36,10 +36,10 @@ export class LocalProcessManager extends ProcessManager {
       }
       this.live.clear()
       await Promise.all(pending)
-    }, 'local process-manager teardown')
+    }, 'local subprocess teardown')
   }
 
-  spawn(spec: ProcessSpawnSpec): ProcessHandle {
+  spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     const handle = spawnProcess(spec, this.internals)
     this.live.add(handle)
     handle.done.then(
@@ -50,4 +50,4 @@ export class LocalProcessManager extends ProcessManager {
   }
 }
 
-export default LocalProcessManager
+export default LocalSubprocessService

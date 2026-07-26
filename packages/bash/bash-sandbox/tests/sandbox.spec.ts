@@ -15,7 +15,7 @@ import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@
 import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
-import LocalProcessManager from '@deepseek-ai/dsh-process-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import { classifyDenial, classifyRunnerFailure, shellQuote } from '../src/helpers.ts'
 import type { Config } from '@deepseek-ai/dsh-bash-sandbox'
 
@@ -59,8 +59,8 @@ async function setup(
     ...mode !== undefined ? { mode } : {},
     ...workspaceRoot !== undefined ? { workspaceRoot } : {},
   })
-  await ctx.plugin(LocalProcessManager)
-  ;(ctx.processes as LocalProcessManager).internals = { spillDir }
+  await ctx.plugin(LocalSubprocessService)
+  ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
   await ctx.plugin(SandboxBashExecutor, { graceMs: 200, ...execConfig })
   const bash = ctx.bash as SandboxBashExecutor
   return { ctx, bash, calls }

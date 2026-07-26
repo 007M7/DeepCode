@@ -266,13 +266,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
   },
   {
-    key: 'processes',
+    key: 'subprocess',
     pkg: 'process',
     title: 'Process manager seam',
     mode: 'seam',
     implementations: ['process-local'],
     consumers: ['bash-local', 'bash-sandbox'],
-    note: 'The bash executors spawn their process groups through ctx.processes; the manager owns group lifetime, bounded spill-backed output, and kill escalation.',
+    note: 'The bash executors spawn their process groups through ctx.subprocess; the service owns group lifetime, bounded spill-backed output, and kill escalation.',
   },
   {
     key: 'bash',

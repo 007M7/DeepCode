@@ -1,7 +1,7 @@
 /**
- * Local implementation of the bash executor seam over the process-manager
+ * Local implementation of the bash executor seam over the subprocess
  * seam. Each command runs as `bash -c` in a managed process group spawned
- * through `ctx.processes`; this executor owns command defaulting, deadlines
+ * through `ctx.subprocess`; this executor owns command defaulting, deadlines
  * and cause classification, the model-friendly terminal environment, and the
  * model-facing stdout/stderr merge for background reads. Execution policy
  * belongs in `tools/pre-execute` or a sandboxing executor.
@@ -12,7 +12,7 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
-import type { ProcessSpawnSpec } from '@deepseek-ai/dsh-process'
+import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 
 /**
@@ -20,7 +20,7 @@ import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
  * interactive terminal features that would garble tool output (the same set
  * Codex hardcodes; Claude Code achieves it via TERM=dumb). Bash-tool policy —
  * merged into the ordinary env channel, so a trusted caller's own entry still
- * wins; the process manager applies its credential scrub independently.
+ * wins; the subprocess service applies its credential scrub independently.
  */
 export const ENV_OVERRIDES = {
   NO_COLOR: '1',
@@ -61,14 +61,14 @@ function assertPositiveFinite(name: string, value: number): void {
 }
 
 /**
- * Local bash executor over `ctx.processes`. Bounded output, spill files, and
- * process-group SIGTERM→SIGKILL escalation are the process manager's
+ * Local bash executor over `ctx.subprocess`. Bounded output, spill files, and
+ * process-group SIGTERM→SIGKILL escalation are the subprocess service's
  * mechanics; this executor supplies their configured budgets per spawn, so a
  * still-running background process stays managed (killed and joined at
  * composition teardown) even across an executor reload.
  */
 export class LocalBashExecutor extends BashExecutor {
-  static inject = ['processes']
+  static inject = ['subprocess']
 
   static Config: z<Config> = z.object({
     cwd: z.string(),
@@ -116,7 +116,7 @@ export class LocalBashExecutor extends BashExecutor {
       stdoutMaxBytes,
       ...request.signal ? { signal: request.signal } : {},
       // Carry stdin/ordinary env/trusted dshEnv through verbatim — optional,
-      // no config default. The process manager owns the scrub and merge order.
+      // no config default. The subprocess service owns the scrub and merge order.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
       ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
@@ -129,7 +129,7 @@ export class LocalBashExecutor extends BashExecutor {
 
   /** Map one resolved bash spec onto a fully-specified process spawn. */
   // XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
-  private spawnSpec(spec: BashExecSpec, stdoutMaxBytes: number, signal: AbortSignal | undefined): ProcessSpawnSpec {
+  private spawnSpec(spec: BashExecSpec, stdoutMaxBytes: number, signal: AbortSignal | undefined): SubprocessSpawnSpec {
     return {
       argv: ['bash', '-c', spec.command],
       cwd: spec.workdir,
@@ -147,7 +147,7 @@ export class LocalBashExecutor extends BashExecutor {
   async run(spec: BashExecSpec): Promise<BashRunResult> {
     // One deadline combines timeout and upstream cancellation; disposal clears its timer.
     using d = deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')
-    const outcome = await this.ctx.processes.spawn(this.spawnSpec(spec, spec.stdoutMaxBytes, d.signal)).done
+    const outcome = await this.ctx.subprocess.spawn(this.spawnSpec(spec, spec.stdoutMaxBytes, d.signal)).done
     // Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.
     const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
     const aborted = d.signal.aborted && !timedOut
@@ -156,9 +156,9 @@ export class LocalBashExecutor extends BashExecutor {
 
   start(spec: BashExecSpec): BashProcess {
     // Background runs ignore timeoutMs; callers stop them through kill() or spec.signal.
-    const running = this.ctx.processes.spawn(this.spawnSpec(spec, this.config.maxOutputBytes, spec.signal))
+    const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, this.config.maxOutputBytes, spec.signal))
 
-    // A spawn failure produces no process output, so the manager has nothing
+    // A spawn failure produces no process output, so the subprocess service has nothing
     // to buffer; the note is delivered exactly once through the read path.
     let spawnFailureNote: string | undefined
     const consumeSpawnFailure = (): string => {

@@ -18,7 +18,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import LocalProcessManager from '@deepseek-ai/dsh-process-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 
 const testToolSignal = new AbortController().signal
@@ -62,7 +62,7 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalProcessManager)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, { cwd: dir, timeoutMs: 20_000 })
     await ctx.plugin(ToolFsSearch)
   })

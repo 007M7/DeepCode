@@ -427,16 +427,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'processes',
-    summary: 'Abstract process manager.',
-    methods: [
-      {
-        signature: 'abstract spawn(spec: ProcessSpawnSpec): ProcessHandle',
-        jsDoc: '/**\n * Start one managed child process from a fully-specified spec; this seam\n * applies no defaults.\n * @param spec - argv, directory, limits, grace, cancellation, and environment.\n * @returns the live process handle (readers, kill, outcome promise).\n */',
-      },
-    ],
-  },
-  {
     key: 'pty',
     summary: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',
     methods: [
@@ -751,6 +741,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
         jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
+      },
+    ],
+  },
+  {
+    key: 'subprocess',
+    summary: 'Abstract subprocess service.',
+    methods: [
+      {
+        signature: 'abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle',
+        jsDoc: '/**\n * Start one managed child process from a fully-specified spec; this seam\n * applies no defaults.\n * @param spec - argv, directory, limits, grace, cancellation, and environment.\n * @returns the live process handle (readers, kill, outcome promise).\n */',
       },
     ],
   },
@@ -1459,10 +1459,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CodeRunResult {\n    value?: CodeJsonValue;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
-    name: 'CollectedOutput',
-    declaration: 'export interface CollectedOutput {\n    text: string;\n    truncated: boolean;\n    spillPath?: string;\n}',
-  },
-  {
     name: 'CommandDefinition',
     declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
   },
@@ -1557,14 +1553,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DomainTableSpec',
     declaration: 'export interface DomainTableSpec<K extends string = string, V = unknown> {\n    readonly valueSchema: ZodType<V>;\n    readonly __key?: K;\n}',
-  },
-  {
-    name: 'DshEnvironment',
-    declaration: 'export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>;',
-  },
-  {
-    name: 'DshEnvironmentKey',
-    declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
   },
   {
     name: 'EditGoalRequest',
@@ -1769,26 +1757,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PresetSpec',
     declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
-  },
-  {
-    name: 'ProcessHandle',
-    declaration: 'export interface ProcessHandle {\n    readonly pid: number;\n    readonly stdout: ProcessOutputReader;\n    readonly stderr: ProcessOutputReader;\n    readonly done: Promise<ProcessOutcome>;\n    kill(): void;\n}',
-  },
-  {
-    name: 'ProcessOutcome',
-    declaration: 'export interface ProcessOutcome {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    stdout: CollectedOutput;\n    stderr: CollectedOutput;\n}',
-  },
-  {
-    name: 'ProcessOutputRead',
-    declaration: 'export interface ProcessOutputRead {\n    text: string;\n    nextOffset: number;\n    lossy: boolean;\n    spillPath?: string;\n}',
-  },
-  {
-    name: 'ProcessOutputReader',
-    declaration: 'export interface ProcessOutputReader {\n    readFrom(fromByte: number): ProcessOutputRead;\n}',
-  },
-  {
-    name: 'ProcessSpawnSpec',
-    declaration: 'export interface ProcessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdoutMaxBytes: number;\n    stderrMaxBytes: number;\n    maxSpillBytes: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n}',
   },
   {
     name: 'PromptAssembly',
