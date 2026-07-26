@@ -11,6 +11,7 @@ const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
       'packages/bash/*',
       'packages/hooks/*',
+      'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
       'packages/sdk/create-sdk',
       'packages/sdk/helper',
@@ -30,6 +31,7 @@ const windowsCoverageExclusions = process.platform === 'win32'
 
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',
+  'apps/*/tests/**/*.spec.ts',
   'examples/*/tests/**/*.spec.ts',
   'scripts/**/*.spec.ts',
 ]
@@ -59,7 +61,10 @@ export default defineConfig({
         plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
-          pool: 'threads',
+          // Node 24 has aborted in its CJS lexer from a macOS arm64 worker
+          // thread. A fork contains that external runtime failure to the test
+          // process; other hosts retain the lower-overhead thread pool.
+          pool: process.platform === 'darwin' ? 'forks' : 'threads',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
@@ -104,8 +109,22 @@ export default defineConfig({
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
         'packages/host/webserver/src/*',
-        'packages/client/modules/src/loader.ts',
+        'packages/client/modules/src/client/system.ts',
         'packages/client/hmr/src/client/index.ts',
+        // Web config-tree boot round: the new host-side web-transport halves
+        // whose remaining branches need real-composition/process harnesses.
+        // TODO(gui): cover and remove with the client test lane above.
+        'packages/client/modules/src/index.ts',
+        'packages/client/modules/src/invariant.ts',
+        'packages/client/modules/src/client/index.ts',
+        'packages/client/modules/src/client/manifest.ts',
+        'packages/client/hmr/src/index.ts',
+        'packages/client/hmr/src/invariant.ts',
+        'packages/client/connection/src/index.ts',
+        'packages/client/connection/src/http-bridge.ts',
+        'packages/host/apiproxy/src/index.ts',
+        'packages/host/apiproxy/src/invariant.ts',
+        'packages/host/apiproxy/src/api-proxy.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

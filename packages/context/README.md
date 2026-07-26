@@ -1,6 +1,6 @@
 # context/ — request-context extensions
 
-Product plugins that add model-visible request context without defining a tool. `workspace-context` is included by the default `dsh-agent-spine-demo` bundle and can be disabled through bundle config; `time-context` is opt-in, while the standard TUI and ACP bundles compose `session-reference` explicitly.
+Product plugins that add model-visible request context without defining a tool. `workspace-context` is included by the default `dsh-agent-spine-demo` bundle and can be disabled through bundle config; `time-context` is opt-in, while the standard TUI bundle composes `session-reference` explicitly.
 
 | Package | Role | ctx key |
 |---|---|---|

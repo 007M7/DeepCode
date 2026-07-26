@@ -2,7 +2,7 @@
 
 Function plugin that retries selected transient model-request failures through the `agent/request-error` waterfall. It does not wrap `ctx.llm.stream()`: every adapter call remains one provider attempt, and every retry opens a fresh numbered turn.
 
-The default policy permits two retries for `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, using bounded exponential backoff from 500 ms to 10 seconds with 10 percent jitter. Delay bounds must fit Node's supported timer range. A valid `providerRetryAfterMs` replaces local backoff when it is within the configured cap; an over-cap instruction delegates to the next recovery policy instead.
+The default policy permits two retries for `EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, using bounded exponential backoff from 500 ms to 10 seconds with 10 percent jitter. `EMPTY_RESPONSE` is the adapters' classification of a degenerate provider completion (a terminal stop with zero content blocks); the attempt produced nothing durable, so repeating it is safe. Delay bounds must fit Node's supported timer range. A valid `providerRetryAfterMs` replaces local backoff when it is within the configured cap; an over-cap instruction delegates to the next recovery policy instead.
 
 The recovery listener appends a non-surface `llm/retry` event after the failed step, waits for the backoff while the failed turn's signal remains live, then calls `agent.retry()`. The loop closes that failed turn and opens a retry turn over the same durable history. The policy keeps its own retry count across that uninterrupted recovery chain and clears it at terminal `agent/idle`. Turn cancellation and plugin disposal abort the wait.
 
@@ -15,7 +15,7 @@ The separately published `./invariant` companion checks that every retry record 
     initialDelayMs: 500
     maxDelayMs: 10000
     jitterRatio: 0.1
-    retryableCodes: [RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
+    retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
 ```
 
 ## Model Experience

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Fiber } from 'cordis'
-import LlmService, { CallId, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, EMPTY_RESPONSE_CODE, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -57,6 +57,25 @@ function toolResponse(callId: string, name: string): StreamChunk[] {
     { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: '{}' },
     { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: '{}' } },
     { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+
+/**
+ * A degenerate empty provider completion as an error finish chunk. Both
+ * adapters emit this shape and the EMPTY_RESPONSE code (the field the policy
+ * routes on); the message text here is the deepseek adapter's phrasing (pi-ai
+ * qualifies it with the model name).
+ */
+function emptyCompletion(): StreamChunk[] {
+  return [
+    { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
+    {
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { message: 'model returned a completed response with no content', code: EMPTY_RESPONSE_CODE },
+      },
+    },
   ]
 }
 
@@ -181,6 +200,40 @@ describe('bounded transient retry policy', () => {
       role: 'assistant',
       content: [{ type: 'text', text: 'done' }],
       provenance: { provider: 'mock', model: 'mock' },
+    })
+  })
+
+  it('retries an EMPTY_RESPONSE error finish under the default retryable codes', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      emptyCompletion(),
+      textResponse('recovered'),
+    ])
+    // No retryableCodes override: this proves the default policy covers the
+    // adapters' empty-completion classification end to end (finish-chunk error
+    // delivery, not a thrown stream error).
+    ;({ ctx: context } = await harness(adapter))
+    const agent = context.agentLoop.create(SessionId('retry-empty-response'), { provider: 'mock', model: 'mock' })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    const event = await scheduled
+    expect(event.data.failure).toEqual({
+      message: 'model returned a completed response with no content',
+      code: EMPTY_RESPONSE_CODE,
+    })
+
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(500)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'assistant/message')
+      .map(event => [event.data.turn, event.data.step]))
+      .toEqual([[2, 1]])
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'recovered' }],
     })
   })
 

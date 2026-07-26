@@ -20,7 +20,7 @@
 
 ## `SessionLocation`——可选的逐会话产物目标
 
-`SessionPersistence.locate(meta)` 会同步解析一个归后端所有的独立产物，而不会读取、创建或 flush 它。JSONL 返回其绝对目标路径；SQLite 因各会话共享一个数据库而返回 `undefined`。因此，返回的路径可能指向尚不存在、或还不包含当前尚未 flush 的轮次；它是位置提示，不是授权或新鲜度保证。
+`SessionPersistence.locate(meta)` 会同步解析一个归后端所有的独立产物，而不会读取、创建或 flush 它。JSONL 返回其项目/会话目录内 transcript（文本记录）的绝对路径；SQLite 因各会话共享一个数据库而返回 `undefined`。因此，返回的路径可能指向尚不存在、或还不包含当前尚未 flush 的轮次；它是位置提示，不是授权或新鲜度保证。
 
 ```ts type-equiv
 /**

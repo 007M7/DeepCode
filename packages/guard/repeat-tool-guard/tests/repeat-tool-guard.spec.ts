@@ -321,10 +321,9 @@ describe('fold onto the downstream decision', () => {
 
     const found = reminders(agent)
     expect(found).toHaveLength(3)
-    // Call 1: below threshold — the downstream context passes through untouched.
+    // Only the repeated call adds guard context; downstream provenance survives.
     expect(found[0]!.text).toBe('downstream-ctx')
     expect(found[0]!.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    // Call 2: reminder and downstream context retain separate provenance.
     expect(found[1]!.text).toContain('repeating the exact same tool call')
     expect(found[1]!.source).toEqual(GUARD_SOURCE)
     expect(found[2]).toEqual({ text: 'downstream-ctx', source: { kind: 'plugin', plugin: 'test' } })

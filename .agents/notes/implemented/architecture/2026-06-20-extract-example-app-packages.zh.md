@@ -42,7 +42,7 @@ Status: implemented
 - 示例目录只包含配置、README 和测试：`start.ts`、基础设施前导和共享 YAML include 已移除。
 - `demo:tui`、`demo:headless` 和 `demo:acp` 调用应用包的 bin。
 - 每个新包都有 README 和逐文件 100% 覆盖率；每个应用包还有一个 keyless 的真实 Loader 路径 bin 冒烟测试，用于捕获[事后分析 0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md) 中描述的导出形状故障。
-- ACP 回放 transcript（文本记录）保持不变，因为插件集合和加载顺序未改变。
+- ACP 回放套件通过应用包的 bin 启动，因此协议接线与组装后的后端行为都跨越真实的 Loader 边界。
 
 ## 后果
 

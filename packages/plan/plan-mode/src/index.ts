@@ -15,8 +15,7 @@
  * The exit tool remains registered while plan mode is inactive so crossing a
  * boundary changes only the prompt section, not the request tool catalog.
  *
- * Agent Notes:
- * - .agents/notes/implemented/feature/2026-07-07-plan-mode.md
+ * Agent Note:
  * - .agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md
  *
  * @module @deepseek-ai/dsh-plan-mode

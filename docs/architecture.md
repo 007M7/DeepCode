@@ -43,7 +43,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute serv
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable session-log storage |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | `session-query` interface: concrete live-preferred exact/filter/trace; exactly two abstract FTS methods via `session-query-sqlite` |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | Live-preferred exact/filter/trace interface, SQLite FTS backend, and workspace-authorized model tools |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks plus one optional asynchronous provider |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry for package-owned runtime checks |
 
@@ -163,7 +163,7 @@ Exceptions combine layers: LLM interface/consumer; filesystem policy; web regist
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own the TUI, one-shot CLI, and ACP/JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies a default only without explicit config ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own TUI, CLI, ACP automation, and JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies a default only without explicit config ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

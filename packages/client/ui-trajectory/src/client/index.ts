@@ -1,9 +1,6 @@
 /**
- * Trajectory/Waterfall plugin, browser half: contributes the two placeholder
- * views into the conversation view ring (the 'conversation.view' list slot
- * declared by ui-conversation). Pure consumer — no ctx service, no Context
- * declaration merge; the minimal-plugin exemplar. Contract: api-contracts v3
- * section 8.
+ * Browser trajectory plugin contributing two entries to the conversation
+ * view slot without defining a service.
  */
 import type { Context } from 'cordis'
 // Type-only: the 'conversation.view' SlotMap row (declared by the slot's
@@ -24,8 +21,7 @@ export const inject = ['slots', 'conversation']
 /**
  * Client plugin body: register the trajectory and waterfall view tabs. The
  * registrations ride the slot service's effect wrapper (plugin unload
- * removes both tabs). Trajectory owns its turn list in-body; Waterfall keeps
- * the span stats header inside its body (chrome attachment retired).
+ * removes both tabs).
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {

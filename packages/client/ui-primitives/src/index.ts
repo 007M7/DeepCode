@@ -1,7 +1,5 @@
 /**
- * Pure React atoms (zero cordis): StateDot, icons, Button/Pill/Menu/Modal/Input,
- * markdown family, ConnectionBanner. Everything consumes props plus --dsw-*
- * token vars only. Contract: api-contracts v3 section 8.
+ * Cordis-free React primitives styled only through `--dsw-*` tokens.
  */
 
 export { StateDot } from './StateDot.tsx'

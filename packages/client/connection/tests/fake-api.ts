@@ -71,6 +71,14 @@ export class FakeApiClient implements IApiClient {
     describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
   }
 
+  readonly workspace: IApiClient['workspace'] = {
+    list: (payload: unknown) => this.record('workspace.list', payload, Promise.resolve(ok({ items: [] }))),
+    create: (payload: unknown) => this.record('workspace.create', payload, Promise.resolve(ok({
+      workspace: { workspaceId: 'fk-ws' as never, path: '/f/ws', title: 'ws', sessionIds: [], createdAt: '0', updatedAt: '0' },
+      created: true,
+    }))),
+  }
+
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
   suppressStreamOpen = false
 

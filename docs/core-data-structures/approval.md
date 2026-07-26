@@ -2,7 +2,7 @@
 
 English | [中文](approval.zh.md)
 
-The user-approval seam of [dsh-user-approval](../../packages/ui/user-approval) answers one question: may this specific action proceed? It owns the shared request/outcome vocabulary, the `ctx.approval` dispatch service, the `approval/request` answerer waterfall, the log-only audit pair, and the per-session `ask`/`never` policy. UI channels such as [dsh-acp](../../packages/ui/acp) provide answerers; callers such as [dsh-tools](../../packages/core/tools) and [dsh-tool-bash](../../packages/bash/tool-bash) consume the closed outcome and fail closed unless it is `allowed-once`.
+The user-approval seam of [dsh-user-approval](../../packages/ui/user-approval) answers one question: may this specific action proceed? It owns the shared request/outcome vocabulary, the `ctx.approval` dispatch service, the `approval/request` answerer waterfall, the log-only audit pair, and the per-session `ask`/`never` policy. UI channels may provide human answerers; the [ACP automation bridge](../../packages/acp/acp) provides one-shot machine decisions for its own agents. Callers such as [dsh-tools](../../packages/core/tools) and [dsh-tool-bash](../../packages/bash/tool-bash) consume the closed outcome and fail closed unless it is `allowed-once`.
 
 Source: [`packages/ui/user-approval/src/index.ts`](../../packages/ui/user-approval/src/index.ts)
 
@@ -48,7 +48,7 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
-The prompt section states the deterministic `never` behavior and records either policy with a source-owned marker. The pre-step narrator reads that marker from the logged request header after restart; it does not infer state from deployment persona prose. An idle ACP switch is held in the bridge until the next `turn/start`, because approval audit and policy events must remain turn-enclosed for durable replay.
+The prompt section states the deterministic `never` behavior and records either policy with a source-owned marker. The pre-step narrator reads that marker from the logged request header after restart; it does not infer state from deployment persona prose.
 
 ## Approval request
 

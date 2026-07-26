@@ -288,9 +288,9 @@ An ACP provider crosses a real process and wire boundary, so it retains validati
 
 Start resolves only after `initialize` and `newSession` succeed. Abort, spawn failure, RPC failure, or invalid startup response reaps the process before rejection. After readiness, result maps the ACP prompt outcome and streamed output; dispose requests cancellation, closes the connection, and awaits process exit through one memoized path.
 
-## Workflows and ACP UI: retain only independent async facts
+## Workflows and ACP processes: retain only independent async facts
 
-Worker and editor bridges need more state than same-process registries because messages, process death, and rendering can settle independently. Their state is organized around those real facts rather than duplicate cancellation protocols.
+Worker and child-process bridges need more state than same-process registries because messages, process death, and cleanup can settle independently. Their state is organized around those real facts rather than duplicate cancellation protocols.
 
 ### Workflow children are pending starts or published records
 
@@ -306,11 +306,11 @@ The workflow result records the first accepted terminal outcome according to the
 
 Public disposal claims its memoized promise before invoking callbacks. Worker death closes admission before processing any queued late child request, synthesizes missing lifecycle ends, and starts child/process cleanup without rewriting an outcome already claimed.
 
-### ACP prompt settlement does not depend on rendering success
+### ACP prompt settlement does not depend on update delivery
 
-The ACP UI correlates a prompt with its observed turn directly. It does not scan from a `logWatermark` or use session status as a second reconciliation oracle.
+The [automation-only ACP bridge](../simplification/2026-07-23-acp-automation-only-protocol.md) correlates one in-flight prompt with its observed user-message turn directly. It does not scan from a log watermark or use session status as a second reconciliation oracle.
 
-Prompt handling settles correlation in a `finally` around transcript rendering. A rendering failure can fail presentation, but it cannot skip prompt settlement or leave the session permanently in flight. Concurrent loads of the same persisted caller-supplied session ID remain excluded because that is a real persistence identity race, not a UUID collision concern.
+The session-event listener settles correlation from the matching `turn/end` even when a committed-message update cannot reach the client. Update delivery therefore cannot leave the session permanently in flight. ACP creates server-assigned fresh session ids and owns every resulting agent handle until connection teardown.
 
 ## Correctness enforcement
 

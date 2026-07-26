@@ -8,7 +8,7 @@ Status: implemented
 
 钩子 bridge——[`dsh-hooks-claude`](../../../../packages/hooks/hooks-claude)（7 个 Claude Code 钩子点）和 [`dsh-hooks-codex`](../../../../packages/hooks/hooks-codex)（5 个 Codex 点）——把外部钩子命令映射到 harness 拦截 seam。它们有深入的单元与覆盖率规格覆盖（每个决策分支、每种 payload dialect，针对 mock seam 驱动），外加一个受密钥门控的 e2e（`hooks.e2e.ts`，实时 `PreToolUse` 阻止）。但完整 transcript（文本记录）快照层——会启动真实 `acp-agent` 子进程、无需密钥重放已记录会话，并将规范化 ACP（Agent Client Protocol）stdout + 重新持久化日志与已提交预期输出进行 diff 的那张网——只覆盖了一个钩子：Claude `UserPromptSubmit` 阻止（`hook-cc-promptsubmit-block`）。
 
-这正是 mock 单元测试在结构上无法替代的层级：它验证的是真实 bridge 将真实钩子进程的结果翻译到真实 seam 决策，再到真实 agent loop（智能体循环）的反应，渲染结果与编辑器看到的完全一致。一个 bridge 翻译或 loop 结构的回归，即使让所有单元测试保持绿色，也会在除那一个钩子点之外的所有点上逃逸；而对于 Codex bridge，ACP 示例甚至没有加载它，因此没有任何 Codex 钩子能端到端触发。
+这正是 mock 单元测试在结构上无法替代的层级：它验证的是真实 bridge 将真实钩子进程的结果翻译到真实 seam 决策，再经由自动化线协议和持久化日志检验真实 agent loop（智能体循环）的反应。一个 bridge 翻译或 loop 结构的回归，即使让所有单元测试保持绿色，也会在除那一个钩子点之外的所有点上逃逸；而对于 Codex bridge，ACP 示例甚至没有加载它，因此没有任何 Codex 钩子能端到端触发。
 
 ## 决策
 

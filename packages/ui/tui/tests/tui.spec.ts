@@ -206,7 +206,7 @@ describe('TUI config', () => {
 })
 
 describe('resume command and /resume', () => {
-  const RESUME = 'RESUME_SESSION_ID={session} dsh'
+  const RESUME = 'dsh --resume {session}'
   const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
     ({ version: 0, id: SessionId(id), createdAt, cwd })
   const resumeEvents = (
@@ -234,7 +234,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output).toContain('To resume this session: RESUME_SESSION_ID=main-session dsh')
+    expect(result.terminal.output).toContain('To resume this session: dsh --resume main-session')
     expect(result.exit).toHaveBeenCalledWith(0)
     await dispose(result)
   })
@@ -999,7 +999,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
-    expect(result.terminal.output).toContain('RESUME_SESSION_ID=fallback-session')
+    expect(result.terminal.output).toContain('dsh --resume fallback-session')
     expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })
@@ -1914,7 +1914,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await mkdir(join(cwd, 'docs'), { recursive: true })
     await writeFile(join(cwd, 'src', 'source-file.ts'), 'export const source = true\n')
     await writeFile(join(cwd, 'docs', 'design notes.md'), '# Design\n')
-    await writeFile(join(cwd, 'unsafe\nfile.ts'), 'unsafe name\n')
+    await writeFile(join(cwd, 'unsafe\u007ffile.ts'), 'unsafe name\n')
     const result = await setup({
       cwd,
       tools: {
@@ -3496,8 +3496,7 @@ describe('terminal mounting', () => {
     await tick()
     expect(result.terminal.output.length).toBe(beforeSameScheme)
 
-    // Simulate the terminal responding with a light color scheme report
-    // (ESC [?997;2n = light, ESC [?997;1n = dark).
+    // ESC [?997;2n reports light; ESC [?997;1n reports dark.
     result.terminal.send('\x1b[?997;2n')
     await tick()
     await tick()
@@ -3509,11 +3508,9 @@ describe('terminal mounting', () => {
     // uses ANSI 90 for the same header text.
     expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
 
-    // Switch back to dark scheme.
     result.terminal.send('\x1b[?997;1n')
     await tick()
     await tick()
-    // After switching back, a new write uses SGR 2 for the header detail.
     expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
     await dispose(result)
   })

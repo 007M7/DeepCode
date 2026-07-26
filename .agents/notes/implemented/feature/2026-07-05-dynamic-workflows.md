@@ -60,7 +60,7 @@ Worker-side logic runs through an in-process `MessageChannel` so V8 coverage mea
 - **Nested `workflow()`**, **token `budget`**, and the `effort`/`isolation`/`agentType` agent options (each rejects loud with a message naming it deferred).
 - **An overall run wall-clock timeout** — cancellation always frees the caller (result settles within the grace), so a cap on total run time is a policy knob for the background redesign, not a correctness need here.
 - **Engine hardening beyond worker threads**: an isolated-vm or separate-process engine behind the same seam (actual sandboxing; memory limits).
-- **ACP progress UI** over the `workflow/*` events (a `/workflows`-style view); the events exist for it.
+- **Human-interface progress UI** over the `workflow/*` events (a `/workflows`-style view); the events exist for it.
 - **ACP-backend structured output** and **`toolFilter`** (both still capability-gated `false`).
 
 ## Alternatives considered

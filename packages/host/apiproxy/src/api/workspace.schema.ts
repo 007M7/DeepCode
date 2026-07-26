@@ -1,0 +1,46 @@
+/**
+ * workspace domain zod schemas (names derived from map keys). The
+ * WorkspaceId brand cast lives in sessions.schema (see the note there) and
+ * is re-exported here as the domain-local name.
+ */
+
+import { z } from 'zod'
+import type { RequestPayload, ResponseValue } from './rpc-map.ts'
+import type { Wire } from './rpc.schema.ts'
+import type { WorkspaceView } from './workspace.ts'
+import { sessionIdSchema, workspaceIdSchema } from './sessions.schema.ts'
+
+export { workspaceIdSchema } from './sessions.schema.ts'
+
+/** WorkspaceView row of every workspace.* response. */
+export const workspaceViewSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  path: z.string(),
+  title: z.string(),
+  sessionIds: z.array(sessionIdSchema),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+}) satisfies z.ZodType<Wire<WorkspaceView>>
+
+/** workspace.list request payload (empty object literal). */
+export const workspaceListRequestSchema = z.object({}) satisfies z.ZodType<Wire<RequestPayload<'workspace.list'>>>
+
+/** workspace.list response value. */
+export const workspaceListValueSchema = z.object({
+  items: z.array(workspaceViewSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.list'>>>
+
+/** workspace.create request payload: exactly one of path/name (the contract's create spellings). */
+export const workspaceCreateRequestSchema = z.object({
+  path: z.string().optional(),
+  name: z.string().optional(),
+}).refine(
+  payload => (payload.path === undefined) !== (payload.name === undefined),
+  { message: 'workspace.create requires exactly one of path / name' },
+) satisfies z.ZodType<Wire<RequestPayload<'workspace.create'>>>
+
+/** workspace.create response value. */
+export const workspaceCreateValueSchema = z.object({
+  workspace: workspaceViewSchema,
+  created: z.boolean(),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.create'>>>

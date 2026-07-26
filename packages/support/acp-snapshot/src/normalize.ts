@@ -10,12 +10,17 @@ const SESSION_ID = '{{sessionId}}'
 const CWD = '{{cwd}}'
 const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
-const UPDATED_AT = '{{updatedAt}}'
+const EVENT_TIME = '{{eventTime}}'
+const EVENT_OMITTED_BYTES = '{{eventOmittedBytes}}'
 
 /** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
 const PATH_TAG_RE = /(<path>)([^<]*)(<\/path>)/g
 const ADDITIONAL_INSTRUCTIONS_PATH_RE = /(Additional instructions from: )([^\r\n]+)/g
+const EMBEDDED_EVENT_TIME_RE = /^(  "time": )\d+(?=,\r?$)/gm
+const EVENT_READ_OMITTED_BYTES_RE = /(\r?\n\r?\n\(Omitted )\d+( bytes\.)/g
+const EVENT_READ_TARGET_REGION_RE
+  = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n[\s\S]*?(?=\r?\n```(?:\r?\n|$)|\r?\n\r?\n\(Omitted )/
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -62,6 +67,8 @@ export interface NormalizeContext {
   sessionIds: string[]
   /** The generated cwd the run used — replaced with `{{cwd}}`. */
   cwd: string
+  /** Other filesystem spellings of the same cwd (for example Windows short and long paths). */
+  cwdAliases?: readonly string[]
 }
 
 /** How cwd-rooted path separators are represented after the cwd is tokenized. */
@@ -76,14 +83,18 @@ export interface NormalizeOptions {
 /** Replace cwd, session ids, and any stray UUID with stable tokens in a string. */
 function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathMode): string {
   let out = value
-  // cwd first (longest, most specific), then explicit session ids, then any
-  // residual UUID (covers ids that appear in places we didn't enumerate).
-  // macOS symlinks /tmp → /private/tmp and /var → /private/var. The session
-  // header cwd may be recorded without the /private prefix while fs tools
-  // resolve symlinks, producing paths with the prefix inside tool results.
-  // Strip the prefix before the cwd replacement so both forms match.
-  out = out.split(`/private${ctx.cwd}`).join(ctx.cwd)
-  out = out.split(ctx.cwd).join(CWD)
+  // Filesystem APIs can report one directory with several spellings. Replace
+  // every known spelling longest-first so a shorter alias cannot corrupt a
+  // longer one before it is tokenized. macOS additionally symlinks
+  // /tmp → /private/tmp and /var → /private/var: the session header cwd may
+  // omit the /private prefix while fs tools resolve symlinks, so cover the
+  // prefixed form of every spelling too, then collapse a residual prefixed
+  // token.
+  const cwdSpellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? []])]
+    .filter(spelling => spelling.length > 0)
+    .flatMap(spelling => [`/private${spelling}`, spelling])
+    .sort((left, right) => right.length - left.length)
+  for (const spelling of cwdSpellings) out = out.split(spelling).join(CWD)
   out = out.split(`/private${CWD}`).join(CWD)
   if (cwdPathMode === 'canonical') {
     // Restrict separator conversion to paths rooted at the cwd token. A global
@@ -93,6 +104,16 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   }
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
+  // Exact event-read results render the target as pretty JSON inside a
+  // distinctive envelope. Restrict time scrubbing to that fenced target so
+  // neighbor, model, bash, and unrelated tool text remains regression-visible.
+  if (EVENT_READ_TARGET_REGION_RE.test(out)) {
+    out = out.replace(
+      EVENT_READ_TARGET_REGION_RE,
+      target => target.replace(EMBEDDED_EVENT_TIME_RE, `$1${EVENT_TIME}`),
+    )
+    out = out.replace(EVENT_READ_OMITTED_BYTES_RE, `$1${EVENT_OMITTED_BYTES}$2`)
+  }
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
   return out
@@ -145,8 +166,6 @@ export function normalizeStdout(
     if ('id' in frame && frame.id !== undefined && frame.id !== null) {
       frame.id = stableId(frame.id)
     }
-    const update = (frame.params as { update?: Record<string, unknown> } | undefined)?.update
-    if (update?.sessionUpdate === 'session_info_update') update.updatedAt = UPDATED_AT
     return scrubValue(frame, ctx, cwdPathMode) as Record<string, unknown>
   })
   return frames.map(f => JSON.stringify(f)).join('\n') + '\n'

@@ -32,6 +32,11 @@ export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
   'cancelled': {}
   'session-not-found': { sessionId: SessionId }
+  'session-conflict': { sessionId: SessionId; requestedCwd: string; existingCwd?: string }
+  'workspace-attach-failed': { sessionId: SessionId; workspaceId: string }
+  'workspace-not-found': { workspaceId: string }
+  'workspace-invalid-path': { path: string }
+  'workspace-name-conflict': { name: string }
   'agent-busy': { reason: string }
   'internal': {}
 }
