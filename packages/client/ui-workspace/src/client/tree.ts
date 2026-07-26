@@ -1,5 +1,5 @@
 /**
- * Derives the sidebar tree from Host Workspace order and membership.
+ * Derives the workspace browser tree from Host Workspace order and membership.
  * Unassigned Sessions trail under Ungrouped; only Intents targeting real Workspaces render.
  */
 import type { SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
@@ -223,11 +223,12 @@ function buildSearch(g: Group, visible: ReadonlySet<SessionId>): SessionNode[] {
 }
 
 /**
- * Derive the nested sidebar group structure.
+ * Derive the nested workspace browser group structure.
  *
  * Normal mode: every group shows; sessions populate under expanded groups,
  * descending only into expanded sessions. A frontend Session Intent targeting
- * a real Workspace marks that group `intentHere` and forces it expanded. Search mode (non-blank query,
+ * a real Workspace marks that group `intentHere` (rendered only while the
+ * group is expanded; expansion stays viewer-owned). Search mode (non-blank query,
  * case-insensitive display-title substring): expansion state is ignored —
  * matched sessions and their ancestor chains are forced visible, groups
  * without a display-title or label hit are dropped, a label-only hit keeps
@@ -263,7 +264,9 @@ export function deriveGroups(
       && g.workspaceId !== undefined && intentWorkspaceId === g.workspaceId
     const intentHere = q === '' && hasIntent
     if (q === '') {
-      const expanded = intentHere || expandedProjects.has(g.key)
+      // The intent never forces expansion — the viewer auto-expands the
+      // target group once (current-group effect); the toggle stays live.
+      const expanded = expandedProjects.has(g.key)
       groups.push({
         key: g.key,
         workspaceId: g.workspaceId,
@@ -292,6 +295,29 @@ export function deriveGroups(
     }
   }
   return groups
+}
+
+/**
+ * Derive the flat session list ("In one list" mode): every session — fork
+ * children included — as a top-level row, strictly newest-first. No grouping,
+ * no parent/child adjacency; rows reuse SessionNode with children always
+ * empty so the renderer stays branch-free. Search mode filters by
+ * case-insensitive display-title substring.
+ * @param list - sessions list snapshot.
+ * @param view - the search query (expansion state does not apply).
+ * @returns flat rows in render order.
+ */
+export function deriveFlat(list: SessionListState, view: Pick<TreeView, 'query'>): SessionNode[] {
+  const q = view.query.trim().toLowerCase()
+  const rows: SessionSummary[] = []
+  for (const id of list.ids) {
+    const s = list.byId[id]
+    if (s === undefined) continue
+    if (q !== '' && !s.displayTitle.toLowerCase().includes(q)) continue
+    rows.push(s)
+  }
+  rows.sort(byRecency)
+  return rows.map(s => sessionNode(s, [], false, false))
 }
 
 /**

@@ -48,7 +48,6 @@
    refresh straight into the collapsed state renders statically. */
 .railIn .iconButton,
 .railIn .newSession,
-.railIn .searchButton,
 .railIn .foot {
   animation: rail-in 150ms var(--ds-ease-in-out) 100ms backwards;
 }
@@ -184,192 +183,14 @@
   max-width: 0;
 }
 
-/* Section header: 36px, "WorkSpace" label + group-by / new-workspace buttons;
-   the right-anchored new-workspace button is the row's rail survivor. */
-.sectionHeader {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  height: 36px;
-  padding-left: 12px;
-  margin-bottom: 4px;
-  box-sizing: border-box;
-  border-radius: 12px;
-  overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.collapsed .sectionHeader {
-  height: 36px;
-  padding-left: 0;
-  margin-bottom: 12px;
-}
-
-.sectionLabel {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  line-height: 20px;
-}
-
-/* Search input: 38px capsule (figma 133:7649); collapsed it renders as the
-   rail's search control. Upstream binds a dedicated design-system variable (light
-   #F1F3F5 / dark #1B1B1C) matching no shipped alias — a component token
-   pinned to the static scale mirrors it (ruled compliant: indirect via
-   custom property, upstream-variable equivalent). */
-.search {
-  --dsh-search-input-fill: var(--dsw-static-neutral-bluish-75);
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 38px;
-  margin: 0 2px 12px; /* bottom: former listArea gap 4 + own 8 (spec padB12 to the first cell) */
-  padding: 0 14px;
-  box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 24px;
-  background: var(--dsh-search-input-fill);
-  color: var(--dsw-alias-label-caption);
-  overflow: hidden;
-}
-
-:global(body[data-ds-dark-theme]) .search {
-  --dsh-search-input-fill: var(--dsw-static-neutral-bluish-900);
-}
-
-.collapsed .search {
-  height: 36px;
-  padding: 0;
-  margin: 0 0 12px;
-  gap: 0;
-  border-color: transparent;
-  background: transparent;
-}
-
-/* The capsule's leading icon, upgraded to the rail's search control. While
-   expanded it is decorative: pointer-events off so clicks reach the label
-   (native input focus); collapsed it becomes the hit target. */
-.searchButton {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 50%;
-  padding: 0;
-  background: transparent;
-  pointer-events: none;
-  color: inherit;
-}
-
-.collapsed .searchButton {
-  width: 36px;
-  height: 36px;
-  pointer-events: auto;
-  cursor: pointer;
-  color: var(--dsw-alias-label-primary);
-}
-
-.collapsed .searchButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.searchInput {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.searchInput::placeholder {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.clearButton {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 50%;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  color: var(--dsw-alias-label-secondary);
-}
-
-/* Tree seat: always mounted so the foot never moves; the tree content inside
-   is wide-only and clips while the column squeezes. */
-.listArea {
+/* Region seat: always mounted so the foot never moves; the browser inside
+   handles its own wide/rail content. */
+.regionArea {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-/* Relative for the bottom fade overlay. */
-.treeBody {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-/* Bottom fade (figma 133:7666): 72px overlay pinned to the visible bottom,
-   transparent -> sidebar fill so it tracks the theme. */
-.fade {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 72px;
-  background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
-  pointer-events: none;
-}
-
-/* Tree list: the only scrolling region. Block, not a flex column: as flex
-   items the 54/34 rows would shrink under content overflow (scrollHeight
-   collapses onto clientHeight and wheel scrolling dies); block children keep
-   their design heights and the 4px rhythm rides margins instead of gap. */
-.list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding-bottom: 12px;
-}
-
-/* One workspace section: header row + expanded session run. Rows inside
-   keep the former flat-list 4px gap as sibling margins; the inter-group
-   breathing room (figma 133:7661 batch separator, 20px after an expanded
-   run) rides the NEXT section's top margin so the last group adds none. */
-.groupSection > * + * {
-  margin-top: 4px;
-}
-
-.groupSection + .groupSection {
-  margin-top: 4px;
-}
-
-.groupSection:has([aria-expanded='true']) + .groupSection {
-  margin-top: 20px;
-}
-
-.empty {
-  padding: 16px 12px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
 }
 
 /* Foot: settings entry (figma 133:7668, 49 hug): the former 18/10 vertical
@@ -418,7 +239,6 @@
   .fading > *,
   .railIn .iconButton,
   .railIn .newSession,
-  .railIn .searchButton,
   .railIn .foot {
     transition: none;
     animation: none;
