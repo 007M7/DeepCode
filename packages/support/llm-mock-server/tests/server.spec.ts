@@ -1,5 +1,5 @@
 import { request } from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MockLlmBehavior, MockLlmServer, MockLlmServerEvent } from '../src/index.ts'
 import { startMockLlmServer } from '../src/index.ts'
 
@@ -179,9 +179,11 @@ describe('mock LLM server wire behaviors', () => {
     const response = await chat(server, { signal: controller.signal })
     controller.abort()
     await expect(response.text()).rejects.toThrow()
-    await new Promise((resolve) => { setTimeout(resolve, 5) })
-
-    expect(server.requests[0]).toMatchObject({ behavior, outcome: 'client_closed' })
+    // The server observes the socket close asynchronously; a fixed sleep
+    // raced slow runners, so poll until the outcome lands.
+    await vi.waitFor(() => {
+      expect(server.requests[0]).toMatchObject({ behavior, outcome: 'client_closed' })
+    })
     expect(events.filter(event => event.type === 'result')).toEqual([
       expect.objectContaining({ behavior, outcome: 'client_closed' }),
     ])
