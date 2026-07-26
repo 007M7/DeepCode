@@ -267,10 +267,10 @@ const SERVICE_ROLES: ServiceRole[] = [
   },
   {
     key: 'subprocess',
-    pkg: 'process',
-    title: 'Process manager seam',
+    pkg: 'subprocess',
+    title: 'Subprocess seam',
     mode: 'seam',
-    implementations: ['process-local'],
+    implementations: ['subprocess-local'],
     consumers: ['bash-local', 'bash-sandbox'],
     note: 'The bash executors spawn their process groups through ctx.subprocess; the service owns group lifetime, bounded spill-backed output, and kill escalation.',
   },

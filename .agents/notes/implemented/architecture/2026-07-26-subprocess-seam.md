@@ -10,7 +10,7 @@ English | [中文](2026-07-26-subprocess-seam.zh.md)
 
 ## Decision
 
-A new `process/` capability family owns "run and manage a process"; the bash family keeps "run a bash command" and consumes it:
+A new `subprocess/` capability family owns "run and manage a process"; the bash family keeps "run a bash command" and consumes it:
 
 - **`@deepseek-ai/dsh-subprocess` (interface)** — the abstract `SubprocessService` owning `ctx.subprocess` with one method, `spawn(spec): SubprocessHandle`, and the shared vocabulary: the fully-explicit `SubprocessSpawnSpec` (argv, cwd, per-stream caps, spill cap, grace — no defaults; deployment-varying knobs stay with the calling seam's config, per the `dsh-bash` request/spec template and the no-hidden-defaults rule), `SubprocessHandle` with non-consuming offset-based readers, `SubprocessOutcome` with deliberately no timeout/cancel classification, and the `DSH_ENV_PREFIX`/`DshEnvironment`/`CollectedOutput` types. `argv` is never shell-interpreted.
 - **`@deepseek-ai/dsh-subprocess-local` (implementation)** — `LocalSubprocessService` over the former `run.ts` plumbing (`spawn.ts`): detached groups, tail-keep truncation with private bounded spill files, credential scrub with the two-channel `DSH_*` merge, group kill escalation, and disposal that kills and joins every still-running managed process. It has no config; every limit arrives on the spec. The terminal `ENV_OVERRIDES` (`TERM=dumb` etc.) did NOT move — that is bash-tool presentation policy and stays in `dsh-bash-local`, merged through the ordinary env channel.
