@@ -48,7 +48,7 @@
    refresh straight into the collapsed state renders statically. */
 .railIn .iconButton,
 .railIn .newSession,
-.railIn .foot {
+.railIn .footArea {
   animation: rail-in 150ms var(--ds-ease-in-out) 100ms backwards;
 }
 
@@ -193,45 +193,11 @@
   overflow: hidden;
 }
 
-/* Foot: settings entry (figma 133:7668, 49 hug): the former 18/10 vertical
-   margins fold into the row so the hover pill spans the full 49px. */
-.foot {
+/* Foot seat: a pure layout socket pinned under the region; the ui-settings
+   trigger row inside owns its own geometry (49px wide row / 36px rail
+   circle) and hover chrome. */
+.footArea {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 49px;
-  margin: 8px 0 0; /* + 49px row + root padBottom 6 keeps the old 57px band */
-  padding: 0 2px 0 6px;
-  border-radius: 12px;
-  cursor: pointer;
-  overflow: hidden;
-  color: var(--dsw-alias-label-primary);
-}
-
-.foot:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* Rail settings: the same 36x36 circle box as the other rail controls. */
-.collapsed .foot {
-  width: 36px;
-  height: 36px;
-  margin: 18px 0 10px;
-  justify-content: center;
-  gap: 0;
-  padding: 0;
-  border-radius: 50%;
-}
-
-.footLabel {
-  max-width: 120px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.collapsed .footLabel {
-  max-width: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -239,7 +205,7 @@
   .fading > *,
   .railIn .iconButton,
   .railIn .newSession,
-  .railIn .foot {
+  .railIn .footArea {
     transition: none;
     animation: none;
   }

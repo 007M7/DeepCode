@@ -1,9 +1,10 @@
 /**
  * Sidebar slot contract: the registrant-side props composition for the
- * layout-owned `sidebar` slot, plus the workspace-browser hole this shell
- * declares. The shell owns column geometry (fold state machine, brand row,
- * New Session, Settings); everything between the section header and the list
- * bottom is the `sidebar.workspaces` registrant's (ui-workspace).
+ * layout-owned `sidebar` slot, plus the holes this shell declares. The shell
+ * owns column geometry (fold state machine, brand row, New Session);
+ * everything between the section header and the list bottom is the
+ * `sidebar.workspaces` registrant's (ui-workspace), and the foot is the
+ * `sidebar.settings` registrant's (ui-settings).
  */
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
@@ -20,6 +21,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * registers the browser.
      */
     'sidebar.workspaces': { kind: 'single'; scope: 'root'; owner: SidebarSectionOwnerProps }
+    /**
+     * The settings seat at the sidebar foot. Declared by this package's
+     * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
+     * The sidebar passes only its column state — it holds no settings state.
+     */
+    'sidebar.settings': { kind: 'single'; scope: 'root'; owner: SidebarSettingsOwnerProps }
   }
 }
 
@@ -35,6 +42,15 @@ export interface SidebarSectionOwnerProps {
 }
 
 /**
+ * Owner share of the sidebar settings seat: the column display state the
+ * occupant's trigger row must render against (wide row vs rail icon).
+ */
+export interface SidebarSettingsOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
+}
+
+/**
  * Registrant-private injected share (arrives via the register inject
  * factory). The shell keeps only its own controls: starting a Session from
  * the New Session button and toggling the column.
@@ -47,8 +63,8 @@ export type SidebarRootInjected = {
 }
 
 /**
- * Full component props: layout owner state/actions plus the browser hole's
- * render share and this package's injected callbacks. No store is registered.
+ * Full component props: layout owner state/actions plus the declared holes'
+ * render shares and this package's injected callbacks. No store is registered.
  */
 export type SidebarRootComponentProps =
-  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspaces'> & SidebarRootInjected
+  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings'> & SidebarRootInjected
