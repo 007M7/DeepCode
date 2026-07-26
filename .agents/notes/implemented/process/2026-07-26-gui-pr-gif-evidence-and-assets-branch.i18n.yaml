@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-26-gui-pr-gif-evidence-and-assets-branch.md: c75b88cd9b4580217857c1fd730b8b335200680d
-2026-07-26-gui-pr-gif-evidence-and-assets-branch.zh.md: 6f2fdd1d8211661e780197b23a28688dab68ef50
+2026-07-26-gui-pr-gif-evidence-and-assets-branch.md: 221df5dc82dfb437261f6a836dcc6c2972f30939
+2026-07-26-gui-pr-gif-evidence-and-assets-branch.zh.md: 861cedb5d15c8e057c2a5f9001453fdc3a3c6757
