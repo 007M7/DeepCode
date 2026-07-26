@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { LspConnection } from '@deepseek-ai/dsh-lsp-local'
 import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
 
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
@@ -29,7 +30,7 @@ function connect(
     command: process.execPath,
     args: [fixtureServer],
     cwd: process.cwd(),
-    env: { ...process.env as Record<string, string>, ...env },
+    env: { ...scrubbedParentEnv(), ...env },
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
     pipeDrainGraceMs: 3_000,
@@ -139,7 +140,7 @@ function connectScript(script: string, maxStderrBytes = 100_000, writer?: Connec
     command: process.execPath,
     args: ['-e', script],
     cwd: process.cwd(),
-    env: { ...process.env as Record<string, string> },
+    env: scrubbedParentEnv(),
     maxMessageBytes: 16_000_000,
     maxStderrBytes,
     pipeDrainGraceMs: 3_000,

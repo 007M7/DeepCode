@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 import * as acp from '../src/index.ts'
 
@@ -52,6 +53,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     workdir = await mkdtemp(join(tmpdir(), 'dsh-subagent-acp-e2e-'))
     ctx = new Context()
     await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: childLaunch.command,
@@ -81,6 +83,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     workdir = await mkdtemp(join(tmpdir(), 'dsh-subagent-acp-e2e-'))
     ctx = new Context()
     await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: childLaunch.command,
