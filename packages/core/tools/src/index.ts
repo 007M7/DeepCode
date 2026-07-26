@@ -727,7 +727,11 @@ export class ToolRegistry extends Service {
     // the filterable global/scoped capability layers.
     this.codeTransport = this.mode === 'native'
       ? undefined
-      : createRunCodeTool(this, () => this.requireCodeRuntime(), resolveMaxParallelSubCalls(config.maxParallelSubCalls))
+      : createRunCodeTool(this, {
+        requireRuntime: () => this.requireCodeRuntime(),
+        maxParallel: resolveMaxParallelSubCalls(config.maxParallelSubCalls),
+        shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
+      })
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
       ctx.systemPrompt.section({
@@ -982,11 +986,12 @@ export class ToolRegistry extends Service {
    * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch
    * and return the content the bridge should log on `tool/code-dispatch`.
    * Contained: a throwing listener falls back to the unshaped content — log
-   * shaping must never fail the dispatch or lose the settle event.
-   * @param dispatch - the sub-dispatch identity and its default logged content.
-   * @returns the (possibly reshaped) content for the durable event.
+   * shaping must never fail the dispatch or lose the settle event. Private:
+   * the ONE consumer is the `run_code` bridge this registry constructs, which
+   * receives it as a capability parameter (the `requireRuntime` idiom) — the
+   * waterfall, not this invoker, is the public extension seam.
    */
-  async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]> {
+  private async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]> {
     try {
       return await this.ctx.waterfall(
         scopeTarget(this, dispatch.agent), 'tools/code-dispatch-log', dispatch,

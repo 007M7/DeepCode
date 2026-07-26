@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-26-code-dispatch-log-spill.md: 65af7808c493867cb13042a4f169ffdf05eb4538
-2026-07-26-code-dispatch-log-spill.zh.md: e1293e62f9de9860300428c5c0d25c5404dc76f9
+2026-07-26-code-dispatch-log-spill.md: eee8fb73b3f1ddba0a2da3ad5a9d2d4417d5951c
+2026-07-26-code-dispatch-log-spill.zh.md: 664a2aefcfef198d56809c289e10827a8084a06a

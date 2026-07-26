@@ -1831,16 +1831,6 @@ schemas(scope?: ScopeKey): ToolSchema[]
 executionMode(exec: ToolExecutionInput): ToolExecutionMode
 
 /**
- * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch
- * and return the content the bridge should log on `tool/code-dispatch`.
- * Contained: a throwing listener falls back to the unshaped content — log
- * shaping must never fail the dispatch or lose the settle event.
- * @param dispatch - the sub-dispatch identity and its default logged content.
- * @returns the (possibly reshaped) content for the durable event.
- */
-async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]>
-
-/**
  * Execute through pre-policy, guards, around-dispatch, post-policy,
  * definition-owned content finalization, and final notification. Tool and
  * listener failures resolve as materialized error results; an invisible tool
@@ -1857,7 +1847,7 @@ async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]>
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
-Types: [CodeDispatchLog](../core-data-structures/tools.md) · [ContentBlock](../core-data-structures/core.md) · [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
+Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:688`](../../packages/core/tools/src/index.ts)
 
