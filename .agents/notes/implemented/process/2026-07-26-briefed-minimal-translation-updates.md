@@ -26,6 +26,8 @@ The decision followed a controlled replay of ten real pair updates from this rep
 - On the briefing, a small model performed at parity with the large one, so the update path no longer assumes a frontier translator.
 - Batching three pairs into one subagent showed no reliable saving over three briefed runs and couples unrelated failures; it was rejected.
 
+A second head-to-head replay on the same ten examples compared this note's shipped briefing against its earlier section-only form (no unit tier, no computed mechanical path, counterpart-only context, no first-occurrence tracking). Prose quality and cost were at parity — pairwise blind verdicts split with only stylistic margins — and the shipped form won on two objective outcomes: the two code-fence-only examples were completed byte-identical to the human-reviewed historical updates in under a second with no model tokens, and on the example whose edit moved a term's document-wide first occurrence, the shipped briefing's flagged move reproduced the human-reviewed gloss relocation while the section-only form left a 首次出现 violation for review to catch.
+
 ## Alternatives considered
 
 - **Keep the workflow, just scope the gate** — the gate scan was the smaller cost; the corpus loads and archaeology dominated. Scoping alone would have left the ~3x overhead in place.
