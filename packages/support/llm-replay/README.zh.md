@@ -10,7 +10,7 @@
 
 Fixture 就是持久化会话日志（`<scenario>/session.jsonl`）。其 `assistant/chunk` 事件携带每个 `StreamChunk`，因此按 `(turn, step)` 对其分组可重建每次 `stream()` 调用的分片序列（每个 loop 步骤一次模型调用）。因此，录制操作是「运行一次真实 agent 并收集 `.jsonl`」，由快照 harness 完成；该插件不执行录制。Fixture 的 `request/header` 内容可能被 token 化为 `{{system}}`/`{{tools}}`（harness 在一个场景中固定该内容，并擦除其余场景）；回放对此并不关心，因为派生只读取 `assistant/chunk` 事件和第 0 行会话 header。
 
-有两种失败 mode 无法仅从 `assistant/chunk` 重建：在任何分片前纯抛出（例如 HTTP 401，日志只包含 `turn/end {error}` 而没有分片），以及 cancel/hang（是时序，而非分片内容）。需要这些的场景提供可选 sidecar（`<scenario>/replay.override.json`：一个 `ReplayEntry[]`），以替换派生脚本。`hang` 条目可以指定 `readyFile`；在其前缀分片到达 loop 后、等待取消前，回放会写入该空标记，使外部驱动器可以在不观察展示更新的情况下确定性取消。
+有两种失败 mode 无法仅从 `assistant/chunk` 重建：在任何分片前纯抛出（例如 HTTP 401，日志只包含 `turn/end {error}` 而没有分片），以及 cancel/hang（是时序，而非分片内容）。需要这些的场景提供可选 sidecar（`<scenario>/replay.override.json`），它要么替换派生脚本（裸 `ReplayEntry[]`），要么增补派生脚本（`{ patches: [{ at, entry }] }`：保留全部由 JSONL 派生的调用，仅在点名的调用索引处换入，索引从 0 计；`at` 等于派生长度时为追加，正是注入的瞬态抛出之后那次重试尝试所占的槽位）。`hang` 条目可以指定 `readyFile`；在其前缀分片到达 loop 后、等待取消前，回放会写入该空标记，使外部驱动器可以在不观察展示更新的情况下确定性取消。
 
 ## 嵌套 agent：每会话键控
 

@@ -124,10 +124,11 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
 
   it.skipIf(MODE === 'record')('cascades the dark theme from the body attribute to painted surfaces', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-lifecycle-dark'))
-    // No product control flips the theme yet — the ThemeService's whole DOM
-    // contract is the body[data-ds-dark-theme] attribute, so the scenario
-    // drives exactly that seam and pins the shipped stylesheet's cascade.
-    // TODO(web-theme-gesture): drive a real settings control once one exists.
+    // This scenario pins the ThemeService's DOM contract seam directly (the
+    // body[data-ds-dark-theme] attribute -> stylesheet cascade); the REAL
+    // user gesture above it (Settings -> Appearance cubes) is owned by
+    // settings-chrome.e2e.ts. Driving the attribute here keeps the cascade
+    // pinned independently of the settings surface's own lifecycle.
     const sample = async (): Promise<{ token: string; sidebarBg: string; bodyBg: string }> =>
       await page.evaluate(() => {
         const sidebar = document.querySelector('[class*="sidebar"], [class*="rail"]') ?? document.body
