@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-26-subprocess-consumer-migration.md: 805f27ba2e72a7f29d1b32053add95b8c33a62e2
-2026-07-26-subprocess-consumer-migration.zh.md: 483d209b6bea09d9d1231f6bbeebf506cff07cb4
+2026-07-26-subprocess-consumer-migration.zh.md: 41bdf04bc03517cf9fe10a61a565e442ecee5520
