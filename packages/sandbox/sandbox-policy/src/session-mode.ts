@@ -56,13 +56,17 @@ export function effectiveSandboxMode(events: readonly SessionEvent[]): SandboxMo
 
 /**
  * The session's complete sandbox-mode OVERRIDE chain — the one home every
- * consumer (the policy service, the permission presets) resolves through:
- * the fold of the session's OWN switches (events past the seed boundary — a
- * fork seed's stale parent switch is subsumed by the delegation baseline
- * captured after it), else the header's inherited baseline. Never the
- * deployment default. The durable baseline is validated UNCONDITIONALLY — a
- * corrupt or foreign header must fail loud on every read, not only when no
- * own switch happens to shadow it.
+ * consumer (the policy service, the permission presets) resolves through.
+ * With a header baseline (a delegation child), the fold covers only the
+ * session's OWN switches past the seed boundary — the baseline was captured
+ * from the parent's FULL log at delegation, so any seed-carried switch is
+ * already subsumed by it, stale or not. Without a baseline (a top-level
+ * session, or a generic `SessionStore.fork` child that captured no policy
+ * meta), the fold covers the whole log: seeded switches ARE the replayed
+ * inherited truth, and slicing them away would silently widen the child to
+ * the deployment default. Never the deployment default itself. The durable
+ * baseline is validated UNCONDITIONALLY — a corrupt or foreign header must
+ * fail loud on every read, not only when no own switch happens to shadow it.
  * @param session - the session whose override chain to resolve.
  * @returns the effective override, or `undefined` for a session following
  *   the deployment default.
@@ -70,11 +74,12 @@ export function effectiveSandboxMode(events: readonly SessionEvent[]): SandboxMo
  */
 export function sandboxOverrideOf(session: Session): SandboxMode | undefined {
   const baseline = session.header.sandboxMode
-  if (baseline !== undefined && !SANDBOX_MODES.includes(baseline as SandboxMode)) {
+  if (baseline === undefined) return effectiveSandboxMode(session.events)
+  if (!SANDBOX_MODES.includes(baseline as SandboxMode)) {
     throw new Error(`session header sandboxMode "${baseline}" is outside the closed mode vocabulary`)
   }
   const own = effectiveSandboxMode(session.events.slice(session.header.seedLength ?? 0))
-  return own ?? baseline as SandboxMode | undefined
+  return own ?? baseline as SandboxMode
 }
 
 /**

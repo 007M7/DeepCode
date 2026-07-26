@@ -14,7 +14,7 @@ Status: implemented
 
 - **委派时同步捕获，持久化在创建时的会话头中。**驱动器在自己的第一个 await 之前就为两个策略旋钮读取 `overrideOf(parent.session)`——委派时刻即快照点，因此与异步的子 agent 创建过程赛跑的父级切换属于父级的未来，而非子 agent——并把捕获值盖章写入子 agent 的创建 `meta`（`SessionHeader` 上的 `sandboxMode`/`approvalPolicy`）。该基线从会话存在的那一刻起就具备持久性：任何监听器顺序都不可能饿死它（即便一个作出拒绝的 UserPromptSubmit 钩子否决了第一个提示词，也不会产生任何影响），任何崩溃窗口也不可能丢失它——决定性的场景是空闲时的 SessionStart 式注入在任何提示词轮次开启之前就持久化了一个完整轮次，在那之后第一个轮次内的事件尚不存在，而会话已经看起来可以恢复。
 - **只复制覆盖链，且由策略 owner 在读取时校验。**`overrideOf(session)`——即纯函数导出 `sandboxOverrideOf`/`approvalOverrideOf`，以服务方法的形式暴露——解析为 `fold(events past the seed boundary) ?? header baseline`，从不包含部署／配置默认值：未切换过的父级不写入任何基线，因此其子 agent 跨重启继续跟随实时默认值。这两个会话头字段在会话边界上只是中性字符串；每个策略 owner 在每次读取时都无条件按自己的封闭词汇校验（即便自己做出的切换会遮蔽基线，损坏的会话头也会大声失败），遇到词汇之外的值即抛出异常。每一个旋钮消费方都经由同一条链解析——强制执行侧（`resolve()`、pty-local）与权限 preset（`current`/`set`）皆然——因此当选中更窄的 preset 时，继承了更宽基线的子 agent 得到的是真实的旋钮切换，而非静默的空操作。驱动器以可选方式消费这两个服务（`ctx.get`，仅类型导入，`peerDependenciesMeta.optional`）：未挂载它们的组合照旧进行无策略委派，行为不变。
-- **fork 陈旧种子的优先级由种子边界自然得出。**fork 种子可能携带父级旧的切换事件；`overrideOf` 只折叠 `header.seedLength` 之后的事件，因此种子携带的历史已被委派时的基线所涵盖，而子 agent 自己做出的切换仍然优先于基线。日志中不含任何合成事件——会话头是基线的唯一存放处，规范写入路径 `setSandboxMode`/`setApprovalPolicy` 仍然只留给真实的运行时切换。
+- **fork 陈旧种子的优先级由种子边界自然得出——仅限委派子 agent。**fork 种子可能携带父级旧的切换事件；当会话头基线存在时，`overrideOf` 只折叠 `header.seedLength` 之后的事件——基线是在委派时从父级的完整日志捕获的，因此种子携带的历史已被它所涵盖，而子 agent 自己做出的切换仍然优先于基线。没有基线时（顶层会话，或未捕获任何策略元数据的通用 `SessionStore.fork` 子会话），折叠覆盖完整日志：此时种子携带的切换本身就是回放所得的继承事实，把它们切掉会把子会话静默放宽到部署默认值。日志中不含任何合成事件——会话头是基线的唯一存放处，规范写入路径 `setSandboxMode`/`setApprovalPolicy` 仍然只留给真实的运行时切换。
 - **嵌套按构造即可组合。**孙代 agent 捕获时解析的是其父级（即上一层的子 agent）的覆盖链（自身折叠 ?? 基线），这条链在每层委派处收拢一级，任意深度均成立。一次性的 `allowed-once` 升级授权从不进入任何日志或会话头，因此永远不可能沿链向下泄漏。
 
 ### 被拦住的子 agent 会经历什么

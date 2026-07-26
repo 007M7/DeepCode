@@ -141,12 +141,16 @@ export function effectiveApprovalPolicy(events: readonly SessionEvent[]): Approv
 /**
  * The session's complete approval-policy OVERRIDE chain — the one home every
  * consumer (this service's policy tier, the permission presets) resolves
- * through: the fold of the session's OWN switches (events past the seed
- * boundary — a fork seed's stale parent switch is subsumed by the delegation
- * baseline captured after it), else the header's inherited baseline. Never
- * the configured default. The durable baseline is validated UNCONDITIONALLY —
- * a corrupt or foreign header must fail loud on every read, not only when no
- * own switch happens to shadow it.
+ * through. With a header baseline (a delegation child), the fold covers only
+ * the session's OWN switches past the seed boundary — the baseline was
+ * captured from the parent's FULL log at delegation, so any seed-carried
+ * switch is already subsumed by it. Without a baseline (a top-level session,
+ * or a generic `SessionStore.fork` child that captured no policy meta), the
+ * fold covers the whole log: seeded switches ARE the replayed inherited
+ * truth, and slicing them away would silently drop a forked `'never'`. Never
+ * the configured default itself. The durable baseline is validated
+ * UNCONDITIONALLY — a corrupt or foreign header must fail loud on every
+ * read, not only when no own switch happens to shadow it.
  * @param session - the session whose override chain to resolve.
  * @returns the effective override, or `undefined` for a session following
  *   the configured default.
@@ -154,11 +158,12 @@ export function effectiveApprovalPolicy(events: readonly SessionEvent[]): Approv
  */
 export function approvalOverrideOf(session: Session): ApprovalPolicy | undefined {
   const baseline = session.header.approvalPolicy
-  if (baseline !== undefined && !APPROVAL_POLICIES.includes(baseline as ApprovalPolicy)) {
+  if (baseline === undefined) return effectiveApprovalPolicy(session.events)
+  if (!APPROVAL_POLICIES.includes(baseline as ApprovalPolicy)) {
     throw new Error(`session header approvalPolicy "${baseline}" is outside the closed policy vocabulary`)
   }
   const own = effectiveApprovalPolicy(session.events.slice(session.header.seedLength ?? 0))
-  return own ?? baseline as ApprovalPolicy | undefined
+  return own ?? baseline as ApprovalPolicy
 }
 
 /**

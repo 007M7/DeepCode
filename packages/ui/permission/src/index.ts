@@ -143,10 +143,11 @@ export class PermissionService extends Service {
    * override chains execution reads (own post-seed switches, else the
    * inherited header baseline, else the composition defaults), so a
    * delegated child's inherited knobs derive its real preset. A
-   * still-matching last OWN selection wins shared-bundle ties (a seed-carried
-   * selection is stale parent history, subsumed by the baseline); otherwise
-   * the first table match wins, or {@link CUSTOM_PRESET} when no entry
-   * matches.
+   * still-matching last selection wins shared-bundle ties, scoped like the
+   * knob chains: a delegation child (header baselines present) ignores
+   * seed-carried selections as stale parent history, while a generic fork
+   * child keeps them alongside its seed-carried knobs; otherwise the first
+   * table match wins, or {@link CUSTOM_PRESET} when no entry matches.
    * @param session - the session whose preset to derive.
    * @returns the effective preset name, or `custom` when nothing matches.
    */
@@ -154,7 +155,8 @@ export class PermissionService extends Service {
     const sandbox = sandboxOverrideOf(session) ?? this.ctx.bash.sandboxMode
     const approval = approvalOverrideOf(session) ?? this.ctx.approval.config.policy ?? 'ask'
     const matches = (spec: PresetSpec): boolean => spec.sandbox === sandbox && spec.approval === approval
-    const folded = effectivePermissionPreset(session.events.slice(session.header.seedLength ?? 0))
+    const delegated = session.header.sandboxMode !== undefined || session.header.approvalPolicy !== undefined
+    const folded = effectivePermissionPreset(delegated ? session.events.slice(session.header.seedLength ?? 0) : session.events)
     if (folded !== undefined) {
       const spec = this.presets[folded]
       if (spec !== undefined && matches(spec)) return folded

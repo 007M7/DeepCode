@@ -644,4 +644,15 @@ describe('delegation inheritance (overrideOf over the header baseline)', () => {
 
     expect(() => ctx.approval.overrideOf(child)).toThrow(/approvalPolicy/)
   })
+
+  it('a generic SessionStore.fork child (seedLength, NO baseline) keeps its seed-carried override', async () => {
+    const ctx = await mounted()
+    // The public fork path sets seedLength but captures no delegation
+    // baseline; with nothing to subsume them, seeded switches ARE the
+    // child's inherited truth — slicing would silently drop a forked 'never'.
+    const child = inheritedSession('sess-appr-generic-fork', { seedLength: 1 })
+    setApprovalPolicy(child, 'never')
+
+    expect(ctx.approval.overrideOf(child)).toBe('never')
+  })
 })

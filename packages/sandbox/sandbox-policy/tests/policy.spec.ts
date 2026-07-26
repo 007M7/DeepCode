@@ -205,4 +205,17 @@ describe('delegation inheritance (overrideOf over the header baseline)', () => {
 
     expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/sandboxMode/)
   })
+
+  it('a generic SessionStore.fork child (seedLength, NO baseline) keeps its seed-carried override', async () => {
+    const ctx = await mounted({ mode: 'workspace-write' })
+    // The public fork path sets seedLength but captures no delegation
+    // baseline; the seed boundary must not discard the replayed policy state
+    // it exists to subsume — with nothing to subsume it, seeded switches ARE
+    // the child's inherited truth.
+    const child = inheritedSession('sess-generic-fork', { seedLength: 1 })
+    setSandboxMode(child, 'read-only')
+
+    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('read-only')
+    expect(ctx.sandboxPolicy.resolve({ session: child }).mode).toBe('read-only')
+  })
 })

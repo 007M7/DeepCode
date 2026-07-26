@@ -256,7 +256,7 @@ overrideOf(session: Session): ApprovalPolicy | undefined
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:236`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:241`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -778,10 +778,11 @@ Owns the deployment's permission presets and their write path. Requires a confin
  * override chains execution reads (own post-seed switches, else the
  * inherited header baseline, else the composition defaults), so a
  * delegated child's inherited knobs derive its real preset. A
- * still-matching last OWN selection wins shared-bundle ties (a seed-carried
- * selection is stale parent history, subsumed by the baseline); otherwise
- * the first table match wins, or {@link CUSTOM_PRESET} when no entry
- * matches.
+ * still-matching last selection wins shared-bundle ties, scoped like the
+ * knob chains: a delegation child (header baselines present) ignores
+ * seed-carried selections as stale parent history, while a generic fork
+ * child keeps them alongside its seed-carried knobs; otherwise the first
+ * table match wins, or {@link CUSTOM_PRESET} when no entry matches.
  * @param session - the session whose preset to derive.
  * @returns the effective preset name, or `custom` when nothing matches.
  */

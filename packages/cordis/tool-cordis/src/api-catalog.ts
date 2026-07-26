@@ -400,7 +400,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'current(session: Session): string',
-        jsDoc: '/**\n * Resolve the preset matching the effective knob values — the same\n * override chains execution reads (own post-seed switches, else the\n * inherited header baseline, else the composition defaults), so a\n * delegated child\'s inherited knobs derive its real preset. A\n * still-matching last OWN selection wins shared-bundle ties (a seed-carried\n * selection is stale parent history, subsumed by the baseline); otherwise\n * the first table match wins, or {@link CUSTOM_PRESET} when no entry\n * matches.\n * @param session - the session whose preset to derive.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
+        jsDoc: '/**\n * Resolve the preset matching the effective knob values — the same\n * override chains execution reads (own post-seed switches, else the\n * inherited header baseline, else the composition defaults), so a\n * delegated child\'s inherited knobs derive its real preset. A\n * still-matching last selection wins shared-bundle ties, scoped like the\n * knob chains: a delegation child (header baselines present) ignores\n * seed-carried selections as stale parent history, while a generic fork\n * child keeps them alongside its seed-carried knobs; otherwise the first\n * table match wins, or {@link CUSTOM_PRESET} when no entry matches.\n * @param session - the session whose preset to derive.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
       },
       {
         signature: 'resolve(name: string): PresetSpec',
