@@ -14,6 +14,7 @@
     "apps/web/tests/question-composer.e2e.ts",
     "apps/web/tests/steering.e2e.ts",
     "apps/web/tests/navigation-panes.e2e.ts",
+    "apps/web/tests/lifecycle-chrome.e2e.ts",
     "apps/web/tests/replay-round-trip.e2e.ts",
     "apps/web/tests/seeded-history.e2e.ts",
     "apps/cli/tests/**/*.ts",
