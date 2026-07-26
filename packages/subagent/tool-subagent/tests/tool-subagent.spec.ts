@@ -8,7 +8,7 @@ import { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as mock from './scripted-provider.ts'
 import * as tool from '../src/index.ts'
@@ -641,7 +641,7 @@ describe('dsh-tool-subagent background mode', () => {
   async function backgroundSetup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> = {}) {
     const ctx = await setup(toolConfig, mockConfig)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks, {})
     return ctx
   }
@@ -868,7 +868,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
     // With no control surface, task preflight fails before the provider can spawn.
     const ctx = await setup({ provider: 'mock' })
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     const scopeFiber = ctx.plugin(() => {})
     const id = SessionId('sess-p')
     const parent = {

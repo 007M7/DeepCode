@@ -1,5 +1,5 @@
 import { request } from 'node:http'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { MockLlmBehavior, MockLlmServer, MockLlmServerEvent } from '../src/index.ts'
 import { startMockLlmServer } from '../src/index.ts'
 
@@ -169,21 +169,23 @@ describe('mock LLM server wire behaviors', () => {
     ['partial_disconnect', 100] as const,
   ])('records a client that closes during %s', async (behavior, delayMs) => {
     const events: MockLlmServerEvent[] = []
+    const result = Promise.withResolvers<Extract<MockLlmServerEvent, { type: 'result' }>>()
     const server = await start([behavior], {
       chunkDelayMs: delayMs,
       disconnectDelayMs: delayMs,
       chunkSize: 1,
-      onEvent: (event) => { events.push(event) },
+      onEvent: (event) => {
+        events.push(event)
+        if (event.type === 'result') result.resolve(event)
+      },
     })
     const controller = new AbortController()
     const response = await chat(server, { signal: controller.signal })
     controller.abort()
     await expect(response.text()).rejects.toThrow()
-    // The server observes the socket close asynchronously; a fixed sleep
-    // raced slow runners, so poll until the outcome lands.
-    await vi.waitFor(() => {
-      expect(server.requests[0]).toMatchObject({ behavior, outcome: 'client_closed' })
-    })
+    await result.promise
+
+    expect(server.requests[0]).toMatchObject({ behavior, outcome: 'client_closed' })
     expect(events.filter(event => event.type === 'result')).toEqual([
       expect.objectContaining({ behavior, outcome: 'client_closed' }),
     ])

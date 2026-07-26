@@ -30,4 +30,4 @@ Status: implemented
 
 - 只剩一个围栏解析器：所有 markdown 门禁现在都经由 mdast 归类代码围栏，因此波浪线围栏、缩进围栏和四反引号容器围栏在各处的行为完全一致。文档树中不存在正则扫描器处理有误的围栏形态，所以在落地这次替换的代码树上门禁结果不变：`pnpm run doc-sync` 及每个被改写的门禁在改动前后各跑一遍，输出逐字节相同（`doc-typecheck` 的块数/opt-out 计数、`verify-type-equiv` 的匹配计数、`publint`、`verify-built-package-invariants`、`verify-runtime-closure`、`verify-package-paths`、`verify-client-domain-graph`，以及两个包 README 散文门禁）。
 - `verify-type-equiv` 不再对未闭合的围栏报专门的错误：mdast 会在文件末尾闭合未闭合的代码块，这样的块会进入 manifest 检查，并在那里以孤儿或漂移的形式照样失败，而不是触发专门的扫描器错误。`doc-typecheck` 的扫描器本来就没有这条错误路径。
-- `parseArgs` 对重复出现的选项保留最后一个值而不报错，还会把下一个以 `--` 开头的 token 当作值消费；这两种情况都是测试未固定的开发工具边缘用例，作为删除两份手写解析器的交换被接受。
+- `parseArgs` 对重复出现的选项保留最后一个值而不报错——一个测试未固定的开发工具边缘用例，作为删除两份手写解析器的交换被接受。（严格模式下，需要取值处遇到以 `--` 开头的 token 仍会拒绝，与被替换的解析器行为一致。）

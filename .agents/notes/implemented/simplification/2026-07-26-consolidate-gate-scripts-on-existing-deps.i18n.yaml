@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-26-consolidate-gate-scripts-on-existing-deps.md: 5a7c032bf44a72aa269e0f34e555ed775f6290b4
-2026-07-26-consolidate-gate-scripts-on-existing-deps.zh.md: c914d2b183c5d6949aa1be384fe5b7562fb1bc1f
+2026-07-26-consolidate-gate-scripts-on-existing-deps.md: 31823979e16544a77284eeeab02983c6090cbb51
+2026-07-26-consolidate-gate-scripts-on-existing-deps.zh.md: 366fd5acff0ec4ddaf2dffa2ec373c90d2e964f3

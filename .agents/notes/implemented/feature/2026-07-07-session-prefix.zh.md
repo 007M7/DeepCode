@@ -24,7 +24,7 @@ Status: implemented
 
 ## 测试
 
-[拦截测试](../../../../packages/core/agent-loop/tests/interception.spec.ts)固定了以下行为：没有变更 header 时的组合一次复用、前置插入顺序、空前缀省略、不可变性、组合在步骤前检查点之前完成，以及已路由 header 上的前缀；[取消测试](../../../../packages/core/agent-loop/tests/cancel.spec.ts)固定了丢弃与重新组合。Session、不变式、token-meter 和压缩测试覆盖 header 往返、请求重建与持久前缀感知的压力核算。快照归一化保留前缀计数，[固定 header 场景](../testing/2026-07-06-pin-request-header-content-in-one-scenario.md)拥有内容，默认示例保持无前缀。与提供方无关的 seam 无需专门 e2e；带密钥的 [request-cache e2e](../../../../packages/core/agent-loop/tests/request-cache.e2e.ts) 覆盖了其缓存经济性。
+[拦截测试](../../../../packages/core/agent-loop/tests/interception.spec.ts)固定了以下行为：没有变更 header 时的组合一次复用、前置插入顺序、空前缀省略、不可变性、组合在步骤前检查点之前完成，以及已路由 header 上的前缀；[取消测试](../../../../packages/core/agent-loop/tests/cancel.spec.ts)固定了丢弃与重新组合。Session、不变式、token-meter 和压缩测试覆盖 header 往返、请求重建与持久前缀感知的压力核算。快照归一化保留前缀计数，[固定 header 场景](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)拥有内容，默认示例保持无前缀。与提供方无关的 seam 无需专门 e2e；带密钥的 [request-cache e2e](../../../../packages/core/agent-loop/tests/request-cache.e2e.ts) 覆盖了其缓存经济性。
 
 ## 曾考虑的替代方案
 
