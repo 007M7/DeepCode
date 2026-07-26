@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type {
   SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { deriveGroups, formatRelativeTime, projectLabel, UNGROUPED_KEY, UNGROUPED_LABEL } from '../src/client/tree.ts'
+import { deriveFlat, deriveGroups, formatRelativeTime, projectLabel, UNGROUPED_KEY, UNGROUPED_LABEL } from '../src/client/tree.ts'
+import { createWorkspaceViewStore } from '../src/client/stores.ts'
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -50,6 +51,12 @@ describe('deriveGroups', () => {
     }))
     const hiddenIntent = { sessionId: sid('zero'), target: { kind: 'workspace-intent' as const }, prompt: '', phase: 'ready' as const }
     expect(deriveGroups({ ...list(), intent: hiddenIntent }, [target], view())[0]!.intentHere).toBe(false)
+  })
+
+  it('an Intent no longer forces its target group expanded (viewer owns expansion)', () => {
+    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('first') }, prompt: '', phase: 'connecting' as const }
+    const groups = deriveGroups({ ...list(), intent }, [workspace('first', [])], view())
+    expect(groups[0]).toEqual(expect.objectContaining({ intentHere: true, expanded: false }))
   })
 
   it('search filters real Sessions and omits the Intent placeholder', () => {
@@ -132,6 +139,39 @@ describe('deriveGroups', () => {
     expect(ownedGroups.find(group => group.key === 'project')!.containsCurrent).toBe(true)
     const looseGroups = deriveGroups({ ...list(owned, loose), current: loose.id }, [ws], view())
     expect(looseGroups.find(group => group.key === UNGROUPED_KEY)!.containsCurrent).toBe(true)
+  })
+})
+
+describe('deriveFlat', () => {
+  it('flattens every session — fork children included — newest-first with id tiebreak', () => {
+    const parent = summary('parent', 10)
+    const child = { ...summary('child', 30), parentId: parent.id }
+    const tieB = summary('tie-b', 20)
+    const tieA = summary('tie-a', 20)
+    const rows = deriveFlat(list(parent, child, tieB, tieA), { query: '' })
+    expect(rows.map(row => row.id)).toEqual([sid('child'), sid('tie-a'), sid('tie-b'), sid('parent')])
+    // Rows are branch-free: no children, no expansion.
+    expect(rows.every(row => row.children.length === 0 && !row.hasChildren && !row.expanded)).toBe(true)
+  })
+
+  it('search filters by case-insensitive display-title substring', () => {
+    const hit = { ...summary('hit', 2), displayTitle: 'Needle row' }
+    const miss = { ...summary('miss', 1), displayTitle: 'Other' }
+    expect(deriveFlat(list(hit, miss), { query: ' NEEDLE ' }).map(row => row.id)).toEqual([sid('hit')])
+  })
+
+  it('tolerates ids whose summary has not landed yet', () => {
+    const partial: SessionListState = { ...list(summary('present', 1)), ids: [sid('ghost'), sid('present')] }
+    expect(deriveFlat(partial, { query: '' }).map(row => row.id)).toEqual([sid('present')])
+  })
+})
+
+describe('createWorkspaceViewStore', () => {
+  it('defaults to workspace grouping; setGroupBy is the sole mutation', () => {
+    const store = createWorkspaceViewStore().create()
+    expect(store.getSnapshot().groupBy).toBe('workspace')
+    store.actions.setGroupBy('flat')
+    expect(store.getSnapshot().groupBy).toBe('flat')
   })
 })
 
