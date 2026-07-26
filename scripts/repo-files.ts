@@ -23,7 +23,7 @@ export interface ReferenceViolation {
 
 /** Whether a repository path is frozen Agent Note history, not evolving source prose. */
 export function isArchivedAgentNotePath(path: string): boolean {
-  return path.startsWith('.agents/notes/archived/')
+  return path.replaceAll('\\', '/').startsWith('.agents/notes/archived/')
 }
 
 /**

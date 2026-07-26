@@ -21,7 +21,7 @@ import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversa
 import { ConversationRoot, type ConversationRootProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationRoot.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
-import { deriveSpans, deriveSpanStats } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/spans.ts'
+import { deriveSpans, deriveSpanStats, deriveSubSpans } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/spans.ts'
 import { TrajectoryStatsHeader } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/TrajectoryStatsHeader.tsx'
 import { TrajectoryView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/TrajectoryView.tsx'
 import { WaterfallView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/WaterfallView.tsx'
@@ -54,7 +54,7 @@ const NODES = [
 
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore({
-    nodes, partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
+    nodes, partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
   })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
@@ -117,7 +117,7 @@ function tabsOf(slots: SlotsService): ViewTab[] {
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
   const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
-    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
+    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
   })
   const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
   const chat = createChatStore().create()
@@ -258,5 +258,117 @@ describe('WaterfallView standalone branches', () => {
 describe('node half', () => {
   it('node apply is an intentional no-op (loader-managed lifecycle only)', () => {
     expect(nodeApply()).toBeUndefined()
+  })
+})
+
+describe('deriveSubSpans (waterfall lanes)', () => {
+  const dispatchNodes = [
+    { kind: 'assistant', seq: 2, time: 6_000, turn: 3, step: 1, blocks: [] },
+    {
+      kind: 'tool-result', seq: 3, time: 9_000, callId: 'p1',
+      call: { name: 'run_code', argsRaw: '{}' }, callTime: 6_100,
+      content: [], isError: false, callView: null, resultView: null,
+    },
+  ] as unknown as ConversationSnapshot['nodes']
+
+  it('scales settled lanes into the dispatch window with real durations', () => {
+    const codeDispatches = new Map([['p1', [
+      {
+        kind: 'tool-result', seq: 101, time: 7_000, callId: 'p1:code:1',
+        call: { name: 'bash', argsRaw: '{}' }, callTime: 6_200,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+      {
+        kind: 'tool-result', seq: 102, time: 8_200, callId: 'p1:code:2',
+        call: { name: 'read', argsRaw: '{}' }, callTime: 7_000,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+    ]]]) as unknown as ConversationSnapshot['codeDispatches']
+    const lanes = deriveSubSpans(dispatchNodes, codeDispatches)
+    const turn3 = lanes.get(3)
+    expect(turn3).toHaveLength(2)
+    // Window = 6200..8200 (2000ms). bash: 0..0.4; read: 0.4..1.0.
+    expect(turn3?.[0]).toMatchObject({ name: 'bash', durationMs: 800, timing: 'measured', offsetFraction: 0 })
+    expect(turn3?.[0]?.widthFraction).toBeCloseTo(0.4)
+    expect(turn3?.[1]).toMatchObject({ name: 'read', durationMs: 1200 })
+    expect(turn3?.[1]?.offsetFraction).toBeCloseTo(0.4)
+  })
+
+  it('a running lane extends to the window end with a null duration', () => {
+    const codeDispatches = new Map([['p1', [
+      {
+        kind: 'tool-result', seq: 101, time: 8_000, callId: 'p1:code:1',
+        call: { name: 'bash', argsRaw: '{}' }, callTime: 6_200,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+      { callId: 'p1:code:2', name: 'grep', argsRaw: '{}', turn: 0, step: 0, time: 7_000, callView: null },
+    ]]]) as unknown as ConversationSnapshot['codeDispatches']
+    const lanes = deriveSubSpans(dispatchNodes, codeDispatches)
+    const running = lanes.get(3)?.find((lane) => lane.name === 'grep')
+    expect(running).toMatchObject({ durationMs: null, timing: 'running' })
+    // Extends from its start to the window end.
+    expect(running!.offsetFraction + running!.widthFraction).toBeCloseTo(1)
+  })
+
+  it('a settle-only entry (null callTime) is unknown timing, never a measured 0 ms', () => {
+    const codeDispatches = new Map([['p1', [
+      {
+        kind: 'tool-result', seq: 101, time: 8_000, callId: 'p1:code:1',
+        call: { name: 'bash', argsRaw: '{}' }, callTime: null,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+    ]]]) as unknown as ConversationSnapshot['codeDispatches']
+    const lane = deriveSubSpans(dispatchNodes, codeDispatches).get(3)?.[0]
+    expect(lane).toMatchObject({ durationMs: null, timing: 'unknown' })
+  })
+
+  it('waterfall renders sub-span lanes under the owning turn row', () => {
+    const codeDispatches = new Map([['p1', [
+      {
+        kind: 'tool-result', seq: 101, time: 8_000, callId: 'p1:code:1',
+        call: { name: 'bash', argsRaw: '{}' }, callTime: 6_200,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+    ]]]) as unknown as ConversationSnapshot['codeDispatches']
+    const store = createSnapshotStore({
+      nodes: dispatchNodes, partial: null,
+      runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches,
+    })
+    const props = {
+      sessionId: SID,
+      useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>,
+      useSessions: emptySessions(),
+      useWorkspaces: emptyWorkspaces(),
+    } as unknown as ConvViewProps
+    const view = render(createElement(WaterfallView as FC<ConvViewProps>, props))
+    const lane = view.container.querySelector('[data-subspan]')
+    expect(lane).not.toBeNull()
+    expect(lane!.textContent).toContain('bash')
+    expect(lane!.querySelector('[title*="1.80s"]')).not.toBeNull()
+    expect(lane!.querySelector('[data-timing="measured"]')).not.toBeNull()
+  })
+
+  it('waterfall labels a settle-only lane as duration unknown', () => {
+    const codeDispatches = new Map([['p1', [
+      {
+        kind: 'tool-result', seq: 101, time: 8_000, callId: 'p1:code:1',
+        call: { name: 'read', argsRaw: '{}' }, callTime: null,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+    ]]]) as unknown as ConversationSnapshot['codeDispatches']
+    const store = createSnapshotStore({
+      nodes: dispatchNodes, partial: null,
+      runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches,
+    })
+    const props = {
+      sessionId: SID,
+      useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>,
+      useSessions: emptySessions(),
+      useWorkspaces: emptyWorkspaces(),
+    } as unknown as ConvViewProps
+    const view = render(createElement(WaterfallView as FC<ConvViewProps>, props))
+    const bar = view.container.querySelector('[data-timing="unknown"]')
+    expect(bar).not.toBeNull()
+    expect(bar!.getAttribute('title')).toContain('duration unknown')
   })
 })

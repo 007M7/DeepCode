@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-23-browser-demo-gif-recording.md: a351f467f7d73fdcd5f8d8ca3cc2f1686244d6b9
-2026-07-23-browser-demo-gif-recording.zh.md: d05aa650dfdb9dd7590b8b2f3c071e34fbcb02ff
+2026-07-23-browser-demo-gif-recording.md: 844e976c5be5acfca6b1f933256fb5a8a82f980a
+2026-07-23-browser-demo-gif-recording.zh.md: 12702daaca35dc26f8e9ad7aa1b803f9e4192a5c
