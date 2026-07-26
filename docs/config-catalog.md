@@ -688,7 +688,7 @@ export interface ReplayModelConfig {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:459`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:590`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -1202,7 +1202,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/spill/spill-policy/src/index.ts:51`](../packages/spill/spill-policy/src/index.ts)
+Source: [`packages/spill/spill-policy/src/index.ts:60`](../packages/spill/spill-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-storage-domain`
 
@@ -1704,13 +1704,21 @@ export interface Config {
    * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
+  /**
+   * Concurrency cap for a `run_code` program's overlapping sub-calls
+   * (default 10, the loop scheduler's own default). Sub-calls follow the
+   * native scheduling contract — only calls whose tools classify
+   * concurrency-safe overlap; exclusive calls form barriers — so `1`
+   * restores strictly serial dispatch. Must be a positive integer.
+   */
+  maxParallelSubCalls?: number
 }
 
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:529`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:566`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 
@@ -2061,7 +2069,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
-- `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
+- `@deepseek-ai/dsh-tasks-local` ([`packages/tasks/tasks-local/src/index.ts`](../packages/tasks/tasks-local/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
@@ -2080,6 +2088,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-session-query` — abstract `SessionQueryService` ([`packages/session-query/session-query/src/index.ts`](../packages/session-query/session-query/src/index.ts))
 - `@deepseek-ai/dsh-spill` — abstract `SpillStore` ([`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts))
+- `@deepseek-ai/dsh-tasks` — abstract `TaskService` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-workflow` — abstract `WorkflowService` ([`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts))
 
 ## Library packages (no plugin entry)
