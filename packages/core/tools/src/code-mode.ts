@@ -5,7 +5,6 @@
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
-import { parse } from 'node:path'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
@@ -21,17 +20,16 @@ declare module '@deepseek-ai/dsh-session' {
      * `run_code` call id, the deterministic sub-call id
      * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
      * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
-     * so this append can never fail on payload shape — whether the sub-call
-     * errored, and a bounded `resultSummary` of its model-facing text. Before
-     * bounding, occurrences of a non-root session workspace path are
-     * normalized to `.` so host-specific absolute path lengths cannot change
-     * the summary.
+     * so this append can never fail on payload shape — and the sub-call's
+     * complete model-facing outcome in `tool/result`'s own vocabulary
+     * (`content` + `isError`), so UIs render a sub-call through the exact
+     * code path that renders a native call.
      * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
      * model context; persistence and UIs get every call. Appended inside the
      * parent `run_code`'s execution (the bridge drains its queue before
      * returning), so the turn-enclosure invariant holds by construction.
      */
-    'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
+    'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
   }
 }
 
@@ -53,35 +51,6 @@ export class CodeRunFailedError extends HarnessError {
     super(message, 'CODE_RUN_FAILED')
     this.name = 'CodeRunFailedError'
   }
-}
-
-/**
- * Cap for a `tool/code-dispatch` event's `resultSummary`. A log-ergonomics
- * constant, not config: the full result already flows to the program; the
- * summary exists so log readers see what a sub-call returned at a glance.
- */
-const SUMMARY_MAX_CHARS = 200
-
-/** Join Native content for the bounded durable sub-dispatch summary; non-text blocks become diagnostic placeholders. */
-function textOf(content: ContentBlock[]): string {
-  return content
-    .map((block) => {
-      switch (block.type) {
-        case 'text': return block.text
-        // ContentBlockMap is merge-extensible — future block kinds land here
-        // deliberately (no assertNever on merge-extensible unions).
-        default: return `[${block.type} content]`
-      }
-    })
-    .join('\n')
-}
-
-/** Normalize workspace paths, then bound a sub-call's model-facing text for its durable log summary. */
-function summarize(text: string, cwd: string | undefined): string {
-  const stableText = cwd === undefined || cwd === parse(cwd).root
-    ? text
-    : text.replaceAll(cwd, '.')
-  return stableText.length > SUMMARY_MAX_CHARS ? `${stableText.slice(0, SUMMARY_MAX_CHARS)}…` : stableText
 }
 
 /**
@@ -201,8 +170,9 @@ function renderValue(value: JsonValue): string {
 type RunCodeOutput = { logs: string[]; result?: JsonValue }
 
 /**
- * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
- * executed through the dispatch bridge described above. The
+ * Build the `run_code` {@link ToolDefinition}: required `code` and
+ * `description` parameters, executed through the dispatch bridge described
+ * above. The
  * registry reserves it as presentation infrastructure under non-native modes,
  * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
@@ -221,6 +191,13 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       + 'Only what you print or return comes back — curate it.',
     parameters: {
       code: { type: 'string', required: true, description: 'The program: the body of an async TypeScript function.' },
+      description: {
+        type: 'string',
+        required: true,
+        description: 'Clear, concise description of what this program does in active voice, '
+          + '5-10 words (shown in the UI). Examples: "Count TODO markers across packages"; '
+          + '"Read failing test and its fixture"; "Rename config key in every cordis.yml".',
+      },
     },
     output: {
       schema: {
@@ -238,6 +215,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       },
     },
     async execute(args, exec): Promise<RunCodeOutput> {
+      if (args.description.trim().length === 0) {
+        throw new Error('invalid description: expected a non-empty string')
+      }
       const runtime = requireRuntime()
 
       // The run-scoped abort: follows the outer signal in, and fires when the
@@ -288,7 +268,6 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           for (const context of result.additionalContexts ?? []) {
             exec.deferContext(context)
           }
-          const text = textOf(result.content)
           exec.agent?.session.append('tool/code-dispatch', {
             parentCallId: exec.callId,
             subCallId,
@@ -298,7 +277,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             // this record from what it actually received.
             arguments: normalized.logged,
             isError: result.isError,
-            resultSummary: summarize(text, exec.agent.session.header.cwd),
+            // The registry deep-froze this projection at result finalization;
+            // append snapshots it again, so the log copy stays detached.
+            content: result.content,
           })
           return result.isError
             ? { isError: true as const, message: result.error.message }
@@ -363,10 +344,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         exec.signal.removeEventListener('abort', onOuterAbort)
       }
     },
-    // The program is the call's always-visible UI label.
+    // The model-authored description is the call's always-visible UI label
+    // (the bash `description` precedent); the program itself rides rawInput.
     presentCall: args => ({
       card: 'generic',
-      title: args.code,
+      title: args.description,
       kind: 'execute',
       rawInput: args.code,
     }),

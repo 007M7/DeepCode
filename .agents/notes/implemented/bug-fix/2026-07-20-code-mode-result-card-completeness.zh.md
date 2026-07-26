@@ -16,7 +16,7 @@ Status: implemented
 
 `run_code` 不提供 `presentResult`。既有的通用结果回退机制会保留待完成的程序标题，并渲染原始的最终 `tool/result.content`；这一持久、可回放且经过 post-policy 处理的投影是卡片中结果内容的唯一来源。宿主 API 代理因此不提供单独的结果视图，而不会在 `event.data.content` 与 `view.view.content` 中重复序列化同一内容。冗余的仅含日志的 `presentationMeta` 投影继续保持移除状态。
 
-嵌套分发保持不变。带有 `exec.parent` 标记的调用会发出有界的 `tool/code-dispatch` 诊断，但不会生成与 `tool/call` 或 `tool/result` 对应的界面卡片，因此一次外层 `run_code` 调用仍然只会生成一张卡片。
+嵌套分发保持不变。带有 `exec.parent` 标记的调用会发出 `tool/code-dispatch` 事件（携带完整渲染内容），但不会生成与 `tool/call` 或 `tool/result` 对应的界面卡片，因此一次外层 `run_code` 调用仍然只会生成一张卡片。
 
 ## 测试
 
