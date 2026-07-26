@@ -10,9 +10,9 @@ Browser demonstrations have been assembled with one-off capture and encoding com
 
 ## Decision
 
-The repository provides the [`record-browser-gif`](../../../skills/record-browser-gif/SKILL.md) skill for local browser-demo artifacts. It uses the available browser-control workflow, establishes whether the requested flow is real, fixture-backed, or otherwise simulated, and captures a small storyboard only after semantically observable UI states. Frames and the output live outside the Git worktree by default.
+The repository provides the [`record-browser-gif`](../../../skills/record-browser-gif/SKILL.md) skill for local browser-demo artifacts. It uses the available browser-control workflow, establishes whether the requested flow is real, fixture-backed, or otherwise simulated, and captures a small storyboard only after semantically observable UI states. Frames live under the repository's gitignored `.playwright-mcp/` directory — the browser tool writes only under its allowed roots — and never dirty the worktree.
 
-The bundled `encode_gif.py` helper orders frames lexically, assigns explicit hold durations, uses an `ffmpeg` palette pipeline, and validates source dimensions plus the encoded frame count, dimensions, duration, and byte limit through `ffprobe`. The workflow stops after returning the verified absolute GIF path; uploading the artifact and mutating a pull request, issue, or document remain separate workflows.
+The bundled `encode_gif.py` helper orders frames lexically, assigns explicit hold durations, uses an `ffmpeg` palette pipeline, and validates source dimensions plus the encoded frame count, dimensions, duration, and byte limit through `ffprobe`. Recording stops after returning the verified absolute GIF path; when the task includes attaching the GIF to a pull request, the [GUI-PR GIF evidence decision](2026-07-26-gui-pr-gif-evidence-and-assets-branch.md) owns the mandatory-evidence policy and the assets-branch publication step that follows.
 
 ## Alternatives considered
 
@@ -20,7 +20,7 @@ The bundled `encode_gif.py` helper orders frames lexically, assigns explicit hol
 
 **Keep an inline `ffmpeg` recipe in the skill.** Reconstructing quoting, timing manifests, palette filters, overwrite behavior, and post-encode checks in every run is error-prone. A bundled helper keeps those mechanics executable while the skill owns capture judgment.
 
-**Include GitHub attachment and description editing.** Upload and remote mutation require separate authentication, confirmation, and recovery rules. Excluding them keeps invocation of a recording skill local and reversible.
+**Include GitHub attachment and description editing.** Upload and remote mutation require separate authentication, confirmation, and recovery rules. Keeping recording itself local and reversible preserves that boundary; the [GUI-PR GIF evidence decision](2026-07-26-gui-pr-gif-evidence-and-assets-branch.md) owns the bounded publication step for tasks that do attach the GIF to a pull request.
 
 **Use a fixture whenever it is easier to stage.** Fixtures are valid when the requested demonstration is explicitly fixture-backed, but they do not substantiate a real-server or real-API claim. The skill preserves the requested provenance and reports a missing prerequisite instead of silently changing it.
 

@@ -124,6 +124,19 @@ declare module 'cordis' {
      */
     'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
+     * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
+     * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+     * content unchanged; a listener may return replacement blocks (e.g. the
+     * spill policy's preview + locator for an oversized text result). Only the
+     * logged copy is affected — the program already received the complete
+     * value, and the model sees neither. A throwing listener is contained:
+     * the bridge falls back to logging the unshaped content.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+     * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
+     * @mode waterfall
+     */
+    'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
+    /**
      * Observe the frozen, lossless-JSON final outcome. Listener failures are contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.
      * @param exec - the execution object that traversed the pipeline.
@@ -271,6 +284,30 @@ export interface ToolExecutionInput {
 export type ToolExecutionMode =
   | { kind: 'parallel' }
   | { kind: 'exclusive' }
+
+/**
+ * One settled `run_code` sub-dispatch about to be logged, as seen by the
+ * `tools/code-dispatch-log` waterfall: the parent execution (session owner,
+ * outer call identity), the sub-call identity, and the outcome whose durable
+ * copy a listener may reshape. `content` is the RENDERED result projection
+ * (what a native `tool/result` would carry) — the program itself received
+ * the structured `value` (or just the error message on failure); only the
+ * `tool/code-dispatch` event's copy changes.
+ */
+export interface CodeDispatchLog {
+  /** The outer `run_code` execution. */
+  readonly exec: ToolExecution
+  /** The calling agent (the scope routing key and the spill owner), when the outer call has one. */
+  readonly agent?: Agent
+  /** Deterministic sub-call id (`<parent>:code:<n>`). */
+  readonly subCallId: CallId
+  /** The dispatched sub-tool name. */
+  readonly name: string
+  /** Whether the sub-call settled as an error. */
+  readonly isError: boolean
+  /** The sub-call's complete model-facing content (the settle event's default payload). */
+  readonly content: ContentBlock[]
+}
 
 /**
  * One pending tool call inside the registry pipeline. Parsed arguments cross
@@ -690,7 +727,11 @@ export class ToolRegistry extends Service {
     // the filterable global/scoped capability layers.
     this.codeTransport = this.mode === 'native'
       ? undefined
-      : createRunCodeTool(this, () => this.requireCodeRuntime(), resolveMaxParallelSubCalls(config.maxParallelSubCalls))
+      : createRunCodeTool(this, {
+        requireRuntime: () => this.requireCodeRuntime(),
+        maxParallel: resolveMaxParallelSubCalls(config.maxParallelSubCalls),
+        shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
+      })
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
       ctx.systemPrompt.section({
@@ -938,6 +979,27 @@ export class ToolRegistry extends Service {
       return concurrencySafe === true ? { kind: 'parallel' } : { kind: 'exclusive' }
     } catch {
       return { kind: 'exclusive' }
+    }
+  }
+
+  /**
+   * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch
+   * and return the content the bridge should log on `tool/code-dispatch`.
+   * Contained: a throwing listener falls back to the unshaped content — log
+   * shaping must never fail the dispatch or lose the settle event. Private:
+   * the ONE consumer is the `run_code` bridge this registry constructs, which
+   * receives it as a capability parameter (the `requireRuntime` idiom) — the
+   * waterfall, not this invoker, is the public extension seam.
+   */
+  private async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]> {
+    try {
+      return await this.ctx.waterfall(
+        scopeTarget(this, dispatch.agent), 'tools/code-dispatch-log', dispatch,
+        () => Promise.resolve(dispatch.content),
+      )
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the unshaped content`)
+      return dispatch.content
     }
   }
 
