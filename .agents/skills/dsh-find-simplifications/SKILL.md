@@ -1,6 +1,6 @@
 ---
 name: dsh-find-simplifications
-description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates, write proposed Agent Notes or inline TODO/FIXME/XXX notes, audit or coalesce superseded Agent Notes, or fold worthwhile simplification ideas from another PR; especially for dead, duplicated, speculative, over-built, or added-then-removed surfaces.'
+description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates, write proposed Agent Notes or inline TODO/FIXME/XXX notes, audit or coalesce superseded Agent Notes, or fold worthwhile simplification ideas from another PR; especially for dead, duplicated, speculative, over-built, added-then-removed, or hand-rolled-where-a-dependency-exists surfaces.'
 ---
 
 # Finding DeepSeek Harness Simplifications
@@ -25,6 +25,7 @@ A strong simplification removes, folds, or demotes something real and has clear 
 - A package boundary exists only for test/demo/support code and adds publish or dependency overhead.
 - A feature implements speculative product generality: multi-session/session-load, background task rosters, live registry invalidation, mid-turn steering, tool-owned UI rendering, and similar shapes with no product owner.
 - An invariant, rollback path, set of expected outputs, or special-case test exists only to protect an unused surface.
+- Hand-rolled code reimplements what a well-maintained external package or a Node builtin at the engine floor already provides, and the swap would delete the implementation plus its dedicated tests ([dependency policy](../../notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
 - The simplified behavior may differ slightly, but the new behavior is still reasonable and easier to explain.
 
 Thin candidates are usually not enough for an Agent Note: deleting one typo, running `knip` once, removing an intentionally documented backend/adapter, or flagging "this looks complex" without call-site proof.
@@ -48,6 +49,17 @@ Start with the largest production-code deltas. A broad simplification audit that
 Classify every defensive copy, freeze, validator, and callback capture by the boundary it crosses. Same-process typed service/plugin calls ordinarily borrow readonly values; parser/config, queue, model/tool JSON, durable/file, worker, process, and wire boundaries own or validate data. Tests built around hostile getters, fake typed objects, callback replacement, or mutation after a same-process handoff are evidence of a potentially speculative contract, not automatic justification for keeping it.
 
 For complex asynchronous code, draw the ownership graph and map each sentinel, readiness promise, cancellation path, disposer, and state flag to a distinct owner or transition. When several mechanisms mirror the same liveness or settlement fact, propose one transaction or lifecycle controller instead. Preserve separate machinery where it protects a real boundary: synchronous publication and rollback, callback containment, first-terminal-outcome arbitration, worker/process ownership, or dispose-to-quiescence.
+
+## Hand-Rolled Code Versus A Dependency
+
+Introducing a dependency is a valid simplification move, not a policy exception: the [dependency policy](../../notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md) owns the bar. When surveying, ask of protocol parsers, framers, retry/backoff loops, glob matchers, diff engines, and similar infrastructure: does a well-maintained npm package or a Node builtin at the repo's engine floor already do this?
+
+Prove a dependency-swap candidate like any other, plus:
+
+- Read the hand-rolled implementation and name the exact surface the package covers; residual semantics the package does not cover count against the swap and stay in the Agent Note.
+- Check the package's health honestly (maintenance, adoption, transitive footprint) and prefer builtins when the engine floor has them.
+- Check the Agent Note tree first: schemastery, vendored Cordis, the twin adapters, and other recorded seams are settled — a swap that collapses one needs to beat the recorded rationale, not just cite the policy.
+- Weigh net deletion: implementation plus dedicated tests plus docs, minus the glue that remains. A wrapper that relocates the same complexity is not a win.
 
 ## Prove Or Reject Each Candidate
 
