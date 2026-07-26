@@ -2822,17 +2822,18 @@ export function createTuiChat(
     }, { prepend: true })
     // Installed BEFORE followup(): admission runs synchronously inside it on
     // the common path, and a listener registered after cleanup() already ran
-    // would never be released. The id lands before any discard can name it —
-    // discard is only ever emitted by a later cancel().
-    let id: AgentMessageId | undefined
+    // would never be released. Match on the `content` reference, not the
+    // returned id: an enqueue listener that synchronously cancels emits
+    // discard before followup() returns to assign the id, and content is the
+    // same reference send() carries onto the message (mirrors detachSubmit).
     const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
-      if (subject === agent && messages.some(message => message.id === id)) cleanup()
+      if (subject === agent && messages.some(message => message.content === content)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
     // this guards a future synchronous throw so the wrapper cannot leak.
     /* v8 ignore start -- future-proofing guard, see above */
     try {
-      id = agent.followup({ content, source: { kind: 'user' } })
+      agent.followup({ content, source: { kind: 'user' } })
     } catch (error: unknown) {
       cleanup()
       throw error

@@ -1947,10 +1947,20 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await send()
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
 
-    // Both wrappers released on the allowed path: a discard for either prompt
-    // finds no armed listener, and an unrelated admission is untouched. The
-    // leak regression: a listener installed after its cleanup already ran
-    // would survive every future cleanup.
+    // Each wrapper releases on its own allowed admission — matched by the
+    // message content it carries, not the returned id, which real send()
+    // assigns as a random UUID only after followup() returns. Running each
+    // prompt's admission waterfall detaches its wrapper.
+    for (const sent of result.agent.sent) {
+      await agentEvents(result.ctx, result.agent).waterfall(
+        'agent/prompt-submit', sent, { kind: 'user' },
+        new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      )
+    }
+    // Both wrappers now gone: a discard naming either prompt's content finds
+    // no armed listener, and an unrelated admission is untouched. The leak
+    // regression: a listener installed after its cleanup already ran would
+    // survive every future cleanup.
     result.ctx.emit('agent/inbox/discard', result.agent, [{
       id: AgentMessageId('stub'), content: result.agent.sent[0]!, source: { kind: 'user' },
     }])
@@ -1968,6 +1978,46 @@ describe('pi-tui chat lifecycle and transcript', () => {
       )
       expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
     }
+    await dispose(result)
+  })
+
+  it('releases the reference wrapper when enqueue synchronously discards before followup returns', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(TestSessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(SessionId('sync-source'), { meta: { cwd: process.cwd(), createdAt: 1 } })
+        appendUser(source, 'source background')
+      },
+    })
+    // Real send() emits agent/inbox/discard when an enqueue listener cancels
+    // synchronously, before followup() returns to assign the message id. This
+    // stub reproduces that timing: the wrapper must match on content, since id
+    // is not yet observable at discard time.
+    result.agent.followup = (input) => {
+      result.agent.sent.push(input.content)
+      result.ctx.emit('agent/inbox/discard', result.agent, [{
+        id: AgentMessageId('unassigned'), content: input.content, source: input.source,
+      }])
+      return AgentMessageId('stub')
+    }
+
+    result.terminal.send('@sync-source')
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · sync-source') })
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+
+    // The synchronous discard released both listeners despite the id being
+    // unassigned: replaying the prompt's admission attaches no stranded
+    // snapshot, and nothing leaks for the TUI lifetime.
+    const replay = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
     await dispose(result)
   })
 
