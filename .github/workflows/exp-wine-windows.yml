@@ -66,8 +66,19 @@ jobs:
       - name: Install Wine (64-bit)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64
-          WINE_BIN=$(command -v wine || command -v wine64)
+          # `wine` is the /usr/bin/wine dispatcher; its dependency pulls the
+          # wine64 loader. Ubuntu's wine64 package alone leaves nothing on
+          # PATH (the loader sits at /usr/lib/wine/wine64).
+          sudo apt-get install -y --no-install-recommends wine
+          WINE_BIN=''
+          for candidate in "$(command -v wine || true)" "$(command -v wine64 || true)" /usr/lib/wine/wine64; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then WINE_BIN="$candidate"; break; fi
+          done
+          if [ -z "$WINE_BIN" ]; then
+            echo '::error::no wine binary found after install'
+            dpkg -L wine wine64 2>/dev/null | grep -E '/bin/|wine64$' || true
+            exit 1
+          fi
           echo "WINE_BIN=$WINE_BIN" >> "$GITHUB_ENV"
           "$WINE_BIN" --version
 
