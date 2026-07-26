@@ -6,11 +6,11 @@ English | [中文](2026-07-22-tui-titles-from-session-title-service.zh.md)
 
 ## Problem
 
-Two model-title implementations coexisted after the tui-staging line merged onto master. The TUI carried its own `autoTitle` feature: a fire-and-forget `ctx.llm.stream` call after the first user message that set the terminal window title via OSC 0, with a one-shot latch, its own prompt, its own 40-character cap, and its own resume re-derivation ([auto-title Agent Note](../feature/2026-07-21-tui-auto-pane-title.md), [default-on Agent Note](../feature/2026-07-21-tui-auto-title-default-on.md)). Master had meanwhile landed [log-backed session titles](../feature/2026-07-21-log-backed-session-titles.md): a `sessionTitle` capability whose accepted revisions are durable `session/title` events, with a deterministic fallback and optional model providers. The TUI already consumed `session/title` for its header subtitle and window title, so a session could be titled twice by different strategies, and the TUI's process-local title was invisible to resume listings, forks, and Web consumers.
+A per-session title makes terminal panes and tabs distinguishable, but a TUI-local model call would create a second title pipeline beside [log-backed session titles](../feature/2026-07-21-log-backed-session-titles.md). The local path needs its own prompt, cap, one-shot latch, resume derivation, cancellation, and failure fallback, while its process-local result remains invisible to session listings, forks, Web consumers, and replay. If both paths run, one session can also be titled twice by different strategies.
 
 ## Decision
 
-The TUI-local generation is removed; the session-title service is the one title source. `TuiConfig.autoTitle`, the latch, the abort controller, the title prompt, and `titleLine` are gone from `dsh-tui`. The terminal rename stays: the TUI folds the latest logged title on mount (`foldSessionTitle`), renders it as the banner subtitle, and sets the terminal window title to `<session title> — <configured title>` on every accepted `session/title` event — including resumed sessions, whose titles now replay from the log instead of being re-generated.
+The session-title service is the one title source. The TUI contains no `autoTitle` config, title-model request, latch, abort controller, prompt, or output cap. It folds the latest logged title on mount (`foldSessionTitle`), renders it as the banner subtitle, and calls `runtime.terminal.setTitle` with `<session title> — <configured title>` on every accepted `session/title` event. The same terminal-safe OSC 0 path handles the configured fallback title, resumed sessions, and live revisions without renaming tmux windows or adding another terminal-control surface.
 
 Model-made titles are a composition choice: `examples/tui-agent/cordis.yml` (and the scripted PTY fixture) mount `@deepseek-ai/dsh-session-title-first-message-llm`, which inherits the main request's route and replaces the spine's deterministic fallback with a short model summary. Deployments without the provider keep the fallback title from `dsh-agent-spine-demo`'s bundled `SessionTitleService`.
 
@@ -20,6 +20,16 @@ Model-made titles are a composition choice: `examples/tui-agent/cordis.yml` (and
 
 **Port auto-title's prompt and cap into the service as a third provider.** The first-message-llm provider already exists with the same cadence, a reviewed prompt contract, durable request records, and supersession fencing; a second near-identical provider would be pure duplication.
 
+**Use only a truncated first prompt or only a model title.** A deterministic fallback provides an immediate, free title, while an optional model provider improves quality without delaying the main turn. Forcing either strategy removes that deployment choice.
+
+**Make model titles a TUI default or block the first turn for them.** The cost and route belong to composition, and auxiliary title latency must stay off the interaction critical path. The TUI consumes accepted state instead of owning generation policy.
+
+**Rename a tmux window or use a separate terminal escape.** Rejected because the existing terminal adapter's OSC 0 path labels the pane or tab without acquiring tmux ownership or adding a second control API.
+
+## Verification
+
+TUI tests pin restored and live `session/title` consumption, terminal-safe title rendering, the configured fallback, and the absence of a TUI-owned model path. The keyless PTY smoke boots the real composition, accepts a logged provider title, and observes the resulting terminal title. The [log-backed title decision](../feature/2026-07-21-log-backed-session-titles.md) owns provider, persistence, resume, fork, cancellation, and stale-completion coverage.
+
 ## Consequences
 
-One title pipeline: durable, replayable, visible to every consumer, and fenced against stale completions by the service. The TUI sheds ~90 lines and its `llm`-streaming path. The cost is that a title now requires the provider plugin in the composition for model quality — a leaf choice, not a TUI default — and the terminal title changes shape from the bare model summary to the suffixed `<title> — <product>` form the log-backed path always used. The superseded auto-title Agent Notes carry pointers here.
+One title pipeline is durable, replayable, visible to every consumer, and fenced against stale completions by the service. The TUI has no `llm`-streaming title path. Model quality requires a provider plugin in the composition, while deployments without one keep the deterministic fallback; the terminal title consistently uses the suffixed `<title> — <product>` shape.

@@ -1,14 +1,14 @@
 # Agent Note: 移除 ACP（Agent Client Protocol）终端 `_meta` 渲染
 
-Status: rejected — Zed 是当前目标客户端，terminal `_meta` 约定是有意设计的 Zed UX，同时为其他客户端保留普通 ACP 回退。
+Status: rejected — 在 ACP 仍是编辑器桥接层时，仅移除 Zed 终端元数据的方案被否决；后续仅面向自动化的 ACP 则移除了整个编辑器投影。
 
 [English](2026-06-20-drop-acp-terminal-meta.md) | 中文
 
 ## 问题
 
-ACP 桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。已实现的[富 ACP bash 渲染 Agent Note（agent 决策记录）](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md)刻意回避了 ACP 客户端侧的 `terminal/create`（因为 bash 执行属于 harness 职责），但仍采用了参考 agent（智能体）的纯展示 `_meta` 约定。这在 Zed 中带来了更好的卡片效果，代价是桥接状态、能力协商、终端 id、特殊的 update 映射、文本回退测试，以及 `dsh-tool-bash` 中的 exit-pill 解析。
+原 ACP 编辑器桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.terminal_exit` 实现了一套 Zed 特有的终端卡片约定。当前的 [render-intent 决策](../../implemented/architecture/2026-07-02-tool-render-intent-union.md)保留了底层规则：bash 执行属于 harness，terminal 卡片只用于展示。后续的[仅面向自动化 ACP 决策](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)从 ACP 中移除了 `_meta` 投影、桥接状态、能力协商、终端 id、特殊 update 映射、文本回退测试和 exit-pill 解析。TUI 与 Web 宿主/客户端运行时保留带标签的展示契约，而 ACP 不再渲染编辑器卡片。
 
-回退路径已经存在：将工具调用和完成输出渲染为普通 ACP 内容块。非 Zed 客户端本来就依赖这条路径，但 Zed 终端卡片是当前目标客户端的功能特性，而非推测性装饰。
+本提案提出时，回退路径已经存在：将工具调用和完成输出渲染为普通 ACP 内容块。当时，非 Zed 客户端依赖这条路径，但 Zed 终端卡片是目标客户端的功能特性，而非推测性装饰。
 
 ## 提案
 
@@ -22,10 +22,10 @@ ACP 桥接层通过 `_meta.terminal_info`、`_meta.terminal_output` 和 `_meta.t
 - `TerminalRendering`、终端 id、终端 cwd 解析与 `_meta.terminal_*` update 映射从 `@deepseek-ai/dsh-acp` 中消失。
 - `ToolTerminal` 从 `@deepseek-ai/dsh-tools` 中消失，或在展示清理中因未使用而删除。
 - Bash 结果展示不再为终端 pill 解析退出状态。
-- 已实现的[富 ACP bash 渲染 Agent Note](../../implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) 作为已交付历史保留在 `implemented/` 中；如被本提案取代，则加上交叉链接。
+- [仅面向自动化 ACP 决策](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md)后来移除了 ACP 终端卡片，并吸收了其中有关执行归属的决策依据。
 
 ## 放弃的内容
 
-Zed 用户将失去专用终端卡片：没有 cwd 头部、终端展示或 exit pill。他们仍能以纯内容形式看到命令和输出。在 ACP 桥接层尚未发布、`_meta` 键只是约定而非标准的阶段，这是合理的简化。
+如果采用本提案，Zed 用户会失去专用终端卡片：没有 cwd 头部、终端展示或 exit pill。但他们仍会以纯内容形式看到命令和输出。当时 ACP 桥接层尚未发布，且 `_meta` 键只是约定而非标准；在这种情况下，考虑这项简化是合理的。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

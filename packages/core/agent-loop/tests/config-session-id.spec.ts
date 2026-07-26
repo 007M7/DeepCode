@@ -359,7 +359,7 @@ describe('config-driven session id', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('config-driven resumeSessionId continues a persisted session (env-var resume)', async () => {
+  it('config-driven resumeSessionId continues a persisted session', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-resume-'))
     dirs.push(root)
 

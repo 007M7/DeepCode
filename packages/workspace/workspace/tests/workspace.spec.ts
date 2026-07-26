@@ -10,8 +10,7 @@ import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import { WorkspaceEntity } from '../src/entity.ts'
-import WorkspaceRegistry, { WorkspaceId, WorkspaceNameConflictError } from '../src/index.ts'
+import WorkspaceRegistry, { WorkspaceId, WorkspaceMoveInvalidError, WorkspaceNameConflictError } from '../src/index.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 
 const DOMAIN_VERSION = 2
@@ -434,13 +433,12 @@ describe('WorkspaceRegistry create and lookup', () => {
 })
 
 describe('Workspace session ordering', () => {
-  it('prepends new attaches, keeps repeat attach idempotent, and touches one id only', async () => {
+  it('prepends new attaches and keeps repeat attach idempotent', async () => {
     const dir = await makeDir('attach-order')
     const result = await harness()
     result.setSessions([
       header('s1', dir, 1),
       header('s2', dir, 2),
-      header('ungrouped', dir, 3),
     ])
     const workspace = await result.registry.create(dir)
     await workspace.attachSession(SessionId('s1'))
@@ -448,59 +446,57 @@ describe('Workspace session ordering', () => {
     expect(workspace.sessionIds).toEqual(['s2', 's1'])
     await workspace.attachSession(SessionId('s1'))
     expect(workspace.sessionIds).toEqual(['s2', 's1'])
-
-    const beforeTouch = result.changes.length
-    await Promise.all([
-      result.registry.touchSession(SessionId('s1')),
-      result.registry.touchSession(SessionId('s1')),
-    ])
-    expect(workspace.sessionIds).toEqual(['s1', 's2'])
-    expect(result.changes).toHaveLength(beforeTouch + 1)
-    await result.registry.touchSession(SessionId('s1'))
-    expect(result.changes).toHaveLength(beforeTouch + 1)
-    await result.registry.touchSession(SessionId('ungrouped'))
-    expect(result.changes).toHaveLength(beforeTouch + 1)
-    expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['s1', 's2'])
+    expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['s2', 's1'])
   })
 
-  it('does not resurrect a session detached before its queued touch', async () => {
-    const dir = await makeDir('detach-touch-race')
-    const result = await harness({ sessions: [header('s1', dir), header('s2', dir)] })
+  it('moves one id before an anchor or to the end, durably', async () => {
+    const dir = await makeDir('insert-before')
+    const result = await harness()
+    result.setSessions([header('s1', dir, 1), header('s2', dir, 2), header('s3', dir, 3)])
     const workspace = await result.registry.create(dir)
     await workspace.attachSession(SessionId('s1'))
     await workspace.attachSession(SessionId('s2'))
-    await Promise.all([
-      workspace.detachSession(SessionId('s1')),
-      result.registry.touchSession(SessionId('s1')),
-    ])
+    await workspace.attachSession(SessionId('s3'))
+    expect(workspace.sessionIds).toEqual(['s3', 's2', 's1'])
+
+    await workspace.insertSessionBefore(SessionId('s1'), SessionId('s2'))
+    expect(workspace.sessionIds).toEqual(['s3', 's1', 's2'])
+    await workspace.insertSessionBefore(SessionId('s3'))
+    expect(workspace.sessionIds).toEqual(['s1', 's2', 's3'])
+    expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['s1', 's2', 's3'])
+  })
+
+  it('treats self-anchored and already-in-place moves as no-ops without writing', async () => {
+    const dir = await makeDir('insert-noop')
+    const result = await harness()
+    result.setSessions([header('s1', dir, 1), header('s2', dir, 2)])
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('s1'))
+    await workspace.attachSession(SessionId('s2'))
     const written = result.changes.length
+
+    await workspace.insertSessionBefore(SessionId('s1'), SessionId('s1'))
+    await workspace.insertSessionBefore(SessionId('s2'), SessionId('s1'))
+    await workspace.insertSessionBefore(SessionId('s1'))
     await workspace.detachSession(SessionId('absent'))
     expect(result.changes).toHaveLength(written)
-    expect(workspace.sessionIds).toEqual(['s2'])
+    expect(workspace.sessionIds).toEqual(['s2', 's1'])
   })
 
-  it('does not reinsert a candidate absent at the durable touch slot', async () => {
-    const dir = await makeDir('stale-touch')
-    const id = WorkspaceId('00000000-0000-4000-8000-000000000030')
-    let durable = record(dir, ['s2', 's1'])
-    const table = {
-      update: async (
-        _id: WorkspaceId,
-        update: (current: WorkspaceRecord) => WorkspaceRecord,
-      ): Promise<WorkspaceRecord> => {
-        durable = { ...durable, sessionIds: [SessionId('s2')] }
-        durable = update(durable)
-        return durable
-      },
-    }
-    const entity = new WorkspaceEntity({
-      table: () => table as never,
-      sessionPath: () => dir,
-      readSessionHeader: async () => header('s1', dir),
-      rememberSessionPath: () => {},
-    }, id, record(dir, ['s2', 's1']))
-    await entity.touchSession(SessionId('s1'))
-    expect(durable.sessionIds).toEqual(['s2'])
+  it('rejects moves naming an unaccounted session or anchor', async () => {
+    const dir = await makeDir('insert-invalid')
+    const result = await harness()
+    result.setSessions([header('s1', dir, 1)])
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('s1'))
+    const written = result.changes.length
+
+    await expect(workspace.insertSessionBefore(SessionId('ghost')))
+      .rejects.toBeInstanceOf(WorkspaceMoveInvalidError)
+    await expect(workspace.insertSessionBefore(SessionId('s1'), SessionId('ghost')))
+      .rejects.toThrow(/anchor session is not accounted/)
+    expect(result.changes).toHaveLength(written)
+    expect(workspace.sessionIds).toEqual(['s1'])
   })
 
   it('validates a lazy live session without requiring it in persistence.list()', async () => {
@@ -546,66 +542,6 @@ describe('Workspace session ordering', () => {
     expect(workspace.sessionIds).toEqual(['s1'])
   })
 
-  it('keeps workspace order stable while touch order survives reload', async () => {
-    const older = await makeDir('stable-older')
-    const newer = await makeDir('stable-newer')
-    const sessions = [
-      header('old-1', older, 100),
-      header('old-2', older, 200),
-      header('new-1', newer, 300),
-    ]
-    const pool = new MemoryMediaPool()
-    const first = await harness({ pool, sessions })
-    const originalWorkspaceIds = first.registry.list().map(workspace => workspace.id)
-    const oldWorkspace = first.registry.list().find(workspace => workspace.path === older)!
-    expect(oldWorkspace.sessionIds).toEqual(['old-2', 'old-1'])
-    await first.registry.touchSession(SessionId('old-1'))
-    expect(oldWorkspace.sessionIds).toEqual(['old-1', 'old-2'])
-    expect(first.registry.list().map(workspace => workspace.id)).toEqual(originalWorkspaceIds)
-    await first.fiber.dispose()
-
-    const reloaded = await harness({ pool, sessions })
-    expect(reloaded.registry.list().map(workspace => workspace.id)).toEqual(originalWorkspaceIds)
-    expect(reloaded.registry.list().find(workspace => workspace.path === older)!.sessionIds)
-      .toEqual(['old-1', 'old-2'])
-  })
-
-  it('persists activity order from session/event without any stream consumer', async () => {
-    const dir = await makeDir('event-touch')
-    const result = await harness({ sessionStore: true })
-    const workspace = await result.registry.create(dir)
-    const first = result.ctx.sessions.create(SessionId('event-first'), { meta: { cwd: dir } })
-    result.ctx.sessions.create(SessionId('event-second'), { meta: { cwd: dir } })
-    await workspace.attachSession(SessionId('event-first'))
-    await workspace.attachSession(SessionId('event-second'))
-    expect(workspace.sessionIds).toEqual(['event-second', 'event-first'])
-
-    first.append('turn/start', {
-      turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
-    })
-    await vi.waitFor(() => { expect(workspace.sessionIds).toEqual(['event-first', 'event-second']) })
-    expect(storedRecord(result.pool, workspace.id).sessionIds)
-      .toEqual(['event-first', 'event-second'])
-  })
-
-  it('contains a background activity write failure at the service listener', async () => {
-    const dir = await makeDir('event-touch-failure')
-    const result = await harness({ sessionStore: true })
-    const workspace = await result.registry.create(dir)
-    const first = result.ctx.sessions.create(SessionId('failed-first'), { meta: { cwd: dir } })
-    result.ctx.sessions.create(SessionId('failed-second'), { meta: { cwd: dir } })
-    await workspace.attachSession(SessionId('failed-first'))
-    await workspace.attachSession(SessionId('failed-second'))
-    const warn = vi.spyOn(result.ctx.logger, 'warn')
-    result.pool.failNextWrites = 1
-    first.append('turn/start', {
-      turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
-    })
-    await vi.waitFor(() => { expect(warn).toHaveBeenCalledWith(expect.stringContaining('touch failed')) })
-    expect(workspace.sessionIds).toEqual(['failed-second', 'failed-first'])
-  })
 })
 
 describe('header-validated membership projection', () => {

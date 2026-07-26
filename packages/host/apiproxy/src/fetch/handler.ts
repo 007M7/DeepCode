@@ -24,7 +24,9 @@ import {
 import { hostDescribeRequestSchema } from '../api/host.schema.ts'
 import {
   workspaceCreateRequestSchema,
+  workspaceInsertSessionBeforeRequestSchema,
   workspaceListRequestSchema,
+  workspaceRenameRequestSchema,
 } from '../api/workspace.schema.ts'
 
 /**
@@ -50,6 +52,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'workspace.list': { schema: workspaceListRequestSchema, invoke: (api, r) => api.workspace.list(r) },
   'workspace.create': { schema: workspaceCreateRequestSchema, invoke: (api, r) => api.workspace.create(r) },
+  'workspace.rename': { schema: workspaceRenameRequestSchema, invoke: (api, r) => api.workspace.rename(r) },
+  'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */
