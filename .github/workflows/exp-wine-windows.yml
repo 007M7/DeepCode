@@ -50,18 +50,36 @@ jobs:
       - name: Enable corepack and install with win32-x64 artifacts
         run: |
           corepack enable
-          # Experiment-only install-time override: also materialize the
-          # win32-x64 platform packages (@esbuild/win32-x64, rolldown and
-          # rollup MSVC bindings) that the Windows toolchain resolves at
-          # runtime. supportedArchitectures is not recorded in the lockfile,
-          # so --frozen-lockfile stays valid.
+          # Experiment-only install-time overrides. supportedArchitectures
+          # additionally materializes the win32-x64 platform packages
+          # (@esbuild/win32-x64, rolldown and rollup MSVC bindings) that the
+          # Windows toolchain resolves at runtime. nodeLinker: hoisted lays
+          # node_modules out flat with real files: Windows Node under Wine
+          # does not realpath pnpm's Unix symlinks, so the default isolated
+          # layout breaks transitive ESM resolution (tsdown -> ansis,
+          # vite -> rollup). Neither override is recorded in the lockfile, so
+          # --frozen-lockfile stays valid.
           cat >> pnpm-workspace.yaml <<'EOF'
 
+          nodeLinker: hoisted
           supportedArchitectures:
             os: [current, win32]
             cpu: [current, x64]
           EOF
           pnpm install --frozen-lockfile
+
+      - name: Resolve tool entrypoints in the hoisted layout
+        run: |
+          resolve() {
+            local name="$1"; shift
+            for p in "$@"; do
+              if [ -f "$p" ]; then echo "$name=$PWD/$p" >> "$GITHUB_ENV"; return 0; fi
+            done
+            echo "::error::$name not found at any of: $*"; return 1
+          }
+          resolve TSC_JS node_modules/typescript/bin/tsc
+          resolve TSDOWN_JS node_modules/tsdown/dist/run.mjs
+          resolve VITEPRESS_JS website/node_modules/vitepress/bin/vitepress.js node_modules/vitepress/bin/vitepress.js
 
       - name: Install Wine (64-bit)
         run: |
@@ -120,20 +138,20 @@ jobs:
         id: tsc
         continue-on-error: true
         timeout-minutes: 45
-        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsc.log" node_modules/typescript/bin/tsc -b --pretty false'
+        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsc.log" "$TSC_JS" -b --pretty false'
 
       - name: 'Gate: tsdown (Windows node under Wine)'
         id: tsdown
         continue-on-error: true
         timeout-minutes: 30
-        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsdown.log" node_modules/tsdown/dist/run.mjs'
+        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsdown.log" "$TSDOWN_JS"'
 
       - name: 'Gate: production site (Windows node under Wine)'
         id: site
         continue-on-error: true
         timeout-minutes: 30
         working-directory: website
-        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/site.log" node_modules/vitepress/bin/vitepress.js build .'
+        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/site.log" "$VITEPRESS_JS" build .'
 
       - name: Report gate outcomes
         env:
