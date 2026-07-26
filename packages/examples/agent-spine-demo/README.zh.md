@@ -24,7 +24,7 @@
 @deepseek-ai/dsh-tool-goal        optional model-facing goal controls
 @deepseek-ai/dsh-goal-session     optional same-session goal-round driver
 @deepseek-ai/dsh-llm-retry        bounded transient request retry policy
-@deepseek-ai/dsh-tasks            generic background-task registry
+@deepseek-ai/dsh-tasks-local      generic background-task registry
 @deepseek-ai/dsh-invariants       configurable invariant registry service
 @deepseek-ai/dsh-session/invariant
 @deepseek-ai/dsh-agent/invariant

@@ -1,0 +1,107 @@
+// Web e2e scenario: the resident question composer. The shipped composition
+// already exposes ask_user_question (the ui-question row's node half mounts
+// the tool), so a recorded turn where the model asks blocks mid-turn on the
+// real userInteraction seam: the composer renders in the browser, the test
+// answers through it, and the turn completes with the answer in the log.
+// Replay is fully deterministic — the question content arrives from replayed
+// chunks, the composer wait is real, and the answer click is the test's own
+// gesture (the ONE place a drive step legitimately reacts to model content:
+// the turn cannot complete without it, in record and replay alike).
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import type { Browser, Page } from 'playwright'
+import { chromium } from 'playwright'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import {
+  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
+} from './scaffold.ts'
+import { saveFailureShot } from './support.ts'
+
+const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/question-composer', import.meta.url))
+const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
+const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
+// Second golden: the answered transcript — the question resolved into its
+// tool round trip and the final reply, the state the waiting golden cannot see.
+const ANSWERED_EXPECTED = join(SNAPSHOT_DIR, 'answered.expected.md')
+const MODE = webSnapshotMode()
+
+const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "color", question "Which color do you prefer?", header "Pick one", and options labeled "Blue" and "Green". After I answer, reply with the single word DONE and stop.'
+
+describe('web e2e: resident question composer round trip', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  const sessionEvents: SessionEvent[] = []
+
+  beforeAll(async () => {
+    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 })
+    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
+    browser = await chromium.launch()
+    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+  }, 120_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+  })
+
+  it('asks through the composer, answers, and completes with the answer logged', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-question'))
+    if (MODE !== 'record') {
+      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+    }
+    const input = page.locator('textarea').first()
+    await input.waitFor({ timeout: 10_000 })
+    const settled = scaffold.whenTurnSettled(MODE === 'record' ? 180_000 : 30_000)
+    await input.fill(PROMPT)
+    await input.press('Enter')
+
+    // The composer takes over the input area while the tool blocks. Its
+    // presence is a STABLE waiting state (not a transient): it stays until
+    // answered, so a plain waitFor is race-free.
+    const composer = page.locator('[data-question-key]')
+    await composer.waitFor({ timeout: MODE === 'record' ? 120_000 : 30_000 })
+    await expect.poll(() => composer.getByText('Which color do you prefer?').count(), { timeout: 10_000 }).toBeGreaterThan(0)
+
+    if (MODE !== 'record') {
+      // This golden owns the stable question surface; the answered-state
+      // golden below owns the resulting transcript.
+      const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
+      await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    }
+
+    await composer.getByRole('radio', { name: 'Blue' }).click()
+    // Submit: Enter on the focused option (the composer's documented submit).
+    await composer.getByRole('radio', { name: 'Blue' }).press('Enter')
+
+    const sessionId = await settled
+    if (MODE === 'record') {
+      await recordFixture(scaffold, sessionId, FIXTURE)
+      return
+    }
+    // World state: the tool result carries the chosen answer, and DONE lands.
+    const results = sessionEvents.filter(e => e.type === 'tool/result')
+    expect(JSON.stringify(results.at(-1))).toContain('Blue')
+    await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
+    // Composer gone; regular input restored.
+    expect(await page.locator('[data-question-key]').count()).toBe(0)
+    await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
+    // Golden of the answered transcript: the ask_user_question round trip
+    // rendered as history (question tool row + DONE), composer takeover gone.
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(ANSWERED_EXPECTED, snapshot, MODE)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 200_000)
+
+  it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md', 'answered.expected.md'])
+  })
+})

@@ -66,6 +66,7 @@
     "@deepseek-ai/dsh-subagent-subprocess": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tasks": "workspace:^",
+    "@deepseek-ai/dsh-tasks-local": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/dsh-timeout-policy": "workspace:^",
     "@deepseek-ai/dsh-tool-ask-user": "workspace:^",

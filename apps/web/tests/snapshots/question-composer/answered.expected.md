@@ -1,0 +1,33 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Use the ask_user_question tool to" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: Use the ask_user_question tool to ask me exactly one question with id "color", question "Which color do you prefer?", header "Pick one", and options labeled "Blue" and "Green". After I answer, reply with the single word DONE and stop.
+- button "Think The user wants me to use the ask_user_question tool to ask a specific question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and options labeled \"Blue\" and \"Green\". Let me do exactly that.":
+  - img
+  - text: Think The user wants me to use the ask_user_question tool to ask a specific question with id "color", question "Which color do you prefer?", header "Pick one", and options labeled "Blue" and "Green". Let me do exactly that.
+- button:
+  - img
+- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"color\", \"question\": \"Which color do you prefer?\", \"header\": \"Pick one\", \"options\": [{\"label\": \"Blue\"}, {\"label\": \"Green\"}]}]}"
+- button "Think The user answered \"Blue\". I need to reply with the single word DONE and stop.":
+  - img
+  - text: Think The user answered "Blue". I need to reply with the single word DONE and stop.
+- paragraph: DONE
+- text: cache hit 99% · 15,978 tokens · 1 turns · 2 steps
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Plan mode":
+  - option "Plan" [selected]
+  - option "Agent"
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- combobox "Model":
+  - option "DeepSeek-V4-Pro High" [selected]
+  - option "DeepSeek-V4-Pro"
+- button "Send message" [disabled]

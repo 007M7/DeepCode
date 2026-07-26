@@ -1,0 +1,39 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Use the ask_user_question tool to" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop.
+- button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
+  - img
+  - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
+- button
+- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]} 等待回答（1 题）"
+- button "▸ 问题内容"
+- text: 请在原客户端处理（web 端作答后续里程碑提供） cache hit 98% · 7,946 tokens · 1 turns · 1 steps
+- region "Ready to continue?":
+  - text: Checkpoint
+  - heading "Ready to continue?" [level=2]
+  - text: 1 / 1
+  - button "上一题" [disabled]:
+    - img
+  - button "下一题" [disabled]:
+    - img
+  - button "放弃整组问题":
+    - img
+  - radiogroup:
+    - radio "Yes":
+      - text: 1 Yes
+      - img
+    - radio "No":
+      - text: 2 No
+      - img
+    - button "其他，请填写自定义答案":
+      - img
+      - text: 其他，请填写自定义答案
+  - status
+  - button "跳过本题"
+  - button "提交" [disabled]

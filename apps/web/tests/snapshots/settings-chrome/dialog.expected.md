@@ -1,0 +1,30 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+  - button "关闭":
+    - img
+    - text: 关闭
+  - text: 权限 选择默认权限模式
+  - button "Read only" [disabled]:
+    - text: Read only
+    - img
+  - text: 工具调用 Schema mode Traditional function calling — invoke tools one at a time Code mode Chain multiple tools with code — multi-step orchestration 语言
+  - button "中文":
+    - text: 中文
+    - img
+  - text: 外观
+  - button "浅色":
+    - img
+    - text: 浅色
+  - button "深色":
+    - img
+    - text: 深色
+  - button "跟随系统" [pressed]:
+    - img
+    - text: 跟随系统
