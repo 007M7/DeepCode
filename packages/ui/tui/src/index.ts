@@ -630,7 +630,7 @@ async function readModelChoices(
       models.push({ provider: provider.id, id: current.model, name: current.model })
     }
     return Promise.all(models.map(async (model): Promise<ModelChoice> => {
-      const reasoning = await ctx.llm.resolveModelReasoning(provider.id, model.id)
+      const reasoning = (await ctx.llm.resolveModelInfo(provider.id, model.id)).reasoning
       return {
         provider: provider.id,
         model: model.id,
@@ -2101,8 +2101,8 @@ export function createTuiChat(
     contextWindow = undefined
     const resolution = selected === undefined
       ? Promise.resolve({ kind: 'resolved', contextWindow: undefined } as const)
-      : ctx.llm.resolveModelContext(selected.provider, selected.model).then(
-        context => ({ kind: 'resolved', contextWindow: context?.contextWindow } as const),
+      : ctx.llm.resolveModelInfo(selected.provider, selected.model).then(
+        info => ({ kind: 'resolved', contextWindow: info.context?.contextWindow } as const),
         (error: unknown) => ({ kind: 'error', error } as const),
       )
     contextResolution = resolution

@@ -63,6 +63,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmResolvedModelInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "GenerateOptions",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -1307,6 +1312,11 @@
     {
       "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "LlmModelReasoningInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "LlmResolvedModelInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
     {

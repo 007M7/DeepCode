@@ -182,6 +182,14 @@ export interface LlmModelReasoningInfo {
   defaultEffort?: ReasoningEffortId
 }
 
+/** Exact-route model metadata resolved by its owning adapter. */
+export interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
+}
+
 /**
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the

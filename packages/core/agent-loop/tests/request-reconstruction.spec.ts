@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -152,7 +152,7 @@ describe('request stability across the loop', () => {
     expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
   })
 
-  it('keeps reasoning resolution, request logging, and dispatch on one adapter registration', async () => {
+  it('keeps exact-model resolution, request logging, and dispatch on one adapter registration', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -163,13 +163,18 @@ describe('request stability across the loop', () => {
     const started = Promise.withResolvers<undefined>()
     const reasoning = Promise.withResolvers<LlmModelReasoningInfo>()
     const first = new class extends MockAdapter {
-      override resolveModelReasoning(
-        _provider: string,
-        _model: string,
+      override async resolveModel(
+        provider: string,
+        model: string,
         _signal?: AbortSignal,
-      ): typeof reasoning.promise {
+      ): Promise<LlmResolvedModelInfo> {
         started.resolve(undefined)
-        return reasoning.promise
+        return {
+          provider,
+          id: model,
+          name: model,
+          reasoning: await reasoning.promise,
+        }
       }
     }([textResponse('first')])
     const second = new MockAdapter([textResponse('second')], {
@@ -200,7 +205,7 @@ describe('request stability across the loop', () => {
   it('aborts a blocked reasoning lookup before quiescent disposal completes', async () => {
     const started = Promise.withResolvers<AbortSignal>()
     const adapter = new class extends MockAdapter {
-      override resolveModelReasoning(
+      override resolveModel(
         _provider: string,
         _model: string,
         signal?: AbortSignal,
@@ -235,13 +240,13 @@ describe('request stability across the loop', () => {
   })
 
   it.each(['plain error', 'LLM error'] as const)(
-    'does not swallow a %s from reasoning resolution',
+    'does not swallow a %s from exact-model resolution',
     async (kind) => {
       const failure = kind === 'plain error'
         ? new Error('reasoning metadata failed')
         : new LlmError('unsupported effort', 'UNSUPPORTED_REASONING_EFFORT')
       const adapter = new class extends MockAdapter {
-        override resolveModelReasoning(): Promise<never> {
+        override resolveModel(): Promise<never> {
           return Promise.reject(failure)
         }
       }([])

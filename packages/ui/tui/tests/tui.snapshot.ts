@@ -640,12 +640,16 @@ describe('TUI terminal-state snapshots', () => {
           { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
           { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
         ],
-        resolveModelReasoning: () => Promise.resolve({
-          efforts: [
-            { id: ReasoningEffortId('high'), name: 'High' },
-            { id: ReasoningEffortId('max'), name: 'Max' },
-          ],
-          defaultEffort: ReasoningEffortId('high'),
+        resolveModelInfo: () => Promise.resolve({
+          context: { contextWindow: 128_000 },
+          reasoning: {
+            efforts: [
+              { id: ReasoningEffortId('off'), name: 'Off' },
+              { id: ReasoningEffortId('high'), name: 'High' },
+              { id: ReasoningEffortId('max'), name: 'Max' },
+            ],
+            defaultEffort: ReasoningEffortId('high'),
+          },
         }),
       },
     }, { columns: 92, rows: 32 })
@@ -656,6 +660,7 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('model-selector', harness.terminal, { includeScrollback: true })
     await renderAfter(harness, () => {
       harness.terminal.send('\x1b[B')
+      harness.terminal.send('\x1b[Z')
       harness.terminal.send('\x1b[Z')
     })
     await checkpoint('model-effort-switching', harness.terminal, { includeScrollback: true })

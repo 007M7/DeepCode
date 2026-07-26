@@ -4,22 +4,27 @@ import {
   LlmAdapter,
   ReasoningEffortId,
   type GenerateOptions,
-  type LlmModelReasoningInfo,
+  type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 
 const HIGH = ReasoningEffortId('high')
-const MAX = ReasoningEffortId('max')
+const OFF = ReasoningEffortId('off')
 
 /** Keyless headless-agent adapter: one real bash call followed by a final answer. */
 class CliMockAdapter extends LlmAdapter {
-  override async resolveModelReasoning(): Promise<LlmModelReasoningInfo> {
+  override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return {
-      efforts: [
-        { id: HIGH, name: 'High' },
-        { id: MAX, name: 'Max' },
-      ],
-      defaultEffort: HIGH,
+      provider,
+      id: model,
+      name: model,
+      reasoning: {
+        efforts: [
+          { id: OFF, name: 'Off' },
+          { id: HIGH, name: 'High' },
+        ],
+        defaultEffort: HIGH,
+      },
     }
   }
 
@@ -56,6 +61,6 @@ export function apply(ctx: Context): void {
   ctx.llm.registerAdapter(['cli-mock'], new CliMockAdapter())
   ctx.on('agent/request', async (_agent, _turn, step, _config, _signal, next) => {
     const config = await next()
-    return step === 2 ? { ...config, reasoningEffort: MAX } : config
+    return step === 2 ? { ...config, reasoningEffort: OFF } : config
   })
 }

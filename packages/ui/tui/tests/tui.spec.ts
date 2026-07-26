@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { agentEvents, assembleContextFor, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import {
+  ReasoningEffortId,
+  type LlmCallConfig,
+  type LlmModelReasoningInfo,
+} from '@deepseek-ai/dsh-llm'
 import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -143,7 +147,11 @@ function provideLlmCatalog(ctx: Context): void {
   ctx.provide('llm', {
     listProviders: () => [],
     listModels: () => Promise.resolve([]),
-    resolveModelContext: () => Promise.resolve(undefined),
+    resolveModelInfo: (provider: string, model: string) => Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+    }),
   } as never)
 }
 
@@ -1155,7 +1163,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('restored answer')
     expect(result.terminal.output).toContain('write tests')
     expect(result.terminal.output).toContain('↑1.3k ↓42')
-    // Context resolution is async (resolveModelContext); settle before reading.
+    // Exact model resolution is async; settle before reading.
     await tick()
     expect(result.terminal.output).toContain('42% context  tools:collapsed')
     // Narrow terminals clip the right-hand context/tools segment first; the
@@ -1741,7 +1749,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       catalog: {
         providers: [],
         models: [],
-        resolveModelContext: () => Promise.resolve(undefined),
+        resolveModelInfo: () => Promise.resolve({}),
       },
     })
     result.terminal.send('/status')
@@ -2288,6 +2296,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
   it('opens a keyboard selector and switches the session model without sending slash text to the agent', async () => {
     const initialContext = Promise.withResolvers<{ contextWindow: number }>()
+    let deferInitialContext = true
     const result = await setup({
       agentOptions: { provider: 'alpha', model: 'a1' },
       contextTokens: 50,
@@ -2299,37 +2308,41 @@ describe('pi-tui chat lifecycle and transcript', () => {
           { provider: 'beta', id: 'b1', name: 'Beta One' },
           { provider: 'beta', id: 'shared', name: 'Beta Shared' },
         ],
-        resolveModelContext: (provider, model) => provider === 'alpha' && model === 'a1'
-          ? initialContext.promise
-          : Promise.resolve({ contextWindow: 200 }),
-        resolveModelReasoning: (provider, model) => {
+        async resolveModelInfo(provider, model) {
+          const shouldDeferContext = provider === 'alpha' && model === 'a1' && deferInitialContext
+          if (shouldDeferContext) deferInitialContext = false
+          const context = shouldDeferContext
+            ? await initialContext.promise
+            : { contextWindow: 200 }
+          let reasoning: LlmModelReasoningInfo | undefined
           if (model === 'a1') {
-            return Promise.resolve({
+            reasoning = {
               efforts: [
                 { id: ReasoningEffortId('low'), name: 'Low' },
                 { id: ReasoningEffortId('high'), name: 'High' },
               ],
               defaultEffort: ReasoningEffortId('low'),
-            })
-          }
-          if (model === 'b1') {
-            return Promise.resolve({
+            }
+          } else if (model === 'b1') {
+            reasoning = {
               efforts: [
                 { id: ReasoningEffortId('high'), name: 'High' },
                 { id: ReasoningEffortId('max'), name: 'Max' },
               ],
               defaultEffort: ReasoningEffortId('high'),
-            })
-          }
-          if (provider === 'alpha' && model === 'shared') {
-            return Promise.resolve({
+            }
+          } else if (provider === 'alpha' && model === 'shared') {
+            reasoning = {
               efforts: [
                 { id: ReasoningEffortId('standard'), name: 'Standard' },
                 { id: ReasoningEffortId('ultra'), name: 'Ultra' },
               ],
-            })
+            }
           }
-          return Promise.resolve(undefined)
+          return {
+            context,
+            ...reasoning === undefined ? {} : { reasoning },
+          }
         },
       },
     })
@@ -2522,7 +2535,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       catalog: {
         providers: [{ id: 'alpha', name: 'Alpha' }],
         models: [{ provider: 'alpha', id: 'a1', name: 'Alpha One' }],
-        resolveModelContext: () => Promise.resolve(undefined),
+        resolveModelInfo: () => Promise.resolve({}),
       },
     })
     unset.terminal.send('/model')
@@ -2554,7 +2567,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
         providers: [{ id: 'deepseek', name: 'DeepSeek' }],
         models: [],
         listModels: () => Promise.reject(new Error('catalog offline')),
-        resolveModelContext: () => Promise.reject(new Error('capacity offline')),
+        resolveModelInfo: () => Promise.reject(new Error('capacity offline')),
       },
     })
     failed.terminal.send('/model')
@@ -2569,7 +2582,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       catalog: {
         providers: [{ id: 'deepseek', name: 'DeepSeek' }],
         models: [{ provider: 'deepseek', id: 'model-1', name: 'Model One' }],
-        resolveModelReasoning: () => Promise.reject(new Error('reasoning metadata offline')),
+        resolveModelInfo: () => Promise.reject(new Error('reasoning metadata offline')),
       },
     })
     reasoningFailed.terminal.send('/model')
@@ -2619,7 +2632,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       catalog: {
         providers: [{ id: 'deepseek', name: 'DeepSeek' }],
         models: [],
-        resolveModelContext: () => context.promise,
+        resolveModelInfo: () => context.promise.then(value => ({ context: value })),
       },
     })
     await contextResult.controller.dispose()

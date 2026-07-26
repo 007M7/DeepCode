@@ -159,7 +159,7 @@ describe('headless stream-json snapshots', () => {
         {
           "model": "cli-mock",
           "provider": "cli-mock",
-          "reasoningEffort": "max",
+          "reasoningEffort": "off",
         },
       ]
     `)

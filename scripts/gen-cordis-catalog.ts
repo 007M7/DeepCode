@@ -41,6 +41,7 @@ export const LINK_MAP: Record<string, string> = {
   LlmCallConfig: 'core.md',
   LlmModelContext: 'core.md',
   LlmModelReasoningInfo: 'core.md',
+  LlmResolvedModelInfo: 'core.md',
   LlmFailure: 'llm-streaming.md',
   LlmModelInfo: 'core.md',
   LlmProviderInfo: 'core.md',

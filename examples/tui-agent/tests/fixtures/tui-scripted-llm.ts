@@ -1,9 +1,8 @@
 import type { Context } from 'cordis'
 import type {
   GenerateOptions,
-  LlmModelContext,
   LlmModelInfo,
-  LlmModelReasoningInfo,
+  LlmResolvedModelInfo,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -41,21 +40,27 @@ class ScriptedTuiAdapter extends LlmAdapter {
     ])
   }
 
-  override resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext> {
-    return Promise.resolve({ contextWindow: 128_000 })
-  }
-
-  override resolveModelReasoning(
-    _provider: string,
+  override resolveModel(
+    provider: string,
     model: string,
-  ): Promise<LlmModelReasoningInfo | undefined> {
-    if (model !== 'tui-scripted-model-pro') return Promise.resolve(undefined)
+  ): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({
-      efforts: [
-        { id: ReasoningEffortId('high'), name: 'High' },
-        { id: ReasoningEffortId('max'), name: 'Max' },
-      ],
-      defaultEffort: ReasoningEffortId('high'),
+      provider,
+      id: model,
+      name: model === 'tui-scripted-model-pro' ? 'Scripted Pro' : 'Scripted Base',
+      context: { contextWindow: 128_000 },
+      ...model !== 'tui-scripted-model-pro'
+        ? {}
+        : {
+          reasoning: {
+            efforts: [
+              { id: ReasoningEffortId('off'), name: 'Off' },
+              { id: ReasoningEffortId('high'), name: 'High' },
+              { id: ReasoningEffortId('max'), name: 'Max' },
+            ],
+            defaultEffort: ReasoningEffortId('high'),
+          },
+        },
     })
   }
 

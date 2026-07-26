@@ -199,7 +199,7 @@ interface LlmModelInfo {
 }
 ```
 
-Correctness-sensitive model capacity is queried separately from the advisory catalog and is owned by the adapter serving the exact route.
+Correctness-sensitive metadata is resolved separately from the advisory catalog and is owned by the adapter serving the exact route. Context capacity and reasoning choices share one exact-model result so consumers do not repeat authoritative model resolution.
 
 ```ts type-equiv
 /** Provider-owned context capacity for one exact provider/model route. */
@@ -238,6 +238,16 @@ interface LlmModelReasoningInfo {
    * an effort. Absence preserves the provider's own default.
    */
   defaultEffort?: ReasoningEffortId
+}
+```
+
+```ts type-equiv
+/** Exact-route model metadata resolved by its owning adapter. */
+interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
 }
 ```
 

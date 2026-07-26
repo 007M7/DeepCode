@@ -10,9 +10,8 @@ import { Context, Service } from 'cordis'
 import type {
   GenerateOptions,
   LlmFailure,
-  LlmModelContext,
   LlmModelInfo,
-  LlmModelReasoningInfo,
+  LlmResolvedModelInfo,
   LlmProviderInfo,
   Message,
   StreamChunk,
@@ -147,34 +146,20 @@ export abstract class LlmAdapter {
   }
 
   /**
-   * Resolve context capacity for one model accepted by this adapter. Absence
-   * means the adapter does not know the capacity, not that routing is invalid.
-   * @param _provider - one provider route owned by this adapter.
-   * @param _model - exact model id passed to {@link GenerateOptions.model}.
-   * @returns provider-owned context metadata, or `undefined` when unavailable.
+   * Resolve all metadata available for one exact model. This query is
+   * independent of the advisory catalog and does not validate request routing.
+   * @param provider - one provider route owned by this adapter.
+   * @param model - exact model id passed to {@link GenerateOptions.model}.
+   * @param _signal - cancellation for this exact-model lookup; asynchronous
+   *   implementations must settle promptly after it aborts.
+   * @returns provider/model identity plus any context and reasoning metadata.
    */
-  resolveModelContext(
-    _provider: string,
-    _model: string,
-  ): Promise<LlmModelContext | undefined> {
-    return Promise.resolve(undefined)
-  }
-
-  /**
-   * Resolve selectable reasoning efforts for one exact model. Absence means
-   * the model has no selectable reasoning-effort capability.
-   * @param _provider - one provider route owned by this adapter.
-   * @param _model - exact model id passed to {@link GenerateOptions.model}.
-   * @param _signal - cancellation for this exact-model lookup; implementations
-   *   must settle promptly after it aborts.
-   * @returns adapter-owned effort metadata, or `undefined` when unsupported.
-   */
-  resolveModelReasoning(
-    _provider: string,
-    _model: string,
+  resolveModel(
+    provider: string,
+    model: string,
     _signal?: AbortSignal,
-  ): Promise<LlmModelReasoningInfo | undefined> {
-    return Promise.resolve(undefined)
+  ): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model })
   }
 
   /**
@@ -273,53 +258,59 @@ export class LlmService extends Service {
   }
 
   /**
-   * Resolve context capacity from the adapter that owns one exact route.
-   * This query is independent of the advisory model catalog: an unlisted model
-   * may return metadata, while `undefined` never rejects later routing.
+   * Resolve and validate all metadata from the adapter that owns one exact
+   * route. The result is detached from adapter-owned objects; catalog
+   * membership remains advisory and does not control request routing.
    * @param provider - registered provider route to inspect.
    * @param model - exact model id passed to the adapter.
-   * @returns detached context metadata, or `undefined` when the adapter has none.
+   * @param signal - optional cancellation for adapter-owned asynchronous lookup.
+   * @returns exact model identity plus available context and reasoning metadata.
    */
-  async resolveModelContext(
+  async resolveModelInfo(
     provider: string,
     model: string,
-  ): Promise<LlmModelContext | undefined> {
-    const context = await this.registration(provider).adapter.resolveModelContext(provider, model)
-    if (context === undefined) return undefined
-    if (!Number.isInteger(context.contextWindow) || context.contextWindow <= 0) {
+    signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo> {
+    return this.resolveModelInfoFor(this.registration(provider), model, signal)
+  }
+
+  private async resolveModelInfoFor(
+    registration: AdapterRegistration,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo> {
+    const provider = registration.provider.id
+    const resolved = await registration.adapter.resolveModel(provider, model, signal)
+    if (
+      typeof resolved.provider !== 'string'
+      || resolved.provider !== provider
+      || typeof resolved.id !== 'string'
+      || resolved.id !== model
+      || typeof resolved.name !== 'string'
+      || resolved.name.length === 0
+      || (resolved.description !== undefined && typeof resolved.description !== 'string')
+    ) {
+      throw new LlmError(
+        `adapter returned invalid exact model metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_INFO',
+      )
+    }
+    const context = resolved.context
+    if (context !== undefined && (!Number.isInteger(context.contextWindow) || context.contextWindow <= 0)) {
       throw new LlmError(
         `adapter returned invalid context metadata for provider "${provider}" model "${model}"`,
         'INVALID_MODEL_CONTEXT',
       )
     }
-    return { contextWindow: context.contextWindow }
-  }
-
-  /**
-   * Resolve selectable reasoning efforts from the adapter that owns one exact
-   * route. Metadata is validated and detached; an absent result means an
-   * effort selector is unsupported for that model.
-   * @param provider - registered provider route to inspect.
-   * @param model - exact model id passed to the adapter.
-   * @param signal - optional cancellation for adapter-owned asynchronous lookup.
-   * @returns detached reasoning metadata, or `undefined` when unsupported.
-   */
-  async resolveModelReasoning(
-    provider: string,
-    model: string,
-    signal?: AbortSignal,
-  ): Promise<LlmModelReasoningInfo | undefined> {
-    return this.resolveModelReasoningFor(this.registration(provider), model, signal)
-  }
-
-  private async resolveModelReasoningFor(
-    registration: AdapterRegistration,
-    model: string,
-    signal?: AbortSignal,
-  ): Promise<LlmModelReasoningInfo | undefined> {
-    const provider = registration.provider.id
-    const reasoning = await registration.adapter.resolveModelReasoning(provider, model, signal)
-    if (reasoning === undefined) return undefined
+    const info: LlmResolvedModelInfo = {
+      provider,
+      id: model,
+      name: resolved.name,
+      ...resolved.description === undefined ? {} : { description: resolved.description },
+      ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
+    }
+    const reasoning = resolved.reasoning
+    if (reasoning === undefined) return info
     if (reasoning.efforts.length === 0) {
       throw new LlmError(
         `adapter returned invalid reasoning metadata for provider "${provider}" model "${model}"`,
@@ -355,8 +346,11 @@ export class LlmService extends Service {
       )
     }
     return {
-      efforts,
-      ...reasoning.defaultEffort === undefined ? {} : { defaultEffort: reasoning.defaultEffort },
+      ...info,
+      reasoning: {
+        efforts,
+        ...reasoning.defaultEffort === undefined ? {} : { defaultEffort: reasoning.defaultEffort },
+      },
     }
   }
 
@@ -379,7 +373,7 @@ export class LlmService extends Service {
     config: LlmCallConfig,
     signal?: AbortSignal,
   ): Promise<LlmCallConfig> {
-    const reasoning = await this.resolveModelReasoningFor(registration, config.model, signal)
+    const reasoning = (await this.resolveModelInfoFor(registration, config.model, signal)).reasoning
     const requested = config.reasoningEffort
     if (reasoning === undefined) {
       if (requested !== undefined) {
@@ -520,7 +514,7 @@ export class LlmService extends Service {
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
    * `options.provider`. Replay state is retained only when the same adapter
    * instance owns its historical provider and the target provider. Final
-   * adapter selection remains fixed through asynchronous reasoning resolution
+   * adapter selection remains fixed through asynchronous exact-model resolution
    * and dispatch. Selection, dispatch, and iteration failures retain their
    * original Error identity and are tagged in a call-local scope for narrow
    * agent-loop request recovery; middleware and nested-call failures remain

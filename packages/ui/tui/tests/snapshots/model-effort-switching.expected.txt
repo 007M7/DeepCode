@@ -26,7 +26,7 @@ buffer
   style 8-8 fg=bright-blue
   style 38-77 fg=bright-black
   style 83-83 fg=bright-blue
-15| "        │ → deepseek/deepseek-v4-pro        DeepSeek V4 Pro — Max                  │        "
+15| "        │ → deepseek/deepseek-v4-pro        DeepSeek V4 Pro — Off                  │        "
   style 8-8 fg=bright-blue
   style 10-64 fg=bright-blue inverse
   style 83-83 fg=bright-blue

@@ -9,7 +9,7 @@ import { assemble, type AssembledResult } from './assemble.ts'
 
 /**
  * Real-API e2e for the pi-ai-backed adapter: V4 Flash + V4 Pro with provider
- * defaults and representative high/max reasoning. Mirrors the native
+ * defaults and representative off/high/max reasoning. Mirrors the native
  * adapter's StreamChunk contract and exercises a replayed tool follow-up.
  * Key-gated.
  */
@@ -71,6 +71,19 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-pi-ai e2e (real API)', () =>
       maxTokens: 50,
     })
     expect(result.finish.kind).toBe('stop')
+    expect(textOf(result).toLowerCase()).toContain('pong')
+  })
+
+  it('flash + reasoning off: plain text without reasoning blocks', async () => {
+    const ctx = await harness(FLASH)
+    const result = await assemble(ctx,{
+      model: FLASH,
+      reasoningEffort: ReasoningEffortId('off'),
+      messages: ask('Reply with exactly the word: pong'),
+      maxTokens: 50,
+    })
+    expect(result.finish.kind).toBe('stop')
+    expect(result.message.content.some(block => block.type === 'reasoning')).toBe(false)
     expect(textOf(result).toLowerCase()).toContain('pong')
   })
 

@@ -213,8 +213,8 @@ describe('DeepSeekAdapter against a mock server', () => {
       thinking: { type: 'disabled' },
     })
     expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
-    await expect(ctx.llm.resolveModelReasoning('deepseek', 'deepseek-v4-flash'))
-      .resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .resolves.not.toHaveProperty('reasoning')
   })
 
   it('rejects a per-request effort before I/O when thinking is disabled', async () => {
@@ -573,15 +573,19 @@ describe('plugin registration and config', () => {
       { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
       { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
     ])
-    await expect(ctx.llm.resolveModelContext('deepseek', 'deepseek-v4-flash'))
-      .resolves.toEqual({ contextWindow: 128_000 })
-    await expect(ctx.llm.resolveModelReasoning('deepseek', 'deepseek-v4-flash'))
-      .resolves.toEqual({
-        efforts: [
-          { id: ReasoningEffortId('high'), name: 'High' },
-          { id: ReasoningEffortId('max'), name: 'Max' },
-        ],
-        defaultEffort: ReasoningEffortId('high'),
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({
+        provider: 'deepseek',
+        id: 'deepseek-v4-flash',
+        name: 'deepseek-v4-flash',
+        context: { contextWindow: 128_000 },
+        reasoning: {
+          efforts: [
+            { id: ReasoningEffortId('high'), name: 'High' },
+            { id: ReasoningEffortId('max'), name: 'Max' },
+          ],
+          defaultEffort: ReasoningEffortId('high'),
+        },
       })
   })
 
@@ -635,10 +639,15 @@ describe('plugin registration and config', () => {
       { provider: 'deepseek', id: 'private-fast', name: 'private-fast' },
       { provider: 'deepseek', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
     ])
-    await expect(ctx.llm.resolveModelContext('deepseek', 'private-fast'))
-      .resolves.toEqual({ contextWindow: 32_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'arbitrary-unlisted'))
-      .resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'private-fast'))
+      .resolves.toMatchObject({ context: { contextWindow: 32_000 } })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'private-reasoner'))
+      .resolves.toMatchObject({
+        name: 'Private Reasoner',
+        description: 'Higher reasoning budget',
+      })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'arbitrary-unlisted'))
+      .resolves.not.toHaveProperty('context')
   })
 
   it('uses exact model capacity before the adapter-wide default', async () => {
@@ -654,12 +663,12 @@ describe('plugin registration and config', () => {
       ],
     })
 
-    await expect(ctx.llm.resolveModelContext('deepseek', 'inherits-default'))
-      .resolves.toEqual({ contextWindow: 256_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'exact-override'))
-      .resolves.toEqual({ contextWindow: 64_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted-pass-through'))
-      .resolves.toEqual({ contextWindow: 256_000 })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'inherits-default'))
+      .resolves.toMatchObject({ context: { contextWindow: 256_000 } })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'exact-override'))
+      .resolves.toMatchObject({ context: { contextWindow: 64_000 } })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted-pass-through'))
+      .resolves.toMatchObject({ context: { contextWindow: 256_000 } })
   })
 
   it('allows an explicit empty model catalog', async () => {

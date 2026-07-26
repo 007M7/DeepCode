@@ -19,6 +19,7 @@ import type {
   LlmModelInfo,
   LlmModelReasoningInfo,
   LlmProviderInfo,
+  LlmResolvedModelInfo,
 } from '@deepseek-ai/dsh-llm'
 
 class ScriptedAdapter extends LlmAdapter {
@@ -68,18 +69,17 @@ class CatalogAdapter extends ScriptedAdapter {
     return Promise.resolve(this.models)
   }
 
-  override resolveModelContext(
-    _provider: string,
+  override resolveModel(
+    provider: string,
     model: string,
-  ): Promise<LlmModelContext | undefined> {
-    return Promise.resolve(this.contexts[model])
-  }
-
-  override resolveModelReasoning(
-    _provider: string,
-    model: string,
-  ): Promise<LlmModelReasoningInfo | undefined> {
-    return Promise.resolve(this.reasoning[model])
+  ): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      ...this.contexts[model] === undefined ? {} : { context: this.contexts[model] },
+      ...this.reasoning[model] === undefined ? {} : { reasoning: this.reasoning[model] },
+    })
   }
 }
 
@@ -667,8 +667,32 @@ describe('LlmService', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'plain', name: 'plain' }])
     await expect(ctx.llm.listModels('plain')).resolves.toEqual([])
     await expect(ctx.llm.listModels('missing')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
-    await expect(ctx.llm.resolveModelContext('plain', 'unlisted')).resolves.toBeUndefined()
-    await expect(ctx.llm.resolveModelContext('missing', 'm')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    await expect(ctx.llm.resolveModelInfo('plain', 'unlisted')).resolves.toEqual({
+      provider: 'plain', id: 'unlisted', name: 'unlisted',
+    })
+    await expect(ctx.llm.resolveModelInfo('missing', 'm')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
+  })
+
+  it.each([
+    [{ provider: 1, id: 'model', name: 'Model' }, 'non-string provider'],
+    [{ provider: 'other', id: 'model', name: 'Model' }, 'mismatched provider'],
+    [{ provider: 'route', id: 1, name: 'Model' }, 'non-string id'],
+    [{ provider: 'route', id: 'other', name: 'Model' }, 'mismatched id'],
+    [{ provider: 'route', id: 'model', name: 1 }, 'non-string name'],
+    [{ provider: 'route', id: 'model', name: '' }, 'empty name'],
+    [{ provider: 'route', id: 'model', name: 'Model', description: 1 }, 'non-string description'],
+  ] as const)('rejects invalid exact model metadata (%s: %s)', async (metadata, _label) => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve(metadata as unknown as LlmResolvedModelInfo)
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    await expect(ctx.llm.resolveModelInfo('route', 'model'))
+      .rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
   })
 
   it('resolves detached model context independently of advisory catalog membership', async () => {
@@ -681,11 +705,13 @@ describe('LlmService', () => {
       { unlisted: source },
     ))
 
-    const resolved = await ctx.llm.resolveModelContext('route', 'unlisted')
-    expect(resolved).toEqual({ contextWindow: 32_000 })
+    const resolved = await ctx.llm.resolveModelInfo('route', 'unlisted')
+    expect(resolved.context).toEqual({ contextWindow: 32_000 })
     source.contextWindow = 64_000
-    expect(resolved).toEqual({ contextWindow: 32_000 })
-    await expect(ctx.llm.resolveModelContext('route', 'other')).resolves.toBeUndefined()
+    expect(resolved.context).toEqual({ contextWindow: 32_000 })
+    await expect(ctx.llm.resolveModelInfo('route', 'other')).resolves.toEqual({
+      provider: 'route', id: 'other', name: 'other',
+    })
   })
 
   it('resolves detached adapter-owned reasoning metadata and materializes its default', async () => {
@@ -705,10 +731,10 @@ describe('LlmService', () => {
       { model: source },
     ))
 
-    const resolved = await ctx.llm.resolveModelReasoning('route', 'model')
-    expect(resolved).toEqual(source)
+    const resolved = await ctx.llm.resolveModelInfo('route', 'model')
+    expect(resolved.reasoning).toEqual(source)
     source.efforts[0]!.name = 'mutated'
-    expect(resolved?.efforts[0]?.name).toBe('Standard')
+    expect(resolved.reasoning?.efforts[0]?.name).toBe('Standard')
     await expect(ctx.llm.resolveCallConfig({ provider: 'route', model: 'model' })).resolves.toEqual({
       provider: 'route',
       model: 'model',
@@ -734,7 +760,7 @@ describe('LlmService', () => {
       {},
       { model: metadata as unknown as LlmModelReasoningInfo },
     ))
-    await expect(ctx.llm.resolveModelReasoning('route', 'model'))
+    await expect(ctx.llm.resolveModelInfo('route', 'model'))
       .rejects.toMatchObject({ code: 'INVALID_MODEL_REASONING' })
   })
 
@@ -764,13 +790,16 @@ describe('LlmService', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const adapter = new class extends RecordingAdapter {
-      override resolveModelReasoning(
-        _provider: string,
-        _model: string,
-      ): Promise<LlmModelReasoningInfo> {
-        return Promise.resolve({
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        const reasoning: LlmModelReasoningInfo = {
           efforts: [{ id: ReasoningEffortId('standard'), name: 'Standard' }],
           defaultEffort: ReasoningEffortId('standard'),
+        }
+        return Promise.resolve({
+          provider,
+          id: model,
+          name: model,
+          reasoning,
         })
       }
     }(SCRIPT)
@@ -799,19 +828,24 @@ describe('LlmService', () => {
     expect(Object.isFrozen(adapter.lastOptions)).toBe(true)
   })
 
-  it('pins one adapter registration across asynchronous reasoning resolution and dispatch', async () => {
+  it('pins one adapter registration across asynchronous exact-model resolution and dispatch', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const started = Promise.withResolvers<undefined>()
     const reasoning = Promise.withResolvers<LlmModelReasoningInfo>()
     const first = new class extends RecordingAdapter {
-      override resolveModelReasoning(
-        _provider: string,
-        _model: string,
+      override async resolveModel(
+        provider: string,
+        model: string,
         _signal?: AbortSignal,
-      ): Promise<LlmModelReasoningInfo> {
+      ): Promise<LlmResolvedModelInfo> {
         started.resolve(undefined)
-        return reasoning.promise
+        return {
+          provider,
+          id: model,
+          name: model,
+          reasoning: await reasoning.promise,
+        }
       }
     }(SCRIPT)
     const disposeFirst = ctx.llm.registerAdapter(['route'], first)
@@ -869,18 +903,18 @@ describe('LlmService', () => {
     })).toThrow(expect.objectContaining({ code: 'INVALID_PREPARED_CALL' }))
   })
 
-  it('passes cancellation through reasoning capability resolution', async () => {
+  it('passes cancellation through exact-model resolution', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const started = Promise.withResolvers<undefined>()
     const adapter = new class extends ScriptedAdapter {
-      override resolveModelReasoning(
+      override resolveModel(
         _provider: string,
         _model: string,
         signal?: AbortSignal,
-      ): Promise<LlmModelReasoningInfo | undefined> {
+      ): Promise<LlmResolvedModelInfo> {
         started.resolve(undefined)
-        return new Promise((_resolve, reject) => {
+        return new Promise<LlmResolvedModelInfo>((_resolve, reject) => {
           if (signal === undefined) {
             reject(new Error('missing reasoning signal'))
             return
@@ -918,7 +952,7 @@ describe('LlmService', () => {
         [],
         { model: { contextWindow } },
       ))
-      await expect(ctx.llm.resolveModelContext('route', 'model'))
+      await expect(ctx.llm.resolveModelInfo('route', 'model'))
         .rejects.toMatchObject({ code: 'INVALID_MODEL_CONTEXT' })
     },
   )

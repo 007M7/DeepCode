@@ -205,7 +205,7 @@ interface LlmModelInfo {
 }
 ```
 
-对正确性敏感的模型容量与参考目录分开查询，并归服务该确切路由的适配器所有。
+对正确性敏感的元数据与参考目录分开解析，并归服务该确切路由的适配器所有。上下文容量和推理选项共用同一个确切模型结果，消费方因而无需重复执行权威模型解析。
 
 ```ts type-equiv
 /** Provider-owned context capacity for one exact provider/model route. */
@@ -244,6 +244,16 @@ interface LlmModelReasoningInfo {
    * an effort. Absence preserves the provider's own default.
    */
   defaultEffort?: ReasoningEffortId
+}
+```
+
+```ts type-equiv
+/** Exact-route model metadata resolved by its owning adapter. */
+interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
 }
 ```
 

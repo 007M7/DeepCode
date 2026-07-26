@@ -11,6 +11,7 @@ import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   Model,
+  ModelThinkingLevel,
   SimpleStreamOptions,
   ThinkingLevel,
 } from '@earendil-works/pi-ai'
@@ -22,9 +23,8 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
-  LlmModelContext,
   LlmModelInfo,
-  LlmModelReasoningInfo,
+  LlmResolvedModelInfo,
   ReasoningEffortId as ReasoningEffortIdType,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
@@ -44,7 +44,7 @@ export interface PiAiAdapterOptions {
  * Resolve a catalog model dynamically and apply only the configured endpoint
  * override, preserving the catalog's API/capability/compatibility metadata.
  */
-function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api> {
+function resolvePiModel(profile: PiAiProviderProfile, modelId: string): Model<Api> {
   const model = getBuiltinModels(profile.provider as BuiltinProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
   if (model === undefined) {
     throw new LlmError(`pi-ai provider "${profile.provider}" has no catalog model "${modelId}"`, 'UNKNOWN_MODEL')
@@ -55,11 +55,12 @@ function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api>
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
 function profileOptions(
   profile: PiAiProviderProfile,
-  reasoning: ThinkingLevel | undefined,
+  reasoning: ModelThinkingLevel | undefined,
 ): SimpleStreamOptions {
+  const enabledReasoning: ThinkingLevel | undefined = reasoning === 'off' ? undefined : reasoning
   return {
     ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
-    ...reasoning === undefined ? {} : { reasoning },
+    ...enabledReasoning === undefined ? {} : { reasoning: enabledReasoning },
     ...profile.thinkingBudgets === undefined ? {} : { thinkingBudgets: profile.thinkingBudgets },
     ...profile.cacheRetention === undefined ? {} : { cacheRetention: profile.cacheRetention },
     ...profile.transport === undefined ? {} : { transport: profile.transport },
@@ -70,19 +71,14 @@ function profileOptions(
   }
 }
 
-/** Selectable pi-ai levels exclude the separate on/off control. */
-function supportedReasoningLevels(model: Model<Api>): ThinkingLevel[] {
-  return getSupportedThinkingLevels(model).filter((level): level is ThinkingLevel => level !== 'off')
-}
-
 /** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
 function resolveReasoningLevel(
   model: Model<Api>,
-  effort: ReasoningEffortIdType | ThinkingLevel | undefined,
-): ThinkingLevel | undefined {
+  effort: ReasoningEffortIdType | ModelThinkingLevel | undefined,
+): ModelThinkingLevel | undefined {
   if (effort === undefined) return undefined
-  const supported = supportedReasoningLevels(model)
-  if (supported.some(level => level === effort)) return effort as ThinkingLevel
+  const supported = getSupportedThinkingLevels(model)
+  if (supported.some(level => level === effort)) return effort as ModelThinkingLevel
   throw new LlmError(
     `pi-ai provider "${model.provider}" model "${model.id}" does not support reasoning effort "${effort}"`,
     'UNSUPPORTED_REASONING_EFFORT',
@@ -123,27 +119,11 @@ export class PiAiAdapter extends LlmAdapter {
     })))
   }
 
-  override resolveModelContext(
-    provider: string,
-    model: string,
-  ): Promise<LlmModelContext | undefined> {
-    const profile = this.profiles.get(provider)
-    if (profile === undefined) {
-      return Promise.reject(new LlmError(
-        `pi-ai adapter does not own provider "${provider}"`,
-        'NO_ADAPTER',
-      ))
-    }
-    return Promise.resolve().then(() => ({
-      contextWindow: resolveModel(profile, model).contextWindow,
-    }))
-  }
-
-  override resolveModelReasoning(
+  override resolveModel(
     provider: string,
     model: string,
     _signal?: AbortSignal,
-  ): Promise<LlmModelReasoningInfo | undefined> {
+  ): Promise<LlmResolvedModelInfo> {
     const profile = this.profiles.get(provider)
     if (profile === undefined) {
       return Promise.reject(new LlmError(
@@ -152,21 +132,23 @@ export class PiAiAdapter extends LlmAdapter {
       ))
     }
     return Promise.resolve().then(() => {
-      const resolvedModel = resolveModel(profile, model)
-      const levels = supportedReasoningLevels(resolvedModel)
-      if (levels.length === 0) {
-        resolveReasoningLevel(resolvedModel, profile.reasoning)
-        return undefined
-      }
+      const resolvedModel = resolvePiModel(profile, model)
+      const levels = getSupportedThinkingLevels(resolvedModel)
       const defaultLevel = resolveReasoningLevel(resolvedModel, profile.reasoning)
       return {
-        efforts: levels.map(level => ({
-          id: ReasoningEffortId(level),
-          name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
-        })),
-        ...defaultLevel === undefined
-          ? {}
-          : { defaultEffort: ReasoningEffortId(defaultLevel) },
+        provider,
+        id: model,
+        name: resolvedModel.name,
+        context: { contextWindow: resolvedModel.contextWindow },
+        reasoning: {
+          efforts: levels.map(level => ({
+            id: ReasoningEffortId(level),
+            name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
+          })),
+          ...defaultLevel === undefined
+            ? {}
+            : { defaultEffort: ReasoningEffortId(defaultLevel) },
+        },
       }
     })
   }
@@ -179,7 +161,7 @@ export class PiAiAdapter extends LlmAdapter {
     if (profile === undefined) {
       throw new LlmError(`pi-ai adapter does not own provider "${options.provider}"`, 'NO_ADAPTER')
     }
-    const model = resolveModel(profile, options.model)
+    const model = resolvePiModel(profile, options.model)
     const reasoning = resolveReasoningLevel(
       model,
       options.reasoningEffort ?? profile.reasoning,
