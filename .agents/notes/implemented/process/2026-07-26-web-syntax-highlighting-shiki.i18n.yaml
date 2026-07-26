@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-26-web-syntax-highlighting-shiki.md: 79ad2153b8883fda92205dada300fd194834129b
-2026-07-26-web-syntax-highlighting-shiki.zh.md: 81d5c8bea8484ee54c4795308afae2ca66231af7
+2026-07-26-web-syntax-highlighting-shiki.zh.md: 4cb3f0ceadebc4837108463c149262bf8e36f93d

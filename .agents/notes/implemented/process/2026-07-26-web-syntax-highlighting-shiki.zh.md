@@ -15,13 +15,13 @@ client 过去把每一处代码表面——assistant 正文里的 markdown 围�
 **采用同步细粒度形态的 shiki，作为 `ui-primitives` 里的一个单例，主题化完全经由 CSS 自定义属性完成。**
 
 - **依赖**：`shiki/core` + `@shikijs/langs`，经 `createHighlighterCoreSync` 搭配 `createJavaScriptRegexEngine({ forgiving: true })` 组装——不带 oniguruma WASM、没有异步初始化、对 bundle 友好。语法（grammar）白名单：`typescript`（内嵌 JS）、`shellscript`、`json`——即 harness 实际会渲染的那几种语言；其余一律回退到几何完全一致的纯文本块，绝不报错。先例：VitePress 站点已经通过 shiki 渲染全部文档代码；而在 TypeScript（正是此处要紧的载荷）上，TextMate 语法实质性优于正则高亮器。
-- **单例**：`ui-primitives/src/markdown/highlight.ts` 按每个 document 惰性创建一个 `HighlighterCore`，并公开 `highlightToHtml(code, lang)`（undefined 即渲染为纯文本）。共享的 `CodeBlock` 组件同时拥有两条分支；其 shiki 分支经 `dangerouslySetInnerHTML` 注入生成的 span 树——此用法获准，因为 shiki 输出的是从代码文本计算出的静态 span 树（不流经任何用户 HTML，没有脚本或事件处理器），这正是 shiki 自身文档载明的消费路径。
-- **主题化**：shiki 的 `createCssVariablesTheme` 让每一种 token 颜色都经由 `--shiki-*` 自定义属性路由；取值本身住在新增的 `ui-theme/styles/shiki.css` token 表里（亮色在 `:root`、暗色在 `body[data-ds-dark-theme]`——层叠方式与其余每张样式表相同），经壳的 `base.css` 引入链导入。组件 CSS 保持只用 token；任何字面颜色都不进入 JS 或组件样式表。背景/前景以别名指向既有的 markdown 代码块 token，使高亮块与纯文本块彼此一致。
-- **表面**：markdown 围栏代码块（`MarkdownText` 的 `pre` 组件把单字符串围栏路由到 `CodeBlock`）、`run_code` 展开后的程序正文（ToolRow 的 code 变体，`lang="typescript"`），以及 details 面板的 Input 参数（`lang="json"`）。输出有意保持纯文本——工具输出是任意文本，硬猜一种语法造成的误高亮会多于帮助。
+- **单例**：`ui-primitives/src/markdown/highlight.ts` 为每个 document 惰性创建一个 `HighlighterCore`，并公开 `highlightToHtml(code, lang)`（undefined 即渲染为纯文本）。共享的 `CodeBlock` 组件同时拥有两条分支；其 shiki 分支经 `dangerouslySetInnerHTML` 注入生成的 span 树——此用法获准，因为 shiki 输出的是从代码文本计算出的静态 span 树（不流经任何用户 HTML，没有脚本或事件处理器），这正是 shiki 自身文档载明的消费路径。
+- **主题化**：shiki 的 `createCssVariablesTheme` 让每一种 token 颜色都经由 `--shiki-*` 自定义属性路由；取值本身住在新增的 `ui-theme/styles/shiki.css` token 表里（亮色在 `:root`、暗色在 `body[data-ds-dark-theme]`——层叠方式与其余每张样式表相同），由壳的 `base.css` 导入链引入。组件 CSS 保持只用 token；任何字面颜色都不进入 JS 或组件样式表。背景/前景以别名指向既有的 markdown 代码块 token，使高亮块与纯文本块彼此一致。
+- **表面**：markdown 围栏代码块（`MarkdownText` 的 `pre` 组件把单字符串围栏路由到 `CodeBlock`）、`run_code` 展开后的程序正文（ToolRow 的 code 变体，`lang="typescript"`），以及 details 面板的 Input 参数（`lang="json"`）。输出有意保持纯文本——工具输出是任意文本，硬猜一种语法，带来的误高亮会多于帮助。
 
 ## 曾考虑的替代方案
 
-**`rehype-highlight`/lowlight。** 屈居次选：天然同步，bundle 约为三分之一，但正则语法在 TypeScript 上的保真度肉眼可见地更差，而且仓库将从此同时运行两套高亮体系（站点用 shiki、应用用 highlight.js）、维护两套主题化词汇。
+**`rehype-highlight`/lowlight。** 屈居次选：天然同步，bundle 体积约为三分之一，但基于正则的语法在 TypeScript 上的保真度肉眼可见地更差，而且仓库将从此同时运行两套高亮体系（站点用 shiki、应用用 highlight.js）、维护两套主题化词汇。
 
 **完整的 `shiki` bundle，或 oniguruma WASM 引擎。** 否决：完整 bundle 会带上每一种语法和主题；WASM 需要异步加载，而这正是同步的 client 启动刻意规避的。细粒度 core 加三种语法，让成本与实际用量成正比。
 
