@@ -102,7 +102,7 @@ Locale ships with 中文 and English built in; `setLocale`/`setTheme` are the on
 
 **Settings importing and enumerating the sections.** Adding a page would require modifying the shell plugin, breaking the composition model where each feature occupies a slot from its own plugin.
 
-**One `ui-settings-*` package per section (the first-cut implementation).** It divorces the settings surface from the feature itself: changing Theme behavior touches two packages, the package count grows linearly with settings items, and settings-general depending back on the locale/theme services forms an intermediate layer that exists purely for the package split. After converging on feature-owner self-registration, General belongs to the shell (it belongs to no single feature) and preference rows ship with their feature packages.
+**One `ui-settings-*` package per section.** It divorces the settings surface from the feature itself: changing Theme behavior touches two packages, the package count grows linearly with settings items, and settings-general depending back on the locale/theme services forms an intermediate layer that exists purely for the package split. Under feature-owner self-registration that layer does not exist: General belongs to the shell (it belongs to no single feature) and preference rows ship with their feature packages.
 
 **Injecting the Locale/Theme snapshots into React directly.** Inject results are cached by entry identity, so volatile values go stale; hand-rolling a React hook per service also bypasses the slot store's unified binding.
 
