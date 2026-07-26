@@ -16,6 +16,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PostToolDecision, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
@@ -232,7 +233,7 @@ describe('read skip', () => {
 
 describe('the durable dispatch-log arm', () => {
   /** Boot code mode + the policy + the worker runtime; run one program via the real bridge. */
-  async function runCodeWith(program: string, maxInlineBytes: number) {
+  async function runCodeWith(program: string, maxInlineBytes: number, extraTools: ToolDefinition[] = []) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry, { mode: 'code' })
@@ -248,6 +249,7 @@ describe('the durable dispatch-log arm', () => {
     }
     ctx.tools.register(textTool('huge_read', 'H'.repeat(2_000)))
     ctx.tools.register(textTool('small_read', 'tiny'))
+    for (const tool of extraTools) ctx.tools.register(tool)
     const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: CallId('parent-1'),
@@ -279,6 +281,21 @@ describe('the durable dispatch-log arm', () => {
       source: { toolName: 'huge_read', callId: 'parent-1:code:1', label: 'dispatch' },
     })
     expect(save?.content).toBe('H'.repeat(2_000))
+  })
+
+  it('leaves a non-text sub-result log unchanged (flatten declines)', async () => {
+    const { events, spill } = await runCodeWith(
+      'return await tools.mixed_read({})', 5, [defineContentToolFixture({
+        name: 'mixed_read',
+        description: 'mixed_read',
+        parameters: {},
+        async execute(): Promise<ContentBlock[]> {
+          return [{ type: 'text', text: 'x'.repeat(100) }, { type: 'reasoning', text: 'why' }]
+        },
+      })])
+    const settle = events.find(event => event.type === 'tool/code-dispatch')
+    expect((settle!.data as { content: unknown[] }).content).toHaveLength(2)
+    expect(spill.saves.filter(entry => entry.source.label === 'dispatch')).toHaveLength(0)
   })
 
   it('leaves a within-cap sub-result log untouched and saves nothing for it', async () => {
