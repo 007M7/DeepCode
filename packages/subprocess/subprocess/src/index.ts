@@ -102,10 +102,10 @@ declare module 'cordis' {
  *   readers never consume one another's output; lossy reads report truncation
  *   and the spill file holding the complete stream when one exists. Piped
  *   streams are handed to the caller raw and never buffered here.
- * - {@link SubprocessHandle.kill} signals without escalation,
- *   {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
- *   SIGTERM→grace→SIGKILL, and {@link SubprocessHandle.dispose} runs the
- *   cooperative EOF-first ladder — all tree-scoped on every platform.
+ * - {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
+ *   SIGTERM→grace→SIGKILL — the only termination verb — and
+ *   {@link SubprocessHandle.dispose} runs the cooperative EOF-first ladder;
+ *   both tree-scoped on every platform.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
  */

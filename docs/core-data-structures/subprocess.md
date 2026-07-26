@@ -132,7 +132,7 @@ interface SubprocessSpawnSpec {
 
 ## Handles: streams, readers, and tree-scoped termination
 
-A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. Termination is tree-scoped on every platform: `kill(signal)` sends one signal Node-style, `terminate()` escalates SIGTERM→grace→SIGKILL, `waitForExit()` observes the whole tree, and `dispose(graces)` runs the cooperative stdin-EOF→SIGTERM→SIGKILL ladder out-of-process children need.
+A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. Termination is tree-scoped on every platform: `terminate()` — the only termination verb — escalates SIGTERM→grace→SIGKILL, `waitForExit()` observes the whole tree, and `dispose(graces)` runs the cooperative stdin-EOF→SIGTERM→SIGKILL ladder out-of-process children need.
 
 ```ts type-equiv
 /**
@@ -158,16 +158,10 @@ interface SubprocessHandle {
   /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Send one signal to the process tree, Node-style — no escalation, no
-   * timers. A no-op after the outcome has settled (the pid may be reused).
-   * @param signal - the signal to deliver (default `SIGTERM`; Windows
-   *   force-terminates the tree for any value).
-   */
-  kill(signal?: NodeJS.Signals): void
-  /**
    * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
-   * (Windows force-terminates immediately). Idempotent; also triggered by the
-   * spec's abort signal.
+   * (Windows force-terminates immediately) — the seam's only termination
+   * verb. Idempotent, a no-op once the tree is gone (the pid may be reused),
+   * and also triggered by the spec's abort signal.
    */
   terminate(): void
   /**

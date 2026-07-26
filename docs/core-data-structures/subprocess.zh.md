@@ -132,7 +132,7 @@ interface SubprocessSpawnSpec {
 
 ## 句柄：流、读取器与以进程树为范围的终止
 
-spawn 会立即返回一个实时句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`kill(signal)` 以 Node 风格只发送一个信号，`terminate()` 执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树，`dispose(graces)` 运行进程外子进程所需的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。
+spawn 会立即返回一个实时句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树，`dispose(graces)` 运行进程外子进程所需的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。
 
 ```ts type-equiv
 /**
@@ -158,16 +158,10 @@ interface SubprocessHandle {
   /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Send one signal to the process tree, Node-style — no escalation, no
-   * timers. A no-op after the outcome has settled (the pid may be reused).
-   * @param signal - the signal to deliver (default `SIGTERM`; Windows
-   *   force-terminates the tree for any value).
-   */
-  kill(signal?: NodeJS.Signals): void
-  /**
    * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
-   * (Windows force-terminates immediately). Idempotent; also triggered by the
-   * spec's abort signal.
+   * (Windows force-terminates immediately) — the seam's only termination
+   * verb. Idempotent, a no-op once the tree is gone (the pid may be reused),
+   * and also triggered by the spec's abort signal.
    */
   terminate(): void
   /**

@@ -14,7 +14,7 @@ Status: implemented
 
 - **按流划分的 stdio 处置方式（disposition）**，位于 `SubprocessSpawnSpec` 上：`'pipe'`（原始的 `Readable`/`Writable`，供消费方自有的协议分帧使用）、`'inherit'`（诊断输出直通父进程的流），以及收集模式（collect）`{ maxBytes, spill? }`——即最初的有界尾部保留形状，只是 spill 文件改为可选，使诊断尾部（例如语言服务器的 stderr）无需落盘即可缓冲。stdin 则为 `'ignore'`、`'pipe'` 或 `{ data }`（写完即关闭的批量形式）。
 - **`SubprocessOutcome` 只承载退出事实**（Node close 事件的词汇）；收集到的输出在结算后仍可经 `handle.collected` 读取（spill 文件描述符在结算边界封存），因此批量与流式调用方共用一条访问路径，也没有任何内容被复制进这份结果。
-- **以进程树为范围的终止，按 Node 风格拆分**：`kill(signal?)` 只发送一个信号，结算后为空操作；`terminate()` 拥有 SIGTERM→宽限期→SIGKILL 升级（并承接 spec 的 abort 信号）；`waitForExit()` 轮询进程树存活状态（POSIX 进程组探测；Windows 上以直接子进程为界）；`dispose(graces)` 是从 `subagent-subprocess` 吸收来的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯，按句柄 memoize 化。Windows 进程树终止（`taskkill /T`，可注入）自 lsp-local 迁入，因此每个消费方拿到的进程树语义在各平台上都正确。
+- **以进程树为范围的终止，集中在一个动词后面**：`terminate()` 拥有 SIGTERM→宽限期→SIGKILL 升级（也承接 spec 的 abort 信号，进程树消亡后为空操作）——句柄不暴露单信号的 `kill(signal?)`，因此消费方无法跳过宽限窗口；`waitForExit()` 轮询进程树存活状态（POSIX 进程组探测；Windows 上以直接子进程为界）；`dispose(graces)` 是从 `subagent-subprocess` 吸收来的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯，按句柄 memoize 化。Windows 进程树终止（`taskkill /T`，可注入）自 lsp-local 迁入，因此每个消费方拿到的进程树语义在各平台上都正确。
 - **凭据清除只有一份定义**：`scrubbedParentEnv()`/`SENSITIVE_ENV_PATTERN` 定义在 seam 上。无法把 spawn 本身路由到该服务的调用点——pty-local（node-pty 拥有 fork）与 mcp-client（MCP SDK 拥有传输层的 spawn）——改为导入该函数，因此即便进程所有权无法统一，环境策略仍是单一来源；SDK helper 的 `scrubEnvironment()` 默认同样委托给它。
 
 各项迁移随这次重塑一并落地：**bash-local/bash-sandbox**（收集模式 + 批量 stdin；bash 的 `kill()` 映射到 `terminate()`，因此 `task_kill` 保有升级语义），**lsp-local**（管道化的协议流 + 无 spill 的 stderr 收集尾部；`LspConnection` 改为接收 seam 的 spawn 函数；其私有的进程树操作辅助函数已删除），**subagent-acp**（管道化的 ndjson 流 + inherit 的 stderr；spawn 失败经 `done` 的 reject 汇入同一个启动竞态；dispose 就是携带插件所配置宽限期的 `handle.dispose` 调用）。**`dsh-subagent-subprocess` 已删除**——dispose 阶梯与凭据清除归 seam 所有；无人使用的隔离配置目录辅助函数随之消亡（其消费方本就不存在）。
@@ -35,4 +35,4 @@ Status: implemented
 
 换来的是：进程树信号发送、升级、dispose 阶梯、有界收集与凭据清除各自只剩一份实现，且只在 `dsh-subprocess-local` 的测试套件中测试一次（其中包括 lsp-local 的私有副本从未有过的、以注入平台方式实现的 Windows 覆盖）；lsp-local 与 subagent-acp 卸下了自己的进程管道，其子进程如今像 bash 的一样，在插件重载后存活、随组合拆除而终止；一个完整的包（`dsh-subagent-subprocess`）就此消失。seam README 中「只有一个消费方家族」的限制说明也随之退役。
 
-代价是：这道 seam 变宽了（stdio 模式从一种变为三种、终止动词从一个变为四个），未来的后端因此要实现更宽的表面；lsp-local/subagent-acp 的各组合如今都多出 subprocess 这一行组合配置；`SubprocessOutcome` 也不再承载输出，这是仍未发布的堆叠变更内部的一次破坏性形状变更（依照预发布立场，PR2 那一层被就地更新，而非加 shim）。pty-local/mcp-client/SDK/test-support 的 spawn 因所有权归属留在该服务之外，以凭据清除作为共享底线。
+代价是：这道 seam 变宽了（stdio 模式从一种变为三种、终止动词换成 terminate/waitForExit/dispose 这组生命周期表面），未来的后端因此要实现更宽的表面；lsp-local/subagent-acp 的各组合如今都多出 subprocess 这一行组合配置；`SubprocessOutcome` 也不再承载输出，这是仍未发布的堆叠变更内部的一次破坏性形状变更（依照预发布立场，PR2 那一层被就地更新，而非加 shim）。pty-local/mcp-client/SDK/test-support 的 spawn 因所有权归属留在该服务之外，以凭据清除作为共享底线。

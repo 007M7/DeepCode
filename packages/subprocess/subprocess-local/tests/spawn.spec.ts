@@ -165,26 +165,15 @@ describe('spawnSubprocess', () => {
     expect(result.signal).toBe('SIGKILL')
   })
 
-  it('kill() sends one signal Node-style, without escalation', async () => {
-    const running = spawnSubprocess(spec('trap \'\' TERM; echo armed; sleep 60', { graceMs: 100 }))
-    await waitForStdout(running, 'armed\n')
-    running.kill() // trapped SIGTERM, no SIGKILL follow-up
-    await new Promise(resolve => setTimeout(resolve, 400))
-    expect(running.collected.stdout).toBeDefined()
-    running.kill('SIGKILL') // explicit signal choice, still no timers
-    const result = await running.done
-    expect(result.signal).toBe('SIGKILL')
-  })
-
-  it('kills the whole process group (grandchildren die too)', async () => {
-    // The subshell writes the sleep's pid then waits on it; killing the
+  it('terminates the whole process group (grandchildren die too)', async () => {
+    // The subshell writes the sleep's pid then waits on it; terminating the
     // group must take the sleep down with bash.
     const pidFile = join(spillDir, `grandchild-${Date.now()}.pid`)
     const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
     const grandchild = await waitForPidFile(pidFile)
     expect(grandchild).toBeGreaterThan(0)
 
-    running.kill()
+    running.terminate()
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
     await waitGone(grandchild)
@@ -452,22 +441,6 @@ describe('killGroup', () => {
     expect(() => { killGroup(running.pid, 'SIGTERM') }).not.toThrow()
   })
 
-  it('handle.kill() after the tree died delivers no termination signal', async () => {
-    // Cleanup code commonly kills handles in a finally; once the tree is gone
-    // the pid may be reused, so a late kill must deliver nothing (the
-    // liveness PROBE — signal 0 — is the only process.kill allowed).
-    const running = spawnSubprocess(spec('true'))
-    await running.done
-    await running.waitForExit()
-    const spy = vi.spyOn(process, 'kill')
-    try {
-      running.kill()
-      const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
-      expect(delivered).toEqual([])
-    } finally {
-      spy.mockRestore()
-    }
-  })
 })
 
 describe('stdio dispositions', () => {
@@ -541,7 +514,7 @@ describe('dispose ladder', () => {
 })
 
 describe('windows tree semantics (injected platform)', () => {
-  it('kill and terminate route through taskkill by root pid', async () => {
+  it('terminate routes through taskkill by root pid', async () => {
     const killed: number[] = []
     const running = spawnSubprocess(spec('sleep 60', { graceMs: 100 }), {
       spillDir,
@@ -670,6 +643,18 @@ describe('coverage seams', () => {
     expect(running.stdout).toBeUndefined()
     expect(running.collected.stdout).toBeUndefined()
     expect(running.collected.stderr!.readFrom(0).text).toBe('err\n')
+  })
+
+  it("an 'inherit' stderr with collected stdout wires only the requested collector", async () => {
+    const running = spawnSubprocess({
+      ...spec('echo out; echo to-parent >&2'),
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 1000 }, stderr: 'inherit' },
+    })
+    const outcome = await running.done
+    expect(outcome.exitCode).toBe(0)
+    expect(running.stderr).toBeUndefined()
+    expect(running.collected.stderr).toBeUndefined()
+    expect(running.collected.stdout!.readFrom(0).text).toBe('out\n')
   })
 
   it('terminate() after the tree died delivers no termination signal', async () => {
