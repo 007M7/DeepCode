@@ -285,6 +285,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             const head = commitQueue[0]
             /* v8 ignore next -- the loop condition bounds the index. */
             if (head === undefined) break
+            /* v8 ignore next -- entries join commitQueue only after start() set dispatched (see pump). */
             if (head.dispatched === undefined) break
             await head.dispatched
             commitQueue.shift()
@@ -295,7 +296,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         }
       }
       const pump = (): void => {
-        // The finally-driven re-entry below would otherwise recurse.
+        // Defensive re-entry guard: today every caller (binding submission,
+        // flight.finally, drain) runs off promise callbacks, never while pump
+        // is on the stack, so this cannot fire — kept against a future
+        // synchronous caller.
+        /* v8 ignore next -- see the re-entry note above. */
         if (pumping) return
         pumping = true
         try {
@@ -310,12 +315,10 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             // Reclassify at start time (fail-closed on registry changes).
             const mode = head.classify()
             if (exclusiveActive || inFlight.size >= (mode === 'exclusive' ? 1 : maxParallel)) return
-            if (mode === 'exclusive') {
-              if (inFlight.size > 0) return
-              exclusiveActive = true
-            }
+            // The guard above already returned for an exclusive head with any
+            // in-flight sibling, so claiming the barrier here is race-free.
+            if (mode === 'exclusive') exclusiveActive = true
             pendingQueue.shift()
-            commitQueue.push(head)
             const flight = head.start().finally(() => {
               inFlight.delete(flight)
               if (mode === 'exclusive') exclusiveActive = false
@@ -325,6 +328,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
               void commitReady()
               pump()
             })
+            // Joined AFTER start() ran synchronously, so every commitQueue
+            // entry already carries its `dispatched` promise.
+            commitQueue.push(head)
             inFlight.add(flight)
           }
         } finally {
