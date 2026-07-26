@@ -474,7 +474,7 @@ Source: [`packages/core/session/src/types.ts:283`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/tools/src/code-mode.ts:48`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/code-mode.ts)
 
 #### `tool/code-dispatch-start` — log-only
 
@@ -497,7 +497,7 @@ Source: [`packages/core/tools/src/code-mode.ts:48`](../packages/core/tools/src/c
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/tools/src/code-mode.ts:32`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/code-mode.ts)
 
 #### `tool/result` — surface
 
