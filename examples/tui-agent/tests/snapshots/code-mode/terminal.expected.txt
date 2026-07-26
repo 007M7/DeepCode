@@ -1,7 +1,7 @@
-terminal 100x36 buffer=normal length=53 base=17 viewport=17
+terminal 100x36 buffer=normal length=51 base=15 viewport=15
 lifecycle started=1 stopped=0 progress=inactive
 title "Using ONE run_code program: call — DSH TUI snapshot"
-cursor hidden column=1 viewportRow=31 bufferRow=48
+cursor hidden column=1 viewportRow=33 bufferRow=48
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
@@ -135,4 +135,3 @@ buffer
 50| "deepseek-v4-flash  /workspace/project  ↑150 ↓464  cache 98%  4% context  tools:c"
   style 0-78 dim
   style 81-99 dim
-51-52| <blank>
