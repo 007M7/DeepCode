@@ -349,6 +349,19 @@ describe('OutputCollector', () => {
     expect(readFileSync(out.spillPath!, 'utf8')).toBe('0123456789abcdef')
   })
 
+  it('retains a byte-exact tail across uneven chunk boundaries', () => {
+    // The old whole-chunk drop could under-retain; a diagnostic tail must be
+    // exactly the LAST maxBytes regardless of chunking.
+    const collector = new OutputCollector(10, undefined, 'exact-tail', spillDir)
+    collector.push(Buffer.from('aaaa'))
+    collector.push(Buffer.from('bbbbbb'))
+    collector.push(Buffer.from('cc'))
+    const out = collector.finalize()
+    expect(out.text).toBe('aabbbbbbcc')
+    expect(Buffer.byteLength(out.text)).toBe(10)
+    expect(out.truncated).toBe(true)
+  })
+
   it('readFrom returns increments and flags lossy reads', () => {
     const collector = new OutputCollector(10, 100, 'test', spillDir)
     collector.push(Buffer.from('aaaaa'))
@@ -439,16 +452,18 @@ describe('killGroup', () => {
     expect(() => { killGroup(running.pid, 'SIGTERM') }).not.toThrow()
   })
 
-  it('handle.kill() after settlement signals nothing and starts no grace timer', async () => {
-    // Cleanup code commonly kills handles in a finally; after settlement the
-    // group is gone and the pid may be reused, so a late kill must be inert
-    // (no signal to a possibly-recycled pgid, no referenced timer delaying exit).
+  it('handle.kill() after the tree died delivers no termination signal', async () => {
+    // Cleanup code commonly kills handles in a finally; once the tree is gone
+    // the pid may be reused, so a late kill must deliver nothing (the
+    // liveness PROBE — signal 0 — is the only process.kill allowed).
     const running = spawnSubprocess(spec('true'))
     await running.done
+    await running.waitForExit()
     const spy = vi.spyOn(process, 'kill')
     try {
       running.kill()
-      expect(spy).not.toHaveBeenCalled()
+      const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
+      expect(delivered).toEqual([])
     } finally {
       spy.mockRestore()
     }
@@ -575,6 +590,59 @@ describe('waitForExit', () => {
   })
 })
 
+describe('tree-survivor escalation (terminate/dispose reach helpers the leader left behind)', () => {
+  it('terminate() SIGKILLs a TERM-trapping descendant after the direct child settles', async () => {
+    // The leader spawns a TERM-trapping helper with all stdio detached from
+    // the collected pipes, then exits: the helper holds the GROUP alive while
+    // the direct child settles. The escalation must still reach it.
+    const pidFile = join(spillDir, `survivor-${Date.now()}.pid`)
+    const running = spawnSubprocess(spec(
+      `bash -c 'trap "" TERM; echo $$ > ${pidFile}; sleep 60' >/dev/null 2>&1 & disown; wait_placeholder=; exit 0`,
+      { graceMs: 300 },
+    ))
+    const helper = await waitForPidFile(pidFile)
+    await running.done // direct child settled; helper survives in the group
+    expect(() => process.kill(helper, 0)).not.toThrow()
+
+    running.terminate() // SIGTERM (trapped) → grace → SIGKILL the group
+    await expect(running.waitForExit()).resolves.toBe(true)
+    await waitGone(helper)
+  })
+
+  it('dispose() holds each tier on whole-tree exit, not direct-child settlement', async () => {
+    const pidFile = join(spillDir, `survivor-dispose-${Date.now()}.pid`)
+    const running = spawnSubprocess(spec(
+      `bash -c 'trap "" TERM; echo $$ > ${pidFile}; sleep 60' >/dev/null 2>&1 & disown; exit 0`,
+      { graceMs: 200 },
+    ))
+    const helper = await waitForPidFile(pidFile)
+    await running.done
+    expect(() => process.kill(helper, 0)).not.toThrow()
+
+    await running.dispose({ eofGraceMs: 100, graceMs: 300 })
+    // The ladder only returns once the WHOLE tree is gone.
+    expect(() => process.kill(helper, 0)).toThrow()
+  })
+
+  it('service teardown awaits tree survivors, not just handle settlement', async () => {
+    const { Context } = await import('cordis')
+    const { default: LocalSubprocessService } = await import('@deepseek-ai/dsh-subprocess-local')
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    ;(ctx.subprocess as InstanceType<typeof LocalSubprocessService>).internals = { spillDir }
+    const pidFile = join(spillDir, `survivor-svc-${Date.now()}.pid`)
+    const running = ctx.subprocess.spawn(spec(
+      `bash -c 'trap "" TERM; echo $$ > ${pidFile}; sleep 60' >/dev/null 2>&1 & disown; exit 0`,
+      { graceMs: 200 },
+    ))
+    const helper = await waitForPidFile(pidFile)
+    await running.done
+    await fiber.dispose()
+    // Teardown itself waited for the survivor to die.
+    expect(() => process.kill(helper, 0)).toThrow()
+  })
+})
+
 describe('coverage seams', () => {
   it('taskkillProcessTree ignores non-positive pids and contains a missing binary', () => {
     expect(() => { taskkillProcessTree(-1) }).not.toThrow()
@@ -604,13 +672,15 @@ describe('coverage seams', () => {
     expect(running.collected.stderr!.readFrom(0).text).toBe('err\n')
   })
 
-  it('terminate() after settlement is a no-op', async () => {
+  it('terminate() after the tree died delivers no termination signal', async () => {
     const running = spawnSubprocess(spec('true'))
     await running.done
+    await running.waitForExit()
     const spy = vi.spyOn(process, 'kill')
     try {
       running.terminate()
-      expect(spy).not.toHaveBeenCalled()
+      const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
+      expect(delivered).toEqual([])
     } finally {
       spy.mockRestore()
     }
@@ -622,13 +692,15 @@ describe('coverage seams', () => {
     await expect(running.waitForExit()).resolves.toBe(true)
   })
 
-  it('dispose() on an already-settled handle returns without signalling', async () => {
+  it('dispose() on an already-exited tree returns without delivering a signal', async () => {
     const running = spawnSubprocess(spec('true'))
     await running.done
+    await running.waitForExit()
     const spy = vi.spyOn(process, 'kill')
     try {
       await running.dispose({ eofGraceMs: 50, graceMs: 50 })
-      expect(spy).not.toHaveBeenCalled()
+      const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
+      expect(delivered).toEqual([])
     } finally {
       spy.mockRestore()
     }

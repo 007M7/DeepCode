@@ -20,7 +20,7 @@ No direct invalidation; the named consumers own any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **POSIX-only** — detached process groups, group kills, and SIGTERM→SIGKILL escalation are hardcoded; Windows is unsupported.
+- **Windows tree support is best-effort and untested in CI** — termination routes through `taskkill /PID <pid> /T /F` with all outcomes contained (absent tree, races, missing binary), and liveness falls back to the direct-child boundary; the suites cover the routing through an injected runner only, and `packages/subprocess/*` is excluded from the Windows test matrix.
 - **The credential scrub is a name heuristic** — `*KEY*`/`*SECRET*`/`*TOKEN*` only; differently-named secrets (e.g. `*PASSWORD*`) pass through, and a whitelist for over-scrubbed vars is noted future work.
 - **Completed spill files are not deleted** — bounded full-output recovery files (and the private per-process spill dir) accumulate under the OS tmpdir until something external cleans them; oversize incomplete spills are discarded and deletion is attempted immediately, but a cleanup failure can leave a bounded file behind.
 

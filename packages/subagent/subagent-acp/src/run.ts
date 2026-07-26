@@ -180,10 +180,14 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   }
   /* v8 ignore stop */
   // Spawn-level failure surfaces as `done` rejecting into the startup race; a
-  // clean exit must never win it, so the success arm parks forever.
-  /* v8 ignore start -- the success arm's never-settling executor is intentionally empty. */
-  const spawnFailed: Promise<never> = child.done.then(() => new Promise<never>(() => {}), (err: unknown) => Promise.reject(toError(err)))
-  /* v8 ignore stop */
+  // clean exit must never win it, so the success arm parks forever. (The ACP
+  // connection observing its streams closing bounds a child that exits
+  // without speaking the protocol.)
+  const spawnFailed: Promise<never> = child.done.then(
+    /* v8 ignore next -- the success arm's never-settling executor is intentionally empty. */
+    () => new Promise<never>(() => {}),
+    (err: unknown) => Promise.reject(toError(err)),
+  )
   spawnFailed.catch(() => { /* observed by the startup race; never unhandled */ })
 
   // Startup rollback and the published handle share one process teardown.

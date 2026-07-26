@@ -28,7 +28,7 @@
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | 适配器注册表和模型流式调用 |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的单实例请求压力和会话表面压力 |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | 前台和后台命令执行 |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | bash 执行器之下受管理的子进程组 |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 供 bash 执行器、LSP host 与 ACP subagent 后端使用的受管子进程树 |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | 按 owner 隔离的持久化终端会话 |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | 同一执行环境内的进程限制（argv 包装、逐调用策略） |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | 共享沙箱策略归属点 |

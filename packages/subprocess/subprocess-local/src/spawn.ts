@@ -14,7 +14,8 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
+import { setTimeout as sleepMs } from 'node:timers/promises'
+import { deadline } from '@deepseek-ai/dsh-timeout'
 import { DSH_ENV_PREFIX, scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type {
   CollectedOutput,
@@ -60,6 +61,14 @@ export interface SpawnInternals {
   taskkill?: (pid: number) => void
   /** Host platform override for signalling decisions. */
   platform?: NodeJS.Platform
+}
+
+/** Timeout code marking a dispose-ladder tier bound (vs an external abort). */
+const DISPOSE_TIER_TIMEOUT = 'SUBPROCESS_DISPOSE_TIER'
+
+/** Liveness-poll cadence for tree-exit waits; unref'd so an abandoned wait cannot hold the parent's loop open. */
+function sleepTick(): Promise<void> {
+  return sleepMs(15, undefined, { ref: false })
 }
 
 let spillCounter = 0
@@ -118,19 +127,20 @@ export class OutputCollector {
     if (!this.spillDisabled && (overflows || this.spillFd !== undefined)) this.spillAll(chunk)
     this.chunks.push(chunk)
     this.bytes += chunk.length
-    while (this.bytes > this.maxBytes && this.chunks.length > 1) {
-      // Drop whole chunks from the head; pipe chunks are small (≤64KiB), so
-      // the retained tail tracks the cap closely enough for a model-facing
-      // truncation boundary. (length > 1 was just checked — shift() returns.)
-      const head = this.chunks.shift() as Buffer
-      this.bytes -= head.length
-      this.dropped = true
-    }
-    if (this.bytes > this.maxBytes && this.chunks.length === 1) {
-      // A single chunk larger than the cap: keep its tail.
-      const only = this.chunks[0] as Buffer
-      this.chunks[0] = only.subarray(only.length - this.maxBytes)
-      this.bytes = this.maxBytes
+    while (this.bytes > this.maxBytes) {
+      const head = this.chunks[0] as Buffer
+      const excess = this.bytes - this.maxBytes
+      if (head.length <= excess) {
+        // Drop the whole head chunk (length ≥ 1 is guaranteed while over cap).
+        this.chunks.shift()
+        this.bytes -= head.length
+      } else {
+        // Trim the head so the retained window is byte-exact at the cap — a
+        // diagnostic tail (an LSP server's stderr) must hold the LAST
+        // maxBytes regardless of how the stream was chunked.
+        this.chunks[0] = head.subarray(excess)
+        this.bytes -= excess
+      }
       this.dropped = true
     }
   }
@@ -281,6 +291,7 @@ function signalTree(
     taskkill(pid)
     return
   }
+  /* v8 ignore next -- kill/terminate gate on treeAlive(), which is false for pid -1; this guard protects direct callers only. */
   if (pid <= 0) return
   try {
     process.kill(-pid, sig)
@@ -352,21 +363,50 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   // Failed spawns use pid -1 so signalling remains a no-op.
   const pid = child.pid ?? -1
 
+  /** Whether the detached tree's root (or POSIX group) is still alive. */
+  const treeAlive = (): boolean => {
+    if (pid <= 0) return false
+    if (platform === 'win32') {
+      // Windows has no group-liveness probe; the direct child's exit is the
+      // observable boundary (taskkill /T already took the tree with it).
+      return child.exitCode === null && child.signalCode === null
+    }
+    try {
+      process.kill(-pid, 0)
+      return true
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      /* v8 ignore next 2 -- POSIX reports an absent group as ESRCH; child-reaping timing
+         makes observing the other arm platform-dependent. */
+      if (code === 'ESRCH') return false
+      /* v8 ignore start -- EPERM and non-POSIX negative-pid failures are platform defenses; CI runs
+         tree-lifecycle tests on POSIX hosts where absence reports ESRCH. */
+      if (code === 'EPERM') return true
+      return child.exitCode === null && child.signalCode === null
+      /* v8 ignore stop */
+    }
+  }
+
   const kill = (sig: NodeJS.Signals = 'SIGTERM'): void => {
-    // After settlement the tree is gone and the pid may be reused; callers
-    // commonly kill() in a finally, so this must not re-signal.
-    if (settled) return
+    // Guard on TREE liveness, not outcome settlement: a TERM-trapping helper
+    // can outlive the settled direct child and must stay signalable, while a
+    // fully-dead tree (possible pid reuse) must not be re-signalled from a
+    // caller's finally block.
+    if (!treeAlive()) return
     signalTree(platform, pid, sig, child, taskkill)
   }
 
   const terminate = (): void => {
     if (graceTimer !== undefined) return // escalation already in flight
-    if (settled) return
+    if (!treeAlive()) return
     signalTree(platform, pid, 'SIGTERM', child, taskkill)
+    // The escalation must survive direct-child settlement — the leader dying
+    // does not mean the tree died — so the timer is unref'd rather than
+    // cleared at settle, and re-checks tree liveness before force-killing.
     graceTimer = setTimeout(() => {
-      /* v8 ignore next -- the timer is cleared at settlement; only an in-flight fire racing the close event sees settled=true. */
-      if (!settled) signalTree(platform, pid, 'SIGKILL', child, taskkill)
+      if (treeAlive()) signalTree(platform, pid, 'SIGKILL', child, taskkill)
     }, spec.graceMs)
+    graceTimer.unref()
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
@@ -408,75 +448,51 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     })
     child.on('close', settle)
     function cleanup(): void {
-      if (graceTimer !== undefined) clearTimeout(graceTimer)
+      // graceTimer deliberately NOT cleared: the SIGKILL escalation must be
+      // able to reach tree survivors after the direct child settles.
       if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
       spec.signal?.removeEventListener('abort', onAbort)
     }
   })
 
-  /** Whether the detached tree's root (or POSIX group) is still alive. */
-  const treeAlive = (): boolean => {
-    if (pid <= 0) return false
-    if (platform === 'win32') {
-      // Windows has no group-liveness probe; the direct child's exit is the
-      // observable boundary (taskkill /T already took the tree with it).
-      return child.exitCode === null && child.signalCode === null
-    }
-    try {
-      process.kill(-pid, 0)
-      return true
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      /* v8 ignore next -- POSIX reports an absent group as ESRCH; child-reaping timing
-         makes observing the other arm platform-dependent. */
-      if (code === 'ESRCH') return false
-      /* v8 ignore start -- EPERM and non-POSIX negative-pid failures are platform defenses; CI runs
-         tree-lifecycle tests on POSIX hosts where absence reports ESRCH. */
-      if (code === 'EPERM') return true
-      return child.exitCode === null && child.signalCode === null
-      /* v8 ignore stop */
-    }
-  }
-
   const waitForExit = async (signal?: AbortSignal): Promise<boolean> => {
     while (treeAlive()) {
       if (signal?.aborted) return false
-      await yieldToEventLoop()
+      await sleepTick()
     }
     return true
   }
 
-  /** Race settlement against a timer without leaving listeners or live timers behind. */
-  const settlesWithin = async (ms: number): Promise<boolean> => {
-    if (settled) return true
-    // The executor runs synchronously, so the timer is assigned before the race.
-    let timer!: NodeJS.Timeout
-    const timeout = new Promise<false>((resolve) => {
-      // `.unref()` so a pending grace timer never keeps the parent's loop alive.
-      timer = setTimeout(() => { resolve(false) }, ms)
-      timer.unref()
-    })
-    try {
-      return await Promise.race([done.then(() => true, () => true), timeout])
-    } finally {
-      clearTimeout(timer)
-    }
+  /**
+   * Wait, bounded, for whole-tree exit — the dispose ladder's quiescence test.
+   * Tree liveness, not direct-child settlement: a TERM-trapping helper that
+   * outlives the leader must hold the ladder on its tier until it exits.
+   */
+  const treeExitsWithin = async (ms: number): Promise<boolean> => {
+    using bound = deadline(undefined, ms, DISPOSE_TIER_TIMEOUT)
+    return await waitForExit(bound.signal)
   }
 
   let disposal: Promise<void> | undefined
   const dispose = (graces: SubprocessDisposeGraces): Promise<void> => (disposal ??= (async () => {
+    // A spawn failure has no process to tear down; observe the rejection so
+    // disposal in a finally block cannot surface it as unhandled.
+    if (pid <= 0) {
+      await done.catch(() => {})
+      return
+    }
     // 1. Close a piped stdin and allow cooperative teardown and flush.
     if (stdinMode === 'pipe') child.stdin?.end()
-    if (await settlesWithin(graces.eofGraceMs)) return
+    if (await treeExitsWithin(graces.eofGraceMs)) return
     // 2. POSIX gets a catchable graceful signal; Windows taskkill force-terminates.
     if (platform !== 'win32') {
       kill('SIGTERM')
-      if (await settlesWithin(graces.graceMs)) return
+      if (await treeExitsWithin(graces.graceMs)) return
     }
     // 3. Force-kill the tree and await a bounded exit edge.
     kill('SIGKILL')
-    if (!(await settlesWithin(graces.graceMs))) {
-      throw new Error(`child process did not exit within ${graces.graceMs}ms after forced termination`)
+    if (!(await treeExitsWithin(graces.graceMs))) {
+      throw new Error(`child process tree did not exit within ${graces.graceMs}ms after forced termination`)
     }
   })())
 

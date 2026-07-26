@@ -28,13 +28,14 @@ export class LocalSubprocessService extends SubprocessService {
   constructor(ctx: Context) {
     super(ctx)
     ctx.effect(() => async () => {
-      // Terminate (escalating), then await closure so even a TERM-trapping
-      // child cannot outlive the fiber.
+      // Terminate (escalating), then await WHOLE-TREE exit — not just the
+      // direct child's settlement — so even a TERM-trapping descendant cannot
+      // outlive the fiber.
       const pending: Promise<unknown>[] = []
       for (const handle of this.live) {
         handle.terminate()
         // Spawn-failure rejections already settled and left the live set.
-        pending.push(handle.done.catch(() => {}))
+        pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
       }
       this.live.clear()
       await Promise.all(pending)
@@ -44,10 +45,13 @@ export class LocalSubprocessService extends SubprocessService {
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     const handle = spawnSubprocess(spec, this.internals)
     this.live.add(handle)
-    handle.done.then(
-      () => { this.live.delete(handle) },
-      () => { this.live.delete(handle) },
-    )
+    // Release ownership only once the whole TREE is gone, not at direct-child
+    // settlement — a TERM-trapping helper that outlives the leader must stay
+    // owned so teardown can still escalate it. For the common no-survivor
+    // case waitForExit resolves immediately after settlement.
+    const release = (): Promise<void> =>
+      handle.waitForExit().then(() => { this.live.delete(handle) })
+    handle.done.then(release, release)
     return handle
   }
 }
