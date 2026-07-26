@@ -27,7 +27,7 @@
       "path": "../ui-layout"
     },
     {
-      "path": "../i18n"
+      "path": "../locale"
     },
     {
       "path": "../../support/invariants"
