@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-26-task-registry-seam.md: d550b5b081a7980cceddd3c1eb65c3a9a175906f
-2026-07-26-task-registry-seam.zh.md: 1088465b908fd905900aa11479a48632fff3fe6f
+2026-07-26-task-registry-seam.md: 57ac176cf6d2b0a50fcbcfacd77f6a26b462b582
+2026-07-26-task-registry-seam.zh.md: 252382ac39ebf1e5077fad87fcee2537ae8a9ab3

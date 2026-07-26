@@ -680,7 +680,7 @@ describe('dsh-tool-subagent background mode', () => {
     const ctx = await setup({ provider: 'mock' })
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks-local')
+    expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks')
   })
 
   it('skips background startup when the tool signal is already aborted', async () => {
