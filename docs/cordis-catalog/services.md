@@ -1607,9 +1607,16 @@ Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSec
 
 Source: [`packages/core/system-prompt/src/index.ts:246`](../../packages/core/system-prompt/src/index.ts)
 
-## `ctx.tasks` — `TaskService`
+## `ctx.tasks` — `TaskService` (abstract seam)
 
-The `tasks` service: the runtime-global background task registry. See the module doc for the ownership, isolation, and lifecycle contracts.
+Abstract background task registry. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.tasks` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- Registrations outlive producer and control-surface fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
+- Owned-task access is fenced by the owner's session id. Ids are predictable, so authorization — not secrecy — is the boundary.
+- Settlement is first-wins: one terminal record, one round of contained listener notification, and released waiters, even against a late producer outcome.
+- start refuses work while no control surface is attached, so a producer cannot start work that callers cannot collect or stop.
 
 ```ts cordis-catalog
 /**
@@ -1620,7 +1627,7 @@ The `tasks` service: the runtime-global background task registry. See the module
  * @param spec - task identity, owner, and synchronous starter.
  * @returns the registry-issued `<kind>-N` id.
  */
-start(spec: TaskStart): TaskId
+abstract start(spec: TaskStart): TaskId
 
 /**
  * List caller-owned and unowned tasks in registration order without exposing
@@ -1628,7 +1635,7 @@ start(spec: TaskStart): TaskId
  * @param caller - reading agent; a non-agent caller sees only unowned tasks.
  * @returns fresh snapshots.
  */
-list(caller?: Agent): TaskSnapshot[]
+abstract list(caller?: Agent): TaskSnapshot[]
 
 /**
  * Return a non-consuming snapshot without changing its read cursor or notice
@@ -1637,7 +1644,7 @@ list(caller?: Agent): TaskSnapshot[]
  * @param caller - reading agent checked against the owner.
  * @returns a fresh snapshot.
  */
-get(id: TaskId, caller?: Agent): TaskSnapshot
+abstract get(id: TaskId, caller?: Agent): TaskSnapshot
 
 /**
  * Read the next stream delta, or the idempotent final output after settlement.
@@ -1647,7 +1654,7 @@ get(id: TaskId, caller?: Agent): TaskSnapshot
  * @param caller - reading agent checked against the owner.
  * @returns output text and the post-read snapshot.
  */
-read(id: TaskId, caller?: Agent): TaskRead
+abstract read(id: TaskId, caller?: Agent): TaskRead
 
 /**
  * Request cancellation, then mark the task stopping and reported. A producer
@@ -1658,21 +1665,20 @@ read(id: TaskId, caller?: Agent): TaskRead
  * @param reason - logged reason forwarded to the producer.
  * @returns `requested` for live work, otherwise `already-finished`.
  */
-kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
+abstract kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
 
 /**
  * Wait for settlement or timeout without cancelling the task. Caller abort
- * rejects only while the task is live; after settlement it returns the
- * terminal snapshot so a notice suppressed for this waiter is still delivered.
- * Timed-out and aborted waits detach their resolvers. Throws for invalid,
- * unknown, or foreign input.
+ * rejects only while the task is live; after settlement the terminal
+ * snapshot wins so a notice suppressed for this waiter is still delivered.
+ * Throws for invalid, unknown, or foreign input.
  * @param id - task to wait for.
  * @param timeoutMs - positive finite wait bound in milliseconds.
  * @param caller - waiting agent checked against the owner.
  * @param signal - optional cancellation of the wait itself.
  * @returns snapshot at settlement or timeout.
  */
-async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
+abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
 
 /**
  * Register an effect-scoped completion listener. Each listener is contained;
@@ -1681,7 +1687,7 @@ async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal):
  * @param listener - receives each terminal snapshot and its exact owner.
  * @returns disposer that unregisters the listener.
  */
-onTaskDone(listener: TaskDoneListener): () => void
+abstract onTaskDone(listener: TaskDoneListener): () => void
 
 /**
  * Attach an effect-scoped surface that can read and stop tasks. {@link start}
@@ -1689,12 +1695,12 @@ onTaskDone(listener: TaskDoneListener): () => void
  * @param name - diagnostic label; duplicate names remain independent.
  * @returns disposer that detaches this surface.
  */
-attachSurface(name: string): () => void
+abstract attachSurface(name: string): () => void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:77`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:50`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 

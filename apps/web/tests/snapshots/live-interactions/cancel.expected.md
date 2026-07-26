@@ -1,0 +1,24 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Reply with a one-sentence description" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: Reply with a one-sentence description of event sourcing, then stop.
+- paragraph: partial
+- text: 已停止 0 tokens · 1 turns · 1 steps
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Plan mode":
+  - option "Plan" [selected]
+  - option "Agent"
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- combobox "Model":
+  - option "DeepSeek-V4-Pro High" [selected]
+  - option "DeepSeek-V4-Pro"
+- button "Send message" [disabled]
