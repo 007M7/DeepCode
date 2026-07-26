@@ -250,6 +250,8 @@ export type InputEvent =
   | { readonly type: 'adjudicated'; readonly attempt: SubmitAttempt; readonly outcome: PickOutcome }
   | { readonly type: 'adjudication-failed'; readonly attempt: SubmitAttempt; readonly message: string }
   | { readonly type: 'submit-settled'; readonly attempt: SubmitAttempt; readonly ok: boolean; readonly outcome?: SubmitOutcome; readonly message?: string }
+  /** An ordinary (default-sink) send was accepted: clear the draft as a COMMIT — undo must not resurrect sent content (mirrors the command submit-settled success arm). */
+  | { readonly type: 'send-committed' }
   | { readonly type: 'release' }
 
 /**

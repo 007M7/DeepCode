@@ -27,6 +27,10 @@ export class WorkspacesService {
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
   private readonly manager: WorkspaceManager
+  /** In-flight blank-session creates keyed by workspace (connectWorkspace coalescing). */
+  private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  /** Guards the runtime-owned one-shot initial-selection subscription. */
+  private initialSelectionStarted = false
 
   /**
    * @param ctx - client root context.
@@ -59,6 +63,11 @@ export class WorkspacesService {
   async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {
     const workspace = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
     if (workspace === undefined) throw new Error(`workspaces.connectWorkspace: unknown workspace ${workspaceId}`)
+    // Coalesce concurrent connects: a create's summary lands without cwd
+    // until the host frame arrives, so a second call inside that window
+    // would miss the reuse scan and mint another hidden blank session.
+    const inflight = this.connecting.get(workspaceId)
+    if (inflight !== undefined) return inflight
     // Reuse: blank && same canonical cwd (workspace.path is the host realpath
     // canon; summary cwd is the session header passthrough of the same canon).
     const sessions = this.sessions.list.getSnapshot()
@@ -66,7 +75,59 @@ export class WorkspacesService {
       const summary = sessions.byId[id]
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path) return summary.id
     }
-    return this.sessions.create({ workspaceId })
+    const attempt = this.sessions.create({ workspaceId })
+      .finally(() => { this.connecting.delete(workspaceId) })
+    this.connecting.set(workspaceId, attempt)
+    return attempt
+  }
+
+  /**
+   * Follow the first complete Workspace/Session baseline and select a default
+   * session exactly once. A restored current session wins; otherwise the most
+   * recent Workspace is connected (reusing or creating its blank session).
+   * Later explicit clears stay cleared instead of retriggering this startup
+   * policy. A failed connect may retry on the next baseline projection.
+   * @returns disposer for the baseline subscription; late work cannot navigate after disposal.
+   */
+  startInitialSelection(): () => void {
+    if (this.initialSelectionStarted) {
+      throw new Error('workspaces.startInitialSelection: already started')
+    }
+    this.initialSelectionStarted = true
+    let state: 'waiting' | 'connecting' | 'done' = 'waiting'
+    let disposed = false
+    const reconcile = (): void => {
+      if (disposed || state !== 'waiting') return
+      const workspace = this.list.getSnapshot()
+      if (!workspace.baselinesReady) return
+      const current = this.sessions.list.getSnapshot().current
+      const target = workspace.recentWorkspaceId
+      if (current !== undefined || target === undefined) {
+        state = 'done'
+        return
+      }
+      state = 'connecting'
+      void this.connectWorkspace(target).then(
+        (sessionId) => {
+          if (disposed) return
+          if (this.sessions.list.getSnapshot().current === undefined) {
+            this.sessions.open(sessionId)
+          }
+          state = 'done'
+        },
+        (reason: unknown) => {
+          if (disposed) return
+          state = 'waiting'
+          console.warn('initial workspace selection failed:', reason)
+        },
+      )
+    }
+    const unsubscribe = this.list.subscribe(reconcile)
+    reconcile()
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }
 
   /**

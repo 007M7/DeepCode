@@ -85,7 +85,12 @@ export function AppFrame({
   useStore,
   actions,
   renderSlot,
+  useWorkspaces,
 }: AppFrameProps) {
+  // Baseline gate: before both object-layer baselines land, empty snapshots
+  // are indistinguishable from a genuine no-session state — rendering the
+  // conversation shell then would flash the New Workspace hero on boot.
+  const baselinesReady = useWorkspaces(s => s.baselinesReady)
   const panels = useStore((s) => s)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
@@ -151,13 +156,24 @@ export function AppFrame({
           width: cols.sidebar,
         })}
       </div>
-      <>
-        {/* Both column occupants stay at fixed tree positions. The
-            conversation is session-maybe; the strict details entry
-            naturally renders empty while no session is current. */}
-        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
-      </>
+      {baselinesReady
+        ? (
+          <>
+            {/* Both column occupants stay at fixed tree positions. The
+                conversation is session-maybe; the strict details entry
+                naturally renders empty while no session is current. */}
+            <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+            <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
+          </>
+          )
+        : (
+          <>
+            <CenterColumn>
+              <div role="status">Loading workspaces and sessions…</div>
+            </CenterColumn>
+            <DetailsColumn />
+          </>
+          )}
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {panels.sidebar > 0 && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}

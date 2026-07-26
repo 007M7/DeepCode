@@ -160,13 +160,11 @@ describe('AppFrame', () => {
     expect(slotCalls.map((c) => c.key)).toContain('conversation')
   })
 
-  it('renders both column occupants before baselines settle (no loading gate)', () => {
-    // The loading branch is gone: fixed tree positions from first paint, the
-    // occupants render their own pending states.
+  it('keeps the loading branch until both object-layer baselines are ready', () => {
     baselinesReady.current = false
-    const { slotCalls } = mountFrame()
-    expect(slotCalls.map((c) => c.key)).toContain('conversation')
-    expect(slotCalls.map((c) => c.key)).toContain('details')
+    const { slotCalls, getByRole } = mountFrame()
+    expect(getByRole('status').textContent).toContain('Loading workspaces and sessions')
+    expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
   })
 
   it('sidebar slot receives live concession output as owner props', () => {

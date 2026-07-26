@@ -71,7 +71,9 @@ export class SessionInputShell implements SessionInput {
     submit: (mode) => { this.submit(mode) },
   }
 
-  private readonly core = new InputMachine()
+  // Real wall clock: the typing-run merge window must actually expire in
+  // production (the machine's no-clock default is a constant for pure tests).
+  private readonly core = new InputMachine({ now: () => Date.now() })
   private noticeSeq = 0
   private lastDraft = ''
   private disposed = false
@@ -93,6 +95,15 @@ export class SessionInputShell implements SessionInput {
    */
   setDraft(text: string, editRange?: EditRange): void {
     this.run(this.core.dispatch({ type: 'draft-changed', draft: text, ...(editRange !== undefined ? { editRange } : {}) }))
+  }
+
+  /**
+   * Clear the draft as a successful-send commit: no undo unit is recorded and
+   * the undo history is cut, so Ctrl/Cmd-Z cannot resurrect sent content
+   * (the command path gets the same discipline from submit-settled success).
+   */
+  commitSend(): void {
+    this.run(this.core.dispatch({ type: 'send-committed' }))
   }
 
   /**

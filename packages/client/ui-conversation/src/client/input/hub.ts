@@ -116,7 +116,8 @@ export class InputHub implements InputService {
   private sink(session: Session, text: string, mode: 'queue' | 'steer'): void {
     if (text === '') return
     const shell = this.shells.get(session.sessionId)
-    shell?.setDraft('')
+    // Commit, not an editable clear: undo must not resurrect sent content.
+    shell?.commitSend()
     void session.prompt([{ type: 'text', text }], mode).then(
       (result) => {
         if (!result.ok && shell?.snapshot.draft === '') shell.setDraft(text)

@@ -162,12 +162,12 @@ describe('ConversationRoot resident composer', () => {
     // Hero chrome present, view ring absent.
     expect(b.view.getByText("Let's start building")).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
-    // The same machine-backed textarea is live in the hero. The chat-store
-    // mirror binds with ConversationSession (unmounted in hero), so the
-    // draft's truth here is the machine itself.
+    // The same machine-backed textarea is live in the hero, and the
+    // persistence mirror stays bound (ConversationSession mounts chrome-less
+    // for blank sessions): hero typing reaches the chat store.
     const box = b.view.getByRole('textbox')
     fireEvent.change(box, { target: { value: 'draft in hero' } })
-    expect((box as HTMLTextAreaElement).value).toBe('draft in hero')
+    expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
     // Picker: open through the chip; a pick switches to the other
     // workspace's blank session (draft carry is apply-layer wiring).
     fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
