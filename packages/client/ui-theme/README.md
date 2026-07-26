@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-theme
 
+English | [中文](README.zh.md)
+
 Theme plugin: ThemeService over the --dsw-* token base stylesheets (static scale + alias semantic layers). The service owns the theme preference (`light`/`dark`/`system`, persisted under `dsh.theme`), resolves `system` through `prefers-color-scheme`, and publishes immutable `ThemeSnapshot`s on the `theme/change` event; it never touches the DOM — ui-layout's presenter applies the resolved snapshot (`body[data-ds-dark-theme]` + inline alias tokens). Contract: api-contracts v3 §8.
 
 ## Model Experience

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tasks
 
+English | [中文](README.zh.md)
+
 The process-local background task registry (`ctx.tasks`). It gives long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup. Producer plugins extend `TaskKindMap` with their opaque id namespace.
 
 ## Service API
