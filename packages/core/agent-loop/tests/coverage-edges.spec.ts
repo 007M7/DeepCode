@@ -254,3 +254,247 @@ describe('structured tool error propagation (the runtime-validation Agent Note, 
       .toEqual({ name: 'HarnessError', code: 'BOOM' })
   })
 })
+
+describe('retry() edges', () => {
+  it('throws while a turn runs with no request-error window open', async () => {
+    const adapter = new MockAdapter(['hang'])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('retry-busy'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'go')
+    // Wait until the hung request is in flight (the run owns this.abort).
+    await new Promise(r => setTimeout(r, 30))
+    expect(() => { agent.retry() }).toThrow('cannot retry while busy')
+    agent.cancel({ kind: 'user' })
+    await agent.whenIdle()
+  })
+
+  it('ignores a retry request arriving after the recovery window was aborted', async () => {
+    const { LlmError } = await import('@deepseek-ai/dsh-llm')
+    const adapter = new MockAdapter([
+      () => { throw new LlmError('busy', 'RATE_LIMIT') },
+      textResponse('never used'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('retry-after-cancel'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/request-error', async (subject) => {
+      // Cancellation lands first; the window survives structurally but its
+      // signal is aborted, so the request must not arm a retry turn.
+      subject.cancel({ kind: 'user' })
+      subject.retry()
+    })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    // One failed request, no retry turn.
+    expect(adapter.requests).toHaveLength(1)
+    const ends = agent.session.events.filter(e => e.type === 'turn/end')
+    expect(ends).toHaveLength(1)
+  })
+
+  it('completed recovery does not retry when cancellation raced the waterfall', async () => {
+    const { LlmError } = await import('@deepseek-ai/dsh-llm')
+    const adapter = new MockAdapter([
+      () => { throw new LlmError('busy', 'RATE_LIMIT') },
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('retry-raced'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, signal, next) => {
+      await next()
+      // Recovery completes and requested the retry, but the turn signal
+      // aborts before the loop reads the window.
+      subject.retry()
+      subject.cancel({ kind: 'user' })
+      expect(signal.aborted).toBe(true)
+    })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
+    const end = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason.kind).toBe('aborted')
+  })
+})
+
+describe('stream failure edges', () => {
+  it('rethrows a mid-stream throw that carries no adapter failure facts', async () => {
+    const adapter = new MockAdapter([textResponse('will be vetoed')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('stream-no-facts'), { provider: 'mock', model: 'mock' })
+    let recoveries = 0
+    ctx.on('agent/request-error', async () => { recoveries += 1 })
+    // A pre-commit chunk veto throws INSIDE the stream-consumption try, but it
+    // is not an adapter-boundary failure, so llmFailureOf yields no facts.
+    let vetoed = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'assistant/chunk' && !vetoed) {
+        vetoed = true
+        throw new Error('reject the first chunk')
+      }
+    })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    // No facts -> not offered to recovery; the turn fails through settle().
+    expect(recoveries).toBe(0)
+    const end = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason.kind).toBe('error')
+  })
+})
+
+describe('post-turn continuation edges', () => {
+  it('an agent/idle listener that enqueues a waking prompt preempts continueOrIdle', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('idle-preempt'), { provider: 'mock', model: 'mock' })
+    let injected = false
+    ctx.on('agent/idle', (subject) => {
+      if (subject !== agent || injected) return
+      injected = true
+      // kick() installs the next admission synchronously, so the following
+      // continueOrIdle() sees an abort owner and yields to it.
+      send(agent, 'follow-up from idle listener')
+    })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(2)
+    const starts = agent.session.events.filter(e => e.type === 'turn/start')
+    expect(starts).toHaveLength(2)
+    // The busy interval never broke between the turns: one running->idle cycle.
+  })
+
+  it('whenIdle resolves for a waiter whose awaited run fails', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('whenidle-reject'), { provider: 'mock', model: 'mock' })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'turn/start' && !rejected) {
+        rejected = true
+        throw new Error('veto turn start while a waiter is pending')
+      }
+    })
+
+    send(agent, 'go')
+    await expect(agent.whenIdle()).resolves.toBeUndefined()
+    expect(agent.status).toBe('idle')
+  })
+})
+
+describe('tool result meta persistence', () => {
+  it('records a presentationMeta payload on the tool/result event', async () => {
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'meta-tool', {}),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('tool-meta'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'meta-tool',
+      description: 'carries presentation meta',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+        presentationMeta: () => ({ presentation: 'diff-card' }),
+      },
+      async execute() {
+        return 'ran'
+      },
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const result = agent.session.events.find(e => e.type === 'tool/result')
+    expect(result?.type === 'tool/result' && result.data.meta).toEqual({ presentation: 'diff-card' })
+  })
+})
+
+describe('turn close failure containment', () => {
+  it('a rejected turn/end append is contained: warn + agent/error, no retry', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('turnend-veto'), { provider: 'mock', model: 'mock' })
+    let vetoed = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'turn/end' && !vetoed) {
+        vetoed = true
+        throw new Error('reject turn end')
+      }
+    })
+    const errors: unknown[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    // The close failure is reported live; the machine still reaches idle.
+    expect(errors.map(e => e instanceof Error && e.message)).toContain('reject turn end')
+    expect(agent.status).toBe('idle')
+    expect(adapter.requests).toHaveLength(1)
+  })
+})
+
+describe('recovery without a retry request', () => {
+  it('a completed recovery that never calls retry() leaves the failed turn terminal', async () => {
+    const { LlmError } = await import('@deepseek-ai/dsh-llm')
+    const adapter = new MockAdapter([
+      () => { throw new LlmError('down', 'SERVICE_UNAVAILABLE') },
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('recovery-no-retry'), { provider: 'mock', model: 'mock' })
+    let recoveries = 0
+    ctx.on('agent/request-error', async () => { recoveries += 1 })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(recoveries).toBe(1)
+    expect(adapter.requests).toHaveLength(1)
+    const end = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason.kind).toBe('error')
+  })
+})
+
+describe('unrenderable failure settlement', () => {
+  it('drops the rendered message when the error chain cannot be rendered', async () => {
+    const { LlmError } = await import('@deepseek-ai/dsh-llm')
+    const adapter = new MockAdapter([
+      () => {
+        const error = new LlmError('will become hostile', 'SERVER')
+        // A hostile message getter makes errorChain collapse to its sentinel;
+        // settle() must then fall back to the failure facts alone.
+        Object.defineProperty(error, 'message', {
+          get() { throw new Error('hostile accessor') },
+        })
+        throw error
+      },
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('unrenderable'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    const end = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason.kind).toBe('error')
+    if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
+      // The durable failure keeps the adapter facts' message, not the
+      // unrenderable chain.
+      expect(end.data.reason.failure?.message).not.toBe('<unrenderable value>')
+    }
+  })
+})

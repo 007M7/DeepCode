@@ -1431,6 +1431,32 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('— Enter sends steering, Esc cancels')
     expect(result.terminal.output).not.toContain('queued')
 
+    // A cancellation discards queued steering: the badge clears without drains.
+    submitSteering('third')
+    submitSteering('fourth')
+    await tick()
+    expect(result.terminal.output).toContain('2 queued')
+    const discarded = result.agent.steeredIds.splice(0).map(id => ({
+      id, content: [{ type: 'text' as const, text: 'discarded' }], source: { kind: 'user' as const },
+    }))
+    // Another agent's dequeue/discard, and ones naming no pending id, leave
+    // the badge alone.
+    result.ctx.emit('agent/inbox/dequeue', other, discarded[0]!)
+    result.ctx.emit('agent/inbox/dequeue', result.agent, {
+      id: AgentMessageId('never-queued'), content: [{ type: 'text', text: 'x' }], source: { kind: 'user' },
+    })
+    result.ctx.emit('agent/inbox/discard', other, discarded)
+    result.ctx.emit('agent/inbox/discard', result.agent, [
+      { id: AgentMessageId('never-queued'), content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } },
+    ])
+    await tick()
+    expect(result.terminal.output).toContain('2 queued')
+    result.terminal.output = ''
+    result.ctx.emit('agent/inbox/discard', result.agent, discarded)
+    await tick()
+    expect(result.terminal.output).toContain('— Enter sends steering, Esc cancels')
+    expect(result.terminal.output).not.toContain('queued')
+
     await dispose(result)
   })
 
@@ -1811,6 +1837,18 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // /reload without a Loader in the context degrades to a warning.
     expect(result.terminal.output).toContain('/reload needs the cordis Loader')
     expect(result.exit).toHaveBeenCalledWith(0)
+
+    // The exit above left the TUI disposed (the mocked runtime.exit returns):
+    // a message submitted now is refused instead of reaching the agent. The
+    // refusal notice lands in the transcript, but the stopped UI no longer
+    // paints, so assert the refusal through the agent surface.
+    const sentBefore = result.agent.sent.length
+    const steeredBefore = result.agent.steered.length
+    result.terminal.send('after shutdown')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toHaveLength(sentBefore)
+    expect(result.agent.steered).toHaveLength(steeredBefore)
     await result.controller.dispose()
     await result.ctx.fiber.dispose()
 
@@ -2148,6 +2186,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('secret full snapshot payload')
 
     const invalidCards: [JsonValue, string][] = [
+      ['plain-string-source', 'invalid-shape'],
       [{ kind: 'other' }, 'invalid-kind'],
       [{ kind: 'session-reference', references: [null] }, 'invalid-entry'],
       [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],

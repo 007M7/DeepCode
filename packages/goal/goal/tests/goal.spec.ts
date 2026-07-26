@@ -821,6 +821,12 @@ describe('goal replay validation', () => {
     expect(() => foldGoal(oneChange(change, {
       source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: -1 },
     }))).toThrow('source is invalid')
+    expect(() => foldGoal(oneChange(change, {
+      source: { kind: 'goal', goalId: GoalId('goal-imposter'), revision: 1, round: 0, change },
+    }))).toThrow('mismatched source attribution')
+    expect(() => foldGoal(oneChange(change, {
+      source: { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0, change },
+    }))).toThrow('mismatched source attribution')
     expect(() => foldGoal(oneChange(change, { content: [{ type: 'text', text: 'wrong' }] }))).toThrow('model-visible content')
   })
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   type NormalizeContext,
+  extractSnapshotSpillPaths,
   normalizeSessionLog,
   normalizeStdout,
   scrubRequestHeaders,
@@ -316,6 +317,24 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('"type":"note","seq":1')
     expect(out).toContain('"decision":"allow"')
     expect(out).not.toContain('durationMs')
+  })
+})
+
+describe('extractSnapshotSpillPaths', () => {
+  it('maps each spill filename to its full matched path, last match wins per name', () => {
+    const log = [
+      'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',
+      'stale copy at /tmp/dsh-acp-snap-012345678/session-aaaaaaaaaaaa/bbbbbbbbbbbb-grep.txt then',
+      'fresh copy at /tmp/dsh-acp-snap-012345678/session-cccccccccccc/dddddddddddd-grep.txt then',
+    ].join('\n')
+    expect(extractSnapshotSpillPaths(log)).toEqual(new Map([
+      ['bash.txt', '/tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt'],
+      ['grep.txt', '/tmp/dsh-acp-snap-012345678/session-cccccccccccc/dddddddddddd-grep.txt'],
+    ]))
+  })
+
+  it('returns an empty map when the log carries no snapshot spill paths', () => {
+    expect(extractSnapshotSpillPaths('no spill paths here, only /tmp/other.txt\n')).toEqual(new Map())
   })
 })
 

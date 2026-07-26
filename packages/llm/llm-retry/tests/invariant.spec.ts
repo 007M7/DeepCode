@@ -63,6 +63,50 @@ describe('llm-retry invariants', () => {
     }).toThrow(message)
   })
 
+  it('rejects a retry record appended after its turn already closed', async () => {
+    const ctx = await setup()
+    const closed = closeStep(ctx, 'retry-invariant-closed-turn')
+    closed.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
+    expect(() => {
+      closed.append('llm/retry', {
+        turn: 1, step: 1, retry: 1, maxRetries: 2, delayMs: 1, failure,
+      })
+    }).toThrow(/inside an open turn/)
+  })
+
+  it('starts a fresh chain when the turn before a retry trigger did not fail structurally', async () => {
+    const ctx = await setup()
+    const session = closeStep(ctx, 'retry-invariant-completed-predecessor')
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+    session.append('step/start', { turn: 2, step: 1 })
+    session.append('step/end', { turn: 2, step: 1 })
+    expect(() => {
+      session.append('llm/retry', {
+        turn: 2, step: 1, retry: 1, maxRetries: 2, delayMs: 1, failure,
+      })
+    }).not.toThrow()
+  })
+
+  it('walks the chain across non-boundary events and stops at an unmatched turn start', async () => {
+    const ctx = await setup()
+    // The failed predecessor's turn/start is outside this log prefix (e.g. a
+    // truncated replay): the chain walk must stop rather than loop or throw.
+    const session = ctx.sessions.create(SessionId('retry-invariant-unmatched-start'))
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
+    // A durable non-boundary record between the turns exercises the walk over
+    // non-turn/end events.
+    session.append('todo/write', { todos: [] })
+    session.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+    session.append('step/start', { turn: 2, step: 1 })
+    session.append('step/end', { turn: 2, step: 1 })
+    expect(() => {
+      session.append('llm/retry', {
+        turn: 2, step: 1, retry: 1, maxRetries: 2, delayMs: 1, failure,
+      })
+    }).not.toThrow()
+  })
+
   it('requires an open turn and its latest closed step', async () => {
     const ctx = await setup()
     const absent = ctx.sessions.create(SessionId('retry-invariant-no-turn'))
@@ -157,5 +201,19 @@ describe('llm-retry invariants', () => {
     })
     await ctx.plugin(InvariantService)
     await expect(ctx.plugin(RetryInvariant)).rejects.toThrow(/inside an open turn/)
+  })
+
+  it('accepts a valid mixed pre-existing history on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('retry-invariant-late-valid'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('llm/retry', {
+      turn: 1, step: 1, retry: 1, maxRetries: 2, delayMs: 1, failure,
+    })
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(RetryInvariant)).resolves.toBeDefined()
   })
 })

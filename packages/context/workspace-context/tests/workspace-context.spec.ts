@@ -3260,6 +3260,29 @@ describe('workspace context pending state', () => {
     expect(versions.has(agent.session)).toBe(false)
   })
 
+  it('keeps an unrelated scope\'s version fast path when a step-close discard empties only its own scope', () => {
+    const agent = stubAgent('/')
+    const pending = new WeakMap<object, Map<string, PendingInstructionChange>>()
+    const versions: InstructionVersionCache = new WeakMap()
+    agent.session.append('step/start', { turn: 1, step: 1 })
+    commitPendingInstructionContexts(agent, [workspaceChangeContext('pkg', 'one')], pending)
+    versions.set(agent.session, new Map([
+      ['pkg', {
+        path: join('pkg', 'AGENTS.md'), version: FsVersion('v1'), digest: 'one', trimmedDigest: 'one',
+      }],
+      ['other', {
+        path: join('other', 'AGENTS.md'), version: FsVersion('v2'), digest: 'two', trimmedDigest: 'two',
+      }],
+    ]))
+
+    const ended = agent.session.append('step/end', { turn: 1, step: 1 })
+    observeInstructionSessionEvent(agent.session, ended, pending, versions)
+
+    expect(pending.has(agent.session)).toBe(false)
+    expect(versions.get(agent.session)?.has('pkg')).toBe(false)
+    expect(versions.get(agent.session)?.has('other')).toBe(true)
+  })
+
   it('rolls back only the exact current transition and releases empty session state', () => {
     const agent = stubAgent('/')
     const pending = new WeakMap<object, Map<string, PendingInstructionChange>>()
@@ -3270,6 +3293,13 @@ describe('workspace context pending state', () => {
     expect(commitPendingInstructionContexts(agent, [{
       content: [], source: { kind: 'plugin', plugin: 'workspace-context' },
     }], pending)).toEqual([])
+    // A workspace-instructions source whose change list filters to nothing
+    // must not mint per-session pending state.
+    expect(commitPendingInstructionContexts(agent, [{
+      content: [],
+      source: { kind: 'workspace-instructions', changes: [] },
+    }], pending)).toEqual([])
+    expect(pending.has(agent.session)).toBe(false)
 
     const committed = commitPendingInstructionContexts(agent, [
       workspaceChangeContext('first', 'one'),

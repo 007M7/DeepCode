@@ -358,6 +358,9 @@ export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): GoalC
     if (source === undefined) return undefined
     // A goal-sourced message without a change must be a positive-round
     // admitted continuation prompt; round zero owes a durable source change.
+    /* v8 ignore next 3 -- decodeGoalEvent returns the change or fails loud for every
+       round-zero goal source, so only positive rounds reach here; the guard keeps
+       replay fail-loud against a decoder change */
     if (source.round === 0) {
       throw new Error(`goal source at session event ${event.seq} lacks goal change data`)
     }

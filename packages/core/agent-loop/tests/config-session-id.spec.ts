@@ -441,3 +441,36 @@ describe('config-driven session id', () => {
     await ctx.fiber.dispose()
   })
 })
+
+describe('startup reporting after factory teardown', () => {
+  it('suppresses the configured-restore failure report once the loop is disposed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-disposed-report-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('x')]))
+
+    // A restore lookup that hangs until after the loop is gone: the eventual
+    // failure lands with ownership inactive and must be silently dropped.
+    const gate = Promise.withResolvers<never>()
+    // The teardown path may drop the pending lookup without awaiting it.
+    gate.promise.catch(() => undefined)
+    vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(gate.promise)
+    const failures: unknown[] = []
+    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const loop = await ctx.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId: SessionId('config-disposed-report'), model: 'mock' }],
+    })
+    const disposal = loop.dispose()
+    gate.reject(new Error('backend failed after teardown began'))
+    await disposal
+
+    await new Promise(r => setTimeout(r, 20))
+    expect(failures).toEqual([])
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('config-driven restore'))
+    warn.mockRestore()
+    await ctx.fiber.dispose()
+  })
+})

@@ -555,3 +555,97 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx.fiber.dispose()
   })
 })
+
+describe('creation and resume cancellation edges', () => {
+  it('rejects create() with a pre-aborted signal, including a non-Error reason', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([]))
+
+    const errorReason = new AbortController()
+    errorReason.abort(new Error('caller gave up'))
+    await expect(promptly(ctx.agents.create({
+      sessionId: SessionId('pre-aborted-error'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: errorReason.signal,
+    }))).rejects.toThrow('caller gave up')
+
+    // A non-Error reason is wrapped into the creation-aborted error.
+    const stringReason = new AbortController()
+    stringReason.abort('operator string reason')
+    await expect(promptly(ctx.agents.create({
+      sessionId: SessionId('pre-aborted-string'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: stringReason.signal,
+    }))).rejects.toThrow(/creation aborted/)
+
+    expect(ctx.agents.get(SessionId('pre-aborted-error'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('pre-aborted-string'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('a non-Error abort reason arriving during setup is wrapped for the caller', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([]))
+    const controller = new AbortController()
+    const setupEntered = Promise.withResolvers<undefined>()
+    const setupGate = Promise.withResolvers<undefined>()
+
+    const creating = ctx.agents.create({
+      sessionId: SessionId('setup-string-abort'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: controller.signal,
+      async setup() {
+        setupEntered.resolve(undefined)
+        await setupGate.promise
+      },
+    })
+    await setupEntered.promise
+    controller.abort('mid-setup string reason')
+    setupGate.resolve(undefined)
+
+    await expect(promptly(creating)).rejects.toThrow(/creation aborted/)
+    expect(ctx.agents.get(SessionId('setup-string-abort'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('resume with a pre-aborted caller signal rejects out of the load race', async () => {
+    const sessionId = SessionId('resume-pre-aborted')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    const controller = new AbortController()
+    controller.abort(new Error('resume abandoned'))
+
+    await expect(promptly(ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: controller.signal,
+    }))).rejects.toThrow('resume abandoned')
+
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('factory teardown during a hung resume load rejects with loop-inactive', async () => {
+    const sessionId = SessionId('resume-loop-teardown')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    const snapshot = await ctx.sessionPersistence.load(sessionId)
+    const gate = Promise.withResolvers<typeof snapshot>()
+    const loadStarted = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.load = () => {
+      loadStarted.resolve(undefined)
+      return gate.promise
+    }
+
+    const resuming = ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    await loadStarted.promise
+    // Resolve the load only after teardown began: the post-load ownership
+    // check, not the abort race, must reject the wrapper.
+    const rejection = expect(promptly(resuming)).rejects.toThrow()
+    const disposal = ctx.fiber.dispose()
+    gate.resolve(structuredClone(snapshot))
+    await rejection
+    await disposal
+  })
+})

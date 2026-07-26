@@ -241,6 +241,10 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
     resolveTurn()
   }
   const settleRejected = (error: Error): void => {
+    // The once-registered abort listener is the only rejecter, and a settled
+    // prompt makes targetTurn defined so onAbort skips rejection entirely;
+    // kept for symmetry with settleResolved.
+    /* v8 ignore next -- unreachable second settlement, see above */
     if (firstTurnEnded) return
     firstTurnEnded = true
     rejectTurn(error)

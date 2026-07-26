@@ -117,8 +117,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function workspaceInstructionChanges(source: unknown): WorkspaceInstructionChange[] {
-  if (!isWorkspaceContextSource(source)) return []
+function workspaceInstructionChanges(source: { changes: unknown[] }): WorkspaceInstructionChange[] {
   const changes: WorkspaceInstructionChange[] = []
   for (const value of source.changes) {
     if (!isRecord(value)) continue

@@ -117,6 +117,23 @@ afterEach(async () => {
   context = undefined
 })
 
+describe('config validation', () => {
+  it.each([
+    [{ maxTransientRetries: 1.5 }, /maxTransientRetries must be a non-negative integer/],
+    [{ maxTransientRetries: -1 }, /maxTransientRetries must be a non-negative integer/],
+    [{ initialDelayMs: 0 }, /initialDelayMs must be a positive finite number/],
+    [{ initialDelayMs: Number.NaN }, /initialDelayMs must be a positive finite number/],
+    [{ maxDelayMs: 0 }, /maxDelayMs must be a positive finite number/],
+    [{ initialDelayMs: 600, maxDelayMs: 500 }, /initialDelayMs must be less than or equal to maxDelayMs/],
+    [{ jitterRatio: Number.NaN }, /jitterRatio must be between 0 and 1/],
+    [{ retryableCodes: [] }, /retryableCodes must not be empty/],
+    [{ retryableCodes: ['SERVER', ''] }, /retryableCodes must contain only non-empty strings/],
+    [{ retryableCodes: ['SERVER', 'SERVER'] }, /retryableCodes must not contain duplicates/],
+  ] satisfies [retry.Config, RegExp][])('rejects invalid config %j at load', (config, message) => {
+    expect(() => { retry.apply(new Context(), config) }).toThrow(message)
+  })
+})
+
 describe('bounded transient retry policy', () => {
   it('records the scheduled delay before opening a fresh request attempt', async () => {
     vi.useFakeTimers()
@@ -370,6 +387,125 @@ describe('bounded transient retry policy', () => {
     const idle = waitForIdle(context, agent)
     agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await idle
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps the consumed budget when an unowned session logs an assistant message', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy one', 'SERVER'),
+      new LlmError('busy two', 'SERVER'),
+    ])
+    ;({ ctx: context } = await harness(adapter, { maxTransientRetries: 1 }))
+    const agent = context.agentLoop.create(SessionId('retry-foreign-session'), { provider: 'mock', model: 'mock' })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await scheduled
+
+    // A session no agent owns completes a response; the agent's consecutive-
+    // failure sequence must not reset from that foreign success.
+    const foreign = context.sessions.create(SessionId('retry-foreign-session-other'))
+    foreign.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    foreign.append('step/start', { turn: 1, step: 1 })
+    foreign.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      content: [{ type: 'text', text: 'foreign' }],
+      provenance: { provider: 'mock', model: 'mock' },
+    }, { surfaceOp: 'append' })
+
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(500)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(1)
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', failure: { message: 'busy two', code: 'SERVER' } } },
+    })
+  })
+
+  it('drops a scheduled retry when cancellation lands between its durable record and its wait', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy', 'SERVER'),
+      textResponse('must not run'),
+    ])
+    ;({ ctx: context } = await harness(adapter))
+    const agent = context.agentLoop.create(SessionId('retry-cancel-at-record'), { provider: 'mock', model: 'mock' })
+    // The durable record commits synchronously before the cancellable wait; a
+    // user cancel observed at that exact point must skip the wait entirely.
+    const dispose = context.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'llm/retry') {
+        dispose()
+        agent.cancel({ kind: 'user' })
+      }
+    })
+    const idle = waitForIdle(context, agent)
+
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await idle
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('schedules nothing when an upstream recovery listener already cancelled the turn', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy', 'SERVER'),
+      textResponse('must not run'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {}, (ctx) => {
+      // Registered before the retry plugin, so it wraps the policy: it cancels
+      // the turn, then delegates into a policy that sees an aborted signal.
+      ctx.on('agent/request-error', (agent, _turn, _step, _error, _failure, _signal, next) => {
+        agent.cancel({ kind: 'user' })
+        return next()
+      })
+    }))
+    const agent = context.agentLoop.create(SessionId('retry-upstream-cancel'), { provider: 'mock', model: 'mock' })
+    const idle = waitForIdle(context, agent)
+
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await idle
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does nothing when its captured listener resumes after plugin disposal', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy', 'SERVER'),
+      textResponse('must not run'),
+    ])
+    const holder: { dispose?: () => Promise<void> } = {}
+    const mounted = await harness(adapter, {}, (ctx) => {
+      // An upstream listener captured in the same waterfall disposes the retry
+      // plugin before delegating; the stale downstream callback must bail.
+      ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _signal, next) => {
+        await holder.dispose?.()
+        return next()
+      })
+    })
+    context = mounted.ctx
+    holder.dispose = () => mounted.retryFiber.dispose()
+    const agent = context.agentLoop.create(SessionId('retry-stale-listener'), { provider: 'mock', model: 'mock' })
+    const idle = waitForIdle(context, agent)
+
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await idle
+    await vi.advanceTimersByTimeAsync(60_000)
+
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
     expect(vi.getTimerCount()).toBe(0)

@@ -14,6 +14,17 @@ import {
 } from './harness.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /** Test-only log-only event driven through appendOutOfBand below. */
+    'test/acp-out-of-band': { note: string }
+  }
+
+  interface OutOfBandSessionEventMap {
+    'test/acp-out-of-band': true
+  }
+}
+
 /** Boilerplate: initialize + create one session, returning its id. */
 async function newSession(h: BridgeHarness, clientCapabilities: Record<string, unknown> = {}): Promise<string> {
   await h.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities })
@@ -335,6 +346,43 @@ describe('acp bridge — turn outcomes', () => {
     })
     const res = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
     expect(res.stopReason).toBe('end_turn')
+    const text = harness.updates
+      .filter(u => u.sessionUpdate === 'agent_message_chunk')
+      .map(u => (u.content.type === 'text' ? u.content.text : ''))
+      .join('')
+    expect(text).toContain('real answer')
+  })
+
+  it('an out-of-band injection TURN while the prompt is queued neither captures nor settles it', async () => {
+    // Unlike the idle inject above (which appends context without a turn), a
+    // log-only out-of-band append on a closed log opens a real synthetic
+    // injection-triggered turn. Its turn/start must NOT capture inflight.turn
+    // (only message-triggered turns own the prompt) and its turn/end must not
+    // settle the prompt — the prompt settles on its OWN later message turn.
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('real answer')] })
+    const sessionId = await newSession(harness)
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    let appended: Promise<unknown> | undefined
+    const sessions = harness.ctx.sessions
+    harness.ctx.on('agent/inbox/enqueue', (subject) => {
+      if (subject === agent && appended === undefined) {
+        // Fires synchronously inside followup(), after the bridge installed the
+        // in-flight slot but before the prompt's own turn starts; the synthetic
+        // turn/start + turn/end land in that window.
+        appended = sessions.appendOutOfBand(
+          agent.session,
+          'test/acp-out-of-band',
+          { note: 'log-only' },
+          { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } },
+        )
+      }
+    })
+    const res = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect(res.stopReason).toBe('end_turn')
+    await appended
+    // The synthetic injection turn precedes the prompt's own message turn.
+    const triggers = agent.session.events.flatMap(e => e.type === 'turn/start' ? [e.data.trigger.kind] : [])
+    expect(triggers).toEqual(['injection', 'message'])
     const text = harness.updates
       .filter(u => u.sessionUpdate === 'agent_message_chunk')
       .map(u => (u.content.type === 'text' ? u.content.text : ''))
