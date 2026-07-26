@@ -117,7 +117,10 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
  * Reject a stored/live pair whose immutable policy baselines differ.
  * Adoption and ownerless claims retain the STORED header, so accepting a
  * conflicting pair would let a session run under its live baseline now but
- * resume under the stored one later — a silent policy swap.
+ * resume under the stored one later — a silent policy swap. When either side
+ * carries a baseline, the seed boundary is part of the policy identity too:
+ * `overrideOf()` folds own switches past `seedLength`, so differing
+ * boundaries make the same log resolve different policies across a restart.
  */
 function assertSamePolicyBaselines(id: SessionId, stored: SessionHeader, live: SessionHeader): void {
   if (stored.sandboxMode !== live.sandboxMode || stored.approvalPolicy !== live.approvalPolicy) {
@@ -125,6 +128,13 @@ function assertSamePolicyBaselines(id: SessionId, stored: SessionHeader, live: S
       `session "${id}" is already persisted with a different policy baseline `
       + `(persisted: ${String(stored.sandboxMode)}/${String(stored.approvalPolicy)}, `
       + `live: ${String(live.sandboxMode)}/${String(live.approvalPolicy)}) (id collision)`,
+    )
+  }
+  const hasBaseline = stored.sandboxMode !== undefined || stored.approvalPolicy !== undefined
+  if (hasBaseline && (stored.seedLength ?? 0) !== (live.seedLength ?? 0)) {
+    throw new Error(
+      `session "${id}" is already persisted with a different policy seed boundary `
+      + `(persisted seedLength: ${String(stored.seedLength)}, live: ${String(live.seedLength)}) (id collision)`,
     )
   }
 }

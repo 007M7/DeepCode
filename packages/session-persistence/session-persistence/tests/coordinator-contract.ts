@@ -700,6 +700,34 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('a live session with a DIFFERENT seed boundary cannot adopt a stored prefix when a baseline exists', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        // Same wide baseline both sides, but the stored header says event 0 is
+        // seed-carried (seedLength 1) while the live header says it is the
+        // session's OWN (seedLength 0). overrideOf() resolves policy through
+        // that boundary: a read-only switch at event 0 tightens the live
+        // session, yet a restart resumes under the stored header and the wide
+        // baseline silently returns. The boundary is part of the policy
+        // identity whenever a baseline exists.
+        await ctx.sessionPersistence.create({
+          ...meta('seed-boundary-conflict', WORK),
+          sandboxMode: 'danger-full-access',
+          seedLength: 1,
+        })
+        await ctx.sessionPersistence.append(SessionId('seed-boundary-conflict'), oneTurnLog())
+        const live = ctx.sessions.create(SessionId('seed-boundary-conflict'), {
+          seed: oneTurnLog(),
+          meta: { cwd: WORK, sandboxMode: 'danger-full-access' },
+        })
+        await expect(ctx.sessions.flush(live)).rejects.toThrow(/seed boundary|id collision/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('a no-cwd ownerless state cannot be claimed by a live session WITH a cwd (cwd scope, undefined side)', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
