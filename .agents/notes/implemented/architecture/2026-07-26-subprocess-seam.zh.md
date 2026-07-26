@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-新的 `process/` 能力家族拥有「运行并管理一个进程」；bash 家族保留「运行一条 bash 命令」，并成为前者的消费方：
+新的 `subprocess/` 能力家族拥有「运行并管理一个进程」；bash 家族保留「运行一条 bash 命令」，并成为前者的消费方：
 
 - **`@deepseek-ai/dsh-subprocess`（接口）**——拥有 `ctx.subprocess` 的抽象 `SubprocessService`（仅一个方法：`spawn(spec): SubprocessHandle`），以及共享词汇：完全显式的 `SubprocessSpawnSpec`（argv、cwd、按流划分的上限、spill 上限、宽限期，一律不设默认值；随部署变化的旋钮依照 `dsh-bash` 的 request/spec 模板与无隐藏默认值规则，留在调用方 seam 的配置里）、携带基于偏移量的非消费式读取器的 `SubprocessHandle`、刻意不含超时/取消分类的 `SubprocessOutcome`，以及 `DSH_ENV_PREFIX`/`DshEnvironment`/`CollectedOutput` 类型。`argv` 绝不经过 shell 解释。
 - **`@deepseek-ai/dsh-subprocess-local`（实现）**——`LocalSubprocessService`，构建在原 `run.ts` 管道（现为 `spawn.ts`）之上：detached 进程组、带私有有界 spill 文件的尾部保留截断、带双通道 `DSH_*` 合并的凭据清除、进程组 kill 升级，以及会终止每个仍在运行的受管进程并等待其退出的 dispose。该实现没有任何配置；每项限制都随 spec 到达。终端相关的 `ENV_OVERRIDES`（`TERM=dumb` 等）并未迁移：那是 bash 工具的呈现策略，留在 `dsh-bash-local` 里，经普通 env 通道合并。

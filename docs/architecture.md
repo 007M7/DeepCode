@@ -28,7 +28,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts with package-contributed servi
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
-| `ctx.subprocess` | [`process/`](../packages/subprocess/README.md) | managed child-process groups under the bash executors |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process groups under the bash executors |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
