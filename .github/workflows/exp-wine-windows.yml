@@ -96,7 +96,20 @@ jobs:
         run: |
           "$WINE_BIN" wineboot --init || true
           wineserver -w || true
-          "$WINE_BIN" "$NODE_WIN" -p "'smoke: ' + process.platform + ' ' + process.arch + ' ' + process.version"
+          # Node under Wine cannot attach stdio to the Actions runner's pipes
+          # (Socket open EBADF at bootstrap), so every invocation runs through
+          # this wrapper: stdio to a regular file, replayed after exit.
+          cat > "$RUNNER_TEMP/wine-node.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -u
+          log="$1"; shift
+          "$WINE_BIN" "$NODE_WIN" "$@" < /dev/null > "$log" 2>&1
+          status=$?
+          tail -n 300 "$log"
+          exit "$status"
+          SH
+          chmod +x "$RUNNER_TEMP/wine-node.sh"
+          "$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/smoke.log" -p "'smoke: ' + process.platform + ' ' + process.arch + ' ' + process.version"
 
       # The continue-on-error gates below mirror ci-windows-blocking
       # (scripts/run-gates.ts): `build` = tsc -b + tsdown, `production site` =
@@ -107,20 +120,20 @@ jobs:
         id: tsc
         continue-on-error: true
         timeout-minutes: 45
-        run: '"$WINE_BIN" "$NODE_WIN" node_modules/typescript/bin/tsc -b --pretty false'
+        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsc.log" node_modules/typescript/bin/tsc -b --pretty false'
 
       - name: 'Gate: tsdown (Windows node under Wine)'
         id: tsdown
         continue-on-error: true
         timeout-minutes: 30
-        run: '"$WINE_BIN" "$NODE_WIN" node_modules/tsdown/dist/run.mjs'
+        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsdown.log" node_modules/tsdown/dist/run.mjs'
 
       - name: 'Gate: production site (Windows node under Wine)'
         id: site
         continue-on-error: true
         timeout-minutes: 30
         working-directory: website
-        run: '"$WINE_BIN" "$NODE_WIN" node_modules/vitepress/bin/vitepress.js build .'
+        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/site.log" node_modules/vitepress/bin/vitepress.js build .'
 
       - name: Report gate outcomes
         env:
