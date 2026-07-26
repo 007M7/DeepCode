@@ -801,6 +801,21 @@ describe('the run_code dispatch bridge', () => {
     expect(result.content[0]).toEqual({ type: 'text', text: 'caught: deliberate failure' })
   })
 
+  it('a throwing tools/code-dispatch-log listener is contained: the unshaped content is logged', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    ctx.on('tools/code-dispatch-log', () => { throw new Error('shaper exploded') })
+    const { agent, events } = fakeAgent()
+    runtime.behavior = async (request) => {
+      const value = await request.bindings[0]!.functions.echo!({ value: 'x' })
+      return { logs: [], value: value as string }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    const settle = events.find(event => event.type === 'tool/code-dispatch')
+    expect(settle?.data).toMatchObject({ name: 'echo', isError: false, content: [{ type: 'text', text: 'echo:x' }] })
+  })
+
   it('a throwing tools/pre-execute listener settles the sub-call without post-execute', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
