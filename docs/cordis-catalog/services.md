@@ -244,19 +244,12 @@ Approval service that applies session policy before answerers and logs every ask
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 /**
- * A session's approval-policy OVERRIDE — the override chain alone, never
- * the configured default: the fold of the session's OWN switches (events
- * past the seed boundary — a fork seed's stale parent switch is subsumed by
- * the baseline captured after it), else the header's inherited delegation
- * baseline. The subagent driver stamps `overrideOf(parent.session)` into
- * each child's creation meta, so a `'never'` (headless/CI) parent cannot
- * mint children that fall back to a prompting default, at any depth
- * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+ * {@link approvalOverrideOf} surfaced on the service, for consumers that
+ * reach the seam through `ctx.get('approval')` (the subagent driver's
+ * delegation capture) rather than a value import.
  * @param session - the session whose override chain to resolve.
  * @returns the effective override, or `undefined` for a session following
  *   the configured default.
- * @throws when the durable header baseline is outside the closed policy
- *   vocabulary (a corrupt or foreign log; durable-boundary validation).
  */
 overrideOf(session: Session): ApprovalPolicy | undefined
 ```
@@ -973,19 +966,12 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
 
 /**
- * A session's sandbox-mode OVERRIDE — the override chain alone, never the
- * deployment default: the fold of the session's OWN switches (events past
- * the seed boundary — a fork seed's stale parent switch is subsumed by the
- * baseline captured after it), else the header's inherited delegation
- * baseline. The subagent driver stamps `overrideOf(parent.session)` into
- * each child's creation meta, so the chain collapses one level per
- * delegation and a tightened parent binds children at any depth
- * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
+ * {@link sandboxOverrideOf} surfaced on the service, for consumers that
+ * reach policy through `ctx.get('sandboxPolicy')` (the subagent driver's
+ * delegation capture, pty-local) rather than a value import.
  * @param session - the session whose override chain to resolve.
  * @returns the effective override, or `undefined` for a session following
  *   the deployment default.
- * @throws when the durable header baseline is outside the closed mode
- *   vocabulary (a corrupt or foreign log; durable-boundary validation).
  */
 overrideOf(session: Session): SandboxMode | undefined
 ```

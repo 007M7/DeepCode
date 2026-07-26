@@ -8,9 +8,11 @@
  *
  * Red/green anchor for the delegation-bypass gap: a parent switched to
  * `read-only` must not mint children that run under the (wider) deployment
- * default. The stamping design is itself pinned by the mounted session
- * invariants: an implementation that appends the inherited override OUTSIDE
- * the child's first turn fails these suites through the turn-enclosure check.
+ * default. The captured overrides ride the child's creation-time header, so
+ * three review-found timing threats are pinned as distinct shapes: a parent
+ * switch racing the asynchronous creation, a veto-capable prompt-submit
+ * listener closing a promptless first turn, and an injection-persisted turn
+ * before any prompt turn opens (header asserted before the child runs).
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
@@ -276,35 +278,6 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
     expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).toBe('read-only')
   })
 
-  it('a FORK child whose seed already folds to the parent mode gets NO duplicate stamp (guard)', async () => {
-    const script: Script = []
-    const captured: Agent[] = []
-    const { ctx, parent } = await setupWalled(script)
-    registerDelegate(ctx, captured)
-    const blocked = join(workspace, 'fork-dedup-blocked.txt')
-    script.push(
-      () => {
-        setSandboxMode(parent.session, 'read-only')
-        return textResponse('turn one')
-      },
-      toolCallResponse('d-fork', 'delegate', { fork: true }),
-      toolCallResponse('c-write', 'write', { file_path: blocked, content: 'escaped' }),
-      textResponse('fork child done'),
-      textResponse('turn two done'),
-    )
-    parent.followup([{ type: 'text', text: 'turn one' }])
-    await parent.whenIdle()
-    parent.followup([{ type: 'text', text: 'turn two: delegate' }])
-    await parent.whenIdle()
-
-    const child = captured[0] as Agent
-    // The seed-carried override keeps enforcing…
-    await expect(readFile(blocked, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).toBe('read-only')
-    // …and inheritance did not append a redundant copy on top of it.
-    expect(overrideEvents(child).sandbox).toBe(1)
-  })
-
   it('inherits the mode AT delegation, not a parent switch racing child creation', async () => {
     const script: Script = []
     const captured: Agent[] = []
@@ -371,7 +344,7 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
 })
 
 describe('inheritance survives prompt vetoes', () => {
-  it('stamps the child even when an earlier-registered prompt-submit listener vetoes without next()', async () => {
+  it('keeps the baseline when an earlier-registered prompt-submit listener vetoes without next()', async () => {
     const script: Script = []
     const { ctx, parent } = await setupWalled(script)
     // A veto-capable listener registered BEFORE the child exists — the
@@ -409,7 +382,7 @@ describe('inheritance survives prompt vetoes', () => {
 })
 
 describe('inheritance guards (must hold before AND after the fix)', () => {
-  it('a child of an unswitched parent runs under the live deployment default, with ZERO stamped events', async () => {
+  it('a child of an unswitched parent runs under the live deployment default, with NO baseline or events', async () => {
     const script: Script = []
     const { parent } = await setupWalled(script)
     const allowed = join(workspace, 'default-allowed.txt')

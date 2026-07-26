@@ -152,7 +152,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
-        jsDoc: '/**\n * A session\'s approval-policy OVERRIDE — the override chain alone, never\n * the configured default: the fold of the session\'s OWN switches (events\n * past the seed boundary — a fork seed\'s stale parent switch is subsumed by\n * the baseline captured after it), else the header\'s inherited delegation\n * baseline. The subagent driver stamps `overrideOf(parent.session)` into\n * each child\'s creation meta, so a `\'never\'` (headless/CI) parent cannot\n * mint children that fall back to a prompting default, at any depth\n * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the configured default.\n * @throws when the durable header baseline is outside the closed policy\n *   vocabulary (a corrupt or foreign log; durable-boundary validation).\n */',
+        jsDoc: '/**\n * {@link approvalOverrideOf} surfaced on the service, for consumers that\n * reach the seam through `ctx.get(\'approval\')` (the subagent driver\'s\n * delegation capture) rather than a value import.\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the configured default.\n */',
       },
     ],
   },
@@ -492,7 +492,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'overrideOf(session: Session): SandboxMode | undefined',
-        jsDoc: '/**\n * A session\'s sandbox-mode OVERRIDE — the override chain alone, never the\n * deployment default: the fold of the session\'s OWN switches (events past\n * the seed boundary — a fork seed\'s stale parent switch is subsumed by the\n * baseline captured after it), else the header\'s inherited delegation\n * baseline. The subagent driver stamps `overrideOf(parent.session)` into\n * each child\'s creation meta, so the chain collapses one level per\n * delegation and a tightened parent binds children at any depth\n * ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the deployment default.\n * @throws when the durable header baseline is outside the closed mode\n *   vocabulary (a corrupt or foreign log; durable-boundary validation).\n */',
+        jsDoc: '/**\n * {@link sandboxOverrideOf} surfaced on the service, for consumers that\n * reach policy through `ctx.get(\'sandboxPolicy\')` (the subagent driver\'s\n * delegation capture, pty-local) rather than a value import.\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the deployment default.\n */',
       },
     ],
   },
