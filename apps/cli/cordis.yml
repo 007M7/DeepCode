@@ -221,14 +221,23 @@
 - id: ui-theme
   name: '@deepseek-ai/dsh-client-ui-theme'
 
-- id: i18n
-  name: '@deepseek-ai/dsh-client-i18n'
+- id: locale
+  name: '@deepseek-ai/dsh-client-locale'
 
 - id: ui-layout
   name: '@deepseek-ai/dsh-client-ui-layout'
 
 - id: ui-sidebar
   name: '@deepseek-ai/dsh-client-ui-sidebar'
+
+- id: ui-settings
+  name: '@deepseek-ai/dsh-client-ui-settings'
+
+- id: ui-settings-general
+  name: '@deepseek-ai/dsh-client-ui-settings-general'
+
+- id: ui-models
+  name: '@deepseek-ai/dsh-client-ui-models'
 
 - id: ui-conversation
   name: '@deepseek-ai/dsh-client-ui-conversation'

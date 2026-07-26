@@ -9,6 +9,8 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as themeApply, inject as themeInject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { apply, inject, LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
 import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
@@ -16,13 +18,17 @@ import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
 async function bench() {
   const ctx = new Context()
   const slotsFiber = ctx.plugin(SlotsService)
+  // Theme now injects ['slots', 'locale'] (it registers its Appearance
+  // settings row); seat a real locale service so the theme fiber activates.
+  ctx.provide('locale', new LocaleService(ctx))
+  await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
   return { ctx, slots: ctx.get('slots') as SlotsService }
 }
 
 describe('ui-layout client apply', () => {
   it('declares its service dependencies', () => {
-    expect(inject).toEqual(['slots'])
+    expect(inject).toEqual(['slots', 'theme'])
   })
 
   it('provides ctx.layout and registers AppFrame into root with the four child declarations', async () => {
@@ -51,6 +57,23 @@ describe('ui-layout client apply', () => {
     const layout = ctx.get('layout') as LayoutService
     layout.toggleSidebar()
     expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+  })
+
+  it('theme presenter applies the initial snapshot, follows theme/change, and unwinds on dispose', async () => {
+    const { ctx } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    // Initial getter application: jsdom has no matchMedia, system resolves light.
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+    const theme = ctx.get('theme') as ThemeService
+    theme.setTheme('dark')
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
+    await fiber.dispose()
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+    // Listener is off: further theme changes no longer reach the body.
+    theme.setTheme('light')
+    theme.setTheme('dark')
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
   })
 
   it('teardown unwinds the service, the root registration, and the child declarations', async () => {

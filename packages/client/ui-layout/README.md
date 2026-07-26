@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-ui-layout
 
-Shell plugin: three-column AppFrame (drag handles and concession chain) plus the `ctx.layout` panel-geometry service; it registers into the runtime-owned `root` slot and declares `sidebar`, `conversation`, `details`, and `conversation.empty`. The sidebar is fixed-width (only details shrinks, then auto-closes); a closed sidebar retains a 56px control rail while details closes to zero width.
+Shell plugin: three-column AppFrame (drag handles and concession chain) plus the `ctx.layout` panel-geometry service; it registers into the runtime-owned `root` slot and declares `sidebar`, `conversation`, `details`, and `conversation.empty`. The sidebar is fixed-width (only details shrinks, then auto-closes); a closed sidebar retains a 56px control rail while details closes to zero width. The package also seats the theme presenter: it consumes resolved `ctx.theme` snapshots and projects them onto `document.body` (`data-ds-dark-theme` from the active color scheme plus the theme's alias tokens as inline variables).
 
 AppFrame reads the runtime Session projection: `baselinesReady` selects loading, a page-local `SessionListState.intent` selects the empty composer, and a connected Session renders through `SessionProvider`. The conversation and empty-state owner shares are empty; each registrant obtains business data from standard hooks and actions from its own inject face. The sidebar owner share contains only `collapsed` and `width`; navigation actions belong to sidebar's own injected service face.
 

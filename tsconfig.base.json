@@ -115,7 +115,10 @@
       "@deepseek-ai/dsh-client-ui-trajectory": ["./packages/client/ui-trajectory/src"],
       "@deepseek-ai/dsh-client-ui-workspace": ["./packages/client/ui-workspace/src"],
       "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
-      "@deepseek-ai/dsh-client-i18n": ["./packages/client/i18n/src"],
+      "@deepseek-ai/dsh-client-ui-settings": ["./packages/client/ui-settings/src"],
+      "@deepseek-ai/dsh-client-ui-settings-general": ["./packages/client/ui-settings-general/src"],
+      "@deepseek-ai/dsh-client-ui-models": ["./packages/client/ui-models/src"],
+      "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web": ["./packages/client/web/src"],
       "@deepseek-ai/dsh-*": [
         "./packages/core/*/src",
