@@ -478,6 +478,38 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
     expect(gated.peakLive()).toBe(2)
   })
 
+  it('a tool unregistered between binding enumeration and dispatch fails as unknown tool', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const calls: unknown[] = []
+    const dispose = ctx.tools.register(defineTool({
+      name: 'ephemeral',
+      description: 'Unregistered between binding enumeration and dispatch.',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute() {
+        calls.push('ran')
+        return Promise.resolve('ok')
+      },
+    }))
+    runtime.behavior = async (request) => {
+      // The binding exists (enumerated at run start); the registry mutation
+      // makes prepare resolve UNKNOWN_TOOL as a final-result, which commits
+      // through scheduler.finish (no post-execute).
+      dispose()
+      const message = await request.bindings[0]!.functions.ephemeral!({})
+        .then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
+      return { logs: [], value: message }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: 'unknown tool "ephemeral"' })
+    expect(calls).toEqual([])
+  })
+
   it('post-execute and context commitment stay in submission order under out-of-order completion', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const gated = registerGated(ctx, 'safe_read', true)
@@ -660,6 +692,37 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program')
     expect(result.content[0]).toEqual({ type: 'text', text: 'caught: deliberate failure' })
+  })
+
+  it('a throwing tools/pre-execute listener settles the sub-call without post-execute', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const calls = registerEcho(ctx)
+    const postExecuted: string[] = []
+    ctx.on('tools/pre-execute', (exec, next) => {
+      if (exec.name === 'echo') throw new Error('gate exploded')
+      return next()
+    })
+    ctx.on('tools/post-execute', (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name === 'echo') postExecuted.push(exec.name)
+      return next()
+    })
+    const { agent, events } = fakeAgent()
+    runtime.behavior = async (request) => {
+      const message = await request.bindings[0]!.functions.echo!({ value: 'x' })
+        .then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
+      return { logs: [], value: message }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: 'gate exploded' })
+    // The pipeline failure is final: the body never ran and post-execute was
+    // skipped, yet the settle event still carries the error outcome.
+    expect(calls).toEqual([])
+    expect(postExecuted).toEqual([])
+    const settles = events.filter(event => event.type === 'tool/code-dispatch')
+    expect(settles).toHaveLength(1)
+    expect(settles[0]?.data).toMatchObject({ name: 'echo', isError: true })
   })
 
   it('a tools/pre-execute deny reaches the program as a binding rejection', async () => {
@@ -1228,6 +1291,13 @@ describe('the run_code dispatch bridge', () => {
     const derived = session.deriveMessages()
     expect(derived).toHaveLength(1)
     expect(derived[0]?.role).toBe('user')
+  })
+
+  it('direct construction in code mode defaults the parallel sub-call cap', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    const registry = new ToolRegistry(ctx, { mode: 'code' })
+    expect(registry.get(RUN_CODE_NAME)).toBeDefined()
   })
 
   it('defaults to native mode under direct construction with no config', async () => {
