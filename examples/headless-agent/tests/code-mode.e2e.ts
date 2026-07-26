@@ -85,7 +85,7 @@ function runCode(harness: Context, code: string, signal: AbortSignal = testToolS
   return harness.tools.execute({
     callId: CallId(`keyless-code-${++keylessCall}`),
     name: RUN_CODE_NAME,
-    arguments: { code },
+    arguments: { code, description: 'Run the e2e program' },
     signal,
   })
 }

@@ -87,11 +87,11 @@ function registerEcho(ctx: Context, name = 'echo'): unknown[] {
 }
 
 /** A structural fake of the owning agent: captures session appends. */
-function fakeAgent(options: { cwd?: string } = { cwd: '/workspace' }): { agent: Agent; events: { type: string; data: unknown }[] } {
+function fakeAgent(): { agent: Agent; events: { type: string; data: unknown }[] } {
   const events: { type: string; data: unknown }[] = []
   const agent = {
     session: {
-      header: options.cwd === undefined ? {} : { cwd: options.cwd },
+      header: { cwd: '/workspace' },
       append: (type: string, data: unknown) => { events.push({ type, data }) },
     },
   } as unknown as Agent
@@ -99,12 +99,16 @@ function fakeAgent(options: { cwd?: string } = { cwd: '/workspace' }): { agent: 
 }
 
 /** Dispatch run_code through the registry pipeline, as the loop would. */
-async function runCode(ctx: Context, code: string, extras: { agent?: Agent; signal?: AbortSignal } = {}): Promise<ToolExecutionResult> {
+async function runCode(
+  ctx: Context,
+  code: string,
+  extras: { agent?: Agent; signal?: AbortSignal; description?: string } = {},
+): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
     signal: testToolSignal,
     callId: CallId('call-1'),
     name: RUN_CODE_NAME,
-    arguments: { code },
+    arguments: { code, description: extras.description ?? 'Run the test program' },
     ...extras.agent ? { agent: extras.agent } : {},
     ...extras.signal ? { signal: extras.signal } : {},
   })
@@ -374,8 +378,14 @@ describe('the run_code dispatch bridge', () => {
     expect(calls).toEqual([{ value: 'one' }, { value: 'two' }])
     const dispatches = events.filter(event => event.type === 'tool/code-dispatch')
     expect(dispatches.map(event => event.data)).toEqual([
-      { parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo', arguments: { value: 'one' }, isError: false, resultSummary: 'echo:one' },
-      { parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo', arguments: { value: 'two' }, isError: false, resultSummary: 'echo:two' },
+      {
+        parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo',
+        arguments: { value: 'one' }, isError: false, content: [{ type: 'text', text: 'echo:one' }],
+      },
+      {
+        parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo',
+        arguments: { value: 'two' }, isError: false, content: [{ type: 'text', text: 'echo:two' }],
+      },
     ])
     expect(result.meta).toBeUndefined()
   })
@@ -693,17 +703,24 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toContain('requires a code runtime')
   })
 
-  it('presents the program as the execute-card title', async () => {
+  it('presents the model-authored description as the execute-card title over the program input', async () => {
     const { ctx } = await setup({ mode: 'code' })
     const tool = ctx.tools.get(RUN_CODE_NAME)!
-    // The program is the title, mirroring how command tools label their cards
-    // with the command while retaining the same value in the expanded input.
-    expect(tool.presentCall?.({ code: 'return 1' })).toEqual({
+    // The description labels the card (the bash description precedent); the
+    // program itself remains the expanded raw input.
+    expect(tool.presentCall?.({ code: 'return 1', description: 'Return the constant one' })).toEqual({
       card: 'generic',
-      title: 'return 1',
+      title: 'Return the constant one',
       kind: 'execute',
       rawInput: 'return 1',
     })
+  })
+
+  it('rejects a whitespace-only description with a structured isError', async () => {
+    const { ctx } = await setup({ mode: 'code' })
+    const result = await runCode(ctx, 'return 1', { description: '   ' })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('invalid description')
   })
 
   it.each([
@@ -759,7 +776,7 @@ describe('the run_code dispatch bridge', () => {
     expect('presentResult' in tool).toBe(false)
   })
 
-  it('renders non-text sub-result blocks as placeholders and truncates long event summaries', async () => {
+  it('logs the complete sub-result content verbatim, non-text blocks and long text included', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const { agent, events } = fakeAgent()
     const long = 'x'.repeat(300)
@@ -786,58 +803,10 @@ describe('the run_code dispatch bridge', () => {
     expect(result.isError).toBe(false)
     expect((result.content[0] as { text: string }).text).toBe('mixed-value')
     const dispatch = events.find(event => event.type === 'tool/code-dispatch')?.data as SessionEventMap['tool/code-dispatch']
-    expect(dispatch.resultSummary.length).toBe(201)
-    expect(dispatch.resultSummary.endsWith('…')).toBe(true)
-  })
-
-  it('normalizes the session workspace root before bounding durable result summaries', async () => {
-    const { ctx, runtime } = await setup({ mode: 'code' })
-    ctx.tools.register(defineTool({
-      name: 'workspace_path',
-      description: 'Return a path beneath the session workspace.',
-      parameters: {},
-      output: {
-        schema: { type: 'string' },
-        render: (_args, value) => [{ type: 'text', text: value }],
-      },
-      execute(_args, exec) {
-        const cwd = exec.agent?.session.header.cwd ?? ''
-        return Promise.resolve(`<path>${cwd}/nested/task.txt</path>\n${'x'.repeat(240)}`)
-      },
-    }))
-    runtime.behavior = async request => ({
-      logs: [],
-      value: await request.bindings[0]!.functions.workspace_path!({}),
-    })
-
-    const short = fakeAgent({ cwd: '/tmp/workspace' })
-    const long = fakeAgent({ cwd: `/tmp/${'long-segment/'.repeat(30)}workspace` })
-    const shortResult = await runCode(ctx, 'program', { agent: short.agent })
-    const longResult = await runCode(ctx, 'program', { agent: long.agent })
-    const shortDispatch = short.events[0]!.data as SessionEventMap['tool/code-dispatch']
-    const longDispatch = long.events[0]!.data as SessionEventMap['tool/code-dispatch']
-
-    expect(shortResult.content).not.toEqual(longResult.content)
-    expect(shortDispatch.resultSummary).toBe(longDispatch.resultSummary)
-    expect(shortDispatch.resultSummary).toHaveLength(201)
-    expect(shortDispatch.resultSummary).toMatch(/^<path>\.\/nested\/task\.txt<\/path>\n.+…$/)
-  })
-
-  it('leaves result summaries unchanged when a session cwd is absent or is the filesystem root', async () => {
-    const { ctx, runtime } = await setup({ mode: 'code' })
-    registerEcho(ctx)
-    runtime.behavior = async request => ({
-      logs: [],
-      value: await request.bindings[0]!.functions.echo!({ value: '/workspace/value' }),
-    })
-
-    const absent = fakeAgent({})
-    const root = fakeAgent({ cwd: '/' })
-    await runCode(ctx, 'program', { agent: absent.agent })
-    await runCode(ctx, 'program', { agent: root.agent })
-
-    expect((absent.events[0]!.data as SessionEventMap['tool/code-dispatch']).resultSummary).toBe('echo:/workspace/value')
-    expect((root.events[0]!.data as SessionEventMap['tool/code-dispatch']).resultSummary).toBe('echo:/workspace/value')
+    expect(dispatch.content).toEqual([
+      { type: 'text', text: long },
+      { type: 'reasoning', text: 'hidden' },
+    ])
   })
 
   it('rejects undefined, getter-throwing, exotic, and unrepresentable binding arguments before dispatch', async () => {
@@ -1067,7 +1036,7 @@ describe('the run_code dispatch bridge', () => {
       name: 'echo',
       arguments: { value: 'x' },
       isError: false,
-      resultSummary: 'echo:x',
+      content: [{ type: 'text', text: 'echo:x' }],
     })
     const derived = session.deriveMessages()
     expect(derived).toHaveLength(1)

@@ -151,7 +151,11 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         )
     if prompt == CODE_PROMPT:
         assert_advertised_tool(body, "run_code")
-        return tool_call_chunks("call-code-worker", "run_code", {"code": "return 6 * 7"})
+        return tool_call_chunks(
+            "call-code-worker",
+            "run_code",
+            {"code": "return 6 * 7", "description": "Compute the smoke value"},
+        )
     if prompt == WORKFLOW_PROMPT:
         assert_advertised_tool(body, "workflow")
         return tool_call_chunks(
