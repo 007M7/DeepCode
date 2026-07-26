@@ -107,7 +107,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Prefer symmetry for parallel values**; unexplained asymmetry usually signals a missed extraction.
 - **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
-- **Every non-trivial change MUST include at least one Agent Note in the same PR.** Update the owning note or add one, validate its premises against code, and exempt only mechanical/local edits ([scope](.agents/notes/README.md#when-to-write-one)).
+- **Non-trivial changes MUST include an Agent Note in the same PR;** only mechanical/local edits are exempt ([scope](.agents/notes/README.md#when-to-write-one)). Archived notes are frozen: never edit or treat them as current authority ([archive policy](.agents/notes/README.md#archiving-and-deletion)).
 - **Testing policy** — [docs/testing.md](docs/testing.md). Every non-trivial model- or product-user-visible behavior change adds or updates a keyless snapshot through a real runnable example in the same PR; package tests, e2e-only assertions, and mock-only fixtures do not substitute for the assembled application transcript. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.

@@ -17,8 +17,7 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { packChunkRuns, SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
@@ -171,7 +170,7 @@ function userPrompts(rawLog: string): string[] {
 function rawSessionLog(session: Session): string {
   return [
     JSON.stringify({ type: 'session', ...session.header }),
-    ...session.events.map(event => JSON.stringify(event)),
+    ...packChunkRuns(session.events).map(record => JSON.stringify(record)),
     '',
   ].join('\n')
 }
