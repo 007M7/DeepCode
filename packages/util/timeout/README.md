@@ -1,5 +1,7 @@
 # dsh-timeout
 
+English | [中文](README.zh.md)
+
 The **timing-and-classification** half of a timeout — a zero-dependency library of pure functions (no runtime harness deps) shared by every capability that clamps a caller's timeout hint, arms a deadline, and later has to tell "timed out" apart from "cancelled".
 
 It owns **no termination**. The signal it hands out only *notifies*; actually stopping the work stays in each capability, because that mechanism differs — bash SIGKILLs an OS process group, web tears down a `fetch` socket — and no shared layer can own all of them. This is the boundary the [Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md) draws: share the timing/classification, keep the hard kill local.

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-commands
 
+English | [中文](README.zh.md)
+
 Plugin-owned human-command registry consumed by interactive UI adapters. The [plugin command registration Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns the boundary and dispatch contract.
 
 ## Service contract

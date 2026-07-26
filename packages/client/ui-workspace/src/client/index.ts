@@ -1,54 +1,85 @@
 /**
- * Shared Workspace picker plugin, browser half. WorkspacePicker registers in
- * the sidebar and page-local Session Intent hero slots, reads real Host Workspaces
- * through the global useWorkspaces hook, and delegates selection semantics to
- * each owner. Its injected share creates a Workspace without creating a
- * Session. Export discipline: packages/client/AGENTS.md.
+ * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
+ * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
+ * and WorkspacePicker fills the conversation empty-state hole. Both read real
+ * Host Workspaces through the global useWorkspaces hook. Export discipline:
+ * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspacePickerInjected } from './contract/slots.ts'
+import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import { createWorkspaceViewStore } from './stores.ts'
+import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 
-export type { WorkspacePickerInjected, WorkspacePickerProps } from './contract/slots.ts'
+export type {
+  WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
+} from './contract/slots.ts'
 
 /**
- * Required services (cordis fiber inject). The target slot is declared by
- * the ui-sidebar apply, whose activation order relative to this one is NOT
- * constrained: dshClient.inject edges are informational (loading/prefetch
- * metadata, never apply sequencing) and the sidebar provides no waitable
- * service. apply therefore registers via declaration-aware deferral instead
- * of assuming order.
+ * Required services (cordis fiber inject). The target slots are declared by
+ * the ui-sidebar / ui-conversation applies, whose activation order relative
+ * to this one is NOT constrained: dshClient.inject edges are informational
+ * (loading/prefetch metadata, never apply sequencing) and neither owner
+ * provides a waitable service. apply therefore registers via
+ * declaration-aware deferral instead of assuming order.
  */
-export const inject = ['slots', 'workspaces']
+export const inject = ['slots', 'sessions', 'workspaces']
 
 /**
- * Register WorkspacePicker in both owner slots once their declarations are on
- * the ledger. The inject factory returns a plain Workspace creation callback;
- * data reads use the framework's global useWorkspaces hook.
+ * Register the browser and picker once their slot declarations are on the
+ * ledger. Inject factories return plain callbacks; data reads use the
+ * framework's global hooks.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const injected = (): WorkspacePickerInjected => ({
+  const browserInjected = (): WorkspaceBrowserInjected => ({
+    startSession: (workspaceId, prompt) => { ctx.workspaces.startSession(workspaceId, prompt) },
+    open: (sessionId) => { ctx.sessions.open(sessionId) },
+    renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
+    insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
+      await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
+    },
     createWorkspace: input => ctx.workspaces.create(input),
   })
-  // Declaration-aware registration: the sidebar's declaring apply may
-  // activate after this one (entry activation order is unconstrained), and a
-  // register into an undeclared slot throws. Register once the declaration
-  // is on the ledger; the subscription also re-registers after an HMR
-  // collapse re-declares the slot (the cascade disposed our entry with it).
+  const pickerInjected = (): WorkspacePickerInjected => ({
+    createWorkspace: input => ctx.workspaces.create(input),
+  })
+  // Declaration-aware registration: each owner's declaring apply may activate
+  // after this one (entry activation order is unconstrained), and a register
+  // into an undeclared slot throws. Register once the declaration is on the
+  // ledger; the subscription also re-registers after an HMR collapse
+  // re-declares the slot (the cascade disposed our entry with it).
   ctx.effect(() => {
-    const slotNames = ['sidebar.workspace', 'conversation.empty.workspace'] as const
-    const disposers = new Map<(typeof slotNames)[number], () => void>()
-    const tryRegister = (name: (typeof slotNames)[number]): void => {
-      if (ctx.slots.spec(name) === undefined) return
-      if (ctx.slots.entries(name).some(e => e.component === WorkspacePicker)) return
-      disposers.set(name, ctx.slots.register({ name, inject: injected }, WorkspacePicker))
+    const registrations = [
+      {
+        name: 'sidebar.workspaces' as const,
+        component: WorkspaceBrowser,
+        register: () => ctx.slots.register(
+          { name: 'sidebar.workspaces', store: createWorkspaceViewStore(), inject: browserInjected },
+          WorkspaceBrowser,
+        ),
+      },
+      {
+        name: 'conversation.empty.workspace' as const,
+        component: WorkspacePicker,
+        register: () => ctx.slots.register(
+          { name: 'conversation.empty.workspace', inject: pickerInjected },
+          WorkspacePicker,
+        ),
+      },
+    ]
+    const disposers = new Map<string, () => void>()
+    const tryRegister = (entry: (typeof registrations)[number]): void => {
+      if (ctx.slots.spec(entry.name) === undefined) return
+      if (ctx.slots.entries(entry.name).some(e => e.component === entry.component)) return
+      disposers.set(entry.name, entry.register())
     }
-    const unsubscribers = slotNames.map(name => ctx.slots.subscribe(name, () => { tryRegister(name) }))
-    for (const name of slotNames) tryRegister(name)
+    const unsubscribers = registrations.map(entry =>
+      ctx.slots.subscribe(entry.name, () => { tryRegister(entry) }))
+    for (const entry of registrations) tryRegister(entry)
     return () => {
       for (const unsubscribe of unsubscribers) unsubscribe()
       for (const dispose of disposers.values()) dispose()
     }
-  }, 'ui-workspace: picker registrations')
+  }, 'ui-workspace: browser + picker registrations')
 }

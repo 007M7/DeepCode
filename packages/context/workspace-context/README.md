@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-workspace-context
 
+English | [中文](README.zh.md)
+
 Per-session workspace instruction loading for `AGENTS.md`-compatible files. The plugin freezes the initial user-global and project instruction chain into the request prefix, then discovers nested files and reports later changes or removals through durable context messages after successful filesystem tool calls.
 
 ## Lifecycle

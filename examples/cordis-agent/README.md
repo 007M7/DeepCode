@@ -1,5 +1,7 @@
 # cordis-agent
 
+English | [中文](README.zh.md)
+
 The self-referential harness demo: the DeepSeek V4 coding spine on the full-screen TUI plus [`@deepseek-ai/dsh-tool-cordis`](../../packages/cordis/tool-cordis/README.md), which hands the model three tools over the **live cordis runtime it is running inside** — inspect it, mount new plugins into it, and dispose them again. The `ctx.fs` and `ctx.web` services are mounted (provider-only, no model-facing file/web tools) so the plugins the agent writes have real capabilities to build on; Node built-ins are trapped in the sandbox and redirect to those services. The design (sandbox semantics, mount lifecycle, cross-mount composition, caveats) lives in [the toolset Agent Note](../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## Run it

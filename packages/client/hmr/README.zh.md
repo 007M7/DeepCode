@@ -1,0 +1,21 @@
+# @deepseek-ai/dsh-client-hmr
+
+[English](README.md) | 中文
+
+为通过 fetch 到达的客户端插件提供热重载。该静态到达配置项只组合进 `--dev` 图（`dsh web --dev`）；生产图省略此行，因此外壳打包的代码保持不活动。
+
+浏览器侧订阅系统 SSE 通道（`GET /plugins/events`），每个 `rebuilt` 帧重载一个插件，并通过队列串行执行（组合包交接 slot 只能容纳一个）。每帧的顺序是：`prefetch`（在触碰任何内容前抓取新组合包）、`invalidate`、`registry.delete`（在 fiber 之前执行：只释放 fiber 会触发 vendored Loader 的 self-dispose 分支，把配置项标为禁用）、排空旧 fiber、删除 `entry.fiber`、移除自身拥有的 `<style data-plugin>` 标签、通过 `entry.refresh()` 重新导入并挂载、以 `fiber.await()` 将启动失败高声重新抛出。依赖方由 cordis 自身重载：fiber 的激活 epoch 会串联其服务提供方的 uid，因此替换提供方 fiber 会级联所有依赖方，无需客户端图分析。node 侧使用一个 interval 检测重建：从同步基线开始 stat-poll 每个图组合包；新增一行后立即重新计算 hash；缺失行保持 dirty；只广播真实 rev 变更。因此，任何生成组合包的 tsdown watch 进程都能触发 HMR，无需 builder→host 通道。
+
+## 模型体验
+
+无。重载驱动器属于浏览器侧机制；这里没有任何内容进入模型请求。
+
+#### KV Cache 影响
+
+无；该包既不组装也不发送提供方请求。
+
+## 已知限制与暂缓事项
+
+- **重载有意保持粗粒度**：会创建全新的 fiber 和组件；重载插件中的 React 状态会丢失，数据层（connection/runtime fiber、Session 对象）不受影响。react-refresh 级状态保留与「重新执行组合包会重新运行 factory」冲突，因此有意排除。
+- **失败时不回滚**：失败的重载会使配置项处于 FAILED 状态，并在 loader 状态投影中高声报告；自动恢复先前组合包会等到实际需要出现后再实现。
+- **重建帧不会刷新图 rev**：陈旧 rev 无害（组合包端点以 no-cache 提供内容）；rev 刷新会随重新连接握手机制落地。

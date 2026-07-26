@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-plan-mode
 
+English | [中文](README.zh.md)
+
 Logged, per-agent plan collaboration state with deployment-owned guidance, direct `/plan [message]` entry and `/plan off` exit commands, and the reviewed `exit_plan_mode` exit. Plan mode is soft guidance; sandbox mode and approval policy remain independent enforcement axes.
 
 ## Durable state
@@ -29,7 +31,7 @@ The TUI consumes the plugin-owned `/plan` command; other front doors may drive t
 
 `section` is required and non-empty. Unknown keys fail at load. The package does not accept arbitrary named modes, tool filters, sandbox settings, or approval policy.
 
-Design: [plan-mode Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md) and [plan-specific state simplification](../../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md).
+Design: [plan-specific collaboration state](../../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md).
 
 ## Model Experience
 
