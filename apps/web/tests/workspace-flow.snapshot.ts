@@ -119,10 +119,12 @@ function workspaceChip(): HTMLElement {
   return chip
 }
 
-/** Wait for the runtime-owned controlled input to echo a browser edit. */
-async function setComposerText(composer: HTMLElement, value: string): Promise<void> {
+/** Edit the runtime-owned controlled input and assert the same-tick echo:
+ *  a deferred echo makes React roll the textarea back mid-IME-composition,
+ *  committing partial keystrokes (e.g. Pinyin "nihao" leaking as "nnini h…"). */
+function setComposerText(composer: HTMLElement, value: string): void {
   fireEvent.change(composer, { target: { value } })
-  await waitFor(() => { expect((composer as HTMLTextAreaElement).value).toBe(value) })
+  expect((composer as HTMLTextAreaElement).value).toBe(value)
 }
 
 it('starts a writable page-local draft without inventing a sidebar Workspace', async () => {
@@ -130,7 +132,7 @@ it('starts a writable page-local draft without inventing a sidebar Workspace', a
 
   const composer = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
   const tree = screen.getByRole('tree', { name: 'Sessions' })
-  await setComposerText(composer, 'keep this local')
+  setComposerText(composer, 'keep this local')
 
   expect({
     headline: visibleText(screen.getByText("Let's start building")),
@@ -191,7 +193,7 @@ it('drops the page-local draft on refresh while retaining real Workspaces and Se
 
   const composer = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
   const tree = screen.getByRole('tree', { name: 'Sessions' })
-  await setComposerText(composer, 'discard this page-local draft')
+  setComposerText(composer, 'discard this page-local draft')
   const beforeGroup = within(tree).getByText('4 sessions').closest('[role="treeitem"]')
   if (beforeGroup === null) throw new Error('fixture Workspace projection missing before refresh')
 
@@ -235,7 +237,7 @@ it('keeps a published Session with only cwd membership evidence in Ungrouped', a
   boot('?fixture&fixtureAttach=fail')
 
   const composer = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
-  await setComposerText(composer, 'keep this cwd-only session')
+  setComposerText(composer, 'keep this cwd-only session')
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
   const tree = screen.getByRole('tree', { name: 'Sessions' })
@@ -270,7 +272,7 @@ it('materializes the automatic Workspace and Session on the first successful sen
   boot('?fixture=empty')
 
   const composer = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
-  await setComposerText(composer, 'build a lighthouse')
+  setComposerText(composer, 'build a lighthouse')
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
   const tree = screen.getByRole('tree', { name: 'Sessions' })
@@ -299,7 +301,7 @@ it('keeps the published Workspace, Session, and unsent prompt after rejection', 
   boot('?fixture=empty&fixturePrompt=reject')
 
   const composer = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
-  await setComposerText(composer, 'do not lose this')
+  setComposerText(composer, 'do not lose this')
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
   const alert = await screen.findByRole('alert', {}, { timeout: 10_000 })
