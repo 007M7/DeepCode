@@ -53,6 +53,20 @@ export function renderArchiveManifest(files: Readonly<Record<string, string>>): 
   }, null, 2)}\n`
 }
 
+/** Reject changes or removals of entries sealed by a prior manifest. */
+export function validateArchiveManifestExtension(
+  baseline: ArchiveManifest,
+  current: ArchiveManifest,
+): string[] {
+  const errors: string[] = []
+  for (const [path, expected] of Object.entries(baseline.files)) {
+    const actual = current.files[path]
+    if (actual === undefined) errors.push(`${path}: sealed manifest entry is missing`)
+    else if (actual !== expected) errors.push(`${path}: sealed manifest hash changed`)
+  }
+  return errors
+}
+
 function validDate(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (match === null) return false

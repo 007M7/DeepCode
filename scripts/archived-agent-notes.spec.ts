@@ -5,6 +5,7 @@ import {
   parseArchiveManifest,
   renderArchiveManifest,
   validateArchiveArtifacts,
+  validateArchiveManifestExtension,
   type ArchiveManifest,
 } from './archived-agent-notes.ts'
 
@@ -51,6 +52,29 @@ describe('archived Agent Notes', () => {
     changed.delete('process/2026-07-26-example.zh.md')
     expect(extendArchiveManifest(sealed, changed).errors).toContain(
       'process/2026-07-26-example.zh.md: sealed artifact is missing',
+    )
+  })
+
+  it('rejects replacing manifest seals alongside changed archive content', () => {
+    const artifacts = fixture()
+    const initial = extendArchiveManifest({ version: 1, files: {} }, artifacts)
+    const baseline: ArchiveManifest = { version: 1, files: initial.files }
+    const path = 'process/2026-07-26-example.md'
+    const changedArtifacts = new Map(artifacts)
+    changedArtifacts.set(path, Buffer.from('changed'))
+    const replacement = extendArchiveManifest({ version: 1, files: {} }, changedArtifacts)
+    const current: ArchiveManifest = { version: 1, files: replacement.files }
+
+    expect(extendArchiveManifest(current, changedArtifacts).errors).toEqual([])
+    expect(validateArchiveManifestExtension(baseline, current)).toEqual([
+      `${path}: sealed manifest hash changed`,
+    ])
+    const removed: ArchiveManifest = {
+      version: 1,
+      files: Object.fromEntries(Object.entries(current.files).filter(([candidate]) => candidate !== path)),
+    }
+    expect(validateArchiveManifestExtension(baseline, removed)).toContain(
+      `${path}: sealed manifest entry is missing`,
     )
   })
 

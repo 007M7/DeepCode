@@ -1,5 +1,6 @@
 /** Verify and append-seal the frozen Agent Note archive. */
 
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { AGENT_NOTE_CLASSES, agentNoteRoot } from './agent-note-tree.ts'
@@ -8,6 +9,7 @@ import {
   parseArchiveManifest,
   renderArchiveManifest,
   validateArchiveArtifacts,
+  validateArchiveManifestExtension,
   type ArchiveManifest,
 } from './archived-agent-notes.ts'
 
@@ -20,6 +22,8 @@ if (args.length > 0 && !writeMode) {
 
 const archiveRoot = resolve(agentNoteRoot, 'archived')
 const manifestPath = resolve(archiveRoot, 'manifest.json')
+const repoRoot = resolve(agentNoteRoot, '../..')
+const manifestRepoPath = '.agents/notes/archived/manifest.json'
 const errors: string[] = []
 const allowedRootFiles = new Set(['AGENTS.md', 'manifest.json'])
 const kinds = new Set<string>()
@@ -54,6 +58,20 @@ for (const kind of AGENT_NOTE_CLASSES) {
 }
 errors.push(...validateArchiveArtifacts(artifacts))
 
+function runGit(args: string[]): string {
+  const result = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8' })
+  if (result.error !== undefined) throw result.error
+  if (result.status !== 0) throw new Error(result.stderr.trim() || `git exited with status ${result.status}`)
+  return result.stdout
+}
+
+function readBaselineManifest(ref: string): ArchiveManifest {
+  runGit(['cat-file', '-e', `${ref}^{commit}`])
+  const manifestEntry = runGit(['ls-tree', '--name-only', ref, '--', manifestRepoPath]).trim()
+  if (manifestEntry === '') return { version: 1, files: {} }
+  return parseArchiveManifest(runGit(['show', `${ref}:${manifestRepoPath}`]))
+}
+
 let manifest: ArchiveManifest = { version: 1, files: {} }
 if (existsSync(manifestPath)) {
   try {
@@ -63,6 +81,15 @@ if (existsSync(manifestPath)) {
   }
 } else if (!writeMode) {
   errors.push('archived/manifest.json is required; seal new artifacts with `pnpm run verify-archived-agent-notes --write`')
+}
+
+// CI supplies its trusted pre-change commit; local writes compare with committed HEAD.
+const baselineRef = process.env.DSH_ARCHIVE_BASE_REF ?? 'HEAD'
+try {
+  const baseline = readBaselineManifest(baselineRef)
+  errors.push(...validateArchiveManifestExtension(baseline, manifest))
+} catch (error: unknown) {
+  errors.push(`archived/manifest.json: cannot read baseline ${JSON.stringify(baselineRef)}: ${error instanceof Error ? error.message : String(error)}`)
 }
 
 const extended = extendArchiveManifest(manifest, artifacts)
