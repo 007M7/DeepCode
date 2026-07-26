@@ -144,7 +144,7 @@ describe('spawnSubprocess', () => {
   })
 
   it('kills the process group with SIGTERM when the signal fires', async () => {
-    // spawnProcess owns no timer: it kills on abort. The bash executor drives the timeout
+    // spawnSubprocess owns no timer: it kills on abort. The bash executor drives the timeout
     // by firing this signal via a deadline (see executor.spec.ts); here we
     // assert the kill itself lands as SIGTERM.
     const controller = new AbortController()
@@ -350,8 +350,8 @@ describe('OutputCollector', () => {
   })
 
   it('retains a byte-exact tail across uneven chunk boundaries', () => {
-    // The old whole-chunk drop could under-retain; a diagnostic tail must be
-    // exactly the LAST maxBytes regardless of chunking.
+    // A diagnostic tail must be exactly the LAST maxBytes regardless of
+    // chunking; dropping only whole chunks would under-retain.
     const collector = new OutputCollector(10, undefined, 'exact-tail', spillDir)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbbbb'))
@@ -818,7 +818,7 @@ describe('abort edge cases', () => {
   })
 
   it('reports the terminating signal of an externally self-killed command', async () => {
-    // spawnProcess reports the raw signal; whether it counts as timeout/cancel is the
+    // spawnSubprocess reports the raw signal; whether it counts as timeout/cancel is the
     // executor's classification (a self-kill is neither) — see executor.spec.ts.
     const result = await finish(spawnSubprocess(spec('kill -TERM $$')))
     expect(result.signal).toBe('SIGTERM')

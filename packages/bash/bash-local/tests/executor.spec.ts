@@ -309,7 +309,7 @@ describe('process lifecycle ownership (the subprocess service, not the executor)
     const pid = Number((await readUntil(proc, '\n')).trim())
     expect(Number.isInteger(pid) && pid > 0).toBe(true)
 
-    // Reloading/disposing the executor no longer kills backend work — the
+    // Executor reload/disposal leaves background work running — the
     // handle stays live and readable, mirroring the task runtime's
     // registrations-outlive-producer-fibers contract.
     await executorFiber.dispose()
