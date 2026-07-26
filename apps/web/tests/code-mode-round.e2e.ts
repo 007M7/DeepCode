@@ -111,8 +111,9 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     const nest = page.locator('[data-subcalls]').first()
     await nest.waitFor({ timeout: 10_000 })
     expect(await nest.locator('[data-sample="bash-global"]').count()).toBeGreaterThanOrEqual(1)
-    // The failing read sub-call wears the same error state a native failed row wears.
-    expect(await nest.locator('[data-state="error"], [data-sample][data-error]').count()).toBeGreaterThanOrEqual(0)
+    // The failing read sub-call wears the same error state a native failed
+    // row wears (the recorded program tolerates a read of missing.txt).
+    expect(await nest.locator('[data-state="error"]').count()).toBeGreaterThanOrEqual(1)
   }, 60_000)
 
   it.skipIf(MODE === 'record')('a sub-row click opens the details panel on the sub-call material', async () => {
