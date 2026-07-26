@@ -1,14 +1,16 @@
 # Agent Note: Collapse tool-owned UI presentation
 
-Status: rejected — tool-owned presentation should wait for more real tools before being generalized or deleted. Bash and ACP currently need the existing richer presentation path.
+Status: rejected — TUI and the Web host/client runtime consume the tagged render-intent union, so tool-owned presentation remains current even though ACP no longer projects it.
 
 English | [中文](2026-06-20-generic-tool-rendering.zh.md)
 
 ## Problem
 
-Tools can define `presentCall()` and `presentResult()` callbacks that return `ToolCallPresentation`, `ToolResultPresentation`, and optional `ToolTerminal` fields. The code itself flags the design as muddy: title, kind, raw input, content, terminal cwd, terminal output, exit code, and signal grew incrementally into a bag of optional fields. ACP then maintains pending call state to pair a result with the original args, creates replay-only presenters on `session/load`, and maps terminal subfields into Zed-specific `_meta`. `dsh-tool-bash` even parses exit status back out of rendered text because the pure replay-safe presenter no longer has the structured `BashRunResult`.
+The optional-field bag and ACP editor mapping below were the proposal-time context for this rejection. The current contracts live in [the tagged render-intent union](../../implemented/architecture/2026-07-02-tool-render-intent-union.md) and [automation-only ACP](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md).
 
-The real first-party use is bash presentation for ACP. That is too little evidence to freeze a cross-package UI presentation API.
+Tools could define `presentCall()` and `presentResult()` callbacks that returned `ToolCallPresentation`, `ToolResultPresentation`, and optional `ToolTerminal` fields. The code itself flagged the design as muddy: title, kind, raw input, content, terminal cwd, terminal output, exit code, and signal had grown incrementally into a bag of optional fields. ACP then maintained pending call state to pair a result with the original args, created replay-only presenters on `session/load`, and mapped terminal subfields into Zed-specific `_meta`. `dsh-tool-bash` even parsed exit status back out of rendered text because the pure replay-safe presenter no longer had the structured `BashRunResult`.
+
+The real first-party use was bash presentation for ACP. That was too little evidence to freeze a cross-package UI presentation API.
 
 ## Proposal
 
@@ -28,8 +30,8 @@ As a smaller alternative, replace the current optional-field bag with one explic
 
 ## What we give up
 
-Bash loses its custom terminal-looking card and model-written description placement. The fallback remains reasonable: the command appears as tool input, and the output appears as text. Rich rendering should be designed when the product has enough UI/tool variety to justify a stable presentation contract.
+Under this proposal, Bash would lose its custom terminal-looking card and model-written description placement. The fallback would remain reasonable: the command would appear as tool input, and the output as text. Rich rendering would be designed when the product had enough UI/tool variety to justify a stable presentation contract.
 
 ## Related
 
-This is the broad version of [dropping ACP terminal metadata](2026-06-20-drop-acp-terminal-meta.md). If this Agent Note is accepted, that narrower Agent Note becomes unnecessary.
+The later [tagged render-intent union](../../implemented/architecture/2026-07-02-tool-render-intent-union.md) implements the smaller alternative once multiple producer and consumer families provide enough evidence for the vocabulary. [Automation-only ACP](../../implemented/simplification/2026-07-23-acp-automation-only-protocol.md) removes ACP's editor projection without removing tool-owned presentation from TUI or the Web host/client runtime.
