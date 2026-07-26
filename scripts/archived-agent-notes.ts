@@ -126,27 +126,28 @@ export function validateArchiveArtifacts(artifacts: ReadonlyMap<string, Buffer>)
     const sourcePath = `${key}.md`
     const zhPath = `${key}.zh.md`
     const metaPath = `${key}.i18n.yaml`
+    const { source, zh, meta } = triplet
     const missing = [
-      triplet.source === undefined ? sourcePath : undefined,
-      triplet.zh === undefined ? zhPath : undefined,
-      triplet.meta === undefined ? metaPath : undefined,
+      source === undefined ? sourcePath : undefined,
+      zh === undefined ? zhPath : undefined,
+      meta === undefined ? metaPath : undefined,
     ].filter((path): path is string => path !== undefined)
-    if (missing.length > 0) {
+    if (source === undefined || zh === undefined || meta === undefined) {
       errors.push(`${key}: incomplete archived triplet; missing ${missing.join(', ')}`)
       continue
     }
     const sourceBase = basename(key)
-    errors.push(...validateHeader(sourcePath, triplet.source, sourceBase, false))
-    errors.push(...validateHeader(zhPath, triplet.zh, sourceBase, true))
-    const sourceDate = /^Archived: (\d{4}-\d{2}-\d{2})$/m.exec(triplet.source.toString('utf8'))?.[1]
-    const zhDate = /^Archived: (\d{4}-\d{2}-\d{2})$/m.exec(triplet.zh.toString('utf8'))?.[1]
+    errors.push(...validateHeader(sourcePath, source, sourceBase, false))
+    errors.push(...validateHeader(zhPath, zh, sourceBase, true))
+    const sourceDate = /^Archived: (\d{4}-\d{2}-\d{2})$/m.exec(source.toString('utf8'))?.[1]
+    const zhDate = /^Archived: (\d{4}-\d{2}-\d{2})$/m.exec(zh.toString('utf8'))?.[1]
     if (sourceDate !== undefined && zhDate !== undefined && sourceDate !== zhDate) {
       errors.push(`${key}: English and Chinese archive dates differ (${sourceDate} vs ${zhDate})`)
     }
-    const meta = pairMeta(triplet.meta.toString('utf8'))
-    if (meta === undefined || meta.size !== 2
-      || meta.get(`${sourceBase}.md`) !== gitBlobHash(triplet.source)
-      || meta.get(`${sourceBase}.zh.md`) !== gitBlobHash(triplet.zh)) {
+    const pair = pairMeta(meta.toString('utf8'))
+    if (pair === undefined || pair.size !== 2
+      || pair.get(`${sourceBase}.md`) !== gitBlobHash(source)
+      || pair.get(`${sourceBase}.zh.md`) !== gitBlobHash(zh)) {
       errors.push(`${metaPath}: consistency record must contain the current Git blob hashes of both archived sides`)
     }
   }
