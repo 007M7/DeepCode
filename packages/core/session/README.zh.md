@@ -52,7 +52,7 @@
 
 ### 分片行存储编解码器（`chunk-rows.ts`）
 
-提供方以 token 大小的增量流式输出，因此原始日志会存储数百行 `assistant/chunk`，其 JSON 封装远大于载荷。`packChunkRuns(events)` 将每段至少 3 个连续、同块的增量分片打包为一个存储行：`text-chunks`、`reasoning-chunks` 或 `tool-call-chunks`（不含斜杠的裸标签，属于存储词汇而不是 `SessionEventMap` 成员）。`decodeStorageRecord(value)` 则将已解析行展开回完全一致的事件（`seq0`／`time0` 加上每个成员的 `dt` 间隔，可重建每个 `seq`／`time`）。编码器只允许精确形态，并逐字存储任何无法识别的内容；解码器校验带行标签的值，形态错误时抛出异常。编解码器由此包所有，使 JSONL 后端和 fixture（测试前置数据）读取器（`dsh-llm-replay`、`dsh-acp-snapshot`）共享同一编解码器；写入侧开关是后端的 `packChunks` 配置。
+提供方以 token 大小的增量流式输出，因此原始日志会存储数百行 `assistant/chunk`，其 JSON 封装远大于载荷。`packChunkRuns(events)` 将每段至少 3 个连续、同块的增量分片打包为一个存储行：`text-chunks`、`reasoning-chunks` 或 `tool-call-chunks`（不含斜杠的裸标签，属于存储词汇而不是 `SessionEventMap` 成员）。`decodeStorageRecord(value)` 则将已解析行展开回完全一致的事件（`seq0`／`time0` 加上每个成员的 `dt` 间隔，可重建每个 `seq`／`time`）。编码器只允许精确形态，并逐字存储任何无法识别的内容；解码器校验带行标签的值，形态错误时抛出异常。编解码器由此包所有，使 JSONL 后端和 fixture（测试前置数据）读取器（`dsh-llm-replay`、`dsh-acp-snapshot`）共享同一编解码器；后端默认启用的 `packChunks` 配置只控制写入。
 
 ### Surface 类型
 

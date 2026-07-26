@@ -48,10 +48,9 @@ export interface Config {
   /**
    * Write runs of consecutive `assistant/chunk` delta events as packed
    * `text-chunks`/`reasoning-chunks`/`tool-call-chunks` rows (lossless,
-   * ~60% smaller logs measured on a real session). Off by default while
-   * snapshot fixtures stay in the one-event-per-line layout: recording with
-   * packing on rewrites every golden `session.jsonl`. READING packed rows is
-   * unconditional — a log's layout never depends on this switch.
+   * ~60% smaller logs measured on a real session). Defaults to true; false
+   * keeps one `SessionEvent` per line for diagnostics. Reading packed rows is
+   * unconditional: a log's layout never depends on this switch.
    */
   packChunks?: boolean
   /** Physical encoding; defaults to checksummed Zstandard frames. */
@@ -80,7 +79,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   static Config: z<Config> = z.object({
     root: z.string().required(),
-    packChunks: z.boolean().default(false),
+    packChunks: z.boolean().default(true),
     compression: JsonlCompressionSchema,
   })
 

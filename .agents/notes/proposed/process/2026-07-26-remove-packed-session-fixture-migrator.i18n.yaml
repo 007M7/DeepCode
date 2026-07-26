@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-26-packed-chunk-rows-by-default.md: a4ac43280f83fdb1a75057d8a0d5633c33b89b36
-2026-07-26-packed-chunk-rows-by-default.zh.md: 05909c5f8aecc9f57c8145f87f9c908fd2118867
+2026-07-26-remove-packed-session-fixture-migrator.md: d5f8ff65a38618c5f321f096921f7ce2b8af2d75
+2026-07-26-remove-packed-session-fixture-migrator.zh.md: d46e9e035709c26f59cb7f0a6908e38d0da08bbe
