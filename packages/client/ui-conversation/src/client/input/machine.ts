@@ -342,7 +342,7 @@ export class InputMachine {
   private onSetInvalid(invalidIds: readonly number[]): InputEffect[] {
     const ids = new Set(invalidIds)
     if (!this.occurrences.some(o => (o.invalid === true) !== ids.has(o.occurrenceId))) return []
-    this.occurrences = this.occurrences.map(o => {
+    this.occurrences = this.occurrences.map((o) => {
       const invalid = ids.has(o.occurrenceId)
       if ((o.invalid === true) === invalid) return o
       const { invalid: _drop, ...rest } = o

@@ -241,8 +241,8 @@ export type InjectParams<K extends keyof SlotMap & string, H> =
     ? ([H] extends [StoreDecl] ? [sessionId: SessionIdOf, actions: BoundActions<HandleOf<H>>] : [sessionId: SessionIdOf])
     : ScopeOf<K> extends 'session-maybe'
       ? ([H] extends [StoreDecl]
-          ? [sessionId: SessionIdOf | undefined, actions: BoundActions<HandleOf<H>> | undefined]
-          : [sessionId: SessionIdOf | undefined])
+        ? [sessionId: SessionIdOf | undefined, actions: BoundActions<HandleOf<H>> | undefined]
+        : [sessionId: SessionIdOf | undefined])
       : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
 
 /** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */

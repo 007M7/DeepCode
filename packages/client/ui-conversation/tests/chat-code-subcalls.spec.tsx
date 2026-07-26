@@ -94,8 +94,8 @@ async function bench(snapshot: ConversationSnapshot) {
       : undefined),
     scope: () => ({ get: () => scoped }),
     scopeOf: () => SID,
-    provide: (provider: (binding: unknown) => { hooks?: Record<string, unknown>; props?: Record<string, unknown> }) => {
-      const contribution = provider(sessionsFake.binding(SID))
+    provide: (descriptor: { resolve: (binding: unknown) => { hooks?: Record<string, unknown>; props?: Record<string, unknown> } }) => {
+      const contribution = descriptor.resolve(sessionsFake.binding(SID))
       Object.assign(provided.hooks, contribution.hooks ?? {})
       Object.assign(provided.props, contribution.props ?? {})
       return () => {}
@@ -103,6 +103,9 @@ async function bench(snapshot: ConversationSnapshot) {
     provideInfo: (id: string) => (id === SID
       ? { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props }
       : undefined),
+    maybeProvideInfo: (id: string | undefined) => (id === SID
+      ? { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props }
+      : { hooks: provided.hooks, props: provided.props }),
     create: vi.fn(),
     open: vi.fn(),
   }

@@ -52,7 +52,7 @@ export function apply(ctx: ClientContext): void {
       inject: (sessionId): MenuViewInjected => {
         // Session-scoped slot: resolve this session's controller (the slot
         // frame hands ids, not ctx — the registered id→ctx interchange).
-        const actx = sessions.scope(sessionId as Parameters<typeof sessions.scope>[0])
+        const actx = sessions.scope(sessionId)
         if (actx === undefined) throw new Error(`ui-slash: session "${String(sessionId)}" resolved no scope`)
         const controller = slash.sessionOf(actx)
         return {

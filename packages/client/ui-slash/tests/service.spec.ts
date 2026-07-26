@@ -486,7 +486,7 @@ describe('pick / scoped input events', () => {
 })
 
 describe('lexicon', () => {
-  function lexSource(trigger: TriggerChar, name: string, roll?: readonly string[] | undefined, hasHook = true): SlashSource {
+  function lexSource(trigger: TriggerChar, name: string, roll?: readonly string[]  , hasHook = true): SlashSource {
     return {
       trigger,
       name,

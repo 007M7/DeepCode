@@ -18,12 +18,12 @@ const WHITESPACE = /\s/u
  */
 function boundaryOk(draft: string, index: number, char: TriggerChar): boolean {
   if (index === 0) return true
-  const prev = draft[index - 1]!
+  const prev = draft.charAt(index - 1)
   if (WHITESPACE.test(prev)) return true
   if (WORD_CHAR.test(prev)) return false
   if (char === '/') {
     if (prev === '/') return false
-    if (prev === ':' && index >= 2 && !WHITESPACE.test(draft[index - 2]!)) return false
+    if (prev === ':' && index >= 2 && !WHITESPACE.test(draft.charAt(index - 2))) return false
   }
   return true
 }
@@ -47,7 +47,7 @@ function boundaryOk(draft: string, index: number, char: TriggerChar): boolean {
 export const detectTrigger: DetectTrigger = (draft, caret, guard) => {
   if (guard.tier === 'frozen') return null
   for (let i = caret - 1; i >= 0; i--) {
-    const ch = draft[i]!
+    const ch = draft.charAt(i)
     if (WHITESPACE.test(ch)) return null
     if (ch !== '/' && ch !== '@') continue
     if (guard.tier === 'claimed' && ch === '/') continue

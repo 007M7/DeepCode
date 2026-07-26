@@ -62,8 +62,8 @@ describe('apply', () => {
     expect(command).toBeInstanceOf(CommandService)
     // Frozen-contract conformance (compile-time check rides the assignment).
     const contract: CommandServiceContract = command as CommandService
-    expect(contract.register).toBeTypeOf('function')
-    expect(contract.popupFor).toBeTypeOf('function')
+    expect(typeof contract.register).toBe('function')
+    expect(typeof contract.popupFor).toBe('function')
     expect([...sources.keys()]).toEqual(['/ command'])
     expect([...overlays.keys()]).toEqual(['conversation.input.overlay#command-popup'])
     await fiber.dispose()

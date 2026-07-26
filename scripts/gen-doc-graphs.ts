@@ -703,7 +703,7 @@ class EventRelationCollector {
           const eventNames = this.eventNamesFromCall(node, receiverKind)
           if (method === 'on' || method === 'once') {
             for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
-          } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
+          } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall' || method === 'bail') {
             for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
           }
         }

@@ -134,9 +134,9 @@ const req = (query: string, position: 'leading' | 'inline' = 'leading') =>
 describe('registration', () => {
   it('registers the "/" source with matchSpace/matchEnter/warm hooks and removes it on fiber disposal', async () => {
     const { registered, source, fiber } = await bench()
-    expect(source.matchSpace).toBeTypeOf('function')
-    expect(source.matchEnter).toBeTypeOf('function')
-    expect(source.warm).toBeTypeOf('function')
+    expect(typeof source.matchSpace).toBe('function')
+    expect(typeof source.matchEnter).toBe('function')
+    expect(typeof source.warm).toBe('function')
     expect([...registered.keys()]).toEqual(['/ command'])
     await fiber.dispose()
     expect(registered.size).toBe(0)

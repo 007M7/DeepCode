@@ -211,7 +211,10 @@ export class SlashController {
     return undefined
   }
 
-  /** Drop the menu group of a disposed source (root registry change notification). */
+  /**
+   * Drop the menu group of a disposed source (root registry change notification).
+   * @param source - the source whose registration was disposed.
+   */
   sourceRemoved(source: SlashSource): void {
     const state = this.menu.getSnapshot()
     if (state.open && state.hit !== null && state.hit.trigger === source.trigger) {

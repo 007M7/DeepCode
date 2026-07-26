@@ -117,14 +117,14 @@ function workspaceChip(): HTMLElement {
 async function findLockedComposer(): Promise<HTMLTextAreaElement> {
   return await screen.findByPlaceholderText(
     'Choose a workspace to start', {}, { timeout: 10_000 },
-  ) as HTMLTextAreaElement
+  )
 }
 
 /** The live blank-session hero composer (session materialized). */
 async function findHeroComposer(): Promise<HTMLTextAreaElement> {
   return await screen.findByPlaceholderText(
     'Describe what you want to build', {}, { timeout: 10_000 },
-  ) as HTMLTextAreaElement
+  )
 }
 
 /** Edit the machine-owned controlled input and assert the same-tick echo. */
@@ -161,7 +161,7 @@ it('locks the composer in the New Session view state until a Workspace is chosen
     headline: visibleText(screen.getByText("Let's start building")),
     chip: visibleText(workspaceChip()),
     composerDisabled: composer.disabled,
-    sendDisabled: (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    sendDisabled: screen.getByRole<HTMLButtonElement>('button', { name: 'Send message' }).disabled,
     sidebar: visibleText(tree),
   }).toMatchInlineSnapshot(`
     {

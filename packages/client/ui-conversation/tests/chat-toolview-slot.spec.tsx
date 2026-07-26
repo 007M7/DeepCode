@@ -107,7 +107,10 @@ async function bench(nodes: ToolResultNode[]) {
       }
       return info
     },
-    provide: (fn: (typeof providers)[number]) => { providers.push(fn); return () => {} },
+    maybeProvideInfo(id: string | undefined) {
+      return (id === undefined ? undefined : this.provideInfo(id)) ?? { hooks: {}, props: {} }
+    },
+    provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
     scopeOf: () => SID,
     create: vi.fn(),
     open: vi.fn(),
@@ -227,6 +230,7 @@ describe('registrant load-order seam', () => {
       binding: () => undefined,
       scope: () => undefined,
       provideInfo: () => undefined,
+      maybeProvideInfo: () => ({ hooks: {}, props: {} }),
       provide: () => () => {},
       create: vi.fn(),
       open: vi.fn(),

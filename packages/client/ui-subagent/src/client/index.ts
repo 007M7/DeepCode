@@ -26,14 +26,14 @@ export function apply(ctx: ClientContext): void {
   const childLabels = (session: ClientSessionContext, query: string): string[] => {
     const { byId } = sessions.list.getSnapshot()
     return Object.values(byId)
-      .filter((child) => child.parentId === session.sessionId && child.running && child.displayTitle.includes(query))
-      .map((child) => child.displayTitle)
+      .filter(child => child.parentId === session.sessionId && child.running && child.displayTitle.includes(query))
+      .map(child => child.displayTitle)
   }
   const source: SlashSource = {
     trigger: '@',
     name: 'subagent',
     candidates(session, { query }) {
-      return Promise.resolve(childLabels(session, query).map((name) => ({ name })))
+      return Promise.resolve(childLabels(session, query).map(name => ({ name })))
     },
     lexicon(session) {
       // The list snapshot is always warm — the full running-children roster.
@@ -47,10 +47,10 @@ export function apply(ctx: ClientContext): void {
       return { text: `@${candidate.name} ` }
     },
     codec: {
-      clipboardText: (ref) => `@${ref}`,
+      clipboardText: ref => `@${ref}`,
       // TODO: serialize returns the raw label until the '@' consumption
       // feature defines a model representation (design ledger).
-      serialize: (ref) => Promise.resolve(`@${ref}`),
+      serialize: ref => Promise.resolve(`@${ref}`),
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract

@@ -110,15 +110,13 @@ export const menuReduce: MenuReduce = (state, ev) => {
       if (!state.open) return state
       const pos = positions(state.groups)
       if (pos.length === 0) return state
-      const at = state.highlight
-        ? pos.findIndex(p => p.source === state.highlight!.source && p.index === state.highlight!.index)
-        : -1
-      const next = at < 0
-        ? (ev.dir === 1 ? pos[0]! : pos[pos.length - 1]!)
-        : pos[(at + ev.dir + pos.length) % pos.length]!
-      if (state.highlight && next.source === state.highlight.source && next.index === state.highlight.index) {
-        return state
-      }
+      const hl = state.highlight
+      const at = hl ? pos.findIndex(p => p.source === hl.source && p.index === hl.index) : -1
+      const next = pos[at < 0
+        ? (ev.dir === 1 ? 0 : pos.length - 1)
+        : (at + ev.dir + pos.length) % pos.length]
+      if (next === undefined) return state
+      if (hl && next.source === hl.source && next.index === hl.index) return state
       return { ...state, highlight: next }
     }
     case 'close':

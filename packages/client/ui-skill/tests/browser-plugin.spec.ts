@@ -234,7 +234,7 @@ describe('pick and codec', () => {
 describe('adjudication', () => {
   it('never participates: no matchSpace/matchEnter hooks on the skill source', async () => {
     const { source } = await bench(listOk(CATALOG))
-    expect(source.matchSpace).toBeUndefined()
-    expect(source.matchEnter).toBeUndefined()
+    expect(typeof source.matchSpace).toBe('undefined')
+    expect(typeof source.matchEnter).toBe('undefined')
   })
 })

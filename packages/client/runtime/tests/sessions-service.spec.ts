@@ -28,7 +28,9 @@ function bench(): Bench {
 }
 
 /** Refresh the manager list from programmable rows and flush the microtask batch. */
-async function feedList(b: Bench, rows: { id: string; cwd?: string; parentId?: string; running?: boolean; blank?: boolean }[]): Promise<void> {
+type FeedRow = { id: string; cwd?: string; parentId?: string; running?: boolean; blank?: boolean }
+
+async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
   b.api.onList = () => Promise.resolve(ok({
     items: rows.map(r => ({
       sessionId: sid(r.id), updatedAt: 1, running: r.running ?? false, blank: r.blank ?? false,

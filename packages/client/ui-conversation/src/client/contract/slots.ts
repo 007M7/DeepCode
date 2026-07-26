@@ -248,7 +248,10 @@ export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
 }
 
-/** Full conversation-slot component props: runtime & child-render (view ring + composer chain/bar + input-region + hero picker slots) & store & injected shares. */
+/**
+ * Full conversation-slot component props: runtime & child-render (view ring
+ * + composer chain/bar + input-region + hero picker slots) & store & injected shares.
+ */
 export type ConversationSlotProps =
   PropsRuntime<'conversation'> & PropsRenderSlots<
     | 'conversation.session' | 'conversation.composer' | 'conversation.composer.bar'

@@ -53,7 +53,7 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
   const flat = content
     .map(block => (block.type === 'text' ? block.text : `[${block.type}]`))
     .join(' ').replace(/\s+/g, ' ').trim()
-  const chars = [...flat]
+  const chars = Array.from(flat)
   return chars.length > QUEUE_PREVIEW_CHARS ? `${chars.slice(0, QUEUE_PREVIEW_CHARS).join('')}…` : flat
 }
 

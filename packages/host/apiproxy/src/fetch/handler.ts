@@ -96,7 +96,9 @@ function fullResponse(narrow: RpcResponse<unknown>): Response {
 // K appears once in the signature but ties the UNARY_ROUTES[K] row lookup to its own
 // schema/invoke pairing; a union parameter degrades the row to an uninvokable intersection.
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
-async function handleUnary<K extends keyof RpcMethodMap>(api: ApiProxy, method: K, message: ClientRequest, signal: AbortSignal): Promise<Response> {
+async function handleUnary<K extends keyof RpcMethodMap>(
+  api: ApiProxy, method: K, message: ClientRequest, signal: AbortSignal,
+): Promise<Response> {
   const route = UNARY_ROUTES[method]
   const payload = route.schema.safeParse(message.payload)
   if (!payload.success) {

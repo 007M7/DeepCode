@@ -31,7 +31,7 @@ const sid = (id: string) => id as SessionId
 function sessionsWith(sessions: SessionSummary[]) {
   const byId: Record<string, SessionSummary> = {}
   for (const s of sessions) byId[s.id] = s
-  const snapshot = { ids: sessions.map((s) => s.id), byId, current: undefined } as unknown as SessionListState
+  const snapshot = { ids: sessions.map(s => s.id), byId, current: undefined } as unknown as SessionListState
   return { list: { getSnapshot: () => snapshot } }
 }
 
@@ -139,7 +139,7 @@ describe('pick and codec', () => {
 describe('adjudication', () => {
   it('never participates: no matchSpace/matchEnter hooks on the subagent source', async () => {
     const source = await bench(FAMILY)
-    expect(source.matchSpace).toBeUndefined()
-    expect(source.matchEnter).toBeUndefined()
+    expect('matchSpace' in source && source.matchSpace !== undefined).toBe(false)
+    expect('matchEnter' in source && source.matchEnter !== undefined).toBe(false)
   })
 })

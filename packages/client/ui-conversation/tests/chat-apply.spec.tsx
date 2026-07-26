@@ -37,6 +37,7 @@ async function bench() {
     binding: vi.fn(),
     scope: () => undefined,
     provideInfo: () => undefined,
+    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
     provide: vi.fn(() => () => {}),
     create: vi.fn(),
     open: vi.fn(),
@@ -94,15 +95,17 @@ describe('apply wiring', () => {
     const b = await bench()
     await b.fiber.await()
     const conversation = renderEntryOf(b.slots, 'conversation')
+    const conversationSession = renderEntryOf(b.slots, 'conversation.session')
     const chatView = renderEntryOf(b.slots, 'conversation.view')
     const details = renderEntryOf(b.slots, 'details')
     expect(conversation?.inject).toBeTypeOf('function')
     expect(chatView?.inject).toBeTypeOf('function')
     expect(details?.inject).toBeTypeOf('function')
-    // The shared handle: one apply-built store value on ALL session entries.
-    expect(conversation?.store).toBeDefined()
-    expect(details?.store).toBe(conversation?.store)
-    expect(chatView?.store).toBe(conversation?.store)
+    // The shared handle: one apply-built store value on ALL session entries
+    // (the session-maybe 'conversation' shell carries no store by design).
+    expect(conversationSession?.store).toBeDefined()
+    expect(details?.store).toBe(conversationSession?.store)
+    expect(chatView?.store).toBe(conversationSession?.store)
     // The hero workspace picker hole rides the conversation entry's children
     // declaration (the empty-state occupant is gone).
     expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })

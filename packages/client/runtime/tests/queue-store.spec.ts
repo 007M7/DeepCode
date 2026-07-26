@@ -50,7 +50,7 @@ describe('queue intake', () => {
     const session = makeSession()
     session.handleMuxEnvelope(rid('env-3'), queuedFrame('长'.repeat(201), 'p-cap'))
     const preview = session.getSnapshot().queue[0]?.preview ?? ''
-    expect([...preview]).toHaveLength(201) // 200 + …
+    expect(Array.from(preview)).toHaveLength(201) // 200 + …
     expect(preview.endsWith('…')).toBe(true)
   })
 

@@ -1,7 +1,7 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ClientContext, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
@@ -54,7 +54,7 @@ export function apply(ctx: Context): void {
 
   // The per-session input machine registry (InputService face; published as
   // ctx.conversation.input by the service below sharing this one instance).
-  const inputHub = new InputHub(ctx as ClientContext)
+  const inputHub = new InputHub(ctx)
 
   // Decision 19/20: the input machine feeds every session-scope slot
   // component through the standard provide channel — the 'input' hook plus
@@ -119,7 +119,7 @@ export function apply(ctx: Context): void {
         version: () => slots.getVersion('conversation.view'),
       },
       bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
-      open: id => { sessions.open(id) },
+      open: (id) => { sessions.open(id) },
     }),
   }, ConversationSession)
 

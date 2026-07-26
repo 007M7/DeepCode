@@ -64,7 +64,10 @@ export class Notifier {
     for (const listener of this.listeners) listener()
   }
 
-  /** Pre-getSnapshot check: rebuild synchronously when dirty (read path before first subscribe / while unobserved). Notification stays pending. */
+  /**
+   * Pre-getSnapshot check: rebuild synchronously when dirty (read path
+   * before first subscribe / while unobserved). Notification stays pending.
+   */
   ensureFresh(): void {
     if (!this.dirty) return
     this.dirty = false

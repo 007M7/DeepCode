@@ -12,7 +12,9 @@ import { entries, plainTurn } from './event-script.ts'
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId
 
-function summary(sessionId: SessionId, over: Partial<{ updatedAt: number; running: boolean; blank: boolean; parentSessionId: SessionId }> = {}) {
+type SummaryOver = Partial<{ updatedAt: number; running: boolean; blank: boolean; parentSessionId: SessionId }>
+
+function summary(sessionId: SessionId, over: SummaryOver = {}) {
   return { sessionId, updatedAt: 100, running: false, blank: false, ...over }
 }
 

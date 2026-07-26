@@ -10,8 +10,6 @@ import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only: the notice route reads ctx.conversation.input — no runtime edge.
-import type { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
   SlashServiceContract, SubmitOutcome,
@@ -70,7 +68,7 @@ export class CommandService extends Service implements CommandServiceContract {
    * @returns the disposer removing the registration.
    */
   register(contribution: CommandContribution): () => void {
-    return this.ctx.effect(() => {
+    const dispose = this.ctx.effect(() => {
       const { contributions } = this.live
       if (contributions.has(contribution.name)) {
         throw new Error(`ui-command: duplicate contribution for /${contribution.name}`)
@@ -78,6 +76,7 @@ export class CommandService extends Service implements CommandServiceContract {
       contributions.set(contribution.name, contribution)
       return () => { contributions.delete(contribution.name) }
     }, 'command.register()')
+    return () => { void dispose() }
   }
 
   /**
@@ -275,7 +274,7 @@ export class CommandService extends Service implements CommandServiceContract {
   private noticeFor(id: SessionId, _name: string, level: 'info' | 'error', text: string): void {
     const actx = this.scopeFor(id)
     if (actx === undefined) return
-    const conversation = actx.get('conversation') as ConversationService | undefined
+    const conversation = actx.get('conversation')
     if (conversation === undefined) return
     conversation.input.for(actx).notify(level, text)
   }

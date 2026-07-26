@@ -104,10 +104,10 @@ function fakeSessions() {
     list: { getSnapshot: () => state, subscribe: () => () => undefined },
     provideInfo: (id: string) => (id === 'known'
       ? {
-          sessionId: id,
-          hooks: { session: { getSnapshot: () => undefined, subscribe: () => () => undefined } },
-          props: {},
-        }
+        sessionId: id,
+        hooks: { session: { getSnapshot: () => undefined, subscribe: () => () => undefined } },
+        props: {},
+      }
       : undefined),
   }
 }

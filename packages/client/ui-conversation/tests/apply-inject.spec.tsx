@@ -89,6 +89,7 @@ async function bench() {
     binding: (id: SessionId) => ({ sessionId: id, session: sessionFake, ctx: mint(id) }),
     scope: (id: SessionId) => mint(id),
     provideInfo: () => undefined,
+    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
     provide: (descriptor: TestProvider) => { providers.push(descriptor); return () => {} },
     scopeOf,
     sessionOf: (actx: Context) => (scopeOf(actx) === undefined ? undefined : sessionFake),

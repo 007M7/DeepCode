@@ -40,7 +40,7 @@ export const inject = ['slash', 'connection']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const { list } = (ctx.get('connection') as ConnectionHandle).api.skills
+  const skills = (ctx.get('connection') as ConnectionHandle).api.skills
   // Session-keyed catalog cache; single-flight per key. Plugin-closure state:
   // the fiber effect below is its teardown boundary.
   const fetches = new Map<SessionId, CatalogFetch>()
@@ -50,7 +50,7 @@ export function apply(ctx: ClientContext): void {
     if (existing !== undefined) return existing.promise
     const abort = new AbortController()
     const promise = (async () => {
-      const { result } = await list({ sessionId }, abort.signal)
+      const { result } = await skills.list({ sessionId }, abort.signal)
       if (!result.ok) throw new Error(`skill.list failed: ${result.error.code}: ${result.error.message}`)
       return result.value.skills
     })()
@@ -86,8 +86,8 @@ export function apply(ctx: ClientContext): void {
       // Superseded keystroke: the shared fetch stays warm, this caller yields.
       if (signal.aborted) return []
       return skills
-        .filter((skill) => skill.name.startsWith(query))
-        .map((skill) => ({ name: skill.name, description: skill.description }))
+        .filter(skill => skill.name.startsWith(query))
+        .map(skill => ({ name: skill.name, description: skill.description }))
     },
     warm(session) {
       // Fire-and-forget scope-birth prewarm; the shared fetch reports
@@ -95,7 +95,7 @@ export function apply(ctx: ClientContext): void {
       fetchCatalog(session.sessionId).catch(() => {})
     },
     lexicon(session) {
-      return fetches.get(session.sessionId)?.settled?.map((skill) => skill.name)
+      return fetches.get(session.sessionId)?.settled?.map(skill => skill.name)
     },
     onPick({ candidate }) {
       // Decision 21: plain-text reference — the literal lands in the draft
@@ -105,8 +105,8 @@ export function apply(ctx: ClientContext): void {
       return { text: `/${candidate.name} ` }
     },
     codec: {
-      clipboardText: (ref) => `/${ref}`,
-      serialize: (ref) => Promise.resolve(`<skill>${ref}</skill>`),
+      clipboardText: ref => `/${ref}`,
+      serialize: ref => Promise.resolve(`<skill>${ref}</skill>`),
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract

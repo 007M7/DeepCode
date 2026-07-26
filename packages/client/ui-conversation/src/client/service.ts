@@ -12,7 +12,7 @@ import type { Context } from 'cordis'
 // Type-only imports: a plugin-to-plugin value import is a bundle purity
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
-import type { ClientContext, Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { InputHub } from './input/hub.ts'
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
@@ -29,7 +29,7 @@ export class ConversationService extends Service {
    */
   constructor(ctx: Context, config?: { input?: InputHub }) {
     super(ctx, 'conversation')
-    this.input = config?.input ?? new InputHub(ctx as ClientContext)
+    this.input = config?.input ?? new InputHub(ctx)
   }
 
   /**

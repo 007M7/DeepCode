@@ -122,7 +122,7 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
   // workspace picker is live.
   const locked = await screen.findByPlaceholderText(
     'Choose a workspace to start', {}, { timeout: 10_000 },
-  ) as HTMLTextAreaElement
+  )
   expect(locked.disabled).toBe(true)
 
   // Pick (create) a Workspace: connectWorkspace materializes the full
@@ -139,7 +139,7 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
 
   const composer = await screen.findByPlaceholderText(
     'Describe what you want to build', {}, { timeout: 10_000 },
-  ) as HTMLTextAreaElement
+  )
   expect(composer.disabled).toBe(false)
 
   // '/' opens the menu with the session's wire command catalog (the session
