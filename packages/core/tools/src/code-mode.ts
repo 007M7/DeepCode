@@ -13,7 +13,7 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from './schema.ts'
 import { TOOL_REGISTRY_SCHEDULER } from './index.ts'
-import type { ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
+import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -187,6 +187,20 @@ function renderValue(value: JsonValue): string {
 type RunCodeOutput = { logs: string[]; result?: JsonValue }
 
 /**
+ * Registry-private capabilities the bridge receives at construction — the
+ * `requireRuntime` idiom: operations only the owning registry can mint stay
+ * off its public service surface and flow here as closures instead.
+ */
+export interface RunCodeBridgeOptions {
+  /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
+  requireRuntime: () => CodeRuntime
+  /** The run's overlap cap for parallel-classified sub-calls (the registry passes its validated `maxParallelSubCalls`). */
+  maxParallel: number
+  /** Runs the contained `tools/code-dispatch-log` waterfall over one settled sub-dispatch (the registry's private invoker). */
+  shapeDispatchLog: (dispatch: CodeDispatchLog) => Promise<ContentBlock[]>
+}
+
+/**
  * Build the `run_code` {@link ToolDefinition}: required `code` and
  * `description` parameters, executed through the dispatch bridge described
  * above. The
@@ -194,13 +208,11 @@ type RunCodeOutput = { logs: string[]; result?: JsonValue }
  * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
  *   bindings cover its registered tools).
- * @param requireRuntime - resolves `ctx.codeRuntime` or throws the loud
- *   misconfiguration error (shared with the registry's assembly-time checks).
- * @param maxParallel - the run's overlap cap for parallel-classified
- *   sub-calls (the registry passes its validated `maxParallelSubCalls`).
+ * @param options - the registry-private capabilities described above.
  * @returns the registry-ready definition.
  */
-export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => CodeRuntime, maxParallel: number): ToolDefinition {
+export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridgeOptions): ToolDefinition {
+  const { requireRuntime, maxParallel, shapeDispatchLog } = options
   return defineTool({
     name: RUN_CODE_NAME,
     description:
@@ -407,7 +419,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
               // The durable copy may be reshaped (e.g. spilled to a preview +
               // locator) by the log-shaping waterfall; the program's value
               // and the model contract are untouched.
-              const logged = await registry.shapeDispatchLog({
+              const logged = await shapeDispatchLog({
                 exec, agent, subCallId, name, isError: result.isError,
                 // The registry deep-froze this projection at result
                 // finalization; append snapshots the final copy again, so
