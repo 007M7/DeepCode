@@ -57,7 +57,7 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 ## 进程边界
 
-子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除名称形似凭据的环境变量，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来），stderr 以 inherit 方式直通父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
+子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除名称形似凭据的环境变量，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来；`DSH_PERMISSION_MODE` 这类 `DSH_*` 条目走该 seam 的受管通道，因为清除后的基底把这一命名空间保留给当前部署事实），stderr 以 inherit 方式直通父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
 
 本包没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 

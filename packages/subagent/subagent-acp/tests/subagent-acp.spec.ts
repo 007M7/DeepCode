@@ -119,6 +119,21 @@ describe('child env layering (through the subprocess seam)', () => {
       delete process.env.ACP_TEST_AMBIENT_SECRET_TOKEN
     }
   })
+
+  it('routes explicit DSH_* config entries onto the managed channel', async () => {
+    // A deployment sets child-harness facts like DSH_PERMISSION_MODE in
+    // config.env; the run must split them onto the seam's managed channel
+    // (the ordinary channel rejects the reserved namespace) and the child
+    // must still see the value.
+    const ctx = await setup({ MOCK_ECHO_ENV: 'DSH_ACP_TEST_FACT', DSH_ACP_TEST_FACT: 'managed' })
+    const parent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
+    const run = await ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal })
+    const result = await run.result
+    await run.dispose()
+    const text = result.output.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')
+    expect(text).toBe('managed')
+    await ctx.fiber.dispose()
+  })
 })
 
 describe('cwd resolution', () => {
