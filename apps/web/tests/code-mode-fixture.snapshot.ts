@@ -105,7 +105,7 @@ function visibleText(element: Element): string {
 /** Open the fixture history session (the alpha log carrying the run_code turn) and scroll to its tail. */
 async function openFixtureSession(): Promise<void> {
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
-  const group = within(tree).getByText('4 sessions').closest('[role="treeitem"]')
+  const group = within(tree).getByText('4 sessions').closest<HTMLElement>('[role="treeitem"]')
   if (group === null) throw new Error('fixture Workspace group missing')
   if (group.getAttribute('aria-expanded') === 'false') {
     fireEvent.click(within(group).getByText('fixture'))
