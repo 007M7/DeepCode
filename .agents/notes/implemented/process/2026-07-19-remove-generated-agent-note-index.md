@@ -16,8 +16,6 @@ The lifecycle/class filesystem tree is the Agent Note inventory. [README.md](../
 
 `scripts/agent-note-tree.ts` owns the closed lifecycle/class sets and structural walker. `verify-agent-note-classification` validates that tree and rejects the legacy homes and a root `INDEX.md`; it does not render or freshness-check a centralized list.
 
-This decision supersedes the rejected [generated-index proposal](../../rejected/process/2026-07-04-generate-agent-note-index-tables.md).
-
 ## Alternatives considered
 
 **Keep the committed generated index and resolve conflicts by regenerating it.** Regeneration makes conflict resolution mechanical but does not prevent unrelated branches from modifying the same artifact or reduce the review noise it creates.
