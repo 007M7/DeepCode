@@ -14,7 +14,7 @@ Status: implemented
 
 `LlmCallConfig` 和 `GenerateOptions` 携带可选的推理强度。agent loop（智能体循环）在活跃轮次信号的控制下准备 `agent/request` 处理完成后的配置，再写入 `request/header`，因此默认值和动态变更只有成为持久化事实后才对模型可见。准备完成的调用在异步确切模型解析、请求头持久记录和分派全程保留同一项确切的适配器注册；直接调用 `LlmService.stream()` 时，也会在等待解析前捕获最终的适配器注册。没有已注册适配器的路由会保留原定配置，使 `llm/stream` 中间件可以接管并短路该请求；若仍未得到处理，最终分发会拒绝该路由。恢复后的主循环仅在初始提供方/模型路由未变时保留日志中记录的推理强度；如果路由发生变化，则丢弃上一模型的不透明 ID。
 
-原生 DeepSeek 适配器声明 `high` 和 `max`，默认使用配置指定的推理强度，若未配置则使用 `high`；禁用思考时不暴露推理强度能力。pi-ai 适配器原样发布每个确切模型的 `getSupportedThinkingLevels()` 结果，其中包括 `off`；profile 未指定默认值时保留提供方默认行为，并将提供方协议值的映射留在 pi-ai 内部。按照 pi-ai 自身 API 的要求，其通用流选项通过省略 `reasoning` 来表示 `off`。
+当部署策略允许思考时，原生 DeepSeek 适配器声明 `off`、`high` 和 `max`，默认使用配置指定的推理强度，若未配置则使用 `high`。由适配器持有的 `off` 映射为 `thinking.type: disabled`，且不带 `reasoning_effort`；`high` 和 `max` 会启用思考并携带各自的官方协议强度值。配置为 `thinking: disabled` 的部署仅声明 `off`，并会在提供方 I/O 前拒绝启用思考的尝试。pi-ai 适配器原样发布每个确切模型的 `getSupportedThinkingLevels()` 结果，其中包括 `off`；profile 未指定默认值时保留提供方默认行为，并将提供方协议值的映射留在 pi-ai 内部。按照 pi-ai 自身 API 的要求，其通用流选项通过省略 `reasoning` 来表示 `off`。
 
 ## 备选方案
 
@@ -28,6 +28,6 @@ Status: implemented
 
 ## 影响
 
-客户端只需查询一次确切路由，即可渲染其身份、上下文容量和由适配器持有的推理选项，而无需了解全局枚举。适配器配置仍负责提供部署默认值，`agent/request` 则可以在每个步骤替换实际生效的推理强度。确切身份、上下文或推理元数据无效时，分别抛出 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT` 或 `INVALID_MODEL_REASONING`；显式指定或配置指定的值不受支持时，会在提供方 I/O 前抛出 `UNSUPPORTED_REASONING_EFFORT`。
+客户端只需查询一次确切路由，即可渲染其身份、上下文容量和由适配器持有的推理选项，而无需了解全局枚举或自行合成 `off`。适配器配置仍是部署默认值和策略的归属方，`agent/request` 则可以在该策略范围内为每个步骤替换实际生效的推理强度。确切身份、上下文或推理元数据无效时，分别抛出 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT` 或 `INVALID_MODEL_REASONING`；显式指定或配置指定的值不受支持时，会在提供方 I/O 前抛出 `UNSUPPORTED_REASONING_EFFORT`。
 
 确切模型元数据的聚合查询采用异步方式，并且对于由权威目录支持的适配器可能失败。可选信号构成调用方的取消边界；异步适配器必须在信号中止后迅速完成结算，使主循环的资源释放达到完全停稳。无密钥的服务、适配器、主循环、会话和请求头测试为校验、默认值解析、动态变更、日志记录、恢复行为、HMR（热模块替换）期间的注册所有权和取消提供回归保障；可运行快照锁定实际组装请求头中的已解析推理强度，仅在有密钥时运行的适配器测试则覆盖提供方序列化。

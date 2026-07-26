@@ -183,6 +183,31 @@ describe('serializeRequest', () => {
     expect(wire.reasoning_effort).toBe('max')
   })
 
+  it('maps off to disabled thinking without a wire reasoning effort', () => {
+    const wire = serializeRequest(
+      request({ messages: history, reasoningEffort: ReasoningEffortId('off') }),
+      { thinking: 'enabled', reasoningEffort: 'max' },
+    )
+    expect(wire.thinking).toEqual({ type: 'disabled' })
+    expect(wire.reasoning_effort).toBeUndefined()
+  })
+
+  it('re-enables thinking when max overrides an off default', () => {
+    const wire = serializeRequest(
+      request({ messages: history, reasoningEffort: ReasoningEffortId('max') }),
+      { reasoningEffort: 'off' },
+    )
+    expect(wire.thinking).toEqual({ type: 'enabled' })
+    expect(wire.reasoning_effort).toBe('max')
+  })
+
+  it('rejects enabling thinking when the deployment is locked to disabled', () => {
+    expect(() => serializeRequest(
+      request({ messages: history, reasoningEffort: ReasoningEffortId('high') }),
+      { thinking: 'disabled' },
+    )).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_REASONING_EFFORT' }))
+  })
+
   it('disables thinking for session-title requests without changing adapter defaults', () => {
     const wire = serializeRequest(
       request({
@@ -199,6 +224,12 @@ describe('serializeRequest', () => {
   it('omits thinking fields when unset (provider default applies)', () => {
     const wire = serializeRequest(request({ messages: history }))
     expect(wire.thinking).toBeUndefined()
+    expect(wire.reasoning_effort).toBeUndefined()
+  })
+
+  it('preserves an explicit enabled default without inventing a wire effort', () => {
+    const wire = serializeRequest(request({ messages: history }), { thinking: 'enabled' })
+    expect(wire.thinking).toEqual({ type: 'enabled' })
     expect(wire.reasoning_effort).toBeUndefined()
   })
 

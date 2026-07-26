@@ -37,10 +37,10 @@ export interface Config {
   apiKey?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Thinking-mode default for every request (provider default: enabled). */
+  /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
-  /** Default thinking effort when thinking is enabled (default `high`). */
-  reasoningEffort?: 'high' | 'max'
+  /** Default thinking effort (default `high`); `off` disables thinking per request. */
+  reasoningEffort?: 'off' | 'high' | 'max'
   /** Positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
@@ -60,7 +60,7 @@ export const Config: z<Config> = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
-  reasoningEffort: z.union(['high', 'max']),
+  reasoningEffort: z.union(['off', 'high', 'max']),
   defaultContextWindow: z.number().step(1).min(1),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
@@ -95,8 +95,10 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
 }
 
 export function apply(ctx: Context, config: Config): void {
-  if (config.thinking === 'disabled' && config.reasoningEffort !== undefined) {
-    throw new Error('llm-deepseek: reasoningEffort cannot be configured when thinking is disabled')
+  if (config.thinking === 'disabled'
+    && config.reasoningEffort !== undefined
+    && config.reasoningEffort !== 'off') {
+    throw new Error('llm-deepseek: only reasoningEffort "off" can be configured when thinking is disabled')
   }
   const apiKey = config.apiKey ?? process.env.DEEPSEEK_API_KEY
   if (apiKey === undefined || apiKey.length === 0) {

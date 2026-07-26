@@ -51,11 +51,16 @@ export interface DeepSeekAdapterOptions {
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
+const OFF_REASONING_EFFORT = ReasoningEffortId('off')
 const HIGH_REASONING_EFFORT = ReasoningEffortId('high')
 const MAX_REASONING_EFFORT = ReasoningEffortId('max')
 const REASONING_EFFORTS = [
+  { id: OFF_REASONING_EFFORT, name: 'Off' },
   { id: HIGH_REASONING_EFFORT, name: 'High' },
   { id: MAX_REASONING_EFFORT, name: 'Max' },
+] as const
+const OFF_ONLY_REASONING_EFFORTS = [
+  { id: OFF_REASONING_EFFORT, name: 'Off' },
 ] as const
 
 function modelInfo(provider: string, model: DeepSeekCatalogModel): LlmModelInfo {
@@ -113,8 +118,10 @@ export class DeepSeekAdapter extends LlmAdapter {
 
   constructor(private readonly options: DeepSeekAdapterOptions) {
     super()
-    if (options.defaults?.thinking === 'disabled' && options.defaults.reasoningEffort !== undefined) {
-      throw new Error('llm-deepseek: reasoningEffort cannot be configured when thinking is disabled')
+    if (options.defaults?.thinking === 'disabled'
+      && options.defaults.reasoningEffort !== undefined
+      && options.defaults.reasoningEffort !== 'off') {
+      throw new Error('llm-deepseek: only reasoningEffort "off" can be configured when thinking is disabled')
     }
     if (options.defaultContextWindow !== undefined
       && (!Number.isInteger(options.defaultContextWindow) || options.defaultContextWindow <= 0)) {
@@ -152,13 +159,20 @@ export class DeepSeekAdapter extends LlmAdapter {
         : modelInfo(provider, configured),
       ...contextWindow === undefined ? {} : { context: { contextWindow } },
       ...this.options.defaults?.thinking === 'disabled'
-        ? {}
+        ? {
+          reasoning: {
+            efforts: OFF_ONLY_REASONING_EFFORTS,
+            defaultEffort: OFF_REASONING_EFFORT,
+          },
+        }
         : {
           reasoning: {
             efforts: REASONING_EFFORTS,
-            defaultEffort: this.options.defaults?.reasoningEffort === 'max'
-              ? MAX_REASONING_EFFORT
-              : HIGH_REASONING_EFFORT,
+            defaultEffort: this.options.defaults?.reasoningEffort === 'off'
+              ? OFF_REASONING_EFFORT
+              : this.options.defaults?.reasoningEffort === 'max'
+                ? MAX_REASONING_EFFORT
+                : HIGH_REASONING_EFFORT,
           },
         },
     })

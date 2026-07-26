@@ -574,10 +574,10 @@ export interface Config {
   apiKey?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Thinking-mode default for every request (provider default: enabled). */
+  /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
-  /** Default thinking effort when thinking is enabled (default `high`). */
-  reasoningEffort?: 'high' | 'max'
+  /** Default thinking effort (default `high`); `off` disables thinking per request. */
+  reasoningEffort?: 'off' | 'high' | 'max'
   /** Positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
