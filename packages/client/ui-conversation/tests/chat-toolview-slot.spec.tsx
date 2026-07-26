@@ -93,7 +93,7 @@ async function bench(nodes: ToolResultNode[]) {
     sendSession: vi.fn(),
   })
   ctx.provide('layout', layout)
-  ctx.provide('i18n', { bind: () => (key: string) => key })
+  ctx.provide('locale', { bind: () => (key: string) => key })
 
   slots.install(createSlotRenderer())
   slots.register({
@@ -212,7 +212,7 @@ describe('registrant load-order seam', () => {
       sendSession: vi.fn(),
     })
     ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    ctx.provide('i18n', { bind: () => (key: string) => key })
+    ctx.provide('locale', { bind: () => (key: string) => key })
     slots.register({
       name: 'root',
       children: {

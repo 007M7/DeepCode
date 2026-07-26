@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-17-ts-build-config.md: 1275a635242ea887c941db9dc0554fd33acd4102
-2026-06-17-ts-build-config.zh.md: 7691118dd152874e2849f1ace686069c9ea3f61f
+2026-06-17-ts-build-config.md: 17036438b83a77f72b49f55abf29632af3f4ffef
+2026-06-17-ts-build-config.zh.md: 70e49c61deba418894a48be3016898d1d85c78a0

@@ -17,10 +17,21 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', url: '/plugins/runtime.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', url: '/plugins/ui-theme.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', url: '/plugins/i18n.js', rev: 'fx', inject: [], immediately: true },
+  { id: '@deepseek-ai/dsh-client-locale', dir: 'locale', url: '/plugins/locale.js', rev: 'fx', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  {
+    id: '@deepseek-ai/dsh-client-ui-workspace',
+    dir: 'ui-workspace',
+    url: '/plugins/ui-workspace.js',
+    rev: 'fx',
+    inject: [
+      '@deepseek-ai/dsh-client-runtime',
+      '@deepseek-ai/dsh-client-ui-conversation',
+      '@deepseek-ai/dsh-client-ui-sidebar',
+    ],
+  },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
@@ -94,9 +105,14 @@ function visibleText(element: Element): string {
 /** Open the fixture history session (the alpha log carrying the run_code turn) and scroll to its tail. */
 async function openFixtureSession(): Promise<void> {
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
-  const group = within(tree).getByText('4 sessions').closest('[role="treeitem"]')
+  const group = within(tree).getByText('4 sessions').closest<HTMLElement>('[role="treeitem"]')
   if (group === null) throw new Error('fixture Workspace group missing')
-  fireEvent.click(group)
+  if (group.getAttribute('aria-expanded') === 'false') {
+    fireEvent.click(within(group).getByText('fixture'))
+    await waitFor(() => {
+      expect(within(tree).getByText('4 sessions').closest('[role="treeitem"]')?.getAttribute('aria-expanded')).toBe('true')
+    })
+  }
   const session = await within(tree).findByText('Fixture 历史会话')
   fireEvent.click(session)
   await waitFor(() => {

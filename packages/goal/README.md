@@ -1,5 +1,7 @@
 # goal/ — persisted same-session goals
 
+English | [中文](README.zh.md)
+
 The goal family owns durable objective state independently of the model-facing tools and continuation policy that consume it.
 
 | Package | Role | ctx key |

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tui-demo
 
+English | [中文](README.zh.md)
+
 The full-screen terminal app bundle: a Cordis plugin that composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), persisted same-session goals, the human-command registry and `/goal` producer, JSONL persistence, keyboard-backed user interaction, a pre-created `main` agent, and [`@deepseek-ai/dsh-tui`](../../ui/tui/README.md). A `cordis.yml` mounts it as one entry; the [`dsh`](../../../apps/cli/README.md) CLI is the front door that boots such a config.
 
 Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and other non-interactive runs. This bundle requires a TTY pair and has no line-oriented fallback.
