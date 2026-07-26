@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此 README、Agent Note（agent 决策记录）与 docs 目录树以英文和简体中文双语维护。本页定义配对契约、强制门禁与推进策略；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。仓库内置的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
+本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此范围内的每篇文档都以英文和简体中文维护。本页定义配对契约、强制门禁、范围与排除规则；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。仓库内置的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
 
 ## 配对契约
 
@@ -23,29 +23,30 @@
 
 `pnpm run verify-translation-pairing`（`doc-sync`（文档同步门禁）的一环，贡献者会针对文档变更在本地运行，CI 则会完整运行）机械地强制执行这份契约：
 
-1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个文件都有完整配对。
-2. 任何已存在的配对（无论是否 required）都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致：标题深度、逐字节一致的代码块（信息字符串与内容）、表格行列数、列表类型、有序列表起始编号、列表项数量，以及除切换行之外的每个链接目标。
+1. 范围内的每篇文档都有完整配对。发现 README 时，basename 不区分大小写，因此 `missions/readme.md` 与其他文档根一样属于范围。
+2. 任何已存在的配对产物都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致：标题深度、逐字节一致的代码块（信息字符串与内容）、表格行列数、列表类型、有序列表起始编号、列表项数量，以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md`，也没有 `.i18n.yaml`。
-4. 凡文件名符合 `yyyy-mm-dd-*.md` 且日期不早于 manifest（元数据清单）中 `requiredSince` 分界日期的文档，都必须有完整配对；新建的日期命名 Agent Note 从创建起便须配齐中英文。
 
-`pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前配对状态（missing、out-of-sync 或 ok），是翻译批次的工作清单。它从不失败；它只报告。
+面向源码的代码门禁会把精确的 `.zh.md` 围栏序列视为其无后缀兄弟文件的派生内容，而不会再次编译相同代码或在 manifest 中重复登记。该序列必须在长度、顺序、围栏类型和按字节精确的正文上一致；否则两份副本仍会独立受检，配对门禁也会报告结构不匹配。
+
+`pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前配对状态（missing、out-of-sync 或 ok）。它从不失败；其中 missing 与 out-of-sync 行指出普通检查会拒绝的违规。
 
 这个门禁带来的实际规则是：**当一个 PR 修改了已配对文档的任一侧时，同一个 PR 更新另一侧并重新记录配对**（运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill（技能），再 `--write`），与本仓库既有的代码与 README 的 doc-sync 规则完全一致。留下失去同步的配对的 PR 会在 CI 变红。
 
 把门禁的边界说白：**门禁通过意味着这组文档在当前内容上的一致性得到了确认，不代表确认本身正确可靠。** 它检查记录的 hash 与结构签名；它无法判断两侧是否真的在说同样的话，也无法判断措辞是否准确、术语是否得当、行文是否自然；这部分契约由评审者把关，见 [translation-rules.md](translation-rules.md)。重新记录了 hash 但另一侧翻得潦草的配对能通过门禁；它不得通过评审。
 
-## 范围、排除与推进
+## 范围与排除
 
-**范围**：根 `README.md`，以及 `.agents/notes/**`、`docs/**` 与 `python/**` 下的全部内容。包（package）README（`packages/**`）在后续批次加入范围。
+**范围**：除 vendor 源码外的全部 README，以及 `.agents/notes/**`、`docs/**` 与 `python/**` 下的全部文档。匹配 README 时只看文件名且不区分大小写，因此今后新增的目录无需再修改 manifest。依赖目录和被忽略的构建产物目录只在发现阶段排除，并非源文档。
 
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md` 或 `.i18n.yaml`）：
 
 - `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/config-catalog.md`、`docs/persistence-catalog.md`、`docs/module-graph.md`、`docs/agent-lifecycle.md`、`docs/capability-seams.md`、`docs/event-producer-consumer.md`、`docs/graph-atlas.md` 与 `docs/tool-execution-pipeline.md`：生成文件；生成器目前只输出英文，手写译文在每次重新生成时必然陈旧。计划中的后续工作是让生成器同时输出中文，届时这些文件移出排除清单。
-- `docs/AGENTS.md` 与 `.agents/notes/**/AGENTS.md`：agent 指令，与根 `AGENTS.md` 一样只以英文维护。
+- `docs/AGENTS.md`、`.agents/notes/**/AGENTS.md` 以及指向它们的 `CLAUDE.md` 指令符号链接：agent 指令，与根 `AGENTS.md` 一样只以英文维护。
 - `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)：二者本身即为中英对照文档。
 - [translation-prompt.md](translation-prompt.md)：自动翻译流水线的提示词模板；正文逐字进入模型请求，配对翻译会改变流水线行为。
 
-**推进**：以日期命名的文档（`yyyy-mm-dd-*.md`，即 Agent Note），只要标注日期等于或晚于 manifest 的 `requiredSince` 分界日期，合并时就必须配齐双语文件。更早日期的文件属于 backlog（待翻清单），包括分界前夜创建的文件。Agent Note 文件名记录首次提出日期，因此倒填日期绕过分界属于评审可见的违规。manifest 中的 `required` 列表是当前执行红线，并非全量覆盖这一最终目标。翻译批次将路径加入 `required`，使门禁只向前收紧。未列入的文档仍可通过 `--list` 查看，而任何已存在的配对都受完整契约约束。后续修改必须同步更新两侧，因此 `required` 的扩展速度不能超过翻译评审的承载能力。
+**统一要求**：当前及今后纳入范围的每篇文档，合并时都必须构成完整的双语配对。[scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 只包含显式排除项；不存在逐文件推进清单、日期分界或 README 专用政策类别。
 
 ## 分工
 
