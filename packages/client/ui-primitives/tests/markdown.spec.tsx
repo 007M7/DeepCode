@@ -64,6 +64,16 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
   })
 
+  it('streaming renders fences plain; the finalize swap highlights them', () => {
+    const fence = '```ts\nconst answer = 42\n```'
+    const live = render(<MarkdownText text={fence} streaming />)
+    expect(live.container.querySelector('pre.shiki')).toBeNull()
+    expect(live.container.querySelector('pre code')?.textContent).toContain('const answer = 42')
+    live.unmount()
+    const done = render(<MarkdownText text={fence} />)
+    expect(done.container.querySelector('pre.shiki')).not.toBeNull()
+  })
+
   it('neutralizes raw HTML, unsafe or relative links, and remote images', () => {
     const markdown = [
       '<script>globalThis.compromised = true</script>',

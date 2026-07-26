@@ -44,7 +44,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, strea
     <div className={css.root} data-streaming={streaming || undefined}>
       {blocks.map((block, i) => {
         switch (block.kind) {
-          case 'text': return <MarkdownText key={i} text={block.text} />
+          case 'text': return <MarkdownText key={i} text={block.text} streaming={streaming} />
           case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} />
           // Tool-call heads render as tool rows in the chat view's grouping pass.
           case 'tool-call': return null

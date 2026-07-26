@@ -24,7 +24,9 @@ function sanitizeUrl(url: string): string {
 
 const safeUrl: UrlTransform = url => sanitizeUrl(url)
 
-const components: Components = {
+/** Build the component table; while `streaming`, fences render the plain arm (see CodeBlock). */
+function buildComponents(streaming: boolean): Components {
+  return {
   a: ({ href = '', children }) => {
     const safeHref = sanitizeUrl(href)
     if (safeHref === '') return <>{children}</>
@@ -44,32 +46,40 @@ const components: Components = {
       <table>{children}</table>
     </div>
   ),
-  // Fenced blocks route through the shared CodeBlock (shiki for registered
-  // grammars, identical-geometry plain fallback for unknown/absent languages);
-  // inline code keeps the default <code> path (the :not(pre) rule styles it).
-  pre: ({ children }) => {
-    const child = isValidElement<{ className?: string; children?: unknown }>(children) ? children : undefined
-    const raw = child?.props.children
-    const text = typeof raw === 'string' ? raw : Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : undefined
-    // A fence whose content isn't one plain string (never produced by the
-    // markdown pipeline) keeps the stock <pre> rather than guessing.
-    if (text === undefined) return <pre>{children}</pre>
-    const lang = /language-([\w-]+)/.exec(child?.props.className ?? '')?.[1]
-    return <CodeBlock code={text} lang={lang} />
-  },
+    // Fenced blocks route through the shared CodeBlock (shiki for registered
+    // grammars, identical-geometry plain fallback for unknown/absent
+    // languages); inline code keeps the default <code> path (the :not(pre)
+    // rule styles it). While the message streams, the fence renders the
+    // plain arm — retokenizing a growing fence on every chunk is quadratic
+    // main-thread work; the finalize swap highlights it once.
+    pre: ({ children }) => {
+      const child = isValidElement<{ className?: string; children?: unknown }>(children) ? children : undefined
+      const raw = child?.props.children
+      const text = typeof raw === 'string' ? raw : Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : undefined
+      // A fence whose content isn't one plain string (never produced by the
+      // markdown pipeline) keeps the stock <pre> rather than guessing.
+      if (text === undefined) return <pre>{children}</pre>
+      const lang = /language-([\w-]+)/.exec(child?.props.className ?? '')?.[1]
+      return <CodeBlock code={text} lang={streaming ? undefined : lang} />
+    },
+  }
 }
+
+const staticComponents = buildComponents(false)
+const streamingComponents = buildComponents(true)
 
 /**
  * Render untrusted assistant-authored Markdown as semantic React elements.
- * @param props - Markdown source text preserved by the session projection.
+ * @param props - Markdown source text preserved by the session projection;
+ * `streaming` renders fences plain (highlighting lands on the finalize swap).
  * @returns A GFM document with raw HTML, relative links, unsafe protocols, and remote images disabled.
  */
-export function MarkdownText({ text }: { text: string }) {
+export function MarkdownText({ text, streaming = false }: { text: string; streaming?: boolean }) {
   return (
     <div className={css.markdown}>
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
-        components={components}
+        components={streaming ? streamingComponents : staticComponents}
         urlTransform={safeUrl}
       >
         {text}
