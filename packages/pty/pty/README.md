@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-pty
 
+English | [中文](README.zh.md)
+
 Owner-scoped persistent PTY seam. `PtyService` registers as `ctx.pty`, mints opaque session ids, routes creation through named backends, fences every operation to the exact live `Agent`, and awaits backend quiescence when that agent or the service disposes.
 
 ## Contract

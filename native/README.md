@@ -1,5 +1,7 @@
 # native/
 
+English | [中文](README.zh.md)
+
 Source of record for `node-addon-landlock-run`, the Landlock self-restrict-then-exec launcher the harness consumes from npm (`packages/sandbox/sandbox-local`, `packages/bash/bash-sandbox`). Launcher development happens HERE, next to the consumers; the standalone repository is the release mirror that packs and publishes the npm package family.
 
 ## Release mirror

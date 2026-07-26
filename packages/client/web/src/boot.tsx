@@ -21,7 +21,7 @@
  * switches to the real UI in one pass.
  *
  * Entry creation waits for the whole immediately tier: materialization runs
- * synchronous cross-package require edges (e.g. i18n → runtime/client) that
+ * synchronous cross-package require edges (e.g. locale → runtime/client) that
  * fiber inject waiting cannot protect — a bundle's factory must be
  * registered before any dependent entry materializes. Per-row prefetch
  * failures still resolve silently (the create-side import refetches and

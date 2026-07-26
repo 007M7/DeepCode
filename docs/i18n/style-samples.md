@@ -68,17 +68,17 @@
 
 对比双语文件的 git 时间戳（无记录方案）——不予采纳：仅调整格式的改动会触发误报，无关修改后再提交译文又会造成漏检。只有基于内容本身的标识（每侧文件的 blob hash 与伴随记录比对），才能承载门禁所声称的语义。
 
-## ⑦ 推进策略（长段拆分示范）
+## ⑦ 统一要求（长段拆分示范）
 
-> **Rollout**: date-named Agent Notes don't wait for a batch — one dated on or after the manifest's `requiredSince` cutoff must merge with its pair, so each new date-named Agent Note is bilingual from birth. For the back-catalog, the `required` list in the manifest is the enforcement frontier, not the goal. […] Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
+> **Universal requirement**: every in-scope document merges as a complete bilingual pair. The manifest contains only explicit exclusions: it has no per-file rollout list, date cutoff, or README-specific policy class. […] Pairing is a continuing obligation: every later edit to either side updates the counterpart and consistency record in the same change.
 
-**推进**：日期命名的 Agent Note 无需等待批量翻译。只要文件名中的日期不早于 manifest（元数据清单）的 `requiredSince` 分界日期，合入时就必须配齐中英文，因此此类 Agent Note 从创建起就要求双语齐备。对于存量文档，manifest 中的 `required` 列表只是当前的执行红线，并非最终目标。（……）一旦文档完成配对，后续修改任一侧都必须同步更新另一侧。因此，应根据实际可投入的翻译评审能力逐步扩展执行红线，不能超前。
+**统一要求**：每篇纳入范围的文档合入时都必须构成完整的双语配对。manifest（元数据清单）只包含显式排除项：其中没有逐文件推进清单、日期分界或 README 专用政策类别。（……）配对是一项持续义务：后续修改任一侧时，都必须在同一变更中同步更新对侧文件和一致性记录。
 
 ## 从样例提炼的要点
 
 - 语体是规范制度文：完整主谓、确定语气；不口语化，也不学术腔。
 - 给句子补显式执行主体：英文的被动句和抽象主语，中文写成「系统／门禁／工具／评审人」做主语。
-- 用中文工程惯用语替换直译：false positive/negative→误报／漏检、enforcement frontier→执行红线、ratchet→只向前收紧不倒退放宽、reviewable act→评审凭证。
+- 用中文工程惯用语替换直译：false positive/negative→误报／漏检、ratchet→只向前收紧不倒退放宽、reviewable act→评审凭证。
 - 隐喻本地化而非移植：bilingual from birth→从创建起就要求双语齐备；grandfathered→历史存量遗留。
 - 类别名词说中文并在首现括注英文：实操手册（cookbook）、事故复盘（postmortem）；指目录或路径时保留代码体英文。
 - 长段按语义单元拆段，一段一件事；名词短语展开为动词句。

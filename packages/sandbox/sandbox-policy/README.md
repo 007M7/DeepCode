@@ -1,5 +1,7 @@
 # dsh-sandbox-policy — the sandbox policy home (`ctx.sandboxPolicy`)
 
+English | [中文](README.zh.md)
+
 The single owner of sandbox-policy resolution: the deployment's default [`SandboxMode`](../sandbox/README.md) and fallback root, plus each session's durable mode override and immutable workspace root. Every enforcing capability family receives one resolved mode-and-root policy per call.
 
 ## Why a shared home

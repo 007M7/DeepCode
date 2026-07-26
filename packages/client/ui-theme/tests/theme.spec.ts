@@ -1,61 +1,151 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
-import { ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { STORAGE_KEY, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+
+const make = (): { ctx: Context; theme: ThemeService; events: ThemeSnapshot[] } => {
+  const ctx = new Context()
+  const events: ThemeSnapshot[] = []
+  ctx.on('theme/change', (snapshot) => { events.push(snapshot) })
+  return { ctx, theme: new ThemeService(ctx), events }
+}
 
 describe('ThemeService', () => {
   beforeEach(() => {
-    document.body.removeAttribute('data-ds-dark-theme')
-    document.body.removeAttribute('style')
+    localStorage.clear()
   })
 
-  it('starts on light; apply toggles the dark body attribute both ways', () => {
-    const theme = new ThemeService()
-    expect(theme.current()).toBe('light')
-    theme.apply('dark')
-    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
-    expect(theme.current()).toBe('dark')
-    theme.apply('light')
+  it('defaults to the system preference resolved against prefers-color-scheme', () => {
+    const { theme } = make()
+    const snapshot = theme.getTheme()
+    expect(snapshot.preference).toBe('system')
+    // jsdom matchMedia is absent; system resolves to light.
+    expect(snapshot.active.id).toBe('light')
+    expect(snapshot.active.colorScheme).toBe('light')
+    expect(snapshot.themes.map(t => t.id)).toEqual(['light', 'dark'])
+  })
+
+  it('setTheme switches, persists, republishes, and keeps DOM untouched', () => {
+    const { theme, events } = make()
+    theme.setTheme('dark')
+    expect(theme.getTheme().preference).toBe('dark')
+    expect(theme.getTheme().active.colorScheme).toBe('dark')
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('dark')
+    expect(events).toHaveLength(1)
+    expect(events[0]).toBe(theme.getTheme())
+    // The service never touches presentation state.
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
-    expect(theme.current()).toBe('light')
+    // Same-value set is a no-op (no extra event).
+    theme.setTheme('dark')
+    expect(events).toHaveLength(1)
   })
 
-  it('throws on unregistered apply and duplicate register (built-ins included)', () => {
-    const theme = new ThemeService()
-    expect(() => { theme.apply('sepia') }).toThrow('not registered')
-    expect(() => theme.register('light', {})).toThrow('already registered')
-    theme.register('sepia', {})
-    expect(() => theme.register('sepia', {})).toThrow('already registered')
+  it('restores a persisted preference and falls back on garbage', () => {
+    localStorage.setItem(STORAGE_KEY, 'dark')
+    expect(make().theme.getTheme().preference).toBe('dark')
+    localStorage.setItem(STORAGE_KEY, 'sepia')
+    expect(make().theme.getTheme().preference).toBe('system')
   })
 
-  it('applies third-party token overrides as body inline vars and swaps them on switch', () => {
-    const theme = new ThemeService()
-    theme.register('sepia', { '--dsw-alias-bg-base': 'rgb(1, 2, 3)' })
-    theme.apply('sepia')
-    expect(document.body.style.getPropertyValue('--dsw-alias-bg-base')).toBe('rgb(1, 2, 3)')
-    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
-    theme.apply('dark')
-    expect(document.body.style.getPropertyValue('--dsw-alias-bg-base')).toBe('')
-    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
+  it('throws on unknown setTheme ids, duplicate registration, and the system id', () => {
+    const { theme } = make()
+    expect(() => { theme.setTheme('sepia') }).toThrow('not registered')
+    expect(() => theme.register({ id: 'light', colorScheme: 'light', tokens: {} })).toThrow('already registered')
+    expect(() => theme.register({ id: 'system', colorScheme: 'light', tokens: {} })).toThrow('preference')
   })
 
-  it('disposing the active theme reverts to light; disposer is idempotent', () => {
-    const theme = new ThemeService()
-    const dispose = theme.register('sepia', { '--dsw-alias-bg-base': 'red' })
-    theme.apply('sepia')
+  it('registered themes join the snapshot; disposing the active one resets to default', () => {
+    const { theme, events } = make()
+    const dispose = theme.register({ id: 'sepia', colorScheme: 'light', tokens: { '--dsw-alias-bg-base': 'red' } })
+    expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark', 'sepia'])
+    theme.setTheme('sepia')
+    expect(theme.getTheme().active.tokens['--dsw-alias-bg-base']).toBe('red')
     dispose()
-    expect(theme.current()).toBe('light')
-    expect(document.body.style.getPropertyValue('--dsw-alias-bg-base')).toBe('')
-    expect(() => { theme.apply('sepia') }).toThrow('not registered')
+    expect(theme.getTheme().preference).toBe('system')
+    expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark'])
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('system')
+    // register + set + dispose = three publishes; disposer is idempotent.
+    expect(events.length).toBe(3)
     dispose()
-    expect(theme.current()).toBe('light')
+    expect(events.length).toBe(3)
   })
 
-  it('disposing an inactive theme leaves the active selection untouched', () => {
-    const theme = new ThemeService()
-    const dispose = theme.register('sepia', {})
-    theme.apply('dark')
+  it('disposing an inactive theme keeps the active preference', () => {
+    const { theme } = make()
+    const dispose = theme.register({ id: 'sepia', colorScheme: 'light', tokens: {} })
+    theme.setTheme('dark')
     dispose()
-    expect(theme.current()).toBe('dark')
-    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
+    expect(theme.getTheme().preference).toBe('dark')
+  })
+
+  it('revision increases monotonically across every publish', () => {
+    const { theme, events } = make()
+    theme.setTheme('dark')
+    theme.setTheme('light')
+    const dispose = theme.register({ id: 'sepia', colorScheme: 'dark', tokens: {} })
+    dispose()
+    expect(events.map(e => e.revision)).toEqual([1, 2, 3, 4])
+  })
+
+  it('runs without localStorage (node boots): defaults on read, no-op on write', () => {
+    vi.stubGlobal('localStorage', undefined)
+    try {
+      const { theme } = make()
+      expect(theme.getTheme().preference).toBe('system')
+      theme.setTheme('dark')
+      expect(theme.getTheme().preference).toBe('dark')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  describe('prefers-color-scheme resolution (stubbed matchMedia)', () => {
+    type Listener = () => void
+    const stubMedia = (initialMatches: boolean) => {
+      const listeners = new Set<Listener>()
+      const media = {
+        matches: initialMatches,
+        addEventListener: (_: 'change', fn: Listener) => { listeners.add(fn) },
+        removeEventListener: (_: 'change', fn: Listener) => { listeners.delete(fn) },
+        flip() {
+          this.matches = !this.matches
+          for (const fn of listeners) fn()
+        },
+        listenerCount: () => listeners.size,
+      }
+      vi.stubGlobal('matchMedia', () => media)
+      return media
+    }
+
+    afterEach(() => { vi.unstubAllGlobals() })
+
+    it('system resolves against the media query and follows OS flips', () => {
+      const media = stubMedia(true)
+      const { theme, events } = make()
+      expect(theme.getTheme().preference).toBe('system')
+      expect(theme.getTheme().active.id).toBe('dark')
+      media.flip()
+      expect(theme.getTheme().active.id).toBe('light')
+      expect(events).toHaveLength(1)
+    })
+
+    it('OS flips do not republish while a concrete preference is set', () => {
+      const media = stubMedia(false)
+      const { theme, events } = make()
+      theme.setTheme('light')
+      expect(events).toHaveLength(1)
+      media.flip()
+      expect(events).toHaveLength(1)
+      expect(theme.getTheme().active.id).toBe('light')
+    })
+
+    it('context dispose releases the media listener', async () => {
+      const media = stubMedia(false)
+      const { ctx } = make()
+      expect(media.listenerCount()).toBe(1)
+      await ctx.fiber.dispose()
+      expect(media.listenerCount()).toBe(0)
+    })
   })
 })

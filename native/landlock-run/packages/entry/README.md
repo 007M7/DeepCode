@@ -1,5 +1,7 @@
 # node-addon-landlock-run
 
+English | [中文](README.zh.md)
+
 Landlock self-restrict-then-exec launcher for confining subprocesses on Linux: this entry package resolves the per-platform prebuilt binary, runs its functional enforcement probe, and builds its grant argv — consumers never spell launcher flags or parse launcher output themselves.
 
 ```js

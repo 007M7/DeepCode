@@ -48,7 +48,7 @@ async function bench() {
     sendSession: vi.fn(),
   })
   ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-  ctx.provide('i18n', { bind: () => (key: string) => key })
+  ctx.provide('locale', { bind: () => (key: string) => key })
 
   // Declared by ui-layout's root entry in production; a stand-in root
   // occupant declares them here so the contributions land (it consumes

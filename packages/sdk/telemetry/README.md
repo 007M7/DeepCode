@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-telemetry`
 
+English | [中文](README.zh.md)
+
 Launcher-side telemetry primitives for the dsh-sdk toolchain. This is a plain library the launcher imports around each command; it is **not** a Cordis plugin, because `build` and first-init `create` never boot Cordis. Wiring the reporter into the launcher command dispatch and adding the telemetry consent feature to the `dsh-helper` catalog live in their owning packages, not here.
 
 | Export | Role |
