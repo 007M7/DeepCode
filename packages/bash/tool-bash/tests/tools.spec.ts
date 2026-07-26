@@ -482,7 +482,7 @@ describe('background execution through the task runtime', () => {
     const ctx = await setup() // no LocalTaskService / ToolTasks
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks-local and @deepseek-ai/dsh-tool-tasks')
+    expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
   })
 
   it('a pre-aborted call is skipped before the process starts', async () => {

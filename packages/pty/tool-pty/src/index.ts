@@ -250,7 +250,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (args.run_in_background === true) {
         if (!enableRunInBackground) throw new Error('background terminal sends are disabled by tool-pty configuration')
         const tasks = ctx.get('tasks')
-        if (tasks === undefined) throw new Error('background terminal sends require @deepseek-ai/dsh-tasks-local and @deepseek-ai/dsh-tool-tasks')
+        if (tasks === undefined) throw new Error('background terminal sends require @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         let cancelRequested = false
         const taskId = tasks.start({
           kind: 'pty-send',

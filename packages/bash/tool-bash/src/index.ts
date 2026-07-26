@@ -533,7 +533,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         }
         const tasks = ctx.get('tasks')
         if (tasks === undefined) {
-          throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks-local and @deepseek-ai/dsh-tool-tasks')
+          throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
         // The caller owns cancellation until ctx.tasks commits detached ownership.
         if (exec.signal.aborted) {
