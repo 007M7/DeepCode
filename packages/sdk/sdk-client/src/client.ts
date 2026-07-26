@@ -107,13 +107,19 @@ export class NotificationSubscription implements AsyncIterable<HarnessNotificati
     this.fail(new TransportClosedError('notification subscription closed'))
   }
 
-  /** Reject pending and future waits with `error` (delivery stops). */
+  /**
+   * Reject pending and future waits (delivery stops; the first failure wins).
+   * @param error - the terminal failure delivered to waiters.
+   */
   fail(error: Error): void {
     this.state.failure ??= error
     for (const waiter of this.state.waiters.splice(0)) waiter.reject(this.state.failure)
   }
 
-  /** Deliver one notification to a waiter or the queue when the filter matches. */
+  /**
+   * Deliver one notification to a waiter or the queue when the filter matches.
+   * @param notification - the wire notification to deliver.
+   */
   push(notification: HarnessNotification): void {
     if (this.state.filter !== undefined && !this.state.filter(notification)) return
     const waiter = this.state.waiters.shift()
@@ -413,7 +419,11 @@ export class HarnessClient {
   }
 }
 
-/** Whether `value` is a plain JSON object (the wire-boundary shape probe). */
+/**
+ * Whether `value` is a plain JSON object (the wire-boundary shape probe).
+ * @param value - the wire value to probe.
+ * @returns `true` iff `value` is a non-null, non-array object.
+ */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

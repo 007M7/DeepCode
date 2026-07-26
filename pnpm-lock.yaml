@@ -484,6 +484,9 @@ importers:
       '@deepseek-ai/dsh-subagent-fork':
         specifier: workspace:*
         version: link:../packages/subagent/subagent-fork
+      '@deepseek-ai/dsh-subagent-sdk':
+        specifier: workspace:*
+        version: link:../packages/subagent/subagent-sdk
       '@deepseek-ai/dsh-subagent-spawn':
         specifier: workspace:*
         version: link:../packages/subagent/subagent-spawn
