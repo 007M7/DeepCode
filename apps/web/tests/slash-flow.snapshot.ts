@@ -120,7 +120,7 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
 
   // View state: no session entity — the composer renders locked; only the
   // workspace picker is live.
-  const locked = await screen.findByPlaceholderText(
+  const locked = await screen.findByPlaceholderText<HTMLTextAreaElement>(
     'Choose a workspace to start', {}, { timeout: 10_000 },
   )
   expect(locked.disabled).toBe(true)
@@ -137,7 +137,7 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
   })
   fireEvent.click(within(dialog).getByRole('button', { name: 'Create workspace' }))
 
-  const composer = await screen.findByPlaceholderText(
+  const composer = await screen.findByPlaceholderText<HTMLTextAreaElement>(
     'Describe what you want to build', {}, { timeout: 10_000 },
   )
   expect(composer.disabled).toBe(false)

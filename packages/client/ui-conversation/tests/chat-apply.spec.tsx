@@ -68,7 +68,7 @@ async function bench() {
 }
 
 /** First stored entry for a key (inject/store live directly on StoredEntry). */
-function renderEntryOf(slots: SlotsService, key: 'conversation' | 'conversation.view' | 'details') {
+function renderEntryOf(slots: SlotsService, key: 'conversation' | 'conversation.session' | 'conversation.view' | 'details') {
   return slots.entries(key)[0] as undefined | { inject?: unknown; store?: unknown }
 }
 
