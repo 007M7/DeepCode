@@ -57,9 +57,39 @@ describe('MarkdownText', () => {
     expect(container.querySelector('table')?.textContent).toContain('alphabeta')
     expect(container.querySelector('hr')).not.toBeNull()
     expect(container.querySelector('pre code')?.textContent).toContain('const answer = 42')
+    // The ts fence routed through the shared CodeBlock: shiki token spans present.
+    expect(container.querySelector('pre.shiki')).not.toBeNull()
     expect(container.querySelector('br')).not.toBeNull()
     expect(screen.getByRole('link', { name: 'safe' }).getAttribute('target')).toBe('_blank')
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
+  })
+
+  it('a fence labeled with an inherited object key renders plain, never crashing shiki', () => {
+    for (const label of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      const { container, unmount } = render(<MarkdownText text={'```' + label + '\ncode body\n```'} />)
+      expect(container.querySelector('pre.shiki')).toBeNull()
+      expect(container.querySelector('pre code')?.textContent).toContain('code body')
+      unmount()
+    }
+  })
+
+  it('an empty fence keeps the stock pre; a language-less fence renders the plain CodeBlock arm', () => {
+    const empty = render(<MarkdownText text={'```\n```'} />)
+    expect(empty.container.querySelector('pre')?.outerHTML).toBe('<pre><code></code></pre>')
+
+    const plain = render(<MarkdownText text={'```\nno language here\n```'} />)
+    expect(plain.container.querySelector('pre.shiki')).toBeNull()
+    expect(plain.container.querySelector('pre code')?.textContent).toContain('no language here')
+  })
+
+  it('streaming renders fences plain; the finalize swap highlights them', () => {
+    const fence = '```ts\nconst answer = 42\n```'
+    const live = render(<MarkdownText text={fence} streaming />)
+    expect(live.container.querySelector('pre.shiki')).toBeNull()
+    expect(live.container.querySelector('pre code')?.textContent).toContain('const answer = 42')
+    live.unmount()
+    const done = render(<MarkdownText text={fence} />)
+    expect(done.container.querySelector('pre.shiki')).not.toBeNull()
   })
 
   it('neutralizes raw HTML, unsafe or relative links, and remote images', () => {
