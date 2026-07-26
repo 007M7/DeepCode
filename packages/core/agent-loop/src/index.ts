@@ -374,7 +374,18 @@ export class AgentLoop extends Service implements AgentFactory {
         if (machine === undefined) await machineReady.promise
         if (machine !== undefined) {
           machine.cancel({ kind: 'disposed' })
-          await Promise.allSettled([machine.done])
+          // Drain to TRUE quiescence: cancel's own synchronous event chain
+          // (running→idle) can legitimately re-enter through an automation
+          // listener (goal-session's idle drive) and replace `done` with a
+          // fresh admission before this await captures it. The replacement
+          // work is cancelled and drained in turn until the slot stabilizes.
+          let done = machine.done
+          while (true) {
+            await Promise.allSettled([done])
+            if (machine.done === done) break
+            done = machine.done
+            machine.cancel({ kind: 'disposed' })
+          }
           await machine.scope.dispose()
         }
       } finally {

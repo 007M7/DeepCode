@@ -192,6 +192,14 @@ export function apply(ctx: Context): void {
         if (!attempt.stale) applyOutcome(state, goal, outcome)
       }
       if (!readyToDrive(state)) return
+      // The loop's persistence is eager write-behind with no turn-end flush,
+      // so this driver owns the round's durability barrier: checkpoint the
+      // settled round before reserving another (re-entering drive through
+      // the flush path above), disarming on failure instead of queueing an
+      // autonomous round on state that was never persisted.
+      state.needsCheckpoint = true
+      state.requested = true
+      return
     }
 
     const goal = currentGoal(state)

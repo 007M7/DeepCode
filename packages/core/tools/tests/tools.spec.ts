@@ -553,6 +553,54 @@ describe('ToolRegistry', () => {
     expect(nested.isError ? undefined : nested.value).toBe('')
   })
 
+  it('propagates a nested concludeTurn only when the nested verdict stays successful', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'terminal-nested',
+      async execute(_args, exec) {
+        exec.concludeTurn()
+        return 'staged'
+      },
+    })
+    // A composite that swallows its nested failure and returns success — the
+    // Code Mode shape the staged propagation exists for.
+    let call = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'composite',
+      async execute(_args, exec) {
+        call += 1
+        const nested = await ctx.tools.execute({
+          signal: exec.signal, callId: CallId(`nested-${call}`), name: 'terminal-nested', arguments: {}, parent: exec.token,
+        })
+        return nested.isError ? 'nested failed, composite recovered' : 'nested succeeded'
+      },
+    })
+
+    // A policy converts the nested success into an error: the staged
+    // conclusion must NOT reach the composite, or the loop would stop the
+    // turn on a failed terminal operation.
+    const veto = ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name !== 'terminal-nested') return next()
+      return { kind: 'block', feedback: [{ type: 'text', text: 'nested success rejected' }] }
+    })
+    const recovered = await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('composite-vetoed'), name: 'composite', arguments: {},
+    })
+    expect(recovered.isError).toBe(false)
+    expect(recovered.concludesTurn).toBeUndefined()
+    veto()
+
+    // The same nested call succeeding promotes the marker: the composite's
+    // own successful result now carries concludesTurn.
+    const concluded = await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('composite-ok'), name: 'composite', arguments: {},
+    })
+    expect(concluded.isError).toBe(false)
+    expect(concluded.concludesTurn).toBe(true)
+  })
+
   it('returns isError results for unknown tools and throwing tools', async () => {
     const ctx = await setup()
     ctx.tools.register({

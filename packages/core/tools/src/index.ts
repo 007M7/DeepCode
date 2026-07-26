@@ -657,6 +657,12 @@ export class ToolRegistry extends Service {
   private concludingExecutions = new WeakSet<ToolExecution>()
   /** Enclosing transport tokens marked terminal by a successful nested call. */
   private concludingParents = new Set<ToolExecutionToken>()
+  /**
+   * Nested conclusions staged until their call's final verdict: a post-execute
+   * policy may still convert the nested success into an error, and a failed
+   * terminal operation must not stop the turn through its composite.
+   */
+  private pendingParentConclusions = new WeakMap<ToolRunContext, ToolExecutionToken>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   /** Definition-owned final content transform snapshotted before policy begins. */
@@ -979,7 +985,7 @@ export class ToolRegistry extends Service {
     const definition = this.get(name, agent)
     const finalizeContent = definition?.finalizeContent?.bind(definition)
     const concludingExecutions = this.concludingExecutions
-    const concludingParents = this.concludingParents
+    const pendingParentConclusions = this.pendingParentConclusions
     const base = {
       token,
       callId,
@@ -992,7 +998,9 @@ export class ToolRegistry extends Service {
       },
       concludeTurn(): void {
         if (parent === undefined) concludingExecutions.add(this as unknown as ToolExecution)
-        else concludingParents.add(parent)
+        // Staged, not propagated: only this nested call's authoritative
+        // successful result promotes the marker onto its parent.
+        else pendingParentConclusions.set(this as unknown as ToolRunContext, parent)
       },
     }
     try {
@@ -1205,6 +1213,14 @@ export class ToolRegistry extends Service {
       finalResult = this.materializeFinalResult(this.applyFinalContent(exec, materializedResult))
     } catch (error: unknown) {
       finalResult = this.materializeFinalResult(toolErrorResult(error))
+    }
+    // Promote a staged nested conclusion only on the call's authoritative
+    // successful verdict — a policy-converted failure must not let the
+    // composite stop the turn on a failed terminal operation.
+    const stagedParent = this.pendingParentConclusions.get(exec)
+    if (stagedParent !== undefined) {
+      this.pendingParentConclusions.delete(exec)
+      if (!finalResult.isError) this.concludingParents.add(stagedParent)
     }
     this.notifyResult(exec, finalResult)
     this.concludingParents.delete(exec.token)

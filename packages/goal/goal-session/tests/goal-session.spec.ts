@@ -430,6 +430,42 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
+  it('disarms instead of reserving another round when the round checkpoint fails', async () => {
+    const test = await harness([textResponse('round one ran')])
+    // The loop persists eagerly with no turn-end flush, so the driver owns
+    // the round durability barrier. Let goal creation's checkpoint pass, then
+    // fail the flush that settles round one: no second round may be reserved
+    // on state that was never persisted.
+    let flushes = 0
+    test.ctx.on('session/flush', () => {
+      flushes += 1
+      // Flush 1 is goal creation's checkpoint; flush 2 settles round one.
+      return flushes >= 2 ? Promise.reject(new Error('round checkpoint failed')) : undefined
+    })
+    test.ctx.goals.create(test.agent, { objective: 'no autonomous rounds without durability', maxGoalRounds: 5 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+
+    expect(goal).toMatchObject({ phase: 'active', roundsStarted: 1 })
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('reserves the next round only after the settled round checkpoint succeeds', async () => {
+    const test = await harness([textResponse('round one'), textResponse('round two')])
+    const flushes: number[] = []
+    test.ctx.on('session/flush', () => { flushes.push(test.adapter.requests.length) })
+    test.ctx.goals.create(test.agent, { objective: 'checkpoint between rounds', maxGoalRounds: 2 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(2)
+    expect(test.adapter.requests).toHaveLength(2)
+    // A flush was observed after round one settled and before round two
+    // dispatched (recorded request count 1 at flush time).
+    expect(flushes).toContain(1)
+  })
+
   it('contains a checkpoint failure after a clear notification leaves no current goal', async () => {
     const test = await harness([])
     test.ctx.on('session/flush', () => Promise.reject(new Error('clear checkpoint failed')))

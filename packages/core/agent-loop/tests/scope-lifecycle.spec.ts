@@ -1042,4 +1042,43 @@ describe('agent scope lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('drains a run re-entered by cancel\'s own idle transition before removing the scope', async () => {
+    // Automation shaped like goal-session: the running→idle transition that
+    // disposal's cancel produces immediately queues a follow-up prompt. The
+    // teardown must drain that replacement run to true quiescence instead of
+    // awaiting only the first captured done and unwinding under a live run.
+    const adapter = new MockAdapter([textResponse('one'), textResponse('never awaited')])
+    const ctx = await harness(adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('drain-reentered-run'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const agent = handle.agent
+    let reentered = false
+    ctx.on('agent/status', (subject, status) => {
+      if (subject !== agent || status !== 'idle' || reentered) return
+      reentered = true
+      agent.followup({ content: [{ type: 'text', text: 'reentrant' }], source: { kind: 'user' } })
+    })
+
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await waitForIdle(ctx, agent)
+    expect(reentered).toBe(true)
+
+    // Idle again: the reentrant admission was already claimed and settled (its
+    // prompt was blocked by nothing, so it ran) — arm a SECOND reentry that
+    // fires from the disposal cancel's idle transition itself.
+    reentered = false
+    await handle.dispose()
+
+    // The reentrant run either never started or was drained: the registries
+    // are empty and nothing still drives the detached session.
+    expect(ctx.agents.get(agent.id)).toBeUndefined()
+    expect(ctx.sessions.get(agent.id)).toBeUndefined()
+    const eventsAfter = agent.session.events.length
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(agent.session.events.length).toBe(eventsAfter)
+    await ctx.fiber.dispose()
+  })
+
 })
