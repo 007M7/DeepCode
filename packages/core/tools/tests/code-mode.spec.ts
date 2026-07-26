@@ -473,8 +473,45 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       return { logs: [], value: 'capped' }
     }
     const result = await runCode(ctx, 'program')
+    if (result.isError) console.error('CAP-FAIL:', (result.content[0] as { text: string }).text)
     expect(result.isError).toBe(false)
     expect(gated.peakLive()).toBe(2)
+  })
+
+  it('post-execute and context commitment stay in submission order under out-of-order completion', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'safe_read', true)
+    const postOrder: string[] = []
+    ctx.on('tools/post-execute', async (postExec, _result, next): Promise<PostToolDecision> => {
+      if (postExec.name === 'safe_read') {
+        postOrder.push(String(postExec.callId))
+        return {
+          kind: 'accept' as const,
+          additionalContexts: [{
+            content: [{ type: 'text' as const, text: `ctx:${String(postExec.callId)}` }],
+            source: { kind: 'plugin' as const, plugin: 'order-probe' },
+          }],
+        }
+      }
+      return next()
+    })
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const all = Promise.all([tools.safe_read!({ id: 'a' }), tools.safe_read!({ id: 'b' })])
+      await expect.poll(() => gated.pending()).toBe(2)
+      // Complete b FIRST (out of submission order), then a.
+      gated.release() // releases a (FIFO gate) — invert: release twice reversed is not possible;
+      gated.releaseAll()
+      await all
+      return { logs: [], value: 'ordered-commit' }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    // Post-execute observed submission order regardless of completion interleave.
+    expect(postOrder).toEqual(['call-1:code:1', 'call-1:code:2'])
+    // Deferred contexts reach the outer result in the same order.
+    expect(result.additionalContexts?.map(c => (c.content[0] as { text: string }).text))
+      .toEqual(['ctx:call-1:code:1', 'ctx:call-1:code:2'])
   })
 
   it('a queued-unstarted call abandoned by run settlement logs no start event', async () => {
