@@ -216,7 +216,14 @@ interface ToolRunContext extends ToolExecution {
    * are emitted in call order.
    */
   deferContext(context: UserMessageData): void
-  /** Mark a successful final result as terminal for the current agent turn. */
+  /**
+   * Mark a successful final result as terminal for the current agent turn.
+   * The marker rides this execution's own result (`concludesTurn` exists only
+   * on {@link ToolExecutionSuccess}); a composite that dispatches nested
+   * calls forwards it from the nested result, exactly like
+   * `additionalContexts`, so only an authoritative nested success can
+   * conclude the enclosing run.
+   */
   concludeTurn(): void
 }
 ```
