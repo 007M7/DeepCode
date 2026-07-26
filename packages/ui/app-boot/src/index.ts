@@ -1,5 +1,5 @@
 /**
- * Shared boot glue for the app bins (`dsh-tui-demo`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
+ * Shared boot glue for the app bins (`dsh`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
  * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
  * optional personal overlay patches from the Harness home (`~/.dsh`), and drive the cordis Loader
  * against a leaf `cordis.yml` until the whole tree has settled.
@@ -34,62 +34,6 @@ export function resolveConfigPath(
   const dir = dirname(absolute)
   const replayName = basename(absolute).replace(/cordis\.ya?ml$/, 'cordis.snapshot.yml')
   return resolve(dir, replayName)
-}
-
-/** CLI flag the interactive surface accepts to resume a persisted session by id. */
-const RESUME_FLAG = '--resume'
-
-/**
- * Split a leading `--resume <id>` / `--resume=<id>` flag out of a CLI argument
- * vector, returning the resumed session id (when the flag is present) and the
- * remaining arguments with the flag and its value removed — so a positional
- * config path stays readable regardless of the flag's position. A `--resume`
- * with no following id, an empty id (`--resume=`), or a repeated `--resume`
- * throws: a mistyped resume must fail loud, never silently start a fresh
- * session. The id is not validated here; an unknown id fails loud downstream
- * when the session cannot load.
- * @param argv - the CLI arguments after subcommand dispatch.
- * @returns the parsed resume id (or `undefined`) and the flag-stripped arguments.
- */
-export function parseResumeArg(
-  argv: readonly string[],
-): { resumeSessionId: string | undefined; rest: string[] } {
-  const rest: string[] = []
-  let resumeSessionId: string | undefined
-  let skipNext = false
-  for (const [i, arg] of argv.entries()) {
-    if (skipNext) {
-      skipNext = false
-      continue
-    }
-    const inlineValue = arg.startsWith(`${RESUME_FLAG}=`)
-    if (arg === RESUME_FLAG || inlineValue) {
-      if (resumeSessionId !== undefined) throw new Error(`${RESUME_FLAG} may be given only once`)
-      const value = inlineValue ? arg.slice(RESUME_FLAG.length + 1) : argv[i + 1]
-      // A following token that is itself resume syntax (`--resume --resume x`)
-      // is a missing id, not a session literally named `--resume…`.
-      if (value === undefined || value === '' || value === RESUME_FLAG || value.startsWith(`${RESUME_FLAG}=`)) {
-        throw new Error(`${RESUME_FLAG} requires a session id (e.g. ${RESUME_FLAG} <session-id>)`)
-      }
-      resumeSessionId = value
-      skipNext = !inlineValue // the space form consumed the following token as its value
-      continue
-    }
-    rest.push(arg)
-  }
-  return { resumeSessionId, rest }
-}
-
-/**
- * Replace any existing resume flag with one canonical trailing `--resume <id>` pair.
- * @param argv - current arguments after command dispatch.
- * @param sessionId - selected session id.
- * @returns flag-normalized arguments for a process replacement.
- */
-export function replaceResumeArg(argv: readonly string[], sessionId: string): string[] {
-  if (sessionId.length === 0) throw new Error(`${RESUME_FLAG} requires a non-empty session id`)
-  const { rest } = parseResumeArg(argv)
-  return [...rest, RESUME_FLAG, sessionId]
 }
 
 /**
@@ -211,6 +155,17 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
     throw new Error(`${binName}: plugin(s) failed to load: ${names} (see the error(s) logged above)`)
   }
 }
+
+/**
+ * Context key a bin sets through {@link boot}'s `prepare` hook to hand a resume
+ * session id to the booted config: `ctx.provide(RESUME_SESSION_ID_KEY, id)`
+ * makes `id` readable as the bare identifier `resumeSessionId` in a config
+ * `!!js` expression. The value is the bin's already-parsed id (or `undefined`),
+ * so resuming a session needs no environment variable. A bin that never
+ * provides it leaves the identifier undeclared, so configs read it defensively
+ * (`typeof resumeSessionId === 'string' ? resumeSessionId : undefined`).
+ */
+export const RESUME_SESSION_ID_KEY = 'resumeSessionId'
 
 /**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole

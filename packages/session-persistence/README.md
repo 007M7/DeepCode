@@ -1,5 +1,7 @@
 # session-persistence/ — persistence capability family
 
+English | [中文](README.zh.md)
+
 The durable session-persistence seam and its storage backends. The interface package owns the abstract `SessionPersistence` service and the shared write coordinator; the backends are concrete implementations that register on `ctx.sessionPersistence`. All **product** packages.
 
 | Package | Role | ctx key |

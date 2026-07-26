@@ -2,7 +2,7 @@
  * Package-private workspace entity: the single {@link Workspace}
  * implementation. Holds a record snapshot that is swapped in place after each
  * durable mutation; every write funnels through the private `mutate` so
- * `updatedAt` stamping and dead-account pruning happen exactly once.
+ * `updatedAt` stamping and invalid-account pruning happen exactly once.
  * Not re-exported from the package entrypoint — consumers see only the
  * `Workspace` interface.
  * @module @deepseek-ai/dsh-workspace/src/entity
@@ -15,10 +15,21 @@ import type { WorkspaceRecord } from './spec.ts'
 import type { Workspace, WorkspaceId } from './types.ts'
 import { realpathNormalize } from './paths.ts'
 
+/** An insertSessionBefore request named a session or anchor not on the account (storage failures stay plain errors). */
+export class WorkspaceMoveInvalidError extends Error {
+  /**
+   * @param message - Which id was unaccounted and where.
+   */
+  constructor(message: string) {
+    super(message)
+    this.name = 'WorkspaceMoveInvalidError'
+  }
+}
+
 /**
  * The registry-owned machinery an entity mutates through. Entities never see
- * the registry itself — only the open table, the known-session view backing
- * the `sessionIds` projection, and header reads for attach validation.
+ * the registry itself — only the open table, the canonical session-path
+ * index backing the `sessionIds` projection, and attach-time header reads.
  */
 export interface WorkspaceEntityHost {
   /**
@@ -28,13 +39,12 @@ export interface WorkspaceEntityHost {
   table(): KvTable<WorkspaceId, WorkspaceRecord>
 
   /**
-   * Synchronous view of the session ids known to exist in session
-   * persistence.
-   * @returns the id set, or `undefined` when persistence has been absent so
-   * far (membership cannot be verified, so projections serve the account
-   * unfiltered).
+   * Read a session's canonical directory from the registry's header index.
+   * @param id - Session whose indexed path is requested.
+   * @returns the canonical directory, or `undefined` when the header is
+   * missing or its cwd cannot identify an existing directory.
    */
-  knownSessionIds(): ReadonlySet<string> | undefined
+  sessionPath(id: SessionId): string | undefined
 
   /**
    * Read one stored session header for attach validation.
@@ -43,6 +53,13 @@ export interface WorkspaceEntityHost {
    * no session with this id.
    */
   readSessionHeader(id: SessionId): Promise<SessionHeader>
+
+  /**
+   * Publish a successfully validated canonical cwd to the projection index.
+   * @param id - Validated session id.
+   * @param path - Canonical existing directory from the immutable header cwd.
+   */
+  rememberSessionPath(id: SessionId, path: string): void
 }
 
 /** Chain-slot abort sentinel thrown by the update fn when the record needs no change; only `mutate` observes it. */
@@ -53,7 +70,7 @@ export class WorkspaceEntity implements Workspace {
   private record: WorkspaceRecord
 
   /**
-   * @param host - Registry-owned table, known-session view, and header reads.
+   * @param host - Registry-owned table, session-path index, and header reads.
    * @param id - The record's stable id.
    * @param record - The validated record snapshot loaded or just written.
    */
@@ -73,10 +90,16 @@ export class WorkspaceEntity implements Workspace {
     return this.record.title
   }
 
+  get createdAt(): string {
+    return this.record.createdAt
+  }
+
+  get updatedAt(): string {
+    return this.record.updatedAt
+  }
+
   get sessionIds(): readonly SessionId[] {
-    const known = this.host.knownSessionIds()
-    if (known === undefined) return this.record.sessionIds
-    return this.record.sessionIds.filter(id => known.has(id))
+    return this.record.sessionIds.filter(id => this.host.sessionPath(id) === this.record.path)
   }
 
   async setTitle(title: string): Promise<void> {
@@ -106,16 +129,46 @@ export class WorkspaceEntity implements Workspace {
           { cause: error },
         )
       }
+      if (!(await stat(cwd)).isDirectory()) {
+        throw new Error(
+          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+          + `its cwd '${header.cwd}' is not a directory`,
+        )
+      }
       if (cwd !== this.record.path) {
         throw new Error(
           `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
           + `its cwd resolves to '${cwd}'`,
         )
       }
+      this.host.rememberSessionPath(sessionId, cwd)
     }
     await this.mutate(record => record.sessionIds.includes(sessionId)
       ? record
-      : { ...record, sessionIds: [...record.sessionIds, sessionId] })
+      : { ...record, sessionIds: [sessionId, ...record.sessionIds] })
+  }
+
+  async insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void> {
+    await this.mutate((record) => {
+      if (!record.sessionIds.includes(sessionId)) {
+        throw new WorkspaceMoveInvalidError(
+          `cannot move session '${sessionId}' in workspace '${record.path}': the session is not accounted`,
+        )
+      }
+      if (beforeSessionId !== undefined && !record.sessionIds.includes(beforeSessionId)) {
+        throw new WorkspaceMoveInvalidError(
+          `cannot move session '${sessionId}' before '${beforeSessionId}' in workspace '${record.path}': `
+          + 'the anchor session is not accounted',
+        )
+      }
+      if (beforeSessionId === sessionId) return record
+      const without = record.sessionIds.filter(id => id !== sessionId)
+      const at = beforeSessionId === undefined ? without.length : without.indexOf(beforeSessionId)
+      const sessionIds = [...without.slice(0, at), sessionId, ...without.slice(at)]
+      return sessionIds.every((id, index) => id === record.sessionIds[index])
+        ? record
+        : { ...record, sessionIds }
+    })
   }
 
   async detachSession(sessionId: SessionId): Promise<void> {
@@ -136,9 +189,9 @@ export class WorkspaceEntity implements Workspace {
 
   /**
    * The single write path: run `fn` on the domain write chain via
-   * `table.update`, stamping `updatedAt` and pruning accounted ids whose
-   * session no longer exists (consistency rule: dead ids are dropped on the
-   * next mutation, whatever that mutation is), then swap the snapshot.
+   * `table.update`, stamping `updatedAt` and pruning candidates that no
+   * longer pass the id-plus-canonical-cwd membership check, then swap the
+   * snapshot.
    *
    * `fn` sees the value current at its chain slot, so membership decisions
    * (attach/detach idempotence) are race-free against queued writes; a fn
@@ -147,14 +200,13 @@ export class WorkspaceEntity implements Workspace {
    * rewrites the medium nor emits a change event.
    */
   private async mutate(fn: (record: WorkspaceRecord) => WorkspaceRecord): Promise<void> {
-    const known = this.host.knownSessionIds()
     let next: WorkspaceRecord
     try {
       next = await this.host.table().update(this.id, (current) => {
         const changed = fn(current)
-        const sessionIds = known === undefined
-          ? changed.sessionIds
-          : changed.sessionIds.filter(id => known.has(id))
+        const sessionIds = changed.sessionIds.filter(
+          id => this.host.sessionPath(id) === changed.path,
+        )
         if (changed === current && sessionIds.length === current.sessionIds.length) {
           throw unchangedSentinel
         }

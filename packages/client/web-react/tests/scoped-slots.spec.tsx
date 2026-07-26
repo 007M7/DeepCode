@@ -81,6 +81,7 @@ function makeHost() {
   const live = new Set<StoredEntry>()
   const storeCache = new Map<StoredEntry, Map<string, StoreInstanceLike>>()
   const list = observable<{ ids: string[] }>({ ids: [] })
+  const workspaces = observable<{ ids: string[] }>({ ids: [] })
   const current = observable<string | undefined>(undefined)
   const cells = new Map<string, SessionCell>()
 
@@ -122,10 +123,12 @@ function makeHost() {
       current,
       cell: (id) => cells.get(id),
     },
+    workspaces: { list: workspaces },
   }
   return {
     host,
     list,
+    workspaces,
     current,
     declare: (key: string, spec: DeclaredSpec) => { specs.set(key, spec); bump(key) },
     add: (key: string, partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }) => {
@@ -483,6 +486,19 @@ describe('standard-kit synthesis', () => {
     expect(view.container.textContent).toBe('2')
   })
 
+  it('delivers a live useWorkspaces hook to every slot component', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    h.add('k.single', {
+      component: ({ useWorkspaces }: { useWorkspaces: <S>(sel: (s: { ids: string[] }) => S) => S }) =>
+        <b>{useWorkspaces((s) => s.ids.length)}</b>,
+    })
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT }, (renderSlot) => renderSlot('k.single', {}))
+    expect(view.container.textContent).toBe('0')
+    act(() => { h.workspaces.set({ ids: ['w1'] }) })
+    expect(view.container.textContent).toBe('1')
+  })
+
   it('delivers the session pair (bound useSession + sessionId) under SessionProvider', () => {
     const h = makeHost()
     h.declare('k.session', SINGLE_SESSION)
@@ -710,6 +726,7 @@ describe('inject: execution point, parameter derivation, cache granularity', () 
       (renderSlot) => renderSlot('k.single', { owner: 'owner', shared: 'owner' }))
     const props = seen.at(-1)!
     expect(typeof props['useSessions']).toBe('function')   // kit always present
+    expect(typeof props['useWorkspaces']).toBe('function')
     expect(props['fromInject']).toBe('inject')
     expect(props['owner']).toBe('owner')
     expect(props['shared']).toBe('owner')   // owner overrides inject

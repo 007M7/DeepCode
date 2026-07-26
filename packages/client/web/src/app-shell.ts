@@ -1,13 +1,6 @@
 /**
- * App-shell assembly plugin (design §3.4): the shell's ONLY composition
- * responsibility, packaged as a normal static-arrival entry so the host graph
- * stays the single composition authority. It rides the same entry lifecycle
- * as every other plugin — the fiber waits on slots/sessions/layout, so by the
- * time apply runs the layout entry is mounted and its export surface is
- * readable from the governance side (module loadCache, design §2.6).
- *
- * The pseudo package id exists only in the host graph and the shell's static
- * registry; there is no npm package behind it.
+ * App-shell assembly plugin. Its pseudo package id exists only in the host
+ * graph and shell registry; there is no npm package behind it.
  */
 import type { ReactNode } from 'react'
 import type { Context } from 'cordis'
@@ -33,13 +26,11 @@ declare module 'cordis' {
 /** Cordis plugin name. */
 export const name = 'app-shell'
 
-/** Required services: the product services the assembly closes over (layout registers the 'root' slot entry). */
+/** Services required before shell assembly. */
 export const inject = ['slots', 'sessions', 'layout']
 
-/**
- * Plugin body: install the React renderer into the slot system and provide
- * the renderApp face (one ctx-level renderSlot('root') call).
- * @param ctx - plugin context (inject set active).
+/** Installs the React renderer and exposes the assembled application.
+ * @param ctx - Plugin context.
  */
 export function apply(ctx: Context): void {
   // The renderer install is shell territory (web-react is shell-bundled),

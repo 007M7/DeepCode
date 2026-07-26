@@ -10,10 +10,14 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', url: '/plugins/runtime.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', url: '/plugins/ui-theme.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', url: '/plugins/i18n.js', rev: 'fx', inject: [], immediately: true },
+  { id: '@deepseek-ai/dsh-client-locale', dir: 'locale', url: '/plugins/locale.js', rev: 'fx', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-settings', dir: 'ui-settings', url: '/plugins/ui-settings.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-sidebar'] },
+  { id: '@deepseek-ai/dsh-client-ui-settings-general', dir: 'ui-settings-general', url: '/plugins/ui-settings-general.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-settings', '@deepseek-ai/dsh-client-locale'] },
+  { id: '@deepseek-ai/dsh-client-ui-models', dir: 'ui-models', url: '/plugins/ui-models.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-settings'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-workspace', dir: 'ui-workspace', url: '/plugins/ui-workspace.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-sidebar'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
@@ -72,12 +76,12 @@ afterEach(() => {
 function titleSurfaces(label: string): { sidebar: string; breadcrumb: string; documentTitle: string } {
   const tree = screen.getByRole('tree', { name: 'Sessions' })
   const sidebar = within(tree).getByText(label).textContent ?? ''
-  const breadcrumb = within(screen.getByRole('navigation', { name: '会话层级' }))
+  const breadcrumb = within(screen.getByRole('navigation', { name: 'Session hierarchy' }))
     .getByRole('button', { name: label }).textContent ?? ''
   return { sidebar, breadcrumb, documentTitle: document.title }
 }
 
-it('projects initial and revised durable titles through the built eight-plugin fixture app', async () => {
+it('projects initial and revised durable titles through the built nine-plugin fixture app', async () => {
   const root = document.querySelector<HTMLElement>('#root')
   if (root === null) throw new Error('snapshot root missing')
   act(() => {
@@ -92,10 +96,11 @@ it('projects initial and revised durable titles through the built eight-plugin f
     unmount = () => { entry.dispose() }
   })
 
-  const projectLabel = await screen.findByText('fixture', {}, { timeout: 10_000 })
-  const projectRow = projectLabel.closest<HTMLElement>('[role="treeitem"]')
-  if (projectRow === null) throw new Error('fixture project row missing')
-  fireEvent.click(projectRow)
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  // The fixture Intent selects the workspace, so the current-group effect
+  // already expanded it; clicking the header would now collapse (the twist
+  // stays live since intent stopped forcing expansion).
+  await within(tree).findByText('4 sessions')
 
   const initialLabel = 'Fixture 历史会话'
   const initialRowLabel = await screen.findByText(initialLabel)

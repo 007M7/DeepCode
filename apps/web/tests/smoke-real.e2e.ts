@@ -147,7 +147,7 @@ async function detailsTrack(page: Page): Promise<number> {
 // Readiness gate: `dsh web` serves ALL nine manifest plugins; until every UI
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
-const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-question', 'ui-trajectory']
+const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'locale', 'ui-layout', 'ui-sidebar', 'ui-settings', 'ui-settings-general', 'ui-models', 'ui-conversation', 'ui-question', 'ui-trajectory']
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')
@@ -333,10 +333,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const prompt = `Please answer this request carefully: explain event sourcing in two sentences, ending with exactly ${ROUND_DONE_MARKER}.`
     await input.fill(prompt)
     await input.press('Enter')
-    // startSession chain: session mounts, composer moves to the bottom.
-    // Regression pin (P0, 585671106): this send used to white-screen the tree
-    // (scope tag lost to a duplicate inlined runtime instance) — body going
-    // near-empty here means that class of bug is back.
+    // The first send must keep the session tree mounted; a near-empty body
+    // reveals a duplicate runtime bundle with incompatible scope tags.
     await page.waitForFunction(() => document.body.innerText.length > 50, undefined, { timeout: 15_000 })
     expect(pageErrors).toEqual([])
     await page.waitForFunction(

@@ -57,7 +57,7 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory for JSONL sessions. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
   packChunks?: boolean
@@ -80,7 +80,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:37`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:39`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -487,19 +487,21 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-c
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
-Requires: `agents` · `sessions` · `tools` · `userInteraction`
+Requires: `agents` · `sessions` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/** Gateway plugin config: the host-level default agent routing. */
+/** Gateway plugin config: host-level agent routing and Workspace creation root. */
 export interface Config {
   /** Default provider route for created/resumed agents. */
   provider: string
   /** Default model id. */
   model: string
+  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
+  workspaceRoot?: string
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:32`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:33`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-webserver`
 
@@ -659,6 +661,8 @@ export interface Config {
   childFiles?: string[]
   /** Optional replay-only provider catalog; absent or empty selects catch-all waterfall replay. */
   providers?: ReplayProviderConfig[]
+  /** Optional per-chunk pacing delay in ms (see {@link ReplayConfig.paceMs}); absent keeps burst yield. */
+  paceMs?: number
 }
 
 /** One provider route exposed by the replay adapter. */
@@ -684,7 +688,7 @@ export interface ReplayModelConfig {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:392`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:459`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -753,12 +757,12 @@ Source: [`packages/lsp/lsp-local/src/index.ts:85`](../packages/lsp/lsp-local/src
 Requires: `tools`
 
 ```ts config-catalog
-/** Discriminated union of all supported MCP transport configurations. */
+/** Configuration for one stdio or Streamable HTTP MCP server. */
 export type Config = StdioConfig | StreamableHttpConfig
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
-  /** Transport type: spawn a child process and communicate over stdio. */
+  /** Selects child-process stdio transport. */
   transport: 'stdio'
   /**
    * Stable local namespace for this server's model-facing tool names
@@ -766,21 +770,21 @@ export interface StdioConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
-  /** Executable to spawn. */
+  /** Executable used to start the server. */
   command: string
-  /** Arguments passed to the command. */
+  /** Arguments passed directly, without shell interpolation. */
   args: string[]
   /** Extra env vars merged on top of scrubbed ambient env. */
   env: Record<string, string>
   /** Working directory for the child process. */
   cwd: string
-  /** Timeout per callTool invocation (ms). */
+  /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
 export interface StreamableHttpConfig {
-  /** Transport type: connect to an MCP server over Streamable HTTP (SSE). */
+  /** Selects Streamable HTTP transport. */
   transport: 'streamable-http'
   /**
    * Stable local namespace for this server's model-facing tool names
@@ -788,11 +792,11 @@ export interface StreamableHttpConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
-  /** MCP server URL. */
+  /** MCP endpoint URL. */
   url: string
-  /** Extra headers (e.g. auth tokens). */
+  /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
-  /** Timeout per callTool invocation (ms). */
+  /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
 }
 ```
@@ -843,7 +847,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:58`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-pty-local`
 
@@ -978,9 +982,9 @@ export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories. An
-   * existing root must be a readable directory; an absent root is created on
-   * first materialization.
+   * (bash calls, subprocesses). Sessions group under human-readable project
+   * directories, then per-session directories. An existing root must be a
+   * readable directory; an absent root is created on first materialization.
    */
   root: string
   /**
@@ -1062,6 +1066,8 @@ export interface Config extends SessionQueryConfig {
   maxLimit?: number
   /** Maximum snippet length in Unicode code points. Defaults to 240. */
   snippetChars?: number
+  /** Maximum concurrent persisted-log inspections in one inherited batch read. Defaults to 4. */
+  persistedInspectConcurrency?: number
 }
 
 /** Supported SQLite journal modes. */
@@ -1070,7 +1076,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:74`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:76`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-reference`
 
@@ -1217,7 +1223,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/storage/storage-domain/src/index.ts:45`](../packages/storage/storage-domain/src/index.ts)
+Source: [`packages/storage/storage-domain/src/index.ts:52`](../packages/storage/storage-domain/src/index.ts)
 
 ## `@deepseek-ai/dsh-storage-json`
 
@@ -1544,6 +1550,22 @@ export interface Config {
 
 Source: [`packages/workflow/tool-ralph/src/index.ts:23`](../packages/workflow/tool-ralph/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-session-query`
+
+Requires: `tools` · `systemPrompt` · `sessionQuery`
+
+```ts config-catalog
+/** Deployment-owned search count and timeout bounds. */
+export interface Config {
+  /** Maximum authorized hits returned by one search call. Defaults to 100. */
+  maxSearchResults?: number
+  /** Cooperative full-text search deadline in milliseconds. Defaults to 30000. */
+  searchTimeoutMs?: number
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts:29`](../packages/session-query/tool-session-query/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-skill`
 
 Requires: `tools` · `skills`
@@ -1786,8 +1808,8 @@ export interface Config {
   /**
    * Shell command template the TUI prints on exit and lists under `/resume`,
    * with `{session}` replaced by the live session id (forwarded to the front
-   * door). Set it to a command that resumes via this app's env var, e.g.
-   * `RESUME_SESSION_ID={session} dsh`.
+   * door). Set it to a command that resumes the session, e.g.
+   * `dsh --resume {session}`.
    */
   resumeCommand?: string
   /** Full-screen TUI presentation settings. */
@@ -2015,15 +2037,19 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-client-connection` — requires `httpServer` · `apiProxy` ([`packages/client/connection/src/index.ts`](../packages/client/connection/src/index.ts))
-- `@deepseek-ai/dsh-client-i18n` ([`packages/client/i18n/src/index.ts`](../packages/client/i18n/src/index.ts))
+- `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `httpServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-models` ([`packages/client/ui-models/src/index.ts`](../packages/client/ui-models/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-question` — requires `tools` · `userInteraction` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-theme` ([`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
@@ -2040,7 +2066,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
-- `@deepseek-ai/dsh-workspace` — requires `storage` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
+- `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 
 ## Seam packages (not directly loadable)
 
@@ -2071,8 +2097,8 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
-- `@deepseek-ai/dsh-host-runtime` ([`packages/host/runtime/src/index.ts`](../packages/host/runtime/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
+- `@deepseek-ai/dsh-llm-mock-server` ([`packages/support/llm-mock-server/src/index.ts`](../packages/support/llm-mock-server/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))
 - `@deepseek-ai/dsh-retention` ([`packages/util/retention/src/index.ts`](../packages/util/retention/src/index.ts))

@@ -43,10 +43,15 @@ describe('workspace cache/table invariant', () => {
     expect(() => { ctx.emit('domain/changed', put({ table: 'other', key: 'missing' })) }).not.toThrow()
   })
 
-  it('fails a deleted operation — this phase exposes no delete entry point', async () => {
+  it('fails deletion while the registry still publishes the entity', async () => {
     const ctx = await setup(['w1'])
     expect(() => { ctx.emit('domain/changed', deleted()) })
-      .toThrow(/no delete entry point/)
+      .toThrow(/cache still publishes/)
+  })
+
+  it('allows deletion only after a provisional create cache entry was removed for rollback', async () => {
+    const ctx = await setup([])
+    expect(() => { ctx.emit('domain/changed', deleted()) }).not.toThrow()
   })
 
   it('fails a put whose record the registry cache does not hold', async () => {

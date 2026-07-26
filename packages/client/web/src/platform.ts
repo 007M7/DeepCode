@@ -1,10 +1,6 @@
 /**
- * Platform singletons the shell shares into the module table.
- * Single source of truth (design §3.3, contract C1): seed keys = tsdown
- * client externals = the shared surface. The three projections import this
- * module — the seed table ({@link ../seed.ts}), the tsdown client preset's
- * external judgement (packages/client/tsdown.client.ts), and the vite alias
- * check — so the list cannot drift between them.
+ * Shared browser platform modules. Seeding, bundling externals, and Vite
+ * aliases consume this list so their module identities cannot drift.
  * @module @deepseek-ai/dsh-client-web/src/platform
  */
 

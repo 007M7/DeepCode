@@ -1,21 +1,11 @@
 /**
- * Chat store factory (slot terminal design §4): selection + draft + active
- * view for one session, shared by the conversation and details registrations
- * (apply constructs one handle and passes it to both). Session-scope
- * derivation: both mount slots are scope=session, so the framework creates
- * one instance per session; the persist key is scope-suffixed by the
- * framework, aligning with the previous per-session draft persistence.
- *
- * Module exports the factory only — a module-level handle would pin identity
- * in the module cache (a de-facto singleton surviving plugin reloads).
+ * Per-session chat store shared by conversation and details registrations.
+ * The plugin creates its handle at apply time so identity follows the fiber.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatStoreState, SelectionTarget } from './contract/views.ts'
 
-/**
- * Annotation twin of the actions literal below (the export needs a declared
- * return type); drift fails assignability at the defineStore call.
- */
+/** Declared action shape used to give the exported factory a stable return type. */
 type ChatActions = {
   select: (draft: ChatStoreState, target: SelectionTarget | null) => void
   setDraft: (draft: ChatStoreState, text: string) => void
@@ -25,18 +15,11 @@ type ChatActions = {
 }
 
 /**
- * Declare the per-session chat store. `selection` is the details-linkage
- * channel (conversation writes, details reads); `draft` is the composer text
- * (persisted so it survives session switches and reloads); `view` is the
- * active conversation view id (a 'conversation.view' entry id — store seat is
- * the cross-remount survival channel, null falls back to the first view).
- * @returns the store handle (spec + identity + factory in one value).
+ * Declares the per-session chat state and write surface.
+ * @returns the store handle.
  */
 export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions> {
   return defineStore({
-    // Anchored to the contract shape: consumers read the store through
-    // PropsStore<ChatStore>'s SnapshotSelectorHook<ChatStoreState>, so init
-    // and the contract cannot drift.
     init: (): ChatStoreState => ({ selection: null, draft: '', view: null }),
     persist: 'dsh.conversation.chat',
     actions: {

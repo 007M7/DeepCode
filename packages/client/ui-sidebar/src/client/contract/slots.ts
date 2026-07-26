@@ -1,42 +1,70 @@
 /**
  * Sidebar slot contract: the registrant-side props composition for the
- * layout-owned `sidebar` slot. The own injected share is declared here (a
- * share's type lives with whoever wires it); the runtime share — owner
- * props {collapsed,width} plus the standard useSessions hook — is
- * PropsRuntime<'sidebar'>, resolved off ui-layout's SlotMap declaration and
- * never re-stated. Single domain — this is the package's whole contract
- * surface.
+ * layout-owned `sidebar` slot, plus the holes this shell declares. The shell
+ * owns column geometry (fold state machine, brand row, New Session);
+ * everything between the section header and the list bottom is the
+ * `sidebar.workspaces` registrant's (ui-workspace), and the foot is the
+ * `sidebar.settings` registrant's (ui-settings).
  */
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
 // program that sees this contract, so PropsRuntime<'sidebar'> resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 
-/**
- * Registrant-private injected share (arrives via the register inject
- * factory): plain cross-service callbacks only — tree data rides the
- * standard useSessions hook and viewing state is component-local. A type
- * alias, not an interface: the alias carries an implicit index signature,
- * so the factory's return crosses the registry's `Record<string, unknown>`
- * boundary uncast.
- */
-export type SidebarRootInjected = {
-  /** Open (switch to) a session. */
-  onOpen: (id: SessionId) => void
-  /**
-   * New-session affordance: no cwd clears selection onto the empty-state
-   * launch; a cwd create-then-opens a session in that project group.
-   */
-  onCreate: (cwd?: string) => void
-  /** Collapse the sidebar column (layout service action; owner share stays {collapsed,width}). */
-  onToggleSidebar: () => void
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /**
+     * The workspace/session browsing region: section header, search, the
+     * grouped/flat session list, and every workspace dialog. Declared by this
+     * package's 'sidebar' entry (declaring is claiming); ui-workspace
+     * registers the browser.
+     */
+    'sidebar.workspaces': { kind: 'single'; scope: 'root'; owner: SidebarSectionOwnerProps }
+    /**
+     * The settings seat at the sidebar foot. Declared by this package's
+     * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
+     * The sidebar passes only its column state — it holds no settings state.
+     */
+    'sidebar.settings': { kind: 'single'; scope: 'root'; owner: SidebarSettingsOwnerProps }
+  }
 }
 
 /**
- * Full component props: the framework runtime share (owner {collapsed,width}
- * + standard useSessions) plus the own injected share. No children are
- * declared and no store is registered, so no PropsRenderSlots/PropsStore
- * term appears.
+ * Owner share of the browser hole — the only facts crossing the shell/region
+ * seam. Business data and actions arrive through the region's own inject.
  */
-export type SidebarRootComponentProps = PropsRuntime<'sidebar'> & SidebarRootInjected
+export interface SidebarSectionOwnerProps {
+  /** Shell fold-state output: wide renders the full browser, rail the icon column. */
+  wide: boolean
+  /** Rail icons request expansion; the browser rides the wide flip for focus. */
+  expandSidebar: () => void
+}
+
+/**
+ * Owner share of the sidebar settings seat: the column display state the
+ * occupant's trigger row must render against (wide row vs rail icon).
+ */
+export interface SidebarSettingsOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
+}
+
+/**
+ * Registrant-private injected share (arrives via the register inject
+ * factory). The shell keeps only its own controls: starting a Session from
+ * the New Session button and toggling the column.
+ */
+export type SidebarRootInjected = {
+  /** Start or replace the current frontend Session Intent. */
+  startSession: (workspaceId?: WorkspaceId, prompt?: string) => void
+  /** Toggle the sidebar column through the layout service. */
+  toggleSidebar: () => void
+}
+
+/**
+ * Full component props: layout owner state/actions plus the declared holes'
+ * render shares and this package's injected callbacks. No store is registered.
+ */
+export type SidebarRootComponentProps =
+  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings'> & SidebarRootInjected

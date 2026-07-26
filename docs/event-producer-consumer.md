@@ -28,7 +28,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `agent/turn-stop` | `serial` | [`packages/core/agent/src/types.ts:485`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`tool-goal`](../packages/goal/tool-goal) |
 | `approval/request` | `waterfall` | [`packages/ui/user-approval/src/index.ts:30`](../packages/ui/user-approval/src/index.ts) | [`user-approval`](../packages/ui/user-approval) (`waterfall`) | [`acp`](../packages/acp/acp) |
 | `commands/change` | `emit` | [`packages/ui/commands/src/index.ts:103`](../packages/ui/commands/src/index.ts) | [`commands`](../packages/ui/commands) (`events.dispatch`) | [`tui`](../packages/ui/tui) |
-| `domain/changed` | `emit` | [`packages/storage/storage-domain/src/events.ts:46`](../packages/storage/storage-domain/src/events.ts) | [`storage-domain`](../packages/storage/storage-domain) (`emit`) | [`storage-domain`](../packages/storage/storage-domain), [`workspace`](../packages/workspace/workspace) |
+| `domain/changed` | `emit` | [`packages/storage/storage-domain/src/events.ts:46`](../packages/storage/storage-domain/src/events.ts) | [`storage-domain`](../packages/storage/storage-domain) (`emit`) | `apiproxy`, [`storage-domain`](../packages/storage/storage-domain), [`workspace`](../packages/workspace/workspace) |
 | `fs/edit-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:62`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/observed` | `emit` | [`packages/fs/fs/src/index.ts:71`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`emit`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/write-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:54`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
@@ -63,6 +63,8 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `internal/dispatch` | - | [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/ui/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `modules`, `webserver` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
+| `locale/change` | `locale` (`emit`) | `locale`, `ui-models`, `ui-settings-general` |
 | `slots/changed` | `runtime` (`emit`) | - |
+| `theme/change` | `ui-theme` (`emit`) | `ui-layout`, `ui-theme` |
 
 Maintenance mode: generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program.

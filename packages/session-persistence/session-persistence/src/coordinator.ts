@@ -40,8 +40,10 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * `id` before repair or state publication. Used by resume/load, live adoption,
    * and — via `!== undefined` — the create-collision probe. The returned
    * `tornMarker` is present iff there is a torn tail to truncate.
+   * @param id - persisted session id to resolve.
+   * @param signal - optional cancellation for backend read work.
    */
-  loadStored(id: SessionId): Promise<StoredPrefix<TornMarker> | undefined>
+  loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<TornMarker> | undefined>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -60,8 +62,11 @@ export interface PersistenceBackend<TornMarker = unknown> {
    */
   commitRepair(meta: SessionHeader, tornMarker: TornMarker | undefined, closers: readonly SessionEvent[]): Promise<void>
 
-  /** List all stored (materialized) sessions' metadata. */
-  list(): Promise<SessionHeader[]>
+  /**
+   * List all stored (materialized) sessions' metadata.
+   * @param signal - optional cancellation for backend listing work.
+   */
+  list(signal?: AbortSignal): Promise<SessionHeader[]>
 
   /**
    * Optional lifecycle teardown (e.g. close a database handle). Awaited by the
@@ -270,14 +275,26 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * Read a detached valid stored prefix without recovery mutations or
    * coordinator-state publication.
    * @param id - persisted session to inspect.
+   * @param signal - optional cancellation for queued and backend read work.
    * @returns stored header and events before any synthetic recovery closers.
    */
-  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.serialize(id, () => this.inspectCore(id))
+  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.serialize(id, () => this.inspectCore(id, signal), signal)
   }
 
-  private async inspectCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const stored = await this.backend.loadStored(id)
+  private async inspectCore(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    signal?.throwIfAborted()
+    let stored: StoredPrefix<TornMarker> | undefined
+    try {
+      stored = await this.backend.loadStored(id, signal)
+    } catch (error: unknown) {
+      if (signal?.aborted) signal.throwIfAborted()
+      throw error
+    }
+    signal?.throwIfAborted()
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     this.assertStoredId(id, stored.meta)
     this.assertVersion(stored.meta)
@@ -334,9 +351,19 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * public methods must NOT call each other (deadlock); they call the unserialized
    * `*Core` helpers instead.
    */
-  private serialize<T>(id: SessionId, op: () => Promise<T> | T): Promise<T> {
+  private serialize<T>(
+    id: SessionId,
+    op: () => Promise<T> | T,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const prior = this.chains.get(id) ?? Promise.resolve()
-    const next = prior.then(op, op)
+    let started = false
+    const run = (): Promise<T> | T => {
+      signal?.throwIfAborted()
+      started = true
+      return op()
+    }
+    const next = prior.then(run, run)
     // Keep the chain alive but swallow this op's rejection for the NEXT waiter
     // (the caller still sees the real rejection via `next`).
     const tail = next.then(() => undefined, () => undefined)
@@ -346,7 +373,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     void tail.then(() => {
       if (this.chains.get(id) === tail) this.chains.delete(id)
     })
-    return next
+    return signal === undefined ? next : observeQueuedAbort(next, signal, () => started)
   }
 
   /** Build a state for a session discovered in storage but not yet in memory. */
@@ -617,4 +644,51 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     await this.appendCore(id, fresh)
     live.pending.splice(0, batch.length)
   }
+}
+
+/**
+ * Give an observation caller a prompt cancellation view of queued work.
+ *
+ * The serialized `operation` remains in the same-id chain and checks the signal
+ * before invoking backend work. Observing its settlement here therefore cannot
+ * detach a storage read or let a later operation overtake its predecessor.
+ */
+function observeQueuedAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  started: () => boolean,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const finish = (callback: () => void): void => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', onAbort)
+      callback()
+    }
+    const onAbort = (): void => {
+      if (started()) return
+      finish(() => {
+        try {
+          signal.throwIfAborted()
+        } catch (reason: unknown) {
+          rejectObservation(reject, reason)
+          return
+        }
+        /* v8 ignore next -- a native AbortSignal emits abort only after becoming aborted */
+        reject(new Error('persistence observation abort event lacked an aborted signal'))
+      })
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    operation.then(
+      (value) => { finish(() => { resolve(value) }) },
+      (reason: unknown) => { finish(() => { rejectObservation(reject, reason) }) },
+    )
+    if (signal.aborted) onAbort()
+  })
+}
+
+/** Preserve an exact provider or AbortSignal reason, including legacy non-Error values. */
+function rejectObservation(reject: (reason?: unknown) => void, reason: unknown): void {
+  reject(reason)
 }

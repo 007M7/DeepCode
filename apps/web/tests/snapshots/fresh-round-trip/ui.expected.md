@@ -1,0 +1,31 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Use the bash tool to" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."
+- button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
+  - img
+  - text: Think The user wants me to run a simple bash command and reply with "DONE".
+- text: Echo the test string
+- button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
+  - img
+  - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
+- paragraph: DONE
+- text: cache hit 99% · 15,818 tokens · 1 turns · 2 steps
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Plan mode":
+  - option "Plan" [selected]
+  - option "Agent"
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- combobox "Model":
+  - option "DeepSeek-V4-Pro High" [selected]
+  - option "DeepSeek-V4-Pro"
+- button "Send message" [disabled]
