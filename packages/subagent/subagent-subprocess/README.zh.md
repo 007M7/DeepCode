@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-用于**进程外 subagent 后端** 的共享机制：这类提供方会把外部 agent（智能体）作为子进程派生，例如 [ACP 后端](../subagent-acp/README.md)。这是纯库（无提供方、无注册、无 Config），提供所有「派生 CLI 子进程」后端都需要的机制：阻止父级部署凭据进入子进程、把子进程清理至完全停稳，以及将子进程与宿主用户的磁盘 CLI 状态隔离。设计理由见 [Claude Code / Codex subagent 后端 Agent Note](../../../.agents/notes/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md)。
+用于**进程外 subagent 后端** 的共享机制：这类提供方会把外部 agent（智能体）作为子进程派生，例如 [ACP 后端](../subagent-acp/README.md)和 [SDK 后端](../subagent-sdk/README.md)。这是纯库（无提供方、无注册、无 Config），提供所有「派生 CLI 子进程」后端都需要的机制：阻止父级部署凭据进入子进程、把子进程清理至完全停稳、解析子进程工作目录、发布接缝 run 句柄，以及将子进程与宿主用户的磁盘 CLI 状态隔离。设计理由见 [Claude Code / Codex subagent 后端 Agent Note](../../../.agents/notes/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md)。
 
 每个可调项都是**参数**：dispose（资源释放）阶梯每次调用时接收宽限时间，配置目录辅助函数接收可选的固定路径。默认值位于各个消费插件的 Config 中（带默认值且经过校验的字段，可从 `cordis.yml` 修改），绝不位于本库。
 
@@ -27,6 +27,14 @@
 两个宽限时间（`DisposeLadderGraces`）来自消费插件的 `disposeEofGraceMs`/`disposeGraceMs` Config 字段。POSIX 在优雅信号和强制信号之后都使用 `disposeGraceMs`；Windows 跳过冗余的优雅信号，但用该值限定强制退出确认时间。EOF 窗口有意独立设置且通常更宽，因为协作式清理可能要等待捕获信号的孙进程和最后一次 flush。
 
 退出等待逻辑位于该阶梯内部。无论结算结果如何，它们都会清理自己的 timer 和监听器，因此升级过程不会在子进程上累积监听器。
+
+### `assertUsableCwd` / `validateConfiguredCwd` / `resolveChildCwd`
+
+子进程工作目录解析，被 ACP 与 SDK 后端逐字共享：配置的 `cwd` 覆盖在加载时校验一次（`validateConfiguredCwd`——拒绝空字符串、把相对路径按 harness 启动目录解析、要求可进入的目录），`resolveChildCwd` 在每次 start 应用它，否则校验发起委托的父会话 cwd——绝不用服务器进程自己的 cwd，因为一个服务器进程服务多个会话。`assertUsableCwd` 是底层探针：绝对、存在且可搜索（`X_OK`——子进程 cwd 真正需要的权限；mode-600 目录能过 `isDirectory()` 却让 spawn 以 EACCES 失败）。所有诊断都带消费插件名前缀。
+
+### `NO_START_CAPABILITIES` / `settleRunResult` / `subprocessRunHandle`
+
+每个进程外后端共享的 provider 侧骨架。`NO_START_CAPABILITIES` 是冻结的全 false 能力宣告（进程外子进程无法执行父方强制的启动期特性，服务会在 `start` 之前拒绝此类请求）。`settleRunResult` 在接缝的绝不拒绝契约下定格 run 结果：尝试的拒绝在本地取消已定格时读作 `aborted`，否则经吞掉自身异常的诊断汇压平为 `stopReason: 'error'`，并总是移除 abort 监听器。`subprocessRunHandle` 发布幂等 dispose 的接缝句柄：移除监听器、定格本地取消，然后等待后端的拆除直至真正退出。
 
 ### `createIsolatedConfigDir(prefix, pinnedPath?)`
 

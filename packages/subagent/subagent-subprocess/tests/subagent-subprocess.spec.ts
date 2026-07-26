@@ -9,8 +9,12 @@ import {
   buildChildEnv,
   createIsolatedConfigDir,
   disposeChildProcess,
+  NO_START_CAPABILITIES,
+  settleRunResult,
   spawnFailure,
+  subprocessRunHandle,
 } from '../src/index.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 // `rm` is real-passthrough except for one deterministic failure. Permission-based recursive-rm
 // failures are not portable and disappear under root, so this is the sanctioned filesystem seam.
@@ -385,5 +389,106 @@ describe('createIsolatedConfigDir', () => {
     } finally {
       await rm(dir.path, { recursive: true, force: true })
     }
+  })
+})
+
+describe('NO_START_CAPABILITIES', () => {
+  it('advertises nothing and is frozen (shared by every out-of-process backend)', () => {
+    expect(NO_START_CAPABILITIES).toEqual({ outputSchema: false, depthLimit: false, toolFilter: false, persona: false })
+    expect(Object.isFrozen(NO_START_CAPABILITIES)).toBe(true)
+  })
+})
+
+describe('settleRunResult', () => {
+  const wiring = () => {
+    const controller = new AbortController()
+    const onAbort = vi.fn()
+    controller.signal.addEventListener('abort', onAbort)
+    return { controller, onAbort }
+  }
+
+  it('passes a successful attempt through and removes the abort listener', async () => {
+    const { controller, onAbort } = wiring()
+    const result = await settleRunResult({
+      attempt: async () => ({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+      collectOutput: () => [],
+      cancelled: () => false,
+      signal: controller.signal,
+      onAbort,
+    })
+    expect(result.stopReason).toBe('completed')
+    controller.abort()
+    // The listener was removed at settlement, so the abort never reaches it.
+    expect(onAbort).not.toHaveBeenCalled()
+  })
+
+  it('reads an in-flight rejection as aborted when cancellation already settled', async () => {
+    const { controller, onAbort } = wiring()
+    const result = await settleRunResult({
+      attempt: async () => { throw new Error('pipe torn mid-cancel') },
+      collectOutput: () => [{ type: 'text', text: 'partial' }],
+      cancelled: () => true,
+      signal: controller.signal,
+      onAbort,
+    })
+    expect(result).toEqual({ output: [{ type: 'text', text: 'partial' }], stopReason: 'aborted' })
+  })
+
+  it('flattens a failure through a contained onError sink', async () => {
+    const { controller, onAbort } = wiring()
+    const seen: string[] = []
+    const result = await settleRunResult({
+      attempt: async () => { throw new Error('transport died') },
+      collectOutput: () => [],
+      cancelled: () => false,
+      onError: (error, stopReason) => {
+        seen.push(`${stopReason}:${error.message}`)
+        throw new Error('sink failure must be contained')
+      },
+      signal: controller.signal,
+      onAbort,
+    })
+    expect(result.stopReason).toBe('error')
+    expect(seen).toEqual(['error:transport died'])
+  })
+
+  it('flattens a failure without a sink', async () => {
+    const { controller, onAbort } = wiring()
+    const result = await settleRunResult({
+      attempt: async () => { throw new Error('no sink configured') },
+      collectOutput: () => [],
+      cancelled: () => false,
+      signal: controller.signal,
+      onAbort,
+    })
+    expect(result.stopReason).toBe('error')
+  })
+})
+
+describe('subprocessRunHandle', () => {
+  it('publishes an idempotent dispose that cancels locally and awaits teardown', async () => {
+    const controller = new AbortController()
+    const onAbort = vi.fn()
+    controller.signal.addEventListener('abort', onAbort)
+    const requestCancel = vi.fn()
+    const teardown = vi.fn(() => Promise.resolve())
+    const run = subprocessRunHandle({
+      id: SessionId('run-1'),
+      result: Promise.resolve({ output: [], stopReason: 'completed' }),
+      signal: controller.signal,
+      onAbort,
+      requestCancel,
+      teardown,
+    })
+    expect(run.localAgent).toBeUndefined()
+    expect(String(run.id)).toBe('run-1')
+    const disposal = run.dispose()
+    expect(run.dispose()).toBe(disposal)
+    await disposal
+    expect(requestCancel).toHaveBeenCalledTimes(1)
+    expect(teardown).toHaveBeenCalledTimes(1)
+    controller.abort()
+    // dispose removed the abort listener before cancelling.
+    expect(onAbort).not.toHaveBeenCalled()
   })
 })

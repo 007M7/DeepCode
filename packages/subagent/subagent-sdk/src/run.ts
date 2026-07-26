@@ -14,7 +14,7 @@ import { DeepSeekHarness, type HarnessNotification } from '@deepseek-ai/dsh-sdk-
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
-import { buildChildEnv } from '@deepseek-ai/dsh-subagent-subprocess'
+import { buildChildEnv, settleRunResult, subprocessRunHandle } from '@deepseek-ai/dsh-subagent-subprocess'
 
 /** Resolved spawn spec for an SDK runtime child process (no defaults — see Config). */
 export interface SdkRunSpec {
@@ -175,43 +175,32 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
     return text.length > 0 ? [{ type: 'text', text }] : []
   }
 
-  const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
-    try {
+  // Race the child turn against local cancellation; the shared settlement
+  // flattens failures under the seam's never-reject contract.
+  const result: Promise<SubagentResult> = settleRunResult({
+    attempt: async () => {
       const turn = await Promise.race([
         harness.session(childSessionId).run(request.prompt, { onNotification: observe }),
         cancelSettled.then(() => 'cancelled' as const),
       ])
       if (turn === 'cancelled') return { output: collectOutput(), stopReason: 'aborted' }
       return { output: collectOutput(), stopReason: sdkStopReason(turn.reason) }
-    } catch (error: unknown) {
-      // Cover a transport rejection already queued when cancellation arrives.
-      /* v8 ignore next */
-      if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
-      // Flatten post-publication transport failures while preserving diagnostics.
-      try {
-        spec.onError?.(toError(error), 'error')
-      } catch {
-        // The diagnostic sink cannot reject the run result.
-      }
-      return { output: collectOutput(), stopReason: 'error' }
-    } finally {
-      request.signal.removeEventListener('abort', onAbort)
-    }
-  })()
-
-  let disposal: Promise<void> | undefined
-  return {
-    id,
-    localAgent: undefined,
-    result,
-    dispose(): Promise<void> {
-      if (disposal !== undefined) return disposal
-      request.signal.removeEventListener('abort', onAbort)
-      // There is no wire-level prompt cancel: settle the result locally, then
-      // the bounded shutdown request + dispose ladder tears the child down.
-      requestCancel()
-      disposal = harness.close()
-      return disposal
     },
-  }
+    collectOutput,
+    cancelled: () => flags.cancelled,
+    onError: spec.onError,
+    signal: request.signal,
+    onAbort,
+  })
+
+  // There is no wire-level prompt cancel: dispose settles the result locally,
+  // then the bounded shutdown request + dispose ladder tears the child down.
+  return subprocessRunHandle({
+    id,
+    result,
+    signal: request.signal,
+    onAbort,
+    requestCancel,
+    teardown: () => harness.close(),
+  })
 }

@@ -26,7 +26,7 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
-import { buildChildEnv, disposeChildProcess, spawnFailure } from '@deepseek-ai/dsh-subagent-subprocess'
+import { buildChildEnv, disposeChildProcess, settleRunResult, spawnFailure, subprocessRunHandle } from '@deepseek-ai/dsh-subagent-subprocess'
 
 /** Fixed response to child permission requests: reject by default, or select the first allow option. */
 export type PermissionPolicy = 'allow' | 'reject'
@@ -267,48 +267,36 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   if (sessionId === undefined) throw new Error('unreachable: ACP startup fulfilled without a session id')
   const remoteSessionId = sessionId
 
-  const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
-    try {
-      // Race the remote turn against local cancellation.
+  // Race the remote turn against local cancellation; the shared settlement
+  // flattens failures under the seam's never-reject contract.
+  const result: Promise<SubagentResult> = settleRunResult({
+    attempt: async () => {
       const prompt = async (): Promise<SubagentResult> => {
         // The startup phase cannot fulfill without assigning the session id.
         const promptResult = await conn.prompt({ sessionId: remoteSessionId, prompt: toAcpPrompt(request.prompt) })
         return { output: collectOutput(), stopReason: acpStopReason(promptResult.stopReason) }
       }
-      return await Promise.race([
+      return Promise.race([
         prompt(),
         cancelSettled.then((): SubagentResult => ({ output: collectOutput(), stopReason: 'aborted' })),
       ])
-    } catch (error: unknown) {
-      // Cover a process rejection already queued when cancellation arrives.
-      /* v8 ignore next */
-      if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
-      // Flatten post-publication transport failures while preserving diagnostics.
-      try {
-        spec.onError?.(toError(error), 'error')
-      } catch {
-        // The diagnostic sink cannot reject the run result.
-      }
-      return { output: collectOutput(), stopReason: 'error' }
-    } finally {
-      request.signal.removeEventListener('abort', onAbort)
-    }
-  })()
-
-  let disposal: Promise<void> | undefined
-  return {
-    id,
-    localAgent: undefined,
-    result,
-    dispose(): Promise<void> {
-      if (disposal !== undefined) return disposal
-      request.signal.removeEventListener('abort', onAbort)
-      requestCancel()
-      // The shared platform-aware ladder awaits exit. ACP normally quiesces from
-      // stdin EOF, including the final flush, so this backend uses a wider EOF
-      // grace before process termination escalates.
-      disposal = disposeProcess()
-      return disposal
     },
-  }
+    collectOutput,
+    cancelled: () => flags.cancelled,
+    onError: spec.onError,
+    signal: request.signal,
+    onAbort,
+  })
+
+  // The shared platform-aware ladder awaits exit. ACP normally quiesces from
+  // stdin EOF, including the final flush, so this backend uses a wider EOF
+  // grace before process termination escalates.
+  return subprocessRunHandle({
+    id,
+    result,
+    signal: request.signal,
+    onAbort,
+    requestCancel,
+    teardown: disposeProcess,
+  })
 }

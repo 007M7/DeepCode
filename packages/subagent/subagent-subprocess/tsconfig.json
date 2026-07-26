@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../subagent"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

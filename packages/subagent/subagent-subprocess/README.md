@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Shared machinery for **out-of-process subagent backends** — providers that spawn an external agent as a child process, such as the [ACP backend](../subagent-acp/README.md). A pure library (no provider, no registration, no Config): what every spawn-a-CLI-child backend needs to keep the parent deployment's credentials out of the child, tear the child down to quiescence, and isolate it from the host user's on-disk CLI state. Design rationale: [the Claude Code / Codex subagent backends Agent Note](../../../.agents/notes/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md).
+Shared machinery for **out-of-process subagent backends** — providers that spawn an external agent as a child process, such as the [ACP backend](../subagent-acp/README.md) and the [SDK backend](../subagent-sdk/README.md). A pure library (no provider, no registration, no Config): what every spawn-a-CLI-child backend needs to keep the parent deployment's credentials out of the child, tear the child down to quiescence, resolve the child's working directory, publish the seam run handle, and isolate the child from the host user's on-disk CLI state. Design rationale: [the Claude Code / Codex subagent backends Agent Note](../../../.agents/notes/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md).
 
 Every tunable is a **parameter**: the dispose ladder takes its grace periods per call, the config-dir helper takes an optional pinned path. Defaults live in each consuming plugin's Config (defaulted, validated fields changeable from `cordis.yml`), never in this library.
 
@@ -27,6 +27,14 @@ The platform-aware dispose ladder resolves only once the child has ACTUALLY exit
 The two graces (`DisposeLadderGraces`) come from the consuming plugin's `disposeEofGraceMs`/`disposeGraceMs` Config fields. POSIX uses `disposeGraceMs` after both the graceful and forced signals; Windows skips the redundant graceful signal but uses it to bound forced-exit confirmation. The EOF window is deliberately separate and usually wider, since cooperative teardown may await a signal-trapping grandchild plus a final flush.
 
 The exit waits are internal to this ladder. They clean up their timer and listener on either outcome, so escalation never accumulates listeners on the child.
+
+### `assertUsableCwd` / `validateConfiguredCwd` / `resolveChildCwd`
+
+Child working-directory resolution, shared verbatim by the ACP and SDK backends: a configured `cwd` override is validated ONCE at load (`validateConfiguredCwd` — rejects the empty string, resolves a relative path against the harness launch directory, requires an enterable directory), and `resolveChildCwd` applies it per start, else validates the delegating parent session's cwd — never the server process's own cwd, because one server process serves many sessions. `assertUsableCwd` is the underlying probe: absolute, existing, and searchable (`X_OK` — what a subprocess cwd actually needs; a mode-600 directory passes `isDirectory()` but fails spawn with EACCES). Every diagnostic is prefixed with the consuming plugin's name.
+
+### `NO_START_CAPABILITIES` / `settleRunResult` / `subprocessRunHandle`
+
+The provider-side skeleton every out-of-process backend shares. `NO_START_CAPABILITIES` is the frozen all-false advertisement (an out-of-process child cannot honor parent-enforced start features, so the service rejects such requests before `start`). `settleRunResult` settles the run result under the seam's never-reject contract: an attempt rejection reads as `aborted` when local cancellation already settled, else flattens to `stopReason: 'error'` through a throw-contained diagnostic sink, always removing the abort listener. `subprocessRunHandle` publishes the seam handle with idempotent dispose: remove the listener, settle local cancellation, then await the backend's teardown to actual exit.
 
 ### `createIsolatedConfigDir(prefix, pinnedPath?)`
 

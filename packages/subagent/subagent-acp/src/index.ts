@@ -10,7 +10,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { resolveChildCwd, validateConfiguredCwd } from '@deepseek-ai/dsh-subagent-subprocess'
+import { assertPositiveFinite, NO_START_CAPABILITIES, resolveChildCwd, validateConfiguredCwd } from '@deepseek-ai/dsh-subagent-subprocess'
 import { type AcpRunSpec, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, type PermissionPolicy, startAcpRun } from './run.ts'
 
 export const name = 'subagent-acp'
@@ -66,13 +66,6 @@ export const Config: z<Config> = z.object({
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
 })
 
-/** A dispose grace must be a positive finite number (it bounds the teardown wait). */
-function assertPositiveFinite(name: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`subagent-acp: ${name} must be a positive finite number`)
-  }
-}
-
 /** The shape after schemastery applied the defaults (cwd has none). */
 type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
 
@@ -82,7 +75,7 @@ type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
  * a request needing any of them before `start` runs).
  */
 class AcpProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false, persona: false }
+  readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
   // Context contract: an out-of-process ACP child starts fresh — no parent conversation crosses the process boundary.
   readonly inheritsParentContext = false
 
@@ -110,8 +103,8 @@ class AcpProvider implements SubagentProvider {
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
-  assertPositiveFinite('disposeEofGraceMs', resolved.disposeEofGraceMs)
-  assertPositiveFinite('disposeGraceMs', resolved.disposeGraceMs)
+  assertPositiveFinite('subagent-acp', 'disposeEofGraceMs', resolved.disposeEofGraceMs)
+  assertPositiveFinite('subagent-acp', 'disposeGraceMs', resolved.disposeGraceMs)
   // Interpret a relative configured cwd against the harness launch directory
   // ONCE, at load, and fail a misconfigured directory here — not per start.
   const configuredCwd = validateConfiguredCwd('subagent-acp', resolved.cwd)

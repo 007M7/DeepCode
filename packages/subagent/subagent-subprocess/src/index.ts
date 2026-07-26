@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 export * from './cwd.ts'
+export * from './provider.ts'
 
 /**
  * Credential-shaped ambient env vars are NOT forwarded to a child by default
