@@ -12,7 +12,7 @@ Status: implemented
 
 共享的进程内驱动器（`packages/subagent/subagent-inprocess` 中的 `startInProcessRun`）在委派时快照父级的策略覆盖项，并在子 agent 的第一个轮次内把它们作为普通日志事件盖章写入子会话：
 
-- **委派时同步捕获，首个 `agent/prompt-submit` 时盖章。**驱动器在自己的第一个 await 之前就为两个策略旋钮读取 `overrideOf(parent.session)`——委派时刻即快照点，因此与异步的子 agent 创建过程赛跑的父级切换属于父级的未来，而非子 agent——并在创建事务的 setup 窗口内安装一个一次性的、限定子 agent 作用域的 `agent/prompt-submit` 监听器，且采用前置安装，使得具备否决能力的监听器（会作出拒绝的 UserPromptSubmit 钩子）无法在未盖章的情况下结束第一个轮次。prompt-submit 阶段在 `turn/start` 之后、提示词组装之前运行，因此盖章事件被包围在轮次内（具备持久性：轮次之间的裸事件在重新加载时只是崩溃残留的尾部垃圾），并且对子 agent 的第一次请求可见（继承来的 `'never'` 能进入子 agent 的第一份系统提示词）。ACP（Agent Client Protocol）桥接器处理空闲时预设切换所用的正是同一种锚定方式。
+- **委派时同步捕获，首个 `agent/prompt-submit` 时盖章。**驱动器在自己的第一个 await 之前就为两个策略旋钮读取 `overrideOf(parent.session)`——委派时刻即快照点，因此与异步的子 agent 创建过程赛跑的父级切换属于父级的未来，而非子 agent——并在创建事务的 setup 窗口内安装一个一次性的、限定子 agent 作用域的 `agent/prompt-submit` 监听器，且采用前置安装，使得具备否决能力的监听器（会作出拒绝的 UserPromptSubmit 钩子）无法在未盖章的情况下结束第一个轮次。prompt-submit 阶段在 `turn/start` 之后、提示词组装之前运行，因此盖章事件被包围在轮次内（具备持久性：轮次之间的裸事件在重新加载时只是崩溃残留的尾部垃圾），并且对子 agent 的第一次请求可见（继承来的 `'never'` 能进入子 agent 的第一份系统提示词）。由注入触发的第一个轮次（SessionStart 钩子与提示词赛跑）不会饿死该监听器：注入轮次既不派发 prompt-submit 也不发起模型请求，因此盖章仍会落在子 agent 的第一次模型请求之前。
 - **只复制覆盖链，且全部走规范写入路径。**`overrideOf(session)` 只是折叠本身——从不包含部署／配置默认值——因此未切换过的父级不盖任何章，恢复后的子 agent 继续跟随实时默认值；`stampOverride(child, value)` 通过 `setSandboxMode`/`setApprovalPolicy` 追加，除非子 agent 已折叠出该值。驱动器以可选方式消费这两个服务（`ctx.get`，仅类型导入）：未挂载它们的组合照旧进行无策略委派，行为不变。
 - **fork 陈旧种子的优先级由日志顺序自然得出。**盖章事件落在种子携带的任何切换之后，因此既有的「最后一个事件生效」折叠即可解析出子 agent 的模式，无需新增优先级机制；种子已携带相同覆盖项时会去重，而不会重复盖章。
 - **嵌套按构造即可组合。**孙代 agent 盖章时折叠的是其父级（即上一层的子 agent）的日志，而该日志已经包含这个子 agent 被盖章（或自行切换）的覆盖项：这条链在每层委派处收拢一级，任意深度均成立。一次性的 `allowed-once` 升级授权从不进入任何日志，因此永远不可能沿链向下泄漏。
