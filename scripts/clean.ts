@@ -1,4 +1,4 @@
-import { lstat, readdir, rm } from 'node:fs/promises'
+import { lstat, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
@@ -45,7 +45,11 @@ function parseConfig(configPath: string): ts.ParsedCommandLine {
 
 /** Plans and removes repository-owned build output without crossing the repository boundary. */
 export class RepositoryCleaner {
-  constructor(private readonly root: string) {}
+  private readonly root: string
+
+  constructor(root: string) {
+    this.root = resolve(root)
+  }
 
   /**
    * Remove generated build state and package directories containing only known residue.
@@ -61,9 +65,10 @@ export class RepositoryCleaner {
   private async plan(): Promise<string[]> {
     const targets = new Set<string>()
     const unsafeOrphans: string[] = []
+    const canonicalRoot = await realpath(this.root)
 
     // These checks cover legacy root-level incremental state emitted by older configs.
-    await this.addIfPresent(targets, join(this.root, '.typecheck'))
+    await this.addIfPresent(targets, join(this.root, '.typecheck'), canonicalRoot)
     for (const entry of await readdir(this.root, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.tsbuildinfo')) targets.add(join(this.root, entry.name))
     }
@@ -72,7 +77,7 @@ export class RepositoryCleaner {
     // Each emitting project declares lib/types as outDir; its parent lib also owns
     // the sibling runtime bundles, so the complete build output root is removed.
     for (const outputDirectory of this.buildOutputDirectories()) {
-      await this.addIfPresent(targets, outputDirectory)
+      await this.addIfPresent(targets, outputDirectory, canonicalRoot)
     }
 
     for (const groupDirectory of await childDirectories(join(this.root, 'packages'))) {
@@ -90,7 +95,7 @@ export class RepositoryCleaner {
         if (unknown.length > 0) {
           unsafeOrphans.push(...unknown.map(entry => repositoryPath(this.root, join(packageDirectory, entry))))
         } else {
-          targets.add(packageDirectory)
+          await this.addIfPresent(targets, packageDirectory, canonicalRoot)
         }
       }
     }
@@ -137,15 +142,24 @@ export class RepositoryCleaner {
   }
 
   private assertRepositoryTarget(path: string): void {
-    const repositoryRelative = relative(this.root, path)
+    this.assertDescendant(this.root, path, path)
+  }
+
+  private assertDescendant(root: string, path: string, displayPath: string): void {
+    const repositoryRelative = relative(root, path)
     if (repositoryRelative === '' || repositoryRelative === '..' || repositoryRelative.startsWith(`..${sep}`) || isAbsolute(repositoryRelative)) {
-      throw new Error(`clean: refusing build output outside repository: ${path}`)
+      throw new Error(`clean: refusing deletion target outside repository: ${displayPath}`)
     }
   }
 
-  private async addIfPresent(targets: Set<string>, path: string): Promise<void> {
+  private async addIfPresent(targets: Set<string>, path: string, canonicalRoot: string): Promise<void> {
     // Missing outputs are normal on a clean checkout; only existing paths become deletion targets.
-    if (await exists(path)) targets.add(path)
+    if (!await exists(path)) return
+    // Resolve the parent rather than the final entry: rm unlinks a final symlink,
+    // but a symlink in an ancestor would make deletion cross the repository boundary.
+    const canonicalParent = await realpath(dirname(path))
+    this.assertDescendant(canonicalRoot, join(canonicalParent, basename(path)), path)
+    targets.add(path)
   }
 }
 
