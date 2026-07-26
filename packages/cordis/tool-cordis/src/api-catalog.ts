@@ -1219,6 +1219,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only).',
   },
   {
+    name: 'tools/code-dispatch-log',
+    mode: 'waterfall',
+    signature: '\'tools/code-dispatch-log\'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>',
+    jsDoc: '/**\n * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before\n * the bridge appends its `tool/code-dispatch` event. `next()` keeps the\n * content unchanged; a listener may return replacement blocks (e.g. the\n * spill policy\'s preview + locator for an oversized text result). Only the\n * logged copy is affected — the program already received the complete\n * value, and the model sees neither. A throwing listener is contained:\n * the bridge falls back to logging the unshaped content.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s dispatches.\n * @param dispatch - the parent execution, sub-call identity, and the settled content to log.\n * @mode waterfall\n */',
+    summary: 'Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event.',
+  },
+  {
     name: 'tools/execute',
     mode: 'waterfall',
     signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',

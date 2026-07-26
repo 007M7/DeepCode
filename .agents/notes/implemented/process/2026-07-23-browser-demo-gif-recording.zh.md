@@ -10,9 +10,9 @@ Status: implemented
 
 ## 决策
 
-仓库提供 [`record-browser-gif`](../../../skills/record-browser-gif/SKILL.md) skill（技能），用于生成本地浏览器演示产物。该 skill 使用当前可用的浏览器控制工作流，先确认请求的流程是真实流程、由 fixture 支撑，还是采用其他模拟方式，再仅在 UI 达到语义上可观察的状态后截取一组精简的分镜帧。帧文件与输出产物默认存放在 Git worktree 之外。
+仓库提供 [`record-browser-gif`](../../../skills/record-browser-gif/SKILL.md) skill（技能），用于生成本地浏览器演示产物。该 skill 使用当前可用的浏览器控制工作流，先确认请求的流程是真实流程、由 fixture 支撑，还是采用其他模拟方式，再仅在 UI 达到语义上可观察的状态后截取一组精简的分镜帧。帧文件存放在仓库 `.gitignore` 忽略的 `.playwright-mcp/` 目录下（浏览器工具只能写入其允许的根目录），不会弄脏 worktree。
 
-随附的 `encode_gif.py` 辅助脚本按词法顺序排列各帧，为每帧设置明确的停留时长，通过 `ffmpeg` 调色板流水线编码，并借助 `ffprobe` 校验源图像尺寸以及编码结果的帧数、尺寸、时长和字节上限。工作流在返回已验证的 GIF 绝对路径后即结束；上传产物以及修改 PR、issue 或文档仍属于独立的工作流。
+随附的 `encode_gif.py` 辅助脚本按词法顺序排列各帧，为每帧设置明确的停留时长，通过 `ffmpeg` 调色板流水线编码，并借助 `ffprobe` 校验源图像尺寸以及编码结果的帧数、尺寸、时长和字节上限。录制在返回已验证的 GIF 绝对路径后即结束；当任务包含把 GIF 附到 PR 时，[GUI PR 的 GIF 证据决策](2026-07-26-gui-pr-gif-evidence-and-assets-branch.md)拥有强制证据政策以及随后的 assets 分支发布步骤。
 
 ## 曾考虑的替代方案
 
@@ -20,7 +20,7 @@ Status: implemented
 
 **在 skill 中保留内联 `ffmpeg` 配方。**每次运行都重新组装引号转义、时序清单、调色板过滤器、覆盖行为和编码后检查，容易出错。随附的辅助脚本使这些机制保持可执行，skill 则负责判断何时截取画面。
 
-**纳入 GitHub 附件上传与描述编辑。**上传和远程修改需要各自独立的身份认证、确认与恢复规则。将它们排除在外，可以使录制 skill 的调用保持本地且可撤销。
+**纳入 GitHub 附件上传与描述编辑。**上传和远程修改需要各自独立的身份认证、确认与恢复规则。让录制本身保持本地且可撤销即维护了这一边界；对确需把 GIF 附到 PR 的任务，[GUI PR 的 GIF 证据决策](2026-07-26-gui-pr-gif-evidence-and-assets-branch.md)拥有那个有边界的发布步骤。
 
 **每当 fixture 更容易布置时就使用它。**当请求明确要求由 fixture 支撑演示时，使用 fixture 是有效的；但它无法为真实服务器或真实 API 的声明提供证据。该 skill 会保持请求指定的演示来源，并在缺少先决条件时报告问题，不会擅自更改来源。
 

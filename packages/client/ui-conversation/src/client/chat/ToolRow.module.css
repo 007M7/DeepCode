@@ -87,14 +87,9 @@ button.leading {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The code variant's expanded body is the run_code program: monospace on the
-   markdown code-block fill so the program reads as code, not prose. */
-.root[data-variant='code'] .body {
-  font-family: var(--ds-font-family-code);
-  font-size: 13px;
-  line-height: 20px;
-  padding: 6px 8px;
-  margin-left: 22px;
-  border-radius: 6px;
-  background: var(--dsw-alias-markdown-code-block);
+/* The code variant's expanded body is the run_code program, rendered through
+   the shared CodeBlock (shiki-highlighted TypeScript); only indentation is
+   this row's concern. */
+.codeBody {
+  margin: 4px 0 4px 22px;
 }
