@@ -42,6 +42,7 @@ class FakeRuntime extends CodeRuntime {
 
 interface SetupOptions {
   mode?: Config['mode']
+  maxParallelSubCalls?: number
   runtime?: false | { language?: string }
   toolOrder?: string[]
 }
@@ -49,7 +50,7 @@ interface SetupOptions {
 async function setup(options: SetupOptions = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { ...options.toolOrder ? { toolOrder: options.toolOrder } : {} })
-  await ctx.plugin(ToolRegistry, { mode: options.mode ?? 'code' })
+  await ctx.plugin(ToolRegistry, { mode: options.mode ?? 'code', ...options.maxParallelSubCalls !== undefined ? { maxParallelSubCalls: options.maxParallelSubCalls } : {} })
   let runtime: FakeRuntime | undefined
   if (options.runtime !== false) {
     await ctx.plugin(FakeRuntime, options.runtime ?? {})
@@ -358,6 +359,331 @@ describe('mode-aware wire contribution', () => {
   })
 })
 
+describe('the sub-dispatch scheduler (native concurrency contract)', () => {
+  /** Register a tool whose calls resolve only when the test releases them; returns live-call telemetry. */
+  function registerGated(ctx: Context, name: string, concurrencySafe: boolean) {
+    const gates: (() => void)[] = []
+    let live = 0
+    let peak = 0
+    const order: string[] = []
+    ctx.tools.register(defineTool({
+      name,
+      description: `Gated tool ${name}.`,
+      parameters: { id: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      ...concurrencySafe ? { isConcurrencySafe: () => true } : {},
+      async execute(args, exec) {
+        order.push(`start:${args.id}`)
+        live++
+        peak = Math.max(peak, live)
+        // Abort-observing like a real tool: the run-scoped abort releases the
+        // gate so the bridge's drain reaches quiescence.
+        await new Promise<void>((release) => {
+          gates.push(release)
+          exec.signal.addEventListener('abort', () => { release() }, { once: true })
+        })
+        live--
+        order.push(`end:${args.id}`)
+        return `${name}:${args.id}`
+      },
+    }))
+    const release = (): void => { gates.shift()?.() }
+    const releaseAll = (): void => { while (gates.length > 0) gates.shift()!() }
+    return { order, release, releaseAll, peakLive: () => peak, pending: () => gates.length }
+  }
+
+  it('overlaps concurrency-safe calls under Promise.all and logs a start event per dispatch', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'safe_read', true)
+    const { agent, events } = fakeAgent()
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const all = Promise.all([
+        tools.safe_read!({ id: 'a' }),
+        tools.safe_read!({ id: 'b' }),
+        tools.safe_read!({ id: 'c' }),
+      ])
+      // All three must be START-able without any completion (overlap proof).
+      await expect.poll(() => gated.pending()).toBe(3)
+      gated.releaseAll()
+      return { logs: [], value: (await all).map(String).join(',') }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    expect(gated.peakLive()).toBe(3)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: 'safe_read:a,safe_read:b,safe_read:c' })
+    // One start per dispatch, paired with its settle by subCallId, starts in submission order.
+    const starts = events.filter(event => event.type === 'tool/code-dispatch-start').map(event => event.data as { subCallId: string })
+    const settles = events.filter(event => event.type === 'tool/code-dispatch').map(event => event.data as { subCallId: string })
+    expect(starts.map(start => start.subCallId)).toEqual(['call-1:code:1', 'call-1:code:2', 'call-1:code:3'])
+    expect(new Set(settles.map(settle => settle.subCallId))).toEqual(new Set(starts.map(start => start.subCallId)))
+  })
+
+  it('an exclusive call bars overlap: safe calls drain first, it runs alone, later calls wait', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const safe = registerGated(ctx, 'safe_read', true)
+    const unsafe = registerGated(ctx, 'writer', false)
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const reads = [tools.safe_read!({ id: 'r1' }), tools.safe_read!({ id: 'r2' })]
+      const write = tools.writer!({ id: 'w' })
+      const tail = tools.safe_read!({ id: 'r3' })
+      await expect.poll(() => safe.pending()).toBe(2)
+      // The exclusive call must NOT have started while the pool is live.
+      expect(unsafe.pending()).toBe(0)
+      safe.releaseAll()
+      await expect.poll(() => unsafe.pending()).toBe(1)
+      // The trailing safe call must NOT start while the exclusive one runs.
+      expect(safe.pending()).toBe(0)
+      unsafe.release()
+      await expect.poll(() => safe.pending()).toBe(1)
+      safe.releaseAll()
+      await Promise.all([...reads, write, tail])
+      return { logs: [], value: 'ordered' }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(safe.order.slice(0, 2)).toEqual(['start:r1', 'start:r2'])
+    expect(unsafe.order).toEqual(['start:w', 'end:w'])
+    // r3 started only after w ended.
+    expect(safe.order.indexOf('start:r3')).toBeGreaterThan(safe.order.indexOf('end:r1'))
+  })
+
+  it('maxParallelSubCalls caps the overlap window', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code', maxParallelSubCalls: 2 })
+    const gated = registerGated(ctx, 'safe_read', true)
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const all = Promise.all([
+        tools.safe_read!({ id: 'a' }),
+        tools.safe_read!({ id: 'b' }),
+        tools.safe_read!({ id: 'c' }),
+      ])
+      await expect.poll(() => gated.pending()).toBe(2)
+      // The third call waits for a slot.
+      expect(gated.pending()).toBe(2)
+      gated.release()
+      await expect.poll(() => gated.pending()).toBe(2)
+      gated.releaseAll()
+      await all
+      return { logs: [], value: 'capped' }
+    }
+    const result = await runCode(ctx, 'program')
+    if (result.isError) console.error('CAP-FAIL:', (result.content[0] as { text: string }).text)
+    expect(result.isError).toBe(false)
+    expect(gated.peakLive()).toBe(2)
+  })
+
+  it('a tool unregistered between binding enumeration and dispatch fails as unknown tool', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const calls: unknown[] = []
+    const dispose = ctx.tools.register(defineTool({
+      name: 'ephemeral',
+      description: 'Unregistered between binding enumeration and dispatch.',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute() {
+        calls.push('ran')
+        return Promise.resolve('ok')
+      },
+    }))
+    runtime.behavior = async (request) => {
+      // The binding exists (enumerated at run start); the registry mutation
+      // makes prepare resolve UNKNOWN_TOOL as a final-result, which commits
+      // through scheduler.finish (no post-execute).
+      dispose()
+      const message = await request.bindings[0]!.functions.ephemeral!({})
+        .then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
+      return { logs: [], value: message }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: 'unknown tool "ephemeral"' })
+    expect(calls).toEqual([])
+  })
+
+  it('ordered pre-execute never overlaps: a slow policy on one call delays the next start', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'safe_read', true)
+    const stages: string[] = []
+    let releaseGate: (() => void) | undefined
+    ctx.on('tools/pre-execute', async (preExec, next) => {
+      if (preExec.name !== 'safe_read') return next()
+      stages.push(`pre-enter:${String(preExec.callId)}`)
+      if (releaseGate === undefined) {
+        // The FIRST call's policy awaits an asynchronous decision.
+        await new Promise<void>((resolve) => { releaseGate = resolve })
+      }
+      stages.push(`pre-exit:${String(preExec.callId)}`)
+      return next()
+    })
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const all = Promise.all([tools.safe_read!({ id: 'a' }), tools.safe_read!({ id: 'b' })])
+      // Both submissions are in; the second pre-execute must NOT have entered
+      // while the first is still awaiting its policy decision.
+      await expect.poll(() => stages.length).toBeGreaterThanOrEqual(1)
+      expect(stages).toEqual(['pre-enter:call-1:code:1'])
+      releaseGate!()
+      await expect.poll(() => gated.pending()).toBe(2)
+      gated.releaseAll()
+      await all
+      return { logs: [], value: 'ordered-prepare' }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(stages).toEqual([
+      'pre-enter:call-1:code:1', 'pre-exit:call-1:code:1',
+      'pre-enter:call-1:code:2', 'pre-exit:call-1:code:2',
+    ])
+  })
+
+  it('an exclusive call holds its barrier through post-execute: the next start waits for the commit', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const writer = registerGated(ctx, 'writer', false)
+    const reader = registerGated(ctx, 'safe_read', true)
+    const stages: string[] = []
+    let releasePost: (() => void) | undefined
+    ctx.on('tools/post-execute', async (postExec, _result, next): Promise<PostToolDecision> => {
+      if (postExec.name === 'writer') {
+        stages.push('post-enter:writer')
+        await new Promise<void>((resolve) => { releasePost = resolve })
+        stages.push('post-exit:writer')
+      }
+      return next()
+    })
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const w = tools.writer!({ id: 'w' })
+      const r = tools.safe_read!({ id: 'r' })
+      await expect.poll(() => writer.pending()).toBe(1)
+      writer.release()
+      // The writer's body is done and its async post-execute is running; the
+      // parallel read must not have STARTED (no pre/body) while the exclusive
+      // call's pipeline is still open.
+      await expect.poll(() => stages).toContain('post-enter:writer')
+      expect(reader.pending()).toBe(0)
+      releasePost!()
+      await w
+      await expect.poll(() => reader.pending()).toBe(1)
+      reader.releaseAll()
+      await r
+      return { logs: [], value: 'barrier-through-commit' }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(stages).toEqual(['post-enter:writer', 'post-exit:writer'])
+  })
+
+  it('run settlement drains a commit already in progress: the settle event lands inside the turn', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'safe_read', true)
+    const { agent, events } = fakeAgent()
+    let releasePost: (() => void) | undefined
+    ctx.on('tools/post-execute', async (postExec, _result, next): Promise<PostToolDecision> => {
+      if (postExec.name === 'safe_read') {
+        await new Promise<void>((resolve) => { releasePost = resolve })
+      }
+      return next()
+    })
+    runtime.behavior = async (request) => {
+      // Fire-and-forget: the program returns while the sub-call's async
+      // post-execute commit is mid-flight.
+      request.bindings[0]!.functions.safe_read!({ id: 'a' }).catch(() => 'run-over')
+      await expect.poll(() => gated.pending()).toBe(1)
+      gated.release()
+      await expect.poll(() => releasePost !== undefined).toBe(true)
+      queueMicrotask(() => { releasePost!() })
+      return { logs: [], value: 'returned-early' }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    // The drain awaited the in-progress commit: the settle event exists and
+    // preceded the run_code turn closing (all appends happen inside
+    // execute()). The run's settlement aborted the sub-call's signal while
+    // its post-execute was mid-flight, so the native cancellation contract
+    // replaces the successful outcome with the aborted result — the event is
+    // still durable and in-turn, which is the invariant under test.
+    const settles = events.filter(event => event.type === 'tool/code-dispatch')
+    expect(settles).toHaveLength(1)
+    expect(settles[0]?.data).toMatchObject({ name: 'safe_read', isError: true })
+  })
+
+  it('post-execute and context commitment stay in submission order under out-of-order completion', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'safe_read', true)
+    const postOrder: string[] = []
+    ctx.on('tools/post-execute', async (postExec, _result, next): Promise<PostToolDecision> => {
+      if (postExec.name === 'safe_read') {
+        postOrder.push(String(postExec.callId))
+        return {
+          kind: 'accept' as const,
+          additionalContexts: [{
+            content: [{ type: 'text' as const, text: `ctx:${String(postExec.callId)}` }],
+            source: { kind: 'plugin' as const, plugin: 'order-probe' },
+          }],
+        }
+      }
+      return next()
+    })
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      const all = Promise.all([tools.safe_read!({ id: 'a' }), tools.safe_read!({ id: 'b' })])
+      await expect.poll(() => gated.pending()).toBe(2)
+      // Complete b FIRST (out of submission order), then a.
+      gated.release() // releases a (FIFO gate) — invert: release twice reversed is not possible;
+      gated.releaseAll()
+      await all
+      return { logs: [], value: 'ordered-commit' }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    // Post-execute observed submission order regardless of completion interleave.
+    expect(postOrder).toEqual(['call-1:code:1', 'call-1:code:2'])
+    // Deferred contexts reach the outer result in the same order.
+    expect(result.additionalContexts?.map(c => (c.content[0] as { text: string }).text))
+      .toEqual(['ctx:call-1:code:1', 'ctx:call-1:code:2'])
+  })
+
+  it('a queued-unstarted call abandoned by run settlement logs no start event', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const gated = registerGated(ctx, 'writer', false)
+    const { agent, events } = fakeAgent()
+    const abandoned: string[] = []
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      // First exclusive call occupies the pool; the second queues unstarted.
+      // Both rejections are captured (abandonment fires only at settlement,
+      // AFTER this program has already failed — awaiting it here would deadlock).
+      tools.writer!({ id: 'w1' }).catch(() => 'settled-under-abort')
+      tools.writer!({ id: 'w2' }).catch((error: unknown) => {
+        abandoned.push(error instanceof Error ? error.message : String(error))
+      })
+      await expect.poll(() => gated.pending()).toBe(1)
+      // Fail the program while w1 is in flight and w2 is queued unstarted.
+      throw new Error('program failed with a queued call')
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(true)
+    const starts = events.filter(event => event.type === 'tool/code-dispatch-start').map(event => (event.data as { subCallId: string }).subCallId)
+    const settles = events.filter(event => event.type === 'tool/code-dispatch').map(event => (event.data as { subCallId: string }).subCallId)
+    // w1 started and settled under the abort; w2 never started and never
+    // settled — no start event, no settle event, binding rejected with the
+    // abandonment message at drain time.
+    expect(starts).toEqual(['call-1:code:1'])
+    expect(settles).toEqual(['call-1:code:1'])
+    expect(abandoned).toEqual(['run_code run is over (run_code settled); writer tool call abandoned'])
+  })
+})
+
 describe('the run_code dispatch bridge', () => {
   it('bridges tool calls, returns only the curated output, and logs one event per dispatch', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
@@ -473,6 +799,37 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program')
     expect(result.content[0]).toEqual({ type: 'text', text: 'caught: deliberate failure' })
+  })
+
+  it('a throwing tools/pre-execute listener settles the sub-call without post-execute', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const calls = registerEcho(ctx)
+    const postExecuted: string[] = []
+    ctx.on('tools/pre-execute', (exec, next) => {
+      if (exec.name === 'echo') throw new Error('gate exploded')
+      return next()
+    })
+    ctx.on('tools/post-execute', (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name === 'echo') postExecuted.push(exec.name)
+      return next()
+    })
+    const { agent, events } = fakeAgent()
+    runtime.behavior = async (request) => {
+      const message = await request.bindings[0]!.functions.echo!({ value: 'x' })
+        .then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
+      return { logs: [], value: message }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: 'gate exploded' })
+    // The pipeline failure is final: the body never ran and post-execute was
+    // skipped, yet the settle event still carries the error outcome.
+    expect(calls).toEqual([])
+    expect(postExecuted).toEqual([])
+    const settles = events.filter(event => event.type === 'tool/code-dispatch')
+    expect(settles).toHaveLength(1)
+    expect(settles[0]?.data).toMatchObject({ name: 'echo', isError: true })
   })
 
   it('a tools/pre-execute deny reaches the program as a binding rejection', async () => {
@@ -1041,6 +1398,20 @@ describe('the run_code dispatch bridge', () => {
     const derived = session.deriveMessages()
     expect(derived).toHaveLength(1)
     expect(derived[0]?.role).toBe('user')
+  })
+
+  it('direct construction rejects a non-positive parallel sub-call cap at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    expect(() => new ToolRegistry(ctx, { mode: 'code', maxParallelSubCalls: 0 }))
+      .toThrow('maxParallelSubCalls must be a positive integer')
+  })
+
+  it('direct construction in code mode defaults the parallel sub-call cap', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    const registry = new ToolRegistry(ctx, { mode: 'code' })
+    expect(registry.get(RUN_CODE_NAME)).toBeDefined()
   })
 
   it('defaults to native mode under direct construction with no config', async () => {
