@@ -24,7 +24,10 @@ export interface WorkspaceView {
   path: string
   /** Unique display title (defaults to the path basename at create). */
   title: string
-  /** Sessions accounted under this workspace, newest-first for display. */
+  /**
+   * Sessions accounted under this workspace, in manually owned order
+   * (attach prepends, insertSessionBefore reorders; activity never does).
+   */
   sessionIds: SessionId[]
   /** ISO-8601 creation instant. */
   createdAt: string
@@ -52,4 +55,27 @@ export interface WorkspaceApi {
    */
   create(request: RpcRequest<{ path?: string; name?: string }>):
   Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>>
+
+  /**
+   * Renames a workspace. `title` is trimmed and must be non-empty
+   * (schema-enforced). An unknown id fails with `workspace-not-found`; a
+   * title equal to another workspace's fails with `workspace-name-conflict`.
+   * Renaming to the current title is a no-op success (no durable write).
+   */
+  rename(request: RpcRequest<{ workspaceId: WorkspaceId; title: string }>):
+  Promise<RpcResponse<{ workspace: WorkspaceView }>>
+
+  /**
+   * Moves an accounted session within its workspace's manual order,
+   * DOM-insertBefore-like: with `beforeSessionId` the session is inserted
+   * before that anchor; omitted appends to the end. An unknown workspace
+   * fails with `workspace-not-found`; a session or anchor not accounted by
+   * the workspace fails with `workspace-move-invalid`. A move to the current
+   * position is a no-op success.
+   */
+  insertSessionBefore(request: RpcRequest<{
+    workspaceId: WorkspaceId
+    sessionId: SessionId
+    beforeSessionId?: SessionId
+  }>): Promise<RpcResponse<{ workspace: WorkspaceView }>>
 }

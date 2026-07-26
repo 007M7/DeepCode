@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-05-windows-jsonl-durable-publish.zh.md)
+
 ## Problem
 
 `dsh-session-persistence-jsonl` publishes a session log lazily on the first append. The POSIX protocol writes a temp file, fsyncs it, links it to the final name, fsyncs the parent directory, and then removes the temp link. The parent-directory fsync is part of the durability contract: a crash after the namespace change must not lose the committed final name while leaving callers believing the session log materialized.

@@ -1,5 +1,7 @@
 # acp/ — Agent Client Protocol automation
 
+English | [中文](README.zh.md)
+
 The ACP group exposes harness agents to programmatic clients. It is an interoperability transport, not a presentation or human-interaction layer.
 
 | Package | Role |

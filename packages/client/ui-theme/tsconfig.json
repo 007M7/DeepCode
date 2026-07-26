@@ -9,6 +9,18 @@
   ],
   "references": [
     {
+      "path": "../locale"
+    },
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../ui-primitives"
+    },
+    {
+      "path": "../ui-slots"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
