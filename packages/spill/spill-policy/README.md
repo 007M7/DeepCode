@@ -15,7 +15,7 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
 ## Behavior
 
 1. Let the tool run (delegates via `next()`, so it bounds whatever a downstream hook accepted).
-2. Skip nested executions (`exec.parent` is present), accepted value replacements (the registry must revalidate and rerender them), `read` (avoids a `read → spill → read again` loop), and any non-`accept` decision (a `block`'s corrective feedback passes through).
+2. Skip nested executions (`exec.parent` is present — their DURABLE copy is bounded by the dispatch-log arm below), accepted value replacements (the registry must revalidate and rerender them), `read` (avoids a `read → spill → read again` loop), and any non-`accept` decision (a `block`'s corrective feedback passes through).
 3. Flatten the accepted content only when it is **plain text** (all `text` blocks); a result with any non-text block is left untouched.
 4. If its UTF-8 size is `≤ maxInlineBytes`, leave it unchanged.
 5. Otherwise save the full text and replace the result with a preview + this notice, sized so the whole replacement (preview + blank line + notice) stays within `maxInlineBytes` — the notice's byte cost is reserved out of the budget, so the preview shrinks to fit and the model-facing result never exceeds the cap:
@@ -29,6 +29,8 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
    When the notice alone fills the budget (a tiny cap or a long locator) the preview is empty and only the notice is returned. If even that notice-only replacement would exceed `maxInlineBytes`, the policy keeps the inline result — it never emits a replacement over the cap (and a within-cap replacement is always smaller than the original, so this also means spilling never adds bytes).
 
 **Best-effort:** no session owner, no `ctx.spillStore` backend, or a `saveText` rejection ⇒ the policy logs a warning and returns the original result. A spill failure never turns a successful call into an `isError` or hides the inline result. A successful replacement changes only `content`; the canonical programmatic value is preserved.
+
+**The dispatch-log arm:** a second listener on `tools/code-dispatch-log` applies the same cap, replacement pipeline, and best-effort fallbacks to the DURABLE copy of each `run_code` sub-call result (artifact label `dispatch`, keyed by the sub-call id). The program's value is untouched — it already crossed the worker boundary whole — and `read` sub-calls are bounded too: a log copy is not model context, so the read-again loop cannot occur, and `read` is precisely the tool that produces huge logs ([rationale](../../../.agents/notes/implemented/feature/2026-07-26-code-dispatch-log-spill.md)).
 
 ## Scope
 

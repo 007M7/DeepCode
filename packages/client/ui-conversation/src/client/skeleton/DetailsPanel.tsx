@@ -5,6 +5,7 @@
 // share the store seat exists for) and derives the call material from the
 // session snapshot — no data of its own.
 
+import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
@@ -30,6 +31,18 @@ function materialFor(s: ConversationSnapshot, callId: string): CallMaterial | nu
   const open = s.runningCalls.find(c => c.callId === callId)
   if (open !== undefined) {
     return { name: open.name, argsRaw: open.argsRaw, result: null, running: true }
+  }
+  // run_code sub-dispatches: the native call-block shapes, so a selected
+  // sub-row resolves through the same material as a native call — the
+  // settled ToolResultNode form, or the RunningToolCall form mid-flight.
+  for (const subs of s.codeDispatches.values()) {
+    for (const sub of subs) {
+      if (sub.callId !== callId) continue
+      if ('kind' in sub) {
+        return { name: sub.call?.name ?? callId, argsRaw: sub.call?.argsRaw ?? null, result: sub, running: false }
+      }
+      return { name: sub.name, argsRaw: sub.argsRaw, result: null, running: true }
+    }
   }
   return null
 }
@@ -77,7 +90,7 @@ export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPane
                   {material.argsRaw !== null && (
                     <section className={css.section}>
                       <div className={css.sectionLabel}>Input</div>
-                      <pre className={css.code}>{pretty(material.argsRaw)}</pre>
+                      <CodeBlock code={pretty(material.argsRaw)} lang="json" />
                     </section>
                   )}
                   <section className={css.section}>

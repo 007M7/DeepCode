@@ -24,9 +24,6 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../util/timeout"
-    },
-    {
       "path": "../../support/invariants"
     }
   ]

@@ -5,29 +5,9 @@
 {"type":"step/start","seq":3,"time":1783352145224,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":4,"time":1783352145224,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
 {"type":"assistant/chunk","seq":5,"time":1783352145820,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
-{"type":"assistant/chunk","seq":6,"time":1783352145821,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
-{"type":"assistant/chunk","seq":7,"time":1783352145985,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
-{"type":"assistant/chunk","seq":8,"time":1783352146014,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" asked"}}}
-{"type":"assistant/chunk","seq":9,"time":1783352146042,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" me"}}}
-{"type":"assistant/chunk","seq":10,"time":1783352146043,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
-{"type":"assistant/chunk","seq":11,"time":1783352146043,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
-{"type":"assistant/chunk","seq":12,"time":1783352146043,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
-{"type":"assistant/chunk","seq":13,"time":1783352146043,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" exactly"}}}
-{"type":"assistant/chunk","seq":14,"time":1783352146071,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
-{"type":"assistant/chunk","seq":15,"time":1783352146071,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" word"}}}
-{"type":"assistant/chunk","seq":16,"time":1783352146071,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" \""}}}
-{"type":"assistant/chunk","seq":17,"time":1783352146071,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"AL"}}}
-{"type":"assistant/chunk","seq":18,"time":1783352146071,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"P"}}}
-{"type":"assistant/chunk","seq":19,"time":1783352146071,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"HA"}}}
-{"type":"assistant/chunk","seq":20,"time":1783352146100,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\""}}}
-{"type":"assistant/chunk","seq":21,"time":1783352146100,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" and"}}}
-{"type":"assistant/chunk","seq":22,"time":1783352146100,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" nothing"}}}
-{"type":"assistant/chunk","seq":23,"time":1783352146100,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" else"}}}
-{"type":"assistant/chunk","seq":24,"time":1783352146100,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"reasoning-chunks","seq0":6,"time0":1783352145821,"data":{"turn":1,"step":1,"index":0,"dt":[164,29,28,1,0,0,0,28,0,0,0,0,0,29,0,0,0,0],"texts":["The"," user"," asked"," me"," to"," reply"," with"," exactly"," the"," word"," \"","AL","P","HA","\""," and"," nothing"," else","."]}}
 {"type":"assistant/chunk","seq":25,"time":1783352146129,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":26,"time":1783352146129,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"AL"}}}
-{"type":"assistant/chunk","seq":27,"time":1783352146129,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"P"}}}
-{"type":"assistant/chunk","seq":28,"time":1783352146129,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"HA"}}}
+{"type":"text-chunks","seq0":26,"time0":1783352146129,"data":{"turn":1,"step":1,"index":1,"dt":[0,0],"texts":["AL","P","HA"]}}
 {"type":"assistant/chunk","seq":29,"time":1783352146129,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user asked me to reply with exactly the word \"ALPHA\" and nothing else."}}}}
 {"type":"assistant/chunk","seq":30,"time":1783352146129,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"ALPHA"}}}}
 {"type":"assistant/chunk","seq":31,"time":1783352146129,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":48,"outputTokens":23,"cacheReadTokens":2816,"reasoningTokens":19}}}}

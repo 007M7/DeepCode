@@ -43,7 +43,7 @@ Status: implemented
 - 被引用的包/vendor 项目保持与构建相同的输出行为，因此类型检查会刷新它们的 `lib/types` 输出，而无需使用独立的 no-emit 图。项目特定的严格度变更放在各自的 `packages/*/*/tsconfig.json` 或 `vendor/*/tsconfig.json` 中。
 - 两个 no-emit 聚合禁用 `rewriteRelativeImportExtensions`；它们不输出任何文件，且包含跨 project-reference 边界导入 helper 的测试。包/vendor 的 emit 项目保持重写开启。
 
-复合项目将增量构建信息保存在各项目本地的 `lib/` 输出中。`pnpm run clean` 会根据根 TypeScript project-reference 图确定当前有效的输出目录，删除遗留的根目录构建信息，并删除已删除包留下且仅包含已知生成残留的 `packages/*/*` 目录。对于仍有 `package.json` 的每个包，该命令都会保留 `node_modules`；如果不含 `package.json` 的目录中存在未知文件，则拒绝删除。构建不会自动调用 clean，因此常规构建会保留增量状态。
+复合项目将增量构建信息保存在各项目本地的 `lib/` 输出中。`pnpm run clean` 会根据根 TypeScript project-reference 图确定当前有效的输出目录，删除遗留的根目录构建信息，并删除已删除包留下且仅包含已知生成残留的 `packages/*/*` 目录。在删除现有目标前，该命令会解析目标父目录的真实路径；如果解析后的父目录位于仓库之外，则拒绝删除，防止使用符号链接的 project reference 将清理操作重定向到工作副本之外。对于仍有 `package.json` 的每个包，该命令都会保留 `node_modules`；如果不含 `package.json` 的目录中存在未知文件，则拒绝删除。构建不会自动调用 clean，因此常规构建会保留增量状态。
 
 命令编排结构如下：
 
