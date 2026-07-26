@@ -11,6 +11,7 @@ import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const codeModeConfigPath = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
+const piAiAnthropicConfigPath = fileURLToPath(new URL('../pi-ai-anthropic.cordis.yml', import.meta.url))
 const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
@@ -243,6 +244,26 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       actions: [{ waitFor: 'TUI Code Mode ready.', send: '/exit\r' }],
     })
     expect(output).toContain('TUI Code Mode ready.')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('boots the pi-ai Anthropic overlay and selects an advertised reasoning effort', async () => {
+    const output = await smoke({
+      label: 'tui-agent pi-ai anthropic',
+      tempDirPrefix: 'tui-agent-pi-ai-anthropic-',
+      configPath: piAiAnthropicConfigPath,
+      env: {
+        DEEPSEEK_API_KEY: 'keyless-tui-no-call',
+        DEEPSEEK_BASE_URL: 'http://127.0.0.1:1',
+      },
+      actions: [
+        { waitFor: 'main-session-', send: '/model\r' },
+        { waitFor: 'Claude Sonnet 4.6 — High — current', send: '\x1b[Z\r' },
+        { waitFor: 'Reasoning effort: Max.', send: '/exit\r' },
+      ],
+    })
+    expect(output).toContain('anthropic/claude-sonnet-4-6')
+    expect(output).toContain('Reasoning effort: Max.')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

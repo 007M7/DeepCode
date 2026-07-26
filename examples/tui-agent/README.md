@@ -13,6 +13,14 @@ pnpm run demo:tui
 
 Both the demo script and the installable `dsh` CLI ([`apps/cli`](../../apps/cli/README.md)) boot this example's `cordis.yml` as the shipped default config; `dsh` additionally applies the personal overlay from `~/.dsh` and uses the invoking directory as the workspace.
 
+### Anthropic-compatible pi-ai route
+
+The checked-in `pi-ai-anthropic.cordis.yml` overlay disables the native DeepSeek adapter, mounts one explicit `anthropic` profile through `dsh-llm-pi-ai`, and selects `claude-sonnet-4-6` with `high` reasoning by default. It deliberately reuses `DEEPSEEK_API_KEY` and `DEEPSEEK_BASE_URL` for a deployment whose private endpoint accepts the Anthropic Messages protocol; a DeepSeek Chat Completions endpoint is not interchangeable. Run it from the repository root:
+
+```sh
+pnpm run demo:tui --config examples/tui-agent/pi-ai-anthropic.cordis.yml
+```
+
 Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ the generic `task_output` / `task_list` / `task_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork`.
 
 The `todo_write` task tracker is opt-in and not in the shipped config: add `@deepseek-ai/dsh-tool-todo` to `cordis.yml` (or a personal-config overlay under `~/.dsh`) to expose it. Once loaded, the model records a whole-list plan to the session log and the TUI renders it.
@@ -51,7 +59,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 | Entry | Demonstrates |
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it depends on the Loader's internal module access |
-| `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
+| `llm-deepseek` | the default native adapter; `pi-ai-anthropic.cordis.yml` disables that owner and mounts an explicit library-backed Anthropic profile |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
 | `tui-agent` (`@deepseek-ai/dsh-tui-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the pi-tui channel + a pre-created `main` agent |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |

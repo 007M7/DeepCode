@@ -1,0 +1,39 @@
+# Replace the native DeepSeek adapter with pi-ai's Anthropic route. The
+# configured endpoint must implement the Anthropic Messages protocol even
+# though this deployment reuses the repository's DeepSeek-named environment
+# variables.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
+        disabled: true
+      - id: tui-agent
+        name: '@deepseek-ai/dsh-tui-demo'
+        config:
+          provider: anthropic
+          model: claude-sonnet-4-6
+          resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
+          persistenceRoot: './.sessions'
+          resumeCommand: 'dsh --config examples/tui-agent/pi-ai-anthropic.cordis.yml --resume {session}'
+          workspaceContext:
+            maxBytes: 65536
+          ui:
+            showReasoning: true
+            maxToolOutputLines: 6
+          persona: |
+            You are a coding agent powered by the {{model}} model.
+
+            Verify your work by running the code or tests. Keep answers brief and
+            factual.
+      - insert:
+          - id: llm-pi-ai
+            name: '@deepseek-ai/dsh-llm-pi-ai'
+            config:
+              providers:
+                - provider: anthropic
+                  apiKey: !!js process.env.DEEPSEEK_API_KEY
+                  baseURL: !!js process.env.DEEPSEEK_BASE_URL
+                  reasoning: high

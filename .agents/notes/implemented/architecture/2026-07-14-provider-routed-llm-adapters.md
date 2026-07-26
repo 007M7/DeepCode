@@ -84,6 +84,7 @@ The on-disk session format remains the pre-release pinned version `0`, with no c
 
 - Unit coverage exercises registry conflicts, request reconstruction, session validation, profile resolution, single-attempt option forwarding, native API selection including OpenAI Responses, conversion, replay validation, error mapping, caller cancellation, idle-timeout transport termination, content rewrites, and same-instance versus different-instance replay dispatch.
 - Keyless loop/session tests and ACP snapshots exercise durable provider/model metadata, resume and fork propagation, workflow/subagent overrides, and unchanged user-visible transcripts; the key-gated DeepSeek e2e retains real provider streaming and tool follow-up coverage.
+- The TUI's `pi-ai-anthropic.cordis.yml` overlay disables the native provider owner, mounts an explicit Anthropic profile over deployment-supplied credentials and endpoint, and selects a catalog model. Its keyless PTY smoke opens `/model`, observes the profile's default reasoning effort, and selects the next adapter-advertised effort without provider I/O.
 - Public JSDoc, package READMEs, architecture and core-data-structure docs, generated catalogs, examples, session fixtures, and Python SDK pairs use provider/model targets consistently and are checked by the repository documentation and type-equivalence gates.
 
 ## Risks
