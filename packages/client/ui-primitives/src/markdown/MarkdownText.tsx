@@ -53,14 +53,14 @@ function buildComponents(streaming: boolean): Components {
     // plain arm — retokenizing a growing fence on every chunk is quadratic
     // main-thread work; the finalize swap highlights it once.
     pre: ({ children }) => {
+      /* v8 ignore next 2 -- the markdown pipeline always hands `pre` its single `code` element; the undefined arm guards a react-markdown representation change. */
       const child = isValidElement<{ className?: string; children?: unknown }>(children) ? children : undefined
       const raw = child?.props.children
-      const text = typeof raw === 'string' ? raw : Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : undefined
-      // A fence whose content isn't one plain string (never produced by the
-      // markdown pipeline) keeps the stock <pre> rather than guessing.
-      if (text === undefined) return <pre>{children}</pre>
+      // A fence whose content isn't one plain string (e.g. an empty fence)
+      // keeps the stock <pre> rather than guessing.
+      if (typeof raw !== 'string') return <pre>{children}</pre>
       const lang = /language-([\w-]+)/.exec(child?.props.className ?? '')?.[1]
-      return <CodeBlock code={text} lang={streaming ? undefined : lang} />
+      return <CodeBlock code={raw} lang={streaming ? undefined : lang} />
     },
   }
 }
