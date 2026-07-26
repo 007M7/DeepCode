@@ -186,8 +186,9 @@ function renderValue(value: JsonValue): string {
 type RunCodeOutput = { logs: string[]; result?: JsonValue }
 
 /**
- * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
- * executed through the dispatch bridge described above. The
+ * Build the `run_code` {@link ToolDefinition}: required `code` and
+ * `description` parameters, executed through the dispatch bridge described
+ * above. The
  * registry reserves it as presentation infrastructure under non-native modes,
  * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
