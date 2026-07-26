@@ -16,8 +16,6 @@ Status: implemented
 
 `scripts/agent-note-tree.ts` 持有封闭的生命周期／类别集合与结构遍历器。`verify-agent-note-classification` 校验该目录树，并拒绝旧目录和根目录中的 `INDEX.md`，但不会渲染集中式清单或检查其新鲜度。
 
-本决策取代已拒绝的[生成索引提案](../../rejected/process/2026-07-04-generate-agent-note-index-tables.md)。
-
 ## 备选方案
 
 **保留提交到仓库的生成索引，并通过重新生成解决冲突。** 重新生成能让冲突解决过程机械化，但无法阻止无关分支修改同一产物，也不会减少由此产生的评审噪音。

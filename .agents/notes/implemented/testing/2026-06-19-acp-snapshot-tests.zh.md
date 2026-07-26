@@ -46,14 +46,14 @@ Status: implemented
 
 记录模式使用真实 `llm-deepseek` 适配器和配置为 `persistenceCompression: 'none'` 的 JSONL 持久化后端运行场景，再把生成的 `.jsonl` 复制到场景目录。显式 raw 模式让已提交重放 fixture 保持逐行可读，而普通部署使用后端的压缩默认值。逐事件追加具有持久性，但 harness 会在采集前优雅关闭子进程（关闭 stdin → `await ctx.dispose()`），以确保最终事件已刷出。`llm-replay` 本身不执行记录——它只负责重放。
 
-重放使用 `cordis.snapshot.yml` overlay，以 `llm-replay` 替换真实适配器，同时保留实时组合。记录使用普通配置和由 harness 提供的持久化根目录。重放模式跳过 `.env` 加载，因此意外存在的 API 密钥不会触发实时调用。参见[单一来源配置 Agent Note](2026-07-04-single-source-acp-replay-config.md)。
+重放使用 `cordis.snapshot.yml` overlay，以 `llm-replay` 替换真实适配器，同时保留实时组合。记录使用普通配置和由 harness 提供的持久化根目录。重放模式跳过 `.env` 加载，因此意外存在的 API 密钥不会触发实时调用。参见[单一来源配置 Agent Note](../../archived/testing/2026-07-04-single-source-acp-replay-config.md)。
 
 ### 两个表面：归一化后比对
 
 快照运行断言**两个**归一化后的表面，因为 harness 的外部表面是不同的：
 
 1. **stdout transcript**——自动化客户端收到的、经过 framing 的 ACP JSON-RPC 响应与已提交的消息更新。它捕获传输契约的回归，与已提交的 `stdout.expected.jsonl` 比较。
-2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为重放来源和预期日志。提示词文本会被清理；按照[请求头固定 Agent Note](2026-07-06-pin-request-header-content-in-one-scenario.md)所述，每种请求头类别由一个场景固定可读提示词与工具内容。Override 场景仅从其 sidecar 派生模型行为。
+2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为重放来源和预期日志。提示词文本会被清理；按照[请求头固定 Agent Note](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)所述，每种请求头类别由一个场景固定可读提示词与工具内容。Override 场景仅从其 sidecar 派生模型行为。
 
 两个表面互补：stdout 覆盖精简的自动化线协议，JSONL 覆盖线协议有意省略的 loop、工具和 boundary 结构。
 

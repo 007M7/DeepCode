@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-06-20-drop-acp-terminal-meta.md: 84b9028392f967e72f7b5585d013d669735631de
-2026-06-20-drop-acp-terminal-meta.zh.md: 6ac7ba46bce20bcf2593ef422057e0562f8a1557
