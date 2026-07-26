@@ -9,6 +9,7 @@ import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection
 import { escalateProcessTree } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { InstanceSpec } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { LspProviderQuery, LspQueryResult } from '@deepseek-ai/dsh-lsp'
+import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
 
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
 
@@ -43,10 +44,11 @@ function makeInstance(
     initializationOptions: { init: true },
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
+    pipeDrainGraceMs: 200,
     shutdownTimeoutMs: 200,
     killGraceMs: 200,
     ...overrides,
-  }, writer)
+  }, spawnSubprocess, writer)
   live.push(instance)
   return instance
 }
@@ -72,10 +74,11 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     initializationOptions: null,
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
+    pipeDrainGraceMs: 150,
     shutdownTimeoutMs: 150,
     killGraceMs: 150,
     ...overrides,
-  })
+  }, spawnSubprocess)
   live.push(instance)
   return instance
 }

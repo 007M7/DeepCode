@@ -2201,6 +2201,36 @@
       "doc": "docs/core-data-structures/subprocess.md",
       "symbol": "CollectedOutput",
       "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessStdinMode",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessCollect",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessOutputMode",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessStdio",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessCollectedOutputs",
+      "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subprocess.md",
+      "symbol": "SubprocessDisposeGraces",
+      "source": "packages/subprocess/subprocess/src/types.ts"
     }
   ]
 }

@@ -21,7 +21,7 @@ const exampleConfig = fileURLToPath(new URL('../../../../examples/acp-agent/cord
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 // How to launch the child acp-agent (src via tsx / lib via plain node, per DSH_EXAMPLE_MODE).
-// buildChildEnv scrubs ambient creds but keeps these extras, so the model key is
+// The subprocess seam scrubs ambient creds while spec.env merges after it, so the model key is
 // forwarded explicitly; TSX_TSCONFIG_PATH is added by the resolver in src mode only.
 const childLaunch = resolveExampleLaunch({
   srcBin: binScript,

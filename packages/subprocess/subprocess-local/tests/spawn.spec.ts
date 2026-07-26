@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { DshEnvironment } from '@deepseek-ai/dsh-subprocess'
-import { killGroup, OutputCollector, spawnSubprocess } from '../src/spawn.ts'
+import { killGroup, OutputCollector, spawnSubprocess, taskkillProcessTree } from '../src/spawn.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 
 const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
@@ -572,6 +572,147 @@ describe('waitForExit', () => {
     await expect(running.waitForExit(controller.signal)).resolves.toBe(false)
     running.terminate()
     await running.done
+  })
+})
+
+describe('coverage seams', () => {
+  it('taskkillProcessTree ignores non-positive pids and contains a missing binary', () => {
+    expect(() => { taskkillProcessTree(-1) }).not.toThrow()
+    expect(() => { taskkillProcessTree(0) }).not.toThrow()
+    // On POSIX there is no taskkill; spawnSync reports the failure in its
+    // result and the function stays silent — the same containment Windows
+    // relies on for an already-absent tree.
+    expect(() => { taskkillProcessTree(2 ** 30) }).not.toThrow()
+  })
+
+  it('dispose on a spawn-failed handle observes the rejection and returns', async () => {
+    const running = spawnSubprocess(spec('true', { cwd: '/nonexistent-dir-dsh-dispose-test' }))
+    const disposal = running.dispose({ eofGraceMs: 1_000, graceMs: 1_000 })
+    await expect(running.done).rejects.toThrow()
+    await expect(disposal).resolves.toBeUndefined()
+  })
+
+  it("an 'inherit' stdout with collected stderr wires only the requested collector", async () => {
+    const running = spawnSubprocess({
+      ...spec('echo to-parent; echo err >&2'),
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: { maxBytes: 1000 } },
+    })
+    const outcome = await running.done
+    expect(outcome.exitCode).toBe(0)
+    expect(running.stdout).toBeUndefined()
+    expect(running.collected.stdout).toBeUndefined()
+    expect(running.collected.stderr!.readFrom(0).text).toBe('err\n')
+  })
+
+  it('terminate() after settlement is a no-op', async () => {
+    const running = spawnSubprocess(spec('true'))
+    await running.done
+    const spy = vi.spyOn(process, 'kill')
+    try {
+      running.terminate()
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('waitForExit on a failed spawn reports exited immediately', async () => {
+    const running = spawnSubprocess(spec('true', { cwd: '/nonexistent-dir-dsh-spawn-test' }))
+    await expect(running.done).rejects.toThrow()
+    await expect(running.waitForExit()).resolves.toBe(true)
+  })
+
+  it('dispose() on an already-settled handle returns without signalling', async () => {
+    const running = spawnSubprocess(spec('true'))
+    await running.done
+    const spy = vi.spyOn(process, 'kill')
+    try {
+      await running.dispose({ eofGraceMs: 50, graceMs: 50 })
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('a batch-stdin handle exposes no stdin and dispose skips the EOF tier', async () => {
+    const running = spawnSubprocess(spec('cat', { stdin: 'batch\n' }))
+    expect(running.stdin).toBeUndefined()
+    await running.done
+    await running.dispose({ eofGraceMs: 50, graceMs: 50 })
+    expect(running.collected.stdout!.readFrom(0).text).toBe('batch\n')
+  })
+})
+
+describe('coverage seams 2', () => {
+  it('win32 treeAlive reports alive for a live child and gone after taskkill', async () => {
+    let killedPid = 0
+    const running = spawnSubprocess(spec('sleep 60'), {
+      spillDir,
+      platform: 'win32',
+      taskkill: (pid) => {
+        killedPid = pid
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Already gone.
+        }
+      },
+    })
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(running.waitForExit(aborted.signal)).resolves.toBe(false) // alive branch
+    running.terminate()
+    await running.done
+    expect(killedPid).toBe(running.pid)
+    await expect(running.waitForExit()).resolves.toBe(true)
+  })
+
+  it('the win32 dispose ladder skips the POSIX SIGTERM tier and force-terminates', async () => {
+    const kills: number[] = []
+    const running = spawnSubprocess({
+      ...spec('sleep 60'),
+      stdio: { stdin: 'pipe', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
+    }, {
+      spillDir,
+      platform: 'win32',
+      taskkill: (pid) => {
+        kills.push(pid)
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Already gone.
+        }
+      },
+    })
+    await running.dispose({ eofGraceMs: 50, graceMs: 5_000 })
+    // Exactly one forced tree termination: no POSIX SIGTERM tier ran.
+    expect(kills).toEqual([running.pid])
+  })
+
+  it('dispose throws when even SIGKILL produces no exit within the grace', async () => {
+    // An inert taskkill simulates a tree that never reports exit.
+    const running = spawnSubprocess(spec('sleep 60'), { spillDir, platform: 'win32', taskkill: () => {} })
+    await expect(running.dispose({ eofGraceMs: 20, graceMs: 40 }))
+      .rejects.toThrow(/did not exit within 40ms after forced termination/)
+    // Real cleanup: the injected platform spawned without detachment, so the
+    // child is a plain (group-less) POSIX process — kill it directly.
+    process.kill(running.pid, 'SIGKILL')
+    await running.done
+  })
+
+  it("stderr: 'pipe' exposes the raw stream", async () => {
+    const running = spawnSubprocess({
+      ...spec('echo err >&2'),
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 1000 }, stderr: 'pipe' },
+    })
+    expect(running.stderr).toBeDefined()
+    const text = new Promise<string>((resolve) => {
+      let out = ''
+      running.stderr!.on('data', (chunk: Buffer) => { out += chunk.toString('utf8') })
+      running.stderr!.on('end', () => { resolve(out) })
+    })
+    await running.done
+    expect(await text).toBe('err\n')
   })
 })
 

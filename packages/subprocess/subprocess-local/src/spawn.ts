@@ -258,8 +258,9 @@ export function killGroup(pid: number, sig: NodeJS.Signals): void {
  */
 export function taskkillProcessTree(pid: number): void {
   if (pid <= 0) return
-  // Outcome deliberately unchecked: an already-absent tree (status 128) and
-  // exit races are as tolerable here as ESRCH is for a POSIX group signal.
+  // Outcome deliberately unchecked: an already-absent tree (status 128), exit
+  // races, and a missing taskkill binary (spawnSync reports, never throws) are
+  // as tolerable here as ESRCH is for a POSIX group signal.
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
 }
 
@@ -284,11 +285,14 @@ function signalTree(
   try {
     process.kill(-pid, sig)
   } catch {
+    /* v8 ignore start -- the fallback needs a live child whose group signal fails
+       (EPERM-style), which POSIX CI cannot stage; the swallow keeps teardown idempotent. */
     try {
       child.kill(sig)
     } catch {
       // The direct child already exited; teardown remains idempotent.
     }
+    /* v8 ignore stop */
   }
 }
 
@@ -360,6 +364,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     if (settled) return
     signalTree(platform, pid, 'SIGTERM', child, taskkill)
     graceTimer = setTimeout(() => {
+      /* v8 ignore next -- the timer is cleared at settlement; only an in-flight fire racing the close event sees settled=true. */
       if (!settled) signalTree(platform, pid, 'SIGKILL', child, taskkill)
     }, spec.graceMs)
   }
@@ -422,6 +427,8 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       return true
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
+      /* v8 ignore next -- POSIX reports an absent group as ESRCH; child-reaping timing
+         makes observing the other arm platform-dependent. */
       if (code === 'ESRCH') return false
       /* v8 ignore start -- EPERM and non-POSIX negative-pid failures are platform defenses; CI runs
          tree-lifecycle tests on POSIX hosts where absence reports ESRCH. */
@@ -442,7 +449,8 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   /** Race settlement against a timer without leaving listeners or live timers behind. */
   const settlesWithin = async (ms: number): Promise<boolean> => {
     if (settled) return true
-    let timer: NodeJS.Timeout | undefined
+    // The executor runs synchronously, so the timer is assigned before the race.
+    let timer!: NodeJS.Timeout
     const timeout = new Promise<false>((resolve) => {
       // `.unref()` so a pending grace timer never keeps the parent's loop alive.
       timer = setTimeout(() => { resolve(false) }, ms)
@@ -451,7 +459,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     try {
       return await Promise.race([done.then(() => true, () => true), timeout])
     } finally {
-      if (timer !== undefined) clearTimeout(timer)
+      clearTimeout(timer)
     }
   }
 
@@ -474,9 +482,11 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
 
   return {
     pid,
+    /* v8 ignore start -- pipe-mode fds exist on every spawn Node returns; the null-coalesces guard a nonconforming ChildProcess only. */
     stdin: stdinMode === 'pipe' ? child.stdin ?? undefined : undefined,
     stdout: outMode === 'pipe' ? child.stdout ?? undefined : undefined,
     stderr: errMode === 'pipe' ? child.stderr ?? undefined : undefined,
+    /* v8 ignore stop */
     collected: {
       ...stdoutCollector !== undefined ? { stdout: stdoutCollector } : {},
       ...stderrCollector !== undefined ? { stderr: stderrCollector } : {},

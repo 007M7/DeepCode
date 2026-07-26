@@ -1565,24 +1565,24 @@ Abstract subprocess service. Subclass, implement spawn, and load the subclass as
 
 Implementations must honor these semantics:
 
-- spawn returns immediately with a live handle; `done` resolves at process close and rejects only for spawn-level failures.
-- Output readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists.
-- SubprocessHandle.kill and the spec's abort signal escalate SIGTERM→grace→SIGKILL across the whole process group.
-- Disposal kills all still-running managed processes and awaits their exit.
+- spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.
+- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
+- SubprocessHandle.kill signals without escalation, SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL, and SubprocessHandle.dispose runs the cooperative EOF-first ladder — all tree-scoped on every platform.
+- Disposal of the service terminates all still-running managed processes and awaits their exit.
 
 ```ts cordis-catalog
 /**
  * Start one managed child process from a fully-specified spec; this seam
  * applies no defaults.
- * @param spec - argv, directory, limits, grace, cancellation, and environment.
- * @returns the live process handle (readers, kill, outcome promise).
+ * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.
+ * @returns the live process handle (streams/readers, signalling, outcome promise).
  */
 abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 ```
 
 Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md)
 
-Source: [`packages/subprocess/subprocess/src/index.ts:48`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:90`](../../packages/subprocess/subprocess/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 

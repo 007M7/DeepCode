@@ -17,7 +17,7 @@ import type {
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import { abortable, abortError } from './abort.ts'
 import { LspConnection } from './connection.ts'
-import type { ConnectionSpec, ConnectionWriter } from './connection.ts'
+import type { ConnectionSpawner, ConnectionSpec, ConnectionWriter } from './connection.ts'
 import type { HostSource } from './host.ts'
 import type { WireInitializeResult, WireServerCapabilities } from './protocol.ts'
 import {
@@ -67,10 +67,11 @@ export class LspInstance {
 
   /**
    * @param spec - the launch, initialize, and teardown parameters.
+   * @param spawner - the subprocess seam's spawn function.
    * @param writer - optional connection writer used by transport conformance tests.
    */
-  constructor(private readonly spec: InstanceSpec, writer?: ConnectionWriter) {
-    this.connection = new LspConnection(spec, (method, params) => this.answerServerRequest(method, params), writer)
+  constructor(private readonly spec: InstanceSpec, spawner: ConnectionSpawner, writer?: ConnectionWriter) {
+    this.connection = new LspConnection(spec, spawner, (method, params) => this.answerServerRequest(method, params), writer)
     this.ready = this.initialize()
     // A handshake rejection must not surface as an unhandled rejection before the first query awaits
     // it; queries attach the real handler.

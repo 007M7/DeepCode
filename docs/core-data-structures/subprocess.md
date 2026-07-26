@@ -1,12 +1,12 @@
 # Subprocess
 
-The subprocess seam is split across interface ([dsh-subprocess](../../packages/subprocess/subprocess), `ctx.subprocess`) and implementation ([dsh-subprocess-local](../../packages/subprocess/subprocess-local)); its consumers are other capability seams — today the [bash executor family](bash.md), which passes `['bash', '-c', command]` argv and owns every default. This seam owns the managed `DSH_*` environment namespace and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports them so bash consumers keep one import root.
+The subprocess seam is split across interface ([dsh-subprocess](../../packages/subprocess/subprocess), `ctx.subprocess`) and implementation ([dsh-subprocess-local](../../packages/subprocess/subprocess-local)); its consumers are other capability seams and out-of-process backends — the [bash executor family](bash.md) (collect-mode batch output), the LSP host (piped protocol streams + a collected stderr tail), and the ACP subagent backend (piped protocol streams + inherited stderr). This seam owns the managed `DSH_*` environment namespace, the shared credential scrub (`scrubbedParentEnv`), and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports the vocabulary so bash consumers keep one import root.
 
 Source: [`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts)
 
 ## Managed environment namespace and captured output
 
-`DSH_*` variables are Harness-owned child-process facts; implementations discard ambient `DSH_*` names before merging the caller's snapshot, and each captured stream reports its truncation and spill-recovery state through `CollectedOutput`.
+`DSH_*` variables are Harness-owned child-process facts; implementations discard ambient `DSH_*` names before merging the caller's snapshot, and each collected stream reports its truncation and spill-recovery state through `CollectedOutput`.
 
 ```ts type-equiv
 /** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
@@ -30,83 +30,170 @@ interface CollectedOutput {
 }
 ```
 
-## The fully-explicit spawn spec
+## Node-shaped stdio dispositions
 
-The seam applies no defaults: every limit and directory is explicit on the spec, so the caller's own config — not a hidden subprocess-service default — decides them. `argv` is never shell-interpreted.
+Each stream's disposition is explicit, chosen per consumer: raw pipes for protocol framing (LSP JSON-RPC, ACP ndjson), inherit for pass-through diagnostics, and collect mode for bounded batch output — with the spill file optional, so a diagnostic tail (a language server's stderr) buffers without leaving files behind.
 
 ```ts type-equiv
 /**
- * A fully-specified spawn request. This seam applies no defaults: every limit
- * and directory is explicit, so the caller's own config — not a hidden
- * subprocess-service default — decides them (the `dsh-bash` request/spec split
- * is the owning template).
+ * stdin disposition. `'ignore'` leaves fd 0 on `/dev/null`; `'pipe'` exposes
+ * {@link SubprocessHandle.stdin} for the caller's ongoing protocol writes;
+ * `{ data }` writes the bytes and closes (the batch shape).
+ */
+type SubprocessStdinMode = 'ignore' | 'pipe' | { readonly data: string }
+```
+
+```ts type-equiv
+/**
+ * Bounded in-memory collection for one output stream, with an optional
+ * full-stream spill file. Omitting `spill` keeps only the in-memory tail —
+ * the diagnostic-tail shape (a language server's stderr); including it makes
+ * the complete stream recoverable up to its cap (the bash tool shape).
+ */
+interface SubprocessCollect {
+  /** In-memory cap in bytes; overflow keeps the TAIL. */
+  maxBytes: number
+  /** Full-stream spill file; absent disables spilling entirely. */
+  spill?: {
+    /** Whole-stream byte cap; a larger stream discards its now-incomplete spill. */
+    maxBytes: number
+  }
+}
+```
+
+```ts type-equiv
+/**
+ * stdout/stderr disposition. `'pipe'` exposes the raw `Readable` for the
+ * caller's protocol decoding; `'inherit'` passes the parent's descriptor
+ * through (child diagnostics land on the harness's own stream); a
+ * {@link SubprocessCollect} object buffers boundedly with offset-based reads.
+ */
+type SubprocessOutputMode = 'pipe' | 'inherit' | SubprocessCollect
+```
+
+```ts type-equiv
+/** Per-stream stdio dispositions, all explicit — this seam applies no defaults. */
+interface SubprocessStdio {
+  stdin: SubprocessStdinMode
+  stdout: SubprocessOutputMode
+  stderr: SubprocessOutputMode
+}
+```
+
+## The fully-explicit spawn spec
+
+The seam applies no defaults: every disposition, limit, and directory is explicit on the spec, so the caller's own config — not a hidden subprocess-service default — decides them. `argv` is never shell-interpreted.
+
+```ts type-equiv
+/**
+ * A fully-specified spawn request. This seam applies no defaults: every
+ * disposition, limit, and directory is explicit, so the caller's own config —
+ * not a hidden subprocess-service default — decides them (the `dsh-bash`
+ * request/spec split is the owning template).
  */
 interface SubprocessSpawnSpec {
   /** Executable and arguments; `argv[0]` is the program. Never shell-interpreted here. */
   argv: readonly string[]
   /** Working directory for the child. */
   cwd: string
-  /** Stdout in-memory cap; overflow spills to disk (tail kept in memory). */
-  stdoutMaxBytes: number
-  /** Stderr in-memory cap; overflow spills to disk (tail kept in memory). */
-  stderrMaxBytes: number
-  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
-  maxSpillBytes: number
-  /** Grace period for kill escalation and for inherited pipes after process exit. */
+  /** Per-stream stdio dispositions. */
+  stdio: SubprocessStdio
+  /**
+   * Grace period in milliseconds for the {@link SubprocessHandle.terminate}
+   * escalation and for draining still-open collected pipes after the process
+   * exits (an inherited descriptor held by a surviving descendant cannot hold
+   * the outcome open indefinitely).
+   */
   graceMs: number
   /**
-   * Abort signal — kills the process group when it fires. The caller owns
-   * deadlines and cause classification; this seam only reacts to the abort.
+   * Abort signal — starts the terminate escalation on the process tree when
+   * it fires. The caller owns deadlines and cause classification; this seam
+   * only reacts to the abort.
    */
   signal?: AbortSignal | undefined
   /**
-   * Bytes to write to the child's stdin, then close it. Absent (or empty)
-   * leaves stdin closed/empty.
-   */
-  stdin?: string | undefined
-  /**
-   * Ordinary environment entries merged after the implementation's credential
-   * scrub. `DSH_*` names are rejected and belong in {@link dshEnv}.
+   * Ordinary environment entries merged onto the implementation's scrubbed
+   * parent base (see `scrubbedParentEnv`). `DSH_*` names are rejected and
+   * belong in {@link dshEnv}; a deliberately forwarded credential-shaped
+   * entry survives because this layer merges after the scrub.
    */
   env?: Record<string, string> | undefined
   /**
-   * Harness-owned `DSH_*` variables for this execution. Implementations
-   * discard ambient `DSH_*` entries before merging this snapshot, so an
-   * unavailable current fact cannot inherit a stale value from the harness
-   * process, and reject non-`DSH_*` names supplied through this channel.
+   * Harness-owned `DSH_*` variables for this execution. The scrubbed base has
+   * already discarded ambient `DSH_*` entries, so an unavailable current fact
+   * cannot inherit a stale value from the harness process; non-`DSH_*` names
+   * on this channel are rejected.
    */
   dshEnv?: DshEnvironment | undefined
 }
 ```
 
-## Handles and offset-based reads
+## Handles: streams, readers, and tree-scoped termination
 
-A spawn returns a live handle immediately. Output readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; the consuming-cursor model the bash tool presents is consumer-owned state over these readers.
+A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. Termination is tree-scoped on every platform: `kill(signal)` sends one signal Node-style, `terminate()` escalates SIGTERM→grace→SIGKILL, `waitForExit()` observes the whole tree, and `dispose(graces)` runs the cooperative stdin-EOF→SIGTERM→SIGKILL ladder out-of-process children need.
 
 ```ts type-equiv
 /**
- * A live child process. `kill()` starts the group SIGTERM→grace→SIGKILL
- * escalation; buffered output remains readable after exit.
+ * A live child process rooted in its own process tree. Collected output
+ * remains readable after exit; piped streams belong to the caller.
+ *
+ * Termination is tree-scoped everywhere: POSIX signals the detached process
+ * group (falling back to the direct child when the group is gone), Windows
+ * terminates the tree via `taskkill /T`, so helper processes cannot outlive
+ * the handle unnoticed.
  */
 interface SubprocessHandle {
-  /** Process id (group leader); -1 when the spawn itself failed. */
+  /** Process id (tree root); -1 when the spawn itself failed. */
   readonly pid: number
-  /** Live stdout reader (also readable after exit). */
-  readonly stdout: SubprocessOutputReader
-  /** Live stderr reader (also readable after exit). */
-  readonly stderr: SubprocessOutputReader
-  /** Resolves when the process closes; rejects only for spawn-level failures. */
+  /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
+  readonly stdin: Writable | undefined
+  /** The child's raw stdout, present iff spawned with `stdout: 'pipe'`. */
+  readonly stdout: Readable | undefined
+  /** The child's raw stderr, present iff spawned with `stderr: 'pipe'`. */
+  readonly stderr: Readable | undefined
+  /** Offset-based readers for collect-mode streams (also readable after exit). */
+  readonly collected: SubprocessCollectedOutputs
+  /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
   readonly done: Promise<SubprocessOutcome>
-  /** Begin SIGTERM→grace→SIGKILL on the process group. Idempotent. */
-  kill(): void
+  /**
+   * Send one signal to the process tree, Node-style — no escalation, no
+   * timers. A no-op after the outcome has settled (the pid may be reused).
+   * @param signal - the signal to deliver (default `SIGTERM`; Windows
+   *   force-terminates the tree for any value).
+   */
+  kill(signal?: NodeJS.Signals): void
+  /**
+   * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
+   * (Windows force-terminates immediately). Idempotent; also triggered by the
+   * spec's abort signal.
+   */
+  terminate(): void
+  /**
+   * Wait until the process tree has exited — the tree, not just the direct
+   * child, so a still-running helper is observable before teardown returns.
+   * @param signal - optional bound for the wait.
+   * @returns `true` when the tree exited, `false` when the signal aborted first.
+   */
+  waitForExit(signal?: AbortSignal): Promise<boolean>
+  /**
+   * Tear the child down to quiescence, resolving only after exit: close stdin
+   * (when this handle owns a piped one) and allow cooperative flush for
+   * `eofGraceMs`, then SIGTERM with a `graceMs` window (POSIX), then forced
+   * tree termination with a final bounded `graceMs` wait.
+   * @param graces - the ladder's two windows, from the consumer's Config.
+   * @throws when the child still has not exited `graceMs` after the forced tier.
+   */
+  dispose(graces: SubprocessDisposeGraces): Promise<void>
 }
 ```
 
 ```ts type-equiv
 /**
- * Cursor-free incremental access to one live output stream. Offsets are
+ * Cursor-free incremental access to one collected output stream. Offsets are
  * whole-stream byte coordinates owned by the caller, so independent readers
- * cannot consume one another's output.
+ * cannot consume one another's output; `readFrom(0)` after settlement is the
+ * batch result (`lossy` then means the in-memory tail lost its head — the
+ * {@link CollectedOutput.truncated} fact).
  */
 interface SubprocessOutputReader {
   /**
@@ -134,26 +221,62 @@ interface SubprocessOutputRead {
 }
 ```
 
-## Outcomes carry no cause classification
-
-`done` reports raw exit facts. The service kills on abort but never decides why — the caller reads the deadline signal it owns to classify timeout versus cancellation (the bash executor's `timedOut`/`aborted` split).
+```ts type-equiv
+/** Offset-based readers for the streams spawned in collect mode. */
+interface SubprocessCollectedOutputs {
+  /** Present iff stdout is a {@link SubprocessCollect}. */
+  readonly stdout?: SubprocessOutputReader
+  /** Present iff stderr is a {@link SubprocessCollect}. */
+  readonly stderr?: SubprocessOutputReader
+}
+```
 
 ```ts type-equiv
 /**
- * Raw outcome of one closed process. Deliberately carries NO timeout or
- * cancellation classification: the service kills on abort but does not decide
- * why — the caller reads the signal it owns to classify causes.
+ * The two grace periods of the cooperative dispose ladder
+ * ({@link SubprocessHandle.dispose}). Consumers carry them as defaulted,
+ * validated Config fields, so teardown timing is deployment-tunable and this
+ * seam hardcodes nothing.
+ */
+interface SubprocessDisposeGraces {
+  /**
+   * Tier-1 window (ms): after stdin EOF, how long the child gets to quiesce
+   * ON ITS OWN — flush durable state, tear down its own descendants — before
+   * escalation to platform termination. Usually WIDER than
+   * {@link SubprocessDisposeGraces.graceMs}: a cooperative child's EOF-driven
+   * teardown may itself wait on a signal-trapping grandchild plus a final
+   * flush.
+   */
+  eofGraceMs: number
+  /**
+   * Termination confirmation window (ms): POSIX applies it after `SIGTERM`
+   * and again after `SIGKILL`; Windows applies it after the forced tree
+   * termination.
+   */
+  graceMs: number
+}
+```
+
+## Outcomes carry exit facts only
+
+`done` reports Node's close-event vocabulary and no cause classification — the service kills on abort but never decides why (the caller reads the deadline signal it owns, e.g. the bash executor's `timedOut`/`aborted` split). Collected output stays readable through `handle.collected` after settlement, so batch and streaming callers share one access path.
+
+```ts type-equiv
+/**
+ * Exit facts of one closed process — Node's `close`-event vocabulary.
+ * Deliberately carries NO timeout or cancellation classification (the caller
+ * reads the signal it owns to classify causes) and NO output: collected
+ * streams stay readable through {@link SubprocessHandle.collected} after
+ * settlement, so batch and streaming callers share one access path.
  */
 interface SubprocessOutcome {
   /** Exit code; null when the process died from a signal. */
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
   signal: NodeJS.Signals | null
-  stdout: CollectedOutput
-  stderr: CollectedOutput
 }
 ```
 
 ## Service behavior
 
-The abstract [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam defines `spawn` only; [`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) is the local implementation (detached groups, tail-keep spill-backed collection, credential scrub, kill-and-join disposal). See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the seam contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for the mechanics.
+The abstract [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam defines `spawn` only; [`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) is the local implementation (detached trees, per-disposition wiring, credential scrub, terminate-and-join disposal). See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the seam contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for the mechanics.
