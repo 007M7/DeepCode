@@ -162,7 +162,14 @@ export class SessionManager {
    * @param text - exact controlled-input value for the active frontend Session.
    */
   updateIntent(text: string): void {
-    this.getIntent()?.updatePendingPrompt(text)
+    const session = this.getIntent()
+    if (session === undefined) return
+    session.updatePendingPrompt(text)
+    // The intent watch defers via markDirty, but the hero composer reads this
+    // prompt from the LIST snapshot as a controlled value: it must flush in
+    // the same tick as onChange (see Notifier.notifyNow) or React rolls the
+    // textarea back and IME composition breaks.
+    this.notifier.notifyNow()
   }
 
   private discardIntent(): void {

@@ -644,6 +644,66 @@ describe('resync', () => {
   })
 })
 
+describe('run_code sub-dispatch indexing', () => {
+  it('indexes live tool/code-dispatch events under their parent as native-shaped result nodes', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'))
+    feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls', description: '列目录' }, 'demo.txt'))
+    feed(ev.codeDispatch(9, 'p1', 2, 'read', { path: 'a.txt' }, 'Error: ENOENT', true))
+    const subs = session.getSnapshot().codeDispatches.get('p1')
+    expect(subs).toHaveLength(2)
+    expect(subs?.[0]).toMatchObject({
+      kind: 'tool-result', callId: 'p1:code:1',
+      call: { name: 'bash', argsRaw: '{"command":"ls","description":"列目录"}' },
+      // The settle event carries no start time: callTime stays null (never a
+      // fabricated zero-duration).
+      callTime: null,
+      isError: false, content: [{ type: 'text', text: 'demo.txt' }],
+    })
+    expect(subs?.[1]).toMatchObject({ callId: 'p1:code:2', isError: true })
+    // Sub-dispatches never join the surface flow.
+    expect(session.getSnapshot().nodes.some(n => n.kind === 'tool-result' && n.callId.includes(':code:'))).toBe(false)
+  })
+
+  it('rebuilds the same index from a history window (replay parity)', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse([
+      ...plainTurn(0, 0, '问', '答'),
+      ev.turnStart(6, 1),
+      ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'),
+      ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'demo.txt'),
+      ev.toolResult(9, 1, 'p1', '{"done":true}'),
+      ev.turnEnd(10, 1),
+    ])
+    await session.open()
+    const subs = session.getSnapshot().codeDispatches.get('p1')
+    expect(subs).toHaveLength(1)
+    expect(subs?.[0]).toMatchObject({ callId: 'p1:code:1', call: { name: 'bash' } })
+  })
+
+  it('keeps the dispatch map reference across unrelated changes and swaps it on a new dispatch', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '稳', '定'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
+    feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'x'))
+    const before = session.getSnapshot()
+    feed(ev.chunkStart(9, 1))
+    feed(ev.chunkText(10, 1, '流式'))
+    const after = session.getSnapshot()
+    expect(after.codeDispatches).toBe(before.codeDispatches)
+    feed(ev.codeDispatch(11, 'p1', 2, 'read', { path: 'a' }, 'y'))
+    expect(session.getSnapshot().codeDispatches).not.toBe(after.codeDispatches)
+    expect(session.getSnapshot().codeDispatches.get('p1')).toHaveLength(2)
+  })
+})
+
 describe('reference stability (the memo contract)', () => {
   it('keeps unchanged node references across an append and swaps the snapshot object', async () => {
     const { api, session } = makeSession()

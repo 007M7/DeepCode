@@ -39,7 +39,7 @@ const toolResult = (seq: number, callId: string, name: string, args = '{"command
 
 function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
   return {
-    sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [],
+    sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
   } as ConversationSnapshot
@@ -93,7 +93,7 @@ async function bench(nodes: ToolResultNode[]) {
     sendSession: vi.fn(),
   })
   ctx.provide('layout', layout)
-  ctx.provide('i18n', { bind: () => (key: string) => key })
+  ctx.provide('locale', { bind: () => (key: string) => key })
 
   slots.install(createSlotRenderer())
   slots.register({
@@ -212,7 +212,7 @@ describe('registrant load-order seam', () => {
       sendSession: vi.fn(),
     })
     ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    ctx.provide('i18n', { bind: () => (key: string) => key })
+    ctx.provide('locale', { bind: () => (key: string) => key })
     slots.register({
       name: 'root',
       children: {

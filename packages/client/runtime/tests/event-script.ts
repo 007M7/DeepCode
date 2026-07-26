@@ -26,6 +26,11 @@ export const ev = {
     at(seq, { type: 'tool/call', data: { turn, step, callId, name, arguments: args } }),
   toolResult: (seq: number, turn: number, callId: string, body: string, step = 0): SessionEvent =>
     at(seq, { type: 'tool/result', surfaceOp: 'append', data: { turn, step, callId, content: text(body), isError: false } }),
+  codeDispatch: (seq: number, parentCallId: string, n: number, name: string, args: unknown, body: string, isError = false): SessionEvent =>
+    at(seq, {
+      type: 'tool/code-dispatch',
+      data: { parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args, isError, content: text(body) },
+    }),
   stepEnd: (seq: number, turn: number, step = 0): SessionEvent =>
     at(seq, { type: 'step/end', data: { turn, step } }),
   turnEnd: (seq: number, turn: number, reason: 'completed' | 'cancelled' = 'completed'): SessionEvent =>

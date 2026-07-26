@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-workflow
 
+English | [中文](README.zh.md)
+
 The workflow seam (`ctx.workflows`) executes a model-written orchestration script that can fan out subagents. The seam defines the script, run, result, error, and event contracts; an engine decides how to isolate and execute the script.
 
 `@deepseek-ai/dsh-workflow-workerthread` is the current engine and `@deepseek-ai/dsh-tool-workflow` is the model-facing consumer. A future process or sandbox engine can replace the implementation without changing the tool.

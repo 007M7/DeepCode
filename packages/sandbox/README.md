@@ -1,5 +1,7 @@
 # sandbox/ — process-sandbox capability family
 
+English | [中文](README.zh.md)
+
 The confinement half of the [capability-seam split](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): an abstract provider interface, platform backends, and the shared policy home. Consumers hand `ctx.sandbox` the exact argv they are about to spawn and spawn the returned (wrapped) argv instead; a complete `SandboxExecutionPolicy` (mode + workspace root) rides each capability call, and its confined subset becomes the provider's `SandboxPolicy`. Different sessions and consumers can therefore confine under different policies at the same instant. All **product** packages.
 
 | Package | Role | ctx key |

@@ -24,7 +24,8 @@
   "exclude": [
     "tests/scaffold.ts",
     "tests/replay-round-trip.e2e.ts",
-    "tests/seeded-history.e2e.ts"
+    "tests/seeded-history.e2e.ts",
+    "tests/code-mode-round.e2e.ts"
   ],
   "references": [
     {

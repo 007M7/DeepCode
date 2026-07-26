@@ -41,10 +41,12 @@ export interface Workspace {
   readonly updatedAt: string
 
   /**
-   * Header-validated sessions in newest-first display order. The durable
-   * candidate account is filtered synchronously: missing headers, invalid
-   * cwd values, and canonical cwd mismatches are never returned. A subsequent
-   * workspace mutation prunes those filtered candidates durably.
+   * Header-validated sessions in manually owned order: a new session is
+   * prepended at attach, explicit reordering goes through
+   * `insertSessionBefore`, and activity never reorders. The durable candidate
+   * account is filtered synchronously: missing headers, invalid cwd values,
+   * and canonical cwd mismatches are never returned. A subsequent workspace
+   * mutation prunes those filtered candidates durably.
    */
   readonly sessionIds: readonly SessionId[]
 
@@ -57,8 +59,7 @@ export interface Workspace {
 
   /**
    * Prepend a session to this workspace's candidate account. An already
-   * accounted id resolves without writing; activity-driven reordering uses
-   * `WorkspaceRegistry.touchSession` instead. A new id's live or persisted
+   * accounted id resolves without writing. A new id's live or persisted
    * header cwd must resolve to an existing directory equal to {@link path};
    * unknown ids, missing or invalid cwd values, and mismatches reject without
    * writing.
@@ -66,6 +67,18 @@ export interface Workspace {
    * @returns resolution after durability.
    */
   attachSession(sessionId: SessionId): Promise<void>
+
+  /**
+   * Move an accounted session within the manual order, DOM-insertBefore-like:
+   * with an anchor the session lands before it, without one it appends to the
+   * end. Only the moved id changes position. A session or anchor absent from
+   * the account rejects without writing; a move to the current position
+   * resolves without writing (decided on the domain write chain).
+   * @param sessionId - The accounted session to move.
+   * @param beforeSessionId - Accounted anchor to insert before; omitted appends.
+   * @returns resolution after durability.
+   */
+  insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>
 
   /**
    * Remove a session from this workspace's account. Idempotent: an id not on

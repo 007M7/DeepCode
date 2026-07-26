@@ -40,10 +40,10 @@ buffer
 16| <blank>
 17| "▌ "
   style 0-0 fg=green
-18| "▌ ✓ return await tools.cordis_inspect({ what: 'dynamic' })                                          "
+18| "▌ ✓ Verify the dynamically mounted marker service                                                   "
   style 0-0 fg=green
   style 2-2 fg=green bold
-  style 3-57 bold
+  style 3-48 bold
 19| "▌ ## dynamic                                                                                        "
   style 0-0 fg=green
 20| "▌ - dyn-1: snapshot-marker [active]                                                                 "

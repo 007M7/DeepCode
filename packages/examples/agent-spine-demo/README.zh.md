@@ -1,0 +1,83 @@
+# @deepseek-ai/dsh-agent-spine-demo
+
+[English](README.md) | 中文
+
+将 **默认的不含执行器、不含 UI 的 agent 主干** 作为一个 Cordis 组合包插件。它加载每个 harness agent 所需的固定服务集合，包括本地 skill 提供方，并将循环的 `agents` 列表作为自身配置转发。因此，应用包只需添加前端入口和可替换后端，就能组合出可工作的 agent。
+
+阅读此包可了解完整插件树及其组合顺序。
+
+## 它加载的插件树
+
+`apply(ctx, config)` 将以下每个插件挂载为组合包 fiber 的子节点：
+
+```
+@cordisjs/plugin-timer            timer service (writes nothing to stdout)
+@deepseek-ai/dsh-llm              abstract LLM service + content-block vocabulary
+@deepseek-ai/dsh-session          event-sourced session log + store
+@deepseek-ai/dsh-session-title    log-backed title service + deterministic fallback
+@deepseek-ai/dsh-system-prompt    prompt-section + tool-schema assembly
+@deepseek-ai/dsh-tools            registry + guarded pre/around/post/final-result pipeline
+@deepseek-ai/dsh-skill            skill provider registry
+@deepseek-ai/dsh-skill-local      local filesystem skill provider
+@deepseek-ai/dsh-agent            agent registry + initiator scope + agent/* events
+@deepseek-ai/dsh-goal             optional persisted same-session goal domain
+@deepseek-ai/dsh-tool-goal        optional model-facing goal controls
+@deepseek-ai/dsh-goal-session     optional same-session goal-round driver
+@deepseek-ai/dsh-llm-retry        bounded transient request retry policy
+@deepseek-ai/dsh-tasks            generic background-task registry
+@deepseek-ai/dsh-invariants       configurable invariant registry service
+@deepseek-ai/dsh-session/invariant
+@deepseek-ai/dsh-agent/invariant
+@deepseek-ai/dsh-scope/invariant
+@deepseek-ai/dsh-agent-loop/invariant
+                                  package-owned relational checks
+@deepseek-ai/dsh-tool-bash        the model-facing bash schema
+@deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
+@deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
+@deepseek-ai/dsh-tool-tasks       task_output/task_list/task_kill schemas + completion notices
+@deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
+                                  (dsh-system-prompt gets the forwarded `persona`)
+```
+
+## 有意留在组合包外的组件
+
+主干包含每个前端入口都共有的全部组件。可替换组件和与前端入口耦合的组件留在外部，由加载组合包的一方选择：
+
+- **LLM 适配器**：组合包交付抽象 `llm` 服务；叶节点在 `ctx.llm` 上注册具体适配器（`llm-deepseek`、`llm-pi-ai`、`llm-replay`）。
+- **模型支持的会话标题提供方**：组合包挂载带可覆盖示例限制的后备服务（5 个词、40 个后备字节、80 个可接受标题字节）；叶节点可以恰好选用一个首消息或全消息 LLM 提供方。
+- **bash 执行器**：组合包交付 `tool-bash`（消费方 schema）；叶节点提供 `ctx.bash`（`bash-local` 或沙箱化实现）。
+- **非本地 skill 提供方**：组合包交付 skill 注册表、本地文件系统提供方和 `skill` 工具；部署可以把嵌入式目录或远程目录等其他提供方作为同级插件添加。
+- **前端入口与各应用基础设施**：终端 TUI 或 ACP 自动化传输，以及 `hmr`。应用包（[`dsh-tui-demo`](../tui-demo/README.md)、[`dsh-acp-demo`](../acp-demo/README.md)）拥有这些选择。`timer` 位于主干中，因为它是共有组件且不写 stdout；前端入口拥有 stdout，因此留在组合包外。
+
+这把[接口／实现／消费方 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) 提升到组合层：组合包拥有共享主干，叶节点拥有后端，应用包拥有前端入口。
+
+## 配置
+
+```ts
+import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
+// { agents?, maxParallelToolCalls?, persona?, toolOrder?, tools?, dshHome?, sessionTitle?, skills?, workspaceContext, toolBash?, toolTasks?, goals?, invariants?, llmRetry? }
+// workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
+```
+
+组合包将每个字段转发给拥有它的子节点：`agents` 与 `maxParallelToolCalls` 交给 `agent-loop`（`agents` 默认为 `[]`，上限在该处默认），因此每个应用提供自己的预创建 agent；TUI 和无头应用预创建 `main`，ACP 应用则在 `session/new` 按需创建 agent；`llmRetry` 交给有界重试策略；`persona` 与 `toolOrder` 交给 `dsh-system-prompt`；`tools` 交给工具注册表以配置呈现 mode；`sessionTitle` 交给后备标题服务；`skills.registry`、`skills.local` 与 `skills.tool` 分别交给 skill 注册表、本地提供方和面向模型的消费方；必填的 `workspaceContext` 选择交给 `dsh-workspace-context`（`{ maxBytes }` 启用加载，`false` 禁用）；`invariants` 交给不变式服务；`toolBash`/`toolTasks` 交给组合包拥有的两个面向模型工具插件。省略 `sessionTitle` 时采用显式示例策略：5 个词、40 个后备字节、80 个可接受标题字节。`goals` 对象会选用持久领域、模型工具和同会话驱动器，并将 `goals.domain` 与 `goals.tool` 转发给各自拥有者；省略或设为 `false` 会让整个栈缺席，使无头调用方继续以一轮结算。设置 `skills.enabled: false` 会同时省略本地提供方和面向模型的 skill 工具；设置 `toolTasks: false` 会保留供前台生产方使用的任务服务，但不公开 `task_output`/`task_list`/`task_kill`。它对 `dshHome` 只解析一次，解析通过 [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) 完成，并将所得绝对值转发给 tool-bash 的托管环境和已启用的本地 skill 发现。顶层 `dshHome` 缺席时采用 `skills.local.dshHome`；两者同时提供但解析后的路径不同会明确失败。`toolBash.enableRunInBackground` 只控制 bash 生产方；独立加载的生产方保留各自配置。Workspace 指令先于 skill 目录注册，因此其会话前缀消息先渲染。应用包使用 `pickSpineConfig()`，只复制这些由组合包拥有的字段。
+
+例如，`{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/dsh-'], package_blocklist: ['agent-loop$'] } }` 会让包拥有的配套插件保持挂载，但抑制被阻止的拥有者。Blocklist 匹配优先于 allowlist 匹配；正则表达式与生命周期规则见 [`dsh-invariants`](../../support/invariants/README.md)。
+
+## 为何使用代码组合包，而非共享 YAML include
+
+YAML include 可以去重配置，却无法拥有 bin 或提供前端入口默认值。ACP 应用包默认接出协议纯净的 stdout，但叶节点仍可添加不安全的 logger。组合包子节点把服务注册到根 isolate-keyed store，因此注入这些服务的叶节点同级插件无需依赖加载顺序即可看到它们。
+
+有界重试策略可能在新的编号步骤中重复瞬时失败的请求。重试状态和失败的部分 chunk 不进入模型历史；每次提供方尝试仍可能产生计费；前端入口从所有已记录步骤推导用量；重建的请求保留先前前缀，以便复用提供方 cache。
+
+## 模型体验
+
+模型通过 `dsh-system-prompt`、`dsh-tool-skill`、`dsh-tool-bash`、`dsh-tools` 和 `dsh-llm-retry` 间接获得体验；还会通过 `dsh-tool-goal` 与目标轮次提示词获得体验，前提是启用 `goals`。组合包自身不添加面向模型的包装内容。
+
+#### KV Cache 影响
+
+不会直接失效；具名消费方拥有请求前缀的任何变更。
+
+## 已知限制与延后工作
+
+- **大部分主干集合固定在代码中**：`apply()` 始终挂载核心服务与 `tool-bash`；配置可以省略组合包内的目标、skill 与任务控制工具，但要替换循环或删除其他主干成员，就必须组合另一个 bundle。
+- **不变式 seam 与配套插件仍是固定成员**：`invariants.enabled: false` 或包筛选器会抑制检查，但不会移除服务或配套插件注册；Session 始终启用的校验与冻结是另一套机制。

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-runtime
 
+English | [中文](README.zh.md)
+
 Client cordis boot and React-free object services: SlotsService wraps SlotCore and supplies renderer data sources; SessionsService owns Session objects, list/scope/history state, and page-local Session Intent state; WorkspacesService depends on SessionsService and owns Workspace objects, list/actions, page-local Workspace Intent state, default-target derivation, and the cross-object New Session flow. The runtime fans the shared Host stream into both managers. Contract: api-contracts v3 §4.
 
 ## Workspace and Session lists
@@ -11,6 +13,10 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 ## Session creation failures
 
 `SessionsService.create` accepts an optional caller-preallocated SessionId. It throws `SessionCreateError` on failure: `requestedSessionId` remains available after transport uncertainty, while `publishedSessionId` is set when `workspace-attach-failed` proves the Host published a real Session before attachment failed. For the New Session flow, the frontend Session object owns its retained prompt and advances it through attachment and send; a partially published Session keeps the same object and prompt while it appears as Ungrouped.
+
+## Code Mode sub-dispatch index
+
+`ConversationSnapshot.codeDispatches` groups a `run_code` call's sub-dispatches under their parent callId, in dispatch order, as settled `ToolResultNode` entries (the native result shape): each `tool/code-dispatch` event appends one. The event carries only the settle timestamp, so `callTime` is `null` (start unknown) — no duration claim is possible from this index yet. Live mux frames and history replay build the identical index; sub-calls never join the surface `nodes` flow; per-parent array and map references are memo-stable across unrelated snapshot swaps.
 
 ## Session title projection
 
