@@ -29,9 +29,12 @@ const testToolSignal = new AbortController().signal
 class StubStore extends SpillStore {
   saves: SaveTextSpill[] = []
   fail = false
+  /** Per-save hang hook: each call awaits the returned promise before completing. */
+  gate: (() => Promise<void>) | undefined
 
   async saveText(input: SaveTextSpill): Promise<SpillRef> {
     if (this.fail) throw new Error('disk full')
+    await this.gate?.()
     this.saves.push(input)
     return {
       locator: SpillLocator(`/spill/${input.suggestedName}`),
@@ -365,6 +368,63 @@ describe('the durable dispatch-log arm', () => {
     const settles = events.filter(event => event.type === 'tool/code-dispatch')
     expect(settles).toHaveLength(2)
     expect(smallAfterHuge).toBe(true)
+  })
+
+  it('a sustained slow backend backpressures the run instead of accumulating unbounded log tasks', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    // Cap 1: once the hung shaped-append backlog exceeds the cap, the ordered
+    // lane holds inside the second commit, so the THIRD dispatch cannot start
+    // until a pending save drains — the bound is observable as its missing
+    // start event.
+    await ctx.plugin(ToolRegistry, { mode: 'code', maxParallelSubCalls: 1 })
+    await ctx.plugin(StubStore)
+    await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
+    await ctx.plugin(WorkerCodeRuntime, {})
+    const store = ctx.spillStore as StubStore
+    const releases: (() => void)[] = []
+    store.gate = () => new Promise<void>((resolve) => { releases.push(resolve) })
+    const events: { type: string; data: unknown }[] = []
+    const agent = {
+      session: {
+        header: { id: SessionId('dispatch-spill-bound'), cwd: '/workspace' },
+        append: (type: string, data: unknown) => { events.push({ type, data }) },
+      },
+    }
+    ctx.tools.register(textTool('huge_read', 'H'.repeat(2_000)))
+    const started = (n: number): boolean => events.some(event => event.type === 'tool/code-dispatch-start'
+      && (event.data as { subCallId: string }).subCallId.endsWith(`:code:${n}`))
+    const runPromise = ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('parent-bound'),
+      name: 'run_code',
+      arguments: {
+        code: 'await tools.huge_read({}); await tools.huge_read({}); await tools.huge_read({}); return "done"',
+        description: 'Three oversized reads against a hung backend',
+      },
+      agent: agent as never,
+    })
+    // Two hung saves = backlog above the cap: the lane must hold before
+    // starting dispatch 3.
+    await vi.waitFor(() => {
+      if (releases.length < 2) throw new Error('second hung save not reached yet')
+    })
+    expect(started(2)).toBe(true)
+    expect(started(3)).toBe(false)
+    releases.shift()!()
+    // Draining one pending save releases the lane; dispatch 3 starts.
+    await vi.waitFor(() => {
+      if (!started(3)) throw new Error('third dispatch not started yet')
+    })
+    while (releases.length > 0) releases.shift()!()
+    const result = await runPromise
+    expect(result.isError).toBe(false)
+    await vi.waitFor(() => {
+      if (releases.length > 0) { while (releases.length > 0) releases.shift()!() }
+      if (events.filter(event => event.type === 'tool/code-dispatch').length !== 3) {
+        throw new Error('settle events still pending')
+      }
+    })
   })
 
   it('a saveText failure keeps the complete content in the durable log (best-effort)', async () => {

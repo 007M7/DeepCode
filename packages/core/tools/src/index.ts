@@ -289,8 +289,10 @@ export type ToolExecutionMode =
  * One settled `run_code` sub-dispatch about to be logged, as seen by the
  * `tools/code-dispatch-log` waterfall: the parent execution (session owner,
  * outer call identity), the sub-call identity, and the outcome whose durable
- * copy a listener may reshape. The complete `content` is what the program
- * already received; only the `tool/code-dispatch` event's copy changes.
+ * copy a listener may reshape. `content` is the RENDERED result projection
+ * (what a native `tool/result` would carry) — the program itself received
+ * the structured `value` (or just the error message on failure); only the
+ * `tool/code-dispatch` event's copy changes.
  */
 export interface CodeDispatchLog {
   /** The outer `run_code` execution. */
@@ -991,7 +993,7 @@ export class ToolRegistry extends Service {
         () => Promise.resolve(dispatch.content),
       )
     } catch (error: unknown) {
-      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${String(error)}; logging the unshaped content`)
+      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the unshaped content`)
       return dispatch.content
     }
   }

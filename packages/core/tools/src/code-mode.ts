@@ -359,12 +359,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         // entries, awaits the live pool, and drains the ordered commit lane —
         // including a commit already in progress when the program returned.
         await drive()
-        // Every settle's shaped append lands inside the open run_code turn.
-        while (logWork.size > 0) {
-          const pending = [...logWork]
-          await Promise.allSettled(pending)
-          for (const done of pending) logWork.delete(done)
-        }
+        // Every settle's shaped append lands inside the open run_code turn
+        // (tasks self-remove on settlement).
+        while (logWork.size > 0) await Promise.allSettled([...logWork])
       }
 
       // Read through a call, not a bare property: the abort state genuinely
@@ -406,7 +403,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
               : { isError: false, value: result.value })
             const agent = exec.agent
             if (agent === undefined) return
-            logWork.add((async () => {
+            const task: Promise<void> = (async () => {
               // The durable copy may be reshaped (e.g. spilled to a preview +
               // locator) by the log-shaping waterfall; the program's value
               // and the model contract are untouched.
@@ -428,7 +425,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
                 isError: result.isError,
                 content: logged,
               })
-            })())
+            })().finally(() => { logWork.delete(task) })
+            logWork.add(task)
           }
           pendingQueue.push({
             flight: Promise.resolve(),
@@ -470,6 +468,12 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
                 exec.deferContext(context)
               }
               settle(result)
+              // Backpressure on the shaped-append side channel: pending log
+              // tasks (each retaining a full result while a slow backend
+              // stores it) are bounded by the pool cap — beyond it the
+              // ordered lane waits, so later sub-calls cannot start and
+              // pending I/O/memory cannot grow without bound.
+              while (logWork.size > maxParallel) await Promise.race(logWork)
             },
           })
           wakeup()
