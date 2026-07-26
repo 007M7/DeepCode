@@ -110,7 +110,7 @@ Locale 内置中文和 English；`setLocale`/`setTheme` 是唯一写入口，未
 
 **Settings import 并枚举各 section。** 新增页面必须修改壳插件，破坏「每个功能由自己的插件占坑」的组合模型。
 
-**每个 section 单开 `ui-settings-*` 包。** 设置面与功能本体分家：改 Theme 行为要动两个包，包数随设置项线性膨胀，且 settings-general 反向依赖 locale/theme 服务，形成纯粹为拆包而生的中间层。功能属主自注册下不存在这层：General 归壳（不属任何单一功能），preference 行随功能包交付。
+**按功能为每个 section 单开 `ui-settings-*` 卫星包。** 设置面与功能本体分家：改 Theme 行为要动两个包，包数随设置项线性膨胀，且卫星包反向依赖 locale/theme 服务，形成纯粹为拆包而生的中间层。功能属主自注册下不存在这层：preference 行随功能包交付；`ui-settings-general` 只收无主文案（chrome 与 General 骨架），不承载任何功能的设置面。
 
 **把 Locale/Theme snapshot 直接注入 React。** inject 结果按 entry identity 缓存，易变值会陈旧；为每个 service 自造 React hook 也绕开 slot store 的统一绑定。
 
