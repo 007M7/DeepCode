@@ -73,8 +73,8 @@
 ## 已知限制与暂缓事项
 
 - **本服务不内置默认重试／缓存／速率限制策略**：`llm/stream` 仍是单次尝试调用包装 seam；agent loop 会将已验证模型请求失败单独提供给 `agent/request-error`，其默认行为是保留原始失败。`@deepseek-ai/dsh-llm-retry` 是共享示例 spine 加载的可选策略插件。
-- **`GenerateOptions` 采样只包含 `temperature`／`maxTokens`／`stop`**：没有 `tool_choice`、`top_p` 或 penalty 字段；有产生方落地时词汇才会增长（见 [已删除惰性旋钮](../../../.agents/notes/implemented/simplification/2026-07-04-drop-inert-request-knobs.md)）。
-- **由产生方调节的变体在实际产生前保持在外**：`prefill`、每工具 `strict`、块 `cache` 提示与 `agent` 消息源变体因没有产生方而被剪除（见 [Agent Note](../../../.agents/notes/implemented/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)）。
+- **`GenerateOptions` 采样只包含 `temperature`／`maxTokens`／`stop`**：没有 `tool_choice`、`top_p` 或 penalty 字段；有产生方落地时词汇才会增长（见 [已删除惰性旋钮](../../../.agents/notes/archived/simplification/2026-07-04-drop-inert-request-knobs.md)）。
+- **由产生方调节的变体在实际产生前保持在外**：`prefill`、每工具 `strict`、块 `cache` 提示与 `agent` 消息源变体因没有产生方而被剪除（见 [Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)）。
 - **`BlockAssembler` 只处理核心块 kind**：如果插件添加块类型的流从未由 `block-end` 关闭，`blocks()` 会抛出异常。
 - **`APP_IDENTITY.url` 指向一个尚不存在的仓库**：`FIXME`：创建公开 `deepseek-ai/deepseek-harness-sdk` 仓库是首次发布的前置条件。
 - **`GenerateOptions.sessionId` 是本地声明的品牌类型**：导入 dsh-session 的 `SessionId` 会产生循环；未来拥有 id 的包可以消除该权宜之计。

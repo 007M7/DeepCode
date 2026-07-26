@@ -29,7 +29,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
@@ -169,14 +169,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tools',
     source: 'packages/core/tools/src/code-mode.ts',
     requires: ['ctx.tools', 'ctx.codeRuntime (execution time)', 'ctx.systemPrompt'],
-    writes: ['tool/call', 'one tool/code-dispatch per bridged sub-call', 'tool/result'],
+    writes: ['tool/call', 'one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call', 'tool/result'],
     // The registry's OWN tool: run_code exists only under a non-native mode
     // (the registry registers it in its constructor; the code runtime is read
     // at assembly/execution time, so the schema harvest needs none mounted).
     toolsConfig: { mode: 'code' },
     async mount() {},
     note:
-      'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
+      'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
   },
   {
     pkg: '@deepseek-ai/dsh-plan-mode',
@@ -355,7 +355,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.tasks', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result', 'user/message via agent.inject() for background completion notices'],
     async mount(ctx) {
-      await ctx.plugin(TaskService)
+      await ctx.plugin(LocalTaskService)
       await ctx.plugin(ToolTasks)
     },
     note:

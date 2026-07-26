@@ -1,0 +1,27 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Reply with a one-sentence description" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: Reply with a one-sentence description of event sourcing, then stop.
+- button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
+  - img
+  - text: Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.
+- paragraph: Event sourcing is a pattern where all changes to an application's state are stored as an immutable, append-only sequence of events, rather than persisting only the current state, enabling full auditability, temporal queries, and event-driven architectures.
+- text: cache hit 99% · 7,869 tokens · 1 turns · 1 steps
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Plan mode":
+  - option "Plan" [selected]
+  - option "Agent"
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- combobox "Model":
+  - option "DeepSeek-V4-Pro High" [selected]
+  - option "DeepSeek-V4-Pro"
+- button "Send message" [disabled]
