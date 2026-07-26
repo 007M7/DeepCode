@@ -24,10 +24,13 @@ class SnapshotAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    const [context, prompt] = options.messages.slice(-2)
+    // The snapshot rides the prompt's admission: the loop appends the
+    // prompt first, then its additional contexts (the branch-wide ordering
+    // for plugin-sourced context).
+    const [prompt, context] = options.messages.slice(-2)
     if (context?.role !== 'user' || prompt?.role !== 'user'
       || prompt.content[0]?.type !== 'text' || prompt.content[0].text !== 'Use @Source session') {
-      throw new Error('session reference context did not precede the direct user message')
+      throw new Error('session reference context did not follow the direct user message')
     }
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: 'Combined reference request accepted.' }

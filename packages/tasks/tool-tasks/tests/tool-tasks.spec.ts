@@ -573,27 +573,21 @@ describe('completion notices', () => {
     expect(inject).not.toHaveBeenCalled()
   })
 
-  it('drops the notice for unowned tasks and for a disposed owner (benign race)', async () => {
+  it('drops the notice for unowned tasks without throwing', async () => {
     const { ctx } = await setup()
     // Unowned: settles with nobody to notify — nothing throws.
     const unowned = producer()
     ctx.tasks.start(unowned.spec)
     unowned.settle({ status: 'completed' })
     await tick()
-
-    // Disposed owner: inject throws the disposed message — contained.
-    const inject = vi.fn(() => { throw new Error('agent "sess-1" is disposed') })
-    const owner = fakeAgent(ctx, 'sess-1', inject)
-    const p = producer({ owner })
-    ctx.tasks.start(p.spec)
-    p.settle({ status: 'completed' })
-    await tick()
-    expect(inject).toHaveBeenCalledTimes(1)
   })
 
   it('does not route an old owner completion notice to a same-session replacement', async () => {
     const { ctx } = await setup()
-    const oldInject = vi.fn(() => { throw new Error('agent "shared" is disposed') })
+    // Delivery into a tearing-down owner is a plain inject: the loop has no
+    // terminal state, so the notice lands in the old owner's (detached)
+    // session instead of throwing or re-routing.
+    const oldInject = vi.fn()
     const oldOwner = fakeAgent(ctx, 'shared', oldInject)
     const p = producer({ owner: oldOwner })
     ctx.tasks.start(p.spec)
@@ -608,7 +602,7 @@ describe('completion notices', () => {
     expect(replacementInject).not.toHaveBeenCalled()
   })
 
-  it('propagates a non-disposed inject failure (a real bug must surface)', async () => {
+  it('surfaces an inject failure through listener containment (a real bug must be visible)', async () => {
     const { ctx } = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const owner = fakeAgent(ctx, 'sess-1', () => { throw new Error('unexpected inject bug') })

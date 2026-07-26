@@ -64,6 +64,7 @@ import {
   type SessionEvent,
   type SessionHeader,
   type TodoItem,
+  type UserMessageData,
 } from '@deepseek-ai/dsh-session'
 import { foldGoal, type GoalPhase } from '@deepseek-ai/dsh-goal'
 import {
@@ -2777,15 +2778,65 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  const dispatchMessage = (content: ContentBlock[]): void => {
+  const dispatchMessage = (content: ContentBlock[], attachedContext?: UserMessageData): void => {
     if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
-    } else if (agent.status === 'running') {
+      return
+    }
+    if (agent.status === 'running') {
+      // Steering is never subject to prompt admission; an attached snapshot
+      // drains beside it at the same step boundary through the outbox.
+      if (attachedContext !== undefined) {
+        agent.inject({ content: attachedContext.content, source: attachedContext.source })
+      }
       pendingSteering.add(agent.steer({ content, source: { kind: 'user' } }))
       refreshStatus()
-    } else {
-      agent.followup({ content, source: { kind: 'user' } })
+      return
     }
+    if (attachedContext === undefined) {
+      agent.followup({ content, source: { kind: 'user' } })
+      return
+    }
+    // Idle: the snapshot rides the prompt's own admission transaction
+    // (PromptDecision.additionalContexts), so a blocking hook discards the
+    // prompt and its attached context together instead of stranding the
+    // snapshot in history for the next unrelated prompt.
+    let cleanedUp = false
+    // Assigned after followup(); cleanup() can run earlier from the catch.
+    let detachDiscard: (() => void) | undefined = undefined
+    const cleanup = (): void => {
+      // Both triggers detach themselves, so a second call needs a future
+      // third trigger; kept so adding one cannot double-release.
+      /* v8 ignore next -- unreachable idempotence guard, see above */
+      if (cleanedUp) return
+      cleanedUp = true
+      detachSubmit()
+      detachDiscard?.()
+    }
+    // Prepended so this wrapper is outermost: it observes the admission
+    // whether a downstream hook allows or blocks, and detaches either way.
+    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _source, _signal, next) => {
+      if (subject !== agent || submitted !== content) return next()
+      cleanup()
+      const decision = await next()
+      if (decision.kind !== 'allow') return decision
+      return { ...decision, additionalContexts: [...decision.additionalContexts ?? [], attachedContext] }
+    }, { prepend: true })
+    let id: AgentMessageId
+    // followup() accepts any typed input and contains listener failures;
+    // this guards a future synchronous throw so the wrapper cannot leak.
+    /* v8 ignore start -- future-proofing guard, see above */
+    try {
+      id = agent.followup({ content, source: { kind: 'user' } })
+    } catch (error: unknown) {
+      cleanup()
+      throw error
+    }
+    /* v8 ignore stop */
+    // A prompt discarded before admission (broad cancel) releases the wrapper.
+    detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
+      if (subject === agent && messages.some(message => message.id === id)) cleanup()
+    })
   }
 
   /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
@@ -3071,10 +3122,9 @@ export function createTuiChat(
       if (disposed) return
       editor.addToHistory(text)
       if (editor.getText() === value) editor.setText('')
-      if (prepared.additionalContext !== undefined) {
-        agent.inject({ content: prepared.additionalContext.content, source: prepared.additionalContext.source })
-      }
-      dispatchMessage(prepared.content)
+      // The snapshot travels with the prompt so a blocking admission hook
+      // discards them together — see dispatchMessage's attached-context path.
+      dispatchMessage(prepared.content, prepared.additionalContext)
     }, (error: unknown) => {
       if (!disposed && !controller.signal.aborted) {
         restoreSubmittedInput()

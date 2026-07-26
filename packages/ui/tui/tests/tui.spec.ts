@@ -1893,18 +1893,112 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
     expect(result.agent.sent).toEqual([[{ type: 'text', text: '@Source chat' }]])
-    expect(result.agent.injected).toHaveLength(1)
-
-    const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })
-    expect(result.agent.injectedOptions[0]?.source)
+    // Idle: the snapshot rides the prompt's admission (additionalContexts on
+    // the allow decision), not a separate pre-admission inject.
+    expect(result.agent.injected).toHaveLength(0)
+    const decision = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(decision.kind).toBe('allow')
+    expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
       .toMatchObject({ kind: 'session-reference', references: [{ sessionId: 'source-session' }] })
 
+    // The one-shot wrapper detached itself at admission: replaying the
+    // waterfall attaches nothing a second time.
+    const replay = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
+
+    const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })
     result.agent.status = 'running'
     result.terminal.send(`steer ${mention}`)
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.steered).toHaveLength(1) })
     expect(result.agent.steered).toEqual([[{ type: 'text', text: 'steer @Source chat' }]])
-    expect(result.agent.injected).toHaveLength(2)
+    // Steering bypasses admission, so its snapshot still arrives via inject.
+    expect(result.agent.injected).toHaveLength(1)
+    await dispose(result)
+  })
+
+  it('discards the reference snapshot with its blocked or cancelled prompt', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(TestSessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(SessionId('blocked-source'), { meta: { cwd: process.cwd(), createdAt: 1 } })
+        appendUser(source, 'source background')
+      },
+    })
+    // A downstream admission hook blocks the prompt: the attached snapshot
+    // must be discarded with it, not stranded for the next prompt.
+    let blockPrompts = true
+    result.ctx.on('agent/prompt-submit', async (_agent, _content, _source, _signal, next) =>
+      blockPrompts ? { kind: 'block' as const, reason: 'policy' } : next())
+
+    result.terminal.send('@blocked-source')
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · blocked-source') })
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+
+    const blocked = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(blocked.kind).toBe('block')
+    // Nothing entered history and nothing waits for a later prompt: a fresh
+    // unrelated admission sees no leftover contexts.
+    expect(result.agent.injected).toHaveLength(0)
+    blockPrompts = false
+    const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', [{ type: 'text', text: 'unrelated' }], { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
+
+    // Second referenced prompt, this time dropped by a broad cancel before
+    // any admission runs: the discard listener releases the wrapper.
+    result.terminal.send('@blocked-source')
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · blocked-source') })
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
+    // A different prompt passing the still-armed wrapper delegates untouched.
+    const passthrough = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', [{ type: 'text', text: 'different prompt' }], { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(passthrough.kind === 'allow' && passthrough.additionalContexts).toBeUndefined()
+    // A foreign agent's discard leaves the wrapper armed.
+    const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
+    result.ctx.emit('agent/inbox/discard', foreign, [{
+      id: AgentMessageId('stub'),
+      content: result.agent.sent.at(-1)!,
+      source: { kind: 'user' },
+    }])
+    result.ctx.emit('agent/inbox/discard', result.agent, [{
+      id: AgentMessageId('stub'),
+      content: result.agent.sent.at(-1)!,
+      source: { kind: 'user' },
+    }])
+    await tick()
+    // Idempotent: a repeat discard after cleanup is a no-op.
+    result.ctx.emit('agent/inbox/discard', result.agent, [{
+      id: AgentMessageId('stub'),
+      content: result.agent.sent.at(-1)!,
+      source: { kind: 'user' },
+    }])
+    const afterDiscard = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', result.agent.sent.at(-1)!, { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(afterDiscard.kind === 'allow' && afterDiscard.additionalContexts).toBeUndefined()
     await dispose(result)
   })
 
@@ -2054,7 +2148,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.sent).toEqual([[
       { type: 'text', text: '@evil\\x1b\\x07\\x9b\\x0as' },
     ]])
-    expect(result.agent.injectedOptions[0]?.source)
+    const decision = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
       .toMatchObject({ references: [{ sessionId: unsafeId }] })
     await dispose(result)
   })

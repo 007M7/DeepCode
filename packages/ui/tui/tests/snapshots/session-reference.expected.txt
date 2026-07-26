@@ -11,18 +11,18 @@ buffer
 2| " mock  •  target-session"
   style 1-23 dim
 3| <blank>
-4| " Referenced sessions · Source session (source-session)                                          "
-  style 1-53 dim
-5| <blank>
-6| "▌ "
+4| "▌ "
   style 0-0 fg=bright-blue
-7| "▌ You                                                                                           "
+5| "▌ You                                                                                           "
   style 0-0 fg=bright-blue
   style 2-4 fg=bright-blue bold
-8| "▌ Use @Source session                                                                           "
+6| "▌ Use @Source session                                                                           "
   style 0-0 fg=bright-blue
-9| "▌ "
+7| "▌ "
   style 0-0 fg=bright-blue
+8| <blank>
+9| " Referenced sessions · Source session (source-session)                                          "
+  style 1-53 dim
 10| <blank>
 11| " Assistant                                                                                      "
   style 1-9 fg=bright-magenta bold
