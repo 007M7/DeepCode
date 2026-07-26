@@ -139,13 +139,20 @@ it('expands the code row into the program body and resolves a sub-row through th
   boot()
   await openFixtureSession()
 
-  // Expand: the leading control reveals the program verbatim.
+  // Expand: the leading control reveals the program (shiki-tokenized: the
+  // text splits into styled spans inside one <pre class="shiki"> tree).
   const codeRoot = document.querySelector('[data-variant="code"]')
   if (codeRoot === null) throw new Error('code-variant row missing')
   const toggle = codeRoot.querySelector('button[aria-expanded]')
   if (toggle === null) throw new Error('code row expand control missing')
   fireEvent.click(toggle)
-  await screen.findByText(/const listing = await tools\.bash/)
+  await waitFor(() => {
+    // Scope to THIS row: the markdown fixture turn also renders shiki pres.
+    const pre = codeRoot.querySelector('pre.shiki')
+    if (pre === null || !(pre.textContent ?? '').includes('const listing = await tools.bash')) {
+      throw new Error('highlighted program body missing under the code row')
+    }
+  })
 
   // Sub-row click → details panel resolves the sub-callId with FULL output.
   const nest = document.querySelector('[data-subcalls]')

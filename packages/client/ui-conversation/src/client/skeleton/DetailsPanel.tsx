@@ -5,6 +5,7 @@
 // share the store seat exists for) and derives the call material from the
 // session snapshot — no data of its own.
 
+import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
@@ -89,7 +90,7 @@ export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPane
                   {material.argsRaw !== null && (
                     <section className={css.section}>
                       <div className={css.sectionLabel}>Input</div>
-                      <pre className={css.code}>{pretty(material.argsRaw)}</pre>
+                      <CodeBlock code={pretty(material.argsRaw)} lang="json" />
                     </section>
                   )}
                   <section className={css.section}>

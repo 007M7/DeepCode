@@ -57,6 +57,8 @@ describe('MarkdownText', () => {
     expect(container.querySelector('table')?.textContent).toContain('alphabeta')
     expect(container.querySelector('hr')).not.toBeNull()
     expect(container.querySelector('pre code')?.textContent).toContain('const answer = 42')
+    // The ts fence routed through the shared CodeBlock: shiki token spans present.
+    expect(container.querySelector('pre.shiki')).not.toBeNull()
     expect(container.querySelector('br')).not.toBeNull()
     expect(screen.getByRole('link', { name: 'safe' }).getAttribute('target')).toBe('_blank')
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
