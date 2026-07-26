@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-tasks
 
+English | [中文](README.zh.md)
+
 The model-facing control surface for `ctx.tasks`: three kind-independent tools, completion notices, and one background-work prompt section. Loading the plugin attaches the surface required by `ctx.tasks.start()`.
 
 ## Tools

@@ -1,5 +1,7 @@
 # Human Commands
 
+English | [中文](commands.zh.md)
+
 The human-command seam of [`dsh-commands`](../../packages/ui/commands). Interactive adapters use it to discover and directly execute plugin-owned commands for an exact agent without creating a model message. The [command Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns dispatch and lifecycle rationale; the [package README](../../packages/ui/commands/README.md) owns composition and limitations.
 
 Source: [`packages/ui/commands/src/index.ts`](../../packages/ui/commands/src/index.ts)

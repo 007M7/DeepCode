@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-09-bash-backed-grep-glob-discovery.zh.md)
+
 ## Problem
 
 The harness needs model-facing `glob` and `grep` tools, but making them `ctx.fs` provider methods turns a local product convenience into a universal filesystem backend contract. Local workspace discovery is naturally a process-backed `rg` workflow; remote or virtual filesystem backends may expose their own search API, may not share a local `ripgrep` view, or may not support discovery at all. The v1 should not require every filesystem backend to implement search before the file read/write/edit seam has proven that need.

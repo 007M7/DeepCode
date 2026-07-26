@@ -18,9 +18,11 @@ The snapshot suite complicates removal. Most ACP scenarios exercise the assemble
 
 The bridge emits only committed `assistant/message` text. Reasoning, raw chunks, tool activity, todos, plans, titles, retry markers, terminal metadata, diffs, locations, and resource links remain in the durable session log or in UI-specific transports. It does not provide session load/list/delete, commands, modes, configuration selectors, model switching, plan review, or human elicitation.
 
-One-shot `session/request_permission` remains. It is a machine policy channel for bridge-owned agents, not a human approval UI: the client chooses allow once, reject once, or cancel, and the bridge never turns that response into a durable grant. [`dsh-subagent-acp`](../../../../packages/subagent/subagent-acp/README.md) uses this channel programmatically.
+One-shot `session/request_permission` remains. It is a machine policy channel for bridge-owned agents, not a human approval UI: the answerer accepts only an exact agent object in the bridge's live session map, delegates foreign or call-less requests, and maps failed RPCs to the fail-closed unavailable outcome. The client chooses allow once, reject once, or cancel, and the bridge never turns that response into a durable grant. Asking policy stays in the approval seam and its producers; [`dsh-subagent-acp`](../../../../packages/subagent/subagent-acp/README.md) uses this channel programmatically.
 
 The app composition contains the agent spine, persistence, checkpoint policy, and ACP transport. It does not mount command, session-query, session-reference, plan-mode, permission-picker, or user-interaction services for ACP. SDK scaffolding likewise treats `ask_user_question` as TUI-only.
+
+The transport programs interface-level agent, session, and approval services rather than the concrete agent loop. Tool execution stays inside the harness; ACP never delegates shell execution to an editor. stdout carries framed JSON-RPC only, so the app mounts no stdout logger and the bridge does not monkey-patch process output.
 
 Disconnect and plugin disposal share one memoized quiescence boundary. Both successful and failed transport closure settle pending prompts as cancelled, dispose every bridge-owned agent, and await loop and session cleanup. A create that loses the close race disposes its unpublished handle.
 
@@ -28,9 +30,13 @@ Disconnect and plugin disposal share one memoized quiescence boundary. Both succ
 
 The ACP snapshot suite still boots the assembled ACP example and retains scenarios that pin backend behavior. Only scenarios driven through deleted UI methods leave the suite; semantic-checkpoint recovery runs through the headless `stream-json` example because ACP no longer loads sessions.
 
+Protocol and lifecycle tests pin stop-reason and prompt codecs, version negotiation, fresh-session creation, text and resource-link flattening, rejection of empty or unsupported prompts, exact-agent permission ownership, multi-session isolation, prompt settlement, per-session cancellation, failed transport closure, ACP-only reload cleanup, and teardown quiescence. Built and real-stdio smokes reject stray stdout. The `session/new` branch that loses a real stdio close race remains coverage-exempt because the in-memory transport cannot reproduce that ordering; it disposes the unpublished handle, while the surrounding disposal tests pin the no-orphan invariant.
+
 ## Alternatives considered
 
 **Keep ACP as an editor UI until Web reaches parity.** Rejected because it leaves two interactive contracts to evolve and keeps editor conventions in the automation boundary.
+
+**Keep the earlier editor bridge behind disciplined seams.** Rejected even though that bridge correctly used interface services, tool-owned render intents, approval and user-interaction answerers, harness-owned execution, and a stdout-pure composition. Its terminal cards were capability-gated, display-only Zed `_meta` projections with a text fallback rather than ACP `terminal/create`, so shell execution never left the harness. The projection derived each display terminal id from the stable per-call id to prevent collisions and recovered exit code or signal from the rendered status markers because the pure result presenter received content blocks rather than a structured exit; marker round-trip tests and an explicit no-capability `console` fallback test pinned both contracts. Those boundaries were coherent but could not make editor cards, session navigation, configuration pickers, and human elicitation belong in an automation protocol.
 
 **Replace ACP with a private subagent RPC.** Rejected because ACP already supplies a typed, interoperable process protocol and is used by the out-of-process subagent backend.
 

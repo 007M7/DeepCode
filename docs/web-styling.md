@@ -1,107 +1,109 @@
-# Web GUI 样式规范
+# Web GUI Style Guide
 
-> **【token 体系已换代——§1 表格仅历史参考】** 本文的 `--bg-*`/`--text-*`/`--accent` token 族与其宿主包 `packages/client/web-ui` 已随插件化重构退役。现行 token 唯一来源=`packages/client/ui-theme/src/styles/` 的 `--dsw-*` 体系（static 色阶+alias 语义层，暗色=`body[data-ds-dark-theme]` 覆写），sheet 即权威、组件对账以它为准。**仍然有效**：工程约束（CSS Modules + clsx、无组件库、无 tailwind、组件禁 hardcode 色值）、字号成对写行高、间距 4 倍数、代码字体栈末位不放 monospace。
+English | [中文](web-styling.zh.md)
 
-> 状态：原「活文档」（随 `packages/client/web-ui` 演进）。视觉基线源自对 deepseekchat 前端仓的实测调研。框架决策与工程约束由 [web-styling-system RFC](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md) 拍板，本文不重复论证。
+> **[The token system has been replaced—the table in § 1 is retained only for historical reference]** The `--bg-*`/`--text-*`/`--accent` token families documented here and their host package, `packages/client/web-ui`, were retired during the plugin refactor. The sole current token source is `packages/client/ui-theme/src/styles/`, which defines the `--dsw-*` system (a static color scale plus a semantic alias layer, with dark-mode overrides under `body[data-ds-dark-theme]`). The sheet is authoritative and component audits use it as the baseline. **The following rules remain in force**: CSS Modules + clsx, no component library, no Tailwind, no hard-coded color values in components, pair every font size with a line height, use spacing in multiples of 4, and do not put monospace last in the code font stack.
 
-## 1. 设计 token 表（权威定义）
+> Status: formerly a “living document” that evolved with `packages/client/web-ui`. The visual baseline came from empirical study of the deepseekchat frontend repository. The [web-styling-system RFC](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md) owns the framework decisions and engineering constraints; this document does not repeat their rationale.
 
-所有 token 住 `packages/client/web-ui/src/style/global.css`：`:root` 亮色实值，`[data-theme='dark']` 块覆盖同名变量（未补全前列为占位）。组件 CSS 只引 token，不出现字面量色值。
+## 1. Design token table (authoritative definitions)
 
-### 1.1 颜色（两层：注释里是 base 色板出处，变量名即语义别名）
+All tokens live in `packages/client/web-ui/src/style/global.css`: `:root` contains the light-theme values, and the `[data-theme='dark']` block overrides the same variables (columns that were not complete are marked as placeholders). Component CSS references tokens only and contains no literal color values.
 
-| token | 亮色实值 | 暗色（占位） | 用途 |
+### 1.1 Colors (two layers: comments identify the base-palette source, while variable names are semantic aliases)
+
+| token | Light value | Dark value (placeholder) | Purpose |
 | --- | --- | --- | --- |
-| `--bg-base` | `#ffffff` | `#151517` | 页面底 |
-| `--bg-layer` | `#ffffff` | `#232324` | 浮层/面板 |
-| `--bg-sidebar` | `#f9fafb` | `#1b1b1c` | 侧边栏底 |
-| `--text-primary` | `#0f1115` | `#f9fafb` | 正文 |
-| `--text-secondary` | `#61666b` | `#cfd3d6` | 次要文字 |
-| `--text-tertiary` | `#81858c` | `#adb2b8` | 辅助/说明 |
-| `--border-l1` | `rgba(0,0,0,.04)` | `rgba(255,255,255,.06)` | 弱分隔（侧边栏右缘） |
-| `--border-l2` | `rgba(0,0,0,.1)` | `rgba(255,255,255,.12)` | 常规边框 |
-| `--hover-bg` | `rgba(38,49,72,.06)` | `rgba(255,255,255,.08)` | hover 态底 |
-| `--active-bg` | `rgba(38,49,72,.1)` | `rgba(255,255,255,.14)` | 按压/激活态底 |
-| `--accent` | `#3964fe` | `#5686fe` | 品牌蓝（deepseek-500；暗提亮一档） |
-| `--accent-soft` | `#edf3fe` | `#28313f` | 淡品牌底（强调块） |
-| `--accent-item` | `#e4edfd` | `#35363a` | 侧边栏选中条目底 |
-| `--bubble-bg` | `#edf3fe` | `#2c2c2e` | 用户消息气泡底 |
-| `--ok` / `--error` / `--warn` | `#22c55e` / `#ec1313` / `#f59e0b` | 同值 | 语义状态色 |
-| `--text-on-solid` | `#ffffff` | 同值 | 实色底（accent/error 徽标等）上的文字 |
-| `--ok-soft` / `--error-soft` | `#e6faed` / `#fee2e2` | `#233c2c` / `#570c0c` | 语义状态软底（徽章）；green-100/red-100，暗为 900 档 |
-| `--color-frame-mux` / `--color-frame-host` | `#8250df` / `#0969da` | 同值 | RPC 调试面板方向色（自有，非基线） |
-| `--frame-mux-soft` / `--frame-host-soft` | `rgba(130,80,223,.1)` / `rgba(9,105,218,.1)` | 同色 `.24` | 方向色软底（徽章） |
-| `--scroll-color` / `--scroll-color-hover` | `rgba(0,0,0,.08)` / `.15` | `rgba(255,255,255,.15)` / `.24` | 滚动条（`.scrollable` 专用） |
+| `--bg-base` | `#ffffff` | `#151517` | Page background |
+| `--bg-layer` | `#ffffff` | `#232324` | Floating layer/panel |
+| `--bg-sidebar` | `#f9fafb` | `#1b1b1c` | Sidebar background |
+| `--text-primary` | `#0f1115` | `#f9fafb` | Body text |
+| `--text-secondary` | `#61666b` | `#cfd3d6` | Secondary text |
+| `--text-tertiary` | `#81858c` | `#adb2b8` | Supporting/descriptive text |
+| `--border-l1` | `rgba(0,0,0,.04)` | `rgba(255,255,255,.06)` | Subtle separator (sidebar right edge) |
+| `--border-l2` | `rgba(0,0,0,.1)` | `rgba(255,255,255,.12)` | Standard border |
+| `--hover-bg` | `rgba(38,49,72,.06)` | `rgba(255,255,255,.08)` | Hover-state background |
+| `--active-bg` | `rgba(38,49,72,.1)` | `rgba(255,255,255,.14)` | Pressed/active-state background |
+| `--accent` | `#3964fe` | `#5686fe` | Brand blue (deepseek-500; one step lighter in dark mode) |
+| `--accent-soft` | `#edf3fe` | `#28313f` | Soft brand background (emphasis blocks) |
+| `--accent-item` | `#e4edfd` | `#35363a` | Selected sidebar-item background |
+| `--bubble-bg` | `#edf3fe` | `#2c2c2e` | User-message bubble background |
+| `--ok` / `--error` / `--warn` | `#22c55e` / `#ec1313` / `#f59e0b` | Same values | Semantic status colors |
+| `--text-on-solid` | `#ffffff` | Same value | Text on solid backgrounds (accent/error badges, etc.) |
+| `--ok-soft` / `--error-soft` | `#e6faed` / `#fee2e2` | `#233c2c` / `#570c0c` | Soft semantic status backgrounds (badges); green-100/red-100, with the 900 shades in dark mode |
+| `--color-frame-mux` / `--color-frame-host` | `#8250df` / `#0969da` | Same values | RPC debugger direction colors (project-specific, not part of the baseline) |
+| `--frame-mux-soft` / `--frame-host-soft` | `rgba(130,80,223,.1)` / `rgba(9,105,218,.1)` | Same colors at `.24` | Soft direction-color backgrounds (badges) |
+| `--scroll-color` / `--scroll-color-hover` | `rgba(0,0,0,.08)` / `.15` | `rgba(255,255,255,.15)` / `.24` | Scrollbar colors (for `.scrollable` only) |
 
-### 1.2 非颜色
+### 1.2 Non-color tokens
 
-| token | 值 | 说明 |
+| token | Value | Description |
 | --- | --- | --- |
-| `--font-ui` | `Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif` | 正文栈 |
-| `--font-mono` | `Menlo, Monaco, Consolas, 'JetBrains Mono', 'Courier New', sans-serif` | 代码栈；**末位不放 monospace**（防 Windows 中文回退宋体） |
-| `--fw-strong` | `600` | 粗体统一权重 |
-| `--ease` | `cubic-bezier(.4,0,.2,1)` | 唯一缓动曲线 |
-| `--dur` / `--dur-fast` / `--dur-slow` | `.2s` / `.1s` / `.3s` | 过渡三档 |
-| `--radius-s` / `--radius-m` / `--radius-l` / `--radius-bubble` / `--radius-xl` | `8px` / `12px` / `16px` / `22px` / `24px` | 圆角语义档：小控件 / 列表条目与面板内块 / 浮层 / 气泡 / 输入卡片（基线 inputWrapper 同值）；胶囊直接写 `999px` |
-| `--shadow-panel` | `0 0 1px rgba(0,0,0,.2), 0 0 4px rgba(0,0,0,.02), 0 12px 32px rgba(0,0,0,.08)` | 浮层阴影（基线 lv3） |
-| `--shadow-float` | `0 0 1px rgba(0,0,0,.24), 0 4px 12px rgba(0,0,0,.06), 0 16px 48px rgba(0,0,0,.16)` | 强浮动面板（lv3 加强档，如 RPC 调试浮层） |
-| `--shadow-card` | `0 4px 10px rgba(0,0,0,.02), 0 2px 4px rgba(0,0,0,.04)`；暗色 `none` | 输入卡片微阴影（基线：亮色同底靠边框+微影区分，暗色靠提亮底、阴影关闭） |
+| `--font-ui` | `Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif` | Body-text stack |
+| `--font-mono` | `Menlo, Monaco, Consolas, 'JetBrains Mono', 'Courier New', sans-serif` | Code stack; **do not put monospace last** (prevents SimSun fallback for Chinese on Windows) |
+| `--fw-strong` | `600` | Unified bold weight |
+| `--ease` | `cubic-bezier(.4,0,.2,1)` | Sole easing curve |
+| `--dur` / `--dur-fast` / `--dur-slow` | `.2s` / `.1s` / `.3s` | Three transition durations |
+| `--radius-s` / `--radius-m` / `--radius-l` / `--radius-bubble` / `--radius-xl` | `8px` / `12px` / `16px` / `22px` / `24px` | Semantic radius steps: small controls / list items and blocks inside panels / floating layers / bubbles / input cards (same as the baseline inputWrapper); use `999px` directly for pills |
+| `--shadow-panel` | `0 0 1px rgba(0,0,0,.2), 0 0 4px rgba(0,0,0,.02), 0 12px 32px rgba(0,0,0,.08)` | Floating-layer shadow (baseline lv3) |
+| `--shadow-float` | `0 0 1px rgba(0,0,0,.24), 0 4px 12px rgba(0,0,0,.06), 0 16px 48px rgba(0,0,0,.16)` | Strong floating panel (enhanced lv3, such as the RPC debugger overlay) |
+| `--shadow-card` | `0 4px 10px rgba(0,0,0,.02), 0 2px 4px rgba(0,0,0,.04)`; dark value `none` | Subtle input-card shadow (baseline: borders plus a subtle shadow distinguish same-color light surfaces; a lighter background distinguishes dark surfaces, with the shadow disabled) |
 
-字号与间距**不 token 化**（基线仓同款决策）：字号在组件里写 px 且**成对写行高**，常用对 16/24（气泡）、14/22（UI 默认）、12/18（辅助）；间距用 4 的倍数。
+Font sizes and spacing are **not tokenized** (matching the baseline repository's decision): components specify font sizes in px and **always pair them with line heights**. Common pairs are 16/24 (bubbles), 14/22 (UI default), and 12/18 (supporting text); spacing uses multiples of 4.
 
-## 2. 视觉基线（源自 deepseekchat）
+## 2. Visual baseline (from deepseekchat)
 
-- 侧边栏：宽 `260px + 1px` 右边框（`--border-l1`）；底色 `--bg-sidebar`。
-- 侧边栏条目：高 `40px`、圆角 `--radius-m`、字号 14px；hover 底 `--hover-bg` 或 sidebar 专属灰、**选中底 `--accent-item` 且不改文字色**。
-- 侧边栏分组标题：12px / weight 500 / `--text-tertiary` / sticky 顶部（底色同侧边栏遮滚动内容）。
-- 会话列：`max-width: 840px` 居中，<1024px 降 712px。
-- 消息流：**仅用户侧有气泡**——`--bubble-bg` 底、圆角 `--radius-bubble`、padding `10px 16px`、字号 16px/24px、`max-width: calc(100% - 88px)`；**助手侧纯文档流无底色**。
-- 消息操作条：默认 `opacity: 0`，父块 hover/focus-within 淡入（`--dur` + `--ease`）。
-- 输入卡片：与会话列同宽（840px，<1024px 降 712px)居中悬浮（距底留白带）；圆角 `--radius-xl`、边框 `--border-l2`、底 `--bg-base`、阴影 `--shadow-card`；内部上下两段=textarea（16px/24px，min 2 行 max 14 行=336px，镜像 div 自增高）+ 操作行（右下嵌 34px 主圆钮）；focus 无边框/阴影变化（基线同款）。
-- 输入主按钮（拍板 2026-07-20 三连，视觉参照 Codex App）：32px 实心正圆图标钮（内联 SVG）——空闲=`--accent` 底白↑箭头「发送」，运行中原地变 `--accent-soft` 底 accent ■「停止」（同色系不告警、不用红）。**运行中锁输入**（拍板 3，取代早先 hover 菜单方案）：textarea disabled（灰、草稿内容保留可见）、无任何排队/插话菜单，停止是唯一动作；turn 结束解禁并 refocus。键盘 Enter=发送、Ctrl/Meta+Enter=换行（运行中键盘路径随锁失效）。
-- 滚动条：近隐形、hover 加深、`scrollbar-gutter: stable` 不占布局（统一走 `.scrollable`，见 §3-9）。
-- RPC 四象限方向符（官方视觉词汇，空间隐喻：上=去 server、下=来自 server；单线=unary、双线=SSE）：
+- Sidebar: width `260px + 1px` right border (`--border-l1`); background `--bg-sidebar`.
+- Sidebar items: height `40px`, radius `--radius-m`, font size 14px; hover background `--hover-bg` or a sidebar-specific gray; **selected items use `--accent-item` without changing text color**.
+- Sidebar group headings: 12px / weight 500 / `--text-tertiary` / sticky at the top (using the sidebar background to cover scrolling content).
+- Conversation column: centered at `max-width: 840px`, reduced to 712px below 1024px.
+- Message stream: **only user messages have bubbles**: background `--bubble-bg`, radius `--radius-bubble`, padding `10px 16px`, font size 16px/24px, and `max-width: calc(100% - 88px)`; **assistant messages are a plain document flow without a background**.
+- Message action bar: `opacity: 0` by default; fades in when its parent is hovered or contains focus (`--dur` + `--ease`).
+- Input card: floats centered at the same width as the conversation column (840px, reduced to 712px below 1024px) with bottom spacing; radius `--radius-xl`, border `--border-l2`, background `--bg-base`, shadow `--shadow-card`; two internal vertical sections = textarea (16px/24px, minimum 2 lines, maximum 14 lines = 336px, auto-growing through a mirror div) + action row (a 34px primary round button nested at bottom right); focus does not change the border or shadow (matching the baseline).
+- Primary input button (the three decisions made on 2026-07-20, visually based on the Codex App): a 32px solid circular icon button (inline SVG). Idle = `--accent` background with a white ↑ “Send” arrow; while running it changes in place to an accent ■ “Stop” icon on `--accent-soft` (the same color family, not a warning, and not red). **Input is locked while running** (decision 3, replacing the earlier hover-menu design): the textarea is disabled (gray, with draft content still visible), there is no queue/interjection menu, and Stop is the only action. When the turn ends, input unlocks and regains focus. Enter sends; Ctrl/Meta+Enter inserts a newline (the keyboard path is disabled with the locked input while running).
+- Scrollbars: nearly invisible, darkening on hover, with `scrollbar-gutter: stable` so they do not consume layout space (always use `.scrollable`; see § 3.9).
+- Four-quadrant RPC direction symbols (the official visual vocabulary, using the spatial metaphor that up goes to the server, down comes from the server; single line = unary, double line = SSE):
 
-| 符号 | 象限 | 徽章配色 |
+| Symbol | Quadrant | Badge colors |
 | --- | --- | --- |
-| `↑` | client-request（unary 出站） | `--accent` / `--accent-soft` |
-| `↓` | server-response（unary 回包） | ok `--ok`/`--ok-soft`，error `--error`/`--error-soft` |
-| `⇟` | server-request（SSE 帧推送） | mux `--color-frame-mux`/`--frame-mux-soft`，host `--color-frame-host`/`--frame-host-soft` |
-| `⇞` | client-response（SSE 侧回应） | `--accent`/`--accent-soft` 降透明度 |
+| `↑` | client-request (unary outbound) | `--accent` / `--accent-soft` |
+| `↓` | server-response (unary response) | ok `--ok`/`--ok-soft`, error `--error`/`--error-soft` |
+| `⇟` | server-request (SSE frame push) | mux `--color-frame-mux`/`--frame-mux-soft`, host `--color-frame-host`/`--frame-host-soft` |
+| `⇞` | client-response (SSE-side response) | `--accent`/`--accent-soft` at reduced opacity |
 
-## 3. 样式编码规范（review 对照打勾）
+## 3. Style implementation rules (review checklist)
 
-1. 颜色/圆角/动效/字体栈只引 §1 token；组件 CSS 出现字面量色值即打回（渐变遮罩等特效除外，须注释说明）。
-2. 组件 CSS 禁止出现 `[data-theme]` 选择器；暗色差异只在 global.css token 表做。确需按主题换非 token 值（渐变端点等），组件定义局部 CSS 变量、主题块只覆写变量（变量桥）。
-3. 类名 camelCase；状态类用单形容词（`.active` `.show`），由 clsx 挂载：`clsx(styles.x, cond && styles.active, className)`。
-4. 对外组件必须透传 `className` 并合入根元素。
-5. 禁用 `composes`；复用靠 token 与组件抽取。
-6. `:global` 仅用于穿透第三方/跨包类名；禁止用它定义新全局类。
-7. 交互过渡一律 `var(--dur*) var(--ease)`，只过渡 opacity / transform / 背景色 / 阴影；纯 hover 展示型元素包 `@media (hover: hover)`。
-8. hover/active 底色优先用透明度制 token（叠任意海拔底色都成立），不新造实色灰。
-9. 滚动容器统一挂 global.css 的 `.scrollable` 工具类；组件内禁写 `::-webkit-scrollbar`。
-10. 媒体查询写在组件 css 尾部、贴着被覆盖规则；断点当前仅 1024px 一档（会话列降档），加第二档需先记入本文档。
-11. 动态样式 JS 侧只写 CSS 变量（`style={{'--x': v}}`），规则留在 CSS；禁止在 TSX 里拼接样式对象做主题/状态分支。
-12. 文字灰阶只用 `--text-primary/secondary/tertiary` 三级，不新造灰色。
+1. Colors, radii, motion, and font stacks reference only the § 1 tokens. Reject literal color values in component CSS (except for special effects such as gradient masks, which require an explanatory comment).
+2. Component CSS must not contain `[data-theme]` selectors; dark-mode differences belong only in the global.css token table. If a theme must change a non-token value such as a gradient endpoint, define a local CSS variable in the component and have the theme block override only that variable (a variable bridge).
+3. Use camelCase class names; use a single adjective for state classes (`.active` `.show`) and attach them with clsx: `clsx(styles.x, cond && styles.active, className)`.
+4. Public components must accept `className` and merge it into the root element.
+5. Do not use `composes`; share through tokens and extracted components.
+6. Use `:global` only to pierce third-party or cross-package class names; do not use it to define new global classes.
+7. All interaction transitions use `var(--dur*) var(--ease)` and transition only opacity / transform / background color / shadow. Wrap hover-only reveal elements in `@media (hover: hover)`.
+8. Prefer opacity-based tokens for hover/active backgrounds because they compose over any elevation background; do not add new solid grays.
+9. Apply the `.scrollable` utility class from global.css to every scroll container; do not write `::-webkit-scrollbar` inside components.
+10. Put media queries at the end of the component CSS, next to the rules they override. The only current breakpoint is 1024px (where the conversation column steps down); record a second breakpoint in this document before adding it.
+11. Dynamic styles in JS set only CSS variables (`style={{'--x': v}}`), while rules remain in CSS; do not assemble style objects in TSX to branch by theme or state.
+12. Use only the three `--text-primary/secondary/tertiary` levels for gray text; do not add another gray.
 
-## 4. 文件组织
+## 4. File organization
 
-- `src/style/global.css` 固定分区顺序：① token 表（`:root` + `[data-theme='dark']`）② 全局基础（box-sizing、body、button reset）③ 全局工具类（`.scrollable` 等，总数保持个位数）。
-- `*.module.css` 与组件同目录同名；一个组件一个 module 文件。
-- 类型声明用现有 `css-modules.d.ts` 通配；组件数超 20 再评估引入 tcm 生成精确 `.css.d.ts`。
-- PostCSS 特性白名单：当前**零插件**（平铺 CSS + 原生嵌套按需）；引入 nested/custom-media 需先记入本文档。
+- `src/style/global.css` always uses this section order: ① token table (`:root` + `[data-theme='dark']`), ② global foundations (box-sizing, body, button reset), ③ global utility classes (`.scrollable`, etc.; keep the total in single digits).
+- Place each `*.module.css` beside the component with the same name; use one module file per component.
+- Use the existing `css-modules.d.ts` wildcard declaration. Reassess introducing tcm to generate exact `.css.d.ts` files only after the component count exceeds 20.
+- PostCSS feature allowlist: currently **no plugins** (flat CSS plus native nesting when needed). Record nested/custom-media in this document before introducing either.
 
-## 5. 演进规则与偏离记录
+## 5. Evolution rules and deviation log
 
-- **加新 token**：先进 §1 表（含暗色占位列）再在组件使用；review 见到未入表的 `--` 新变量即打回（组件局部变量桥除外）。
-- **偏离基线**：与 §2 任一常数不一致的实现，须在下方偏离表记一行（日期/项/理由）。
-- **暗色表补全验收**：`[data-theme='dark']` 覆盖 §1 全部占位列后，用 RPC 面板 + 侧边栏 + 会话流三个界面人工/截图核对一遍，无组件级主题选择器即达标。
+- **Adding a token**: add it to the § 1 table first (including the dark-placeholder column), then use it in the component. Reject any new `--` variable that has not been added to the table (except for component-local variable bridges).
+- **Deviating from the baseline**: if an implementation differs from any constant in § 2, add one row to the deviation table below (date / item / rationale).
+- **Dark-table completion acceptance**: after `[data-theme='dark']` overrides every placeholder column in § 1, compare the RPC panel, sidebar, and conversation stream manually or with screenshots. Acceptance requires all three to match and no component-level theme selector to remain.
 
-| 日期 | 偏离项 | 理由 |
+| Date | Deviation | Rationale |
 | --- | --- | --- |
-| （空） | | |
+| (none) | | |
 
-## 6. 相关文档
+## 6. Related documentation
 
-- [web-styling-system RFC](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md)（框架五条与工程约束的裁决记录）
-- 客户端消费架构与分层协议：[Web 客户端架构 RFC](../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md)、[GUI 分层与 RPC 协议 RFC](../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)
+- [web-styling-system RFC](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md) (decision record for the five framework rules and engineering constraints)
+- Client consumption architecture and layered protocols: [Web client architecture RFC](../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md), [GUI layering and RPC protocol RFC](../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)

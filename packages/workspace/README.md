@@ -1,5 +1,7 @@
 # workspace/ — the workspace entity
 
+English | [中文](README.zh.md)
+
 The workspace family owns the persistent workspace concept: a directory the user works in, with a title and the ordered list of sessions that belong to it. Design record: [domain KV storage Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md).
 
 | Package | Role | ctx key |

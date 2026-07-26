@@ -99,7 +99,7 @@ async function bench() {
   ctx.provide('workspaces', workspacesFake)
   const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
   ctx.provide('layout', layoutFake)
-  ctx.provide('i18n', { bind: () => (key: string) => key })
+  ctx.provide('locale', { bind: () => (key: string) => key })
 
   // The AppFrame role: the three conversation-package slots must be declared
   // by a live entry before apply can contribute into them (the stand-in
