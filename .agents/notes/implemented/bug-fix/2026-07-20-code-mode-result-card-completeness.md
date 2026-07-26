@@ -16,7 +16,7 @@ The canonical tool registry pipeline owns the final model-facing outer content. 
 
 `run_code` omits `presentResult`. The established generic result fallback keeps the pending program title and renders the raw final `tool/result.content`; that durable, replayable, post-policy projection is the card's only result-content source. The host API proxy therefore omits a separate result view instead of serializing the same content in both `event.data.content` and `view.view.content`. The redundant logs-only `presentationMeta` projection remains removed.
 
-Nested dispatch remains unchanged. Calls marked by `exec.parent` emit bounded `tool/code-dispatch` diagnostics but no `tool/call` or `tool/result` surface cards, so one outer `run_code` invocation still produces exactly one card.
+Nested dispatch remains unchanged. Calls marked by `exec.parent` emit `tool/code-dispatch` events (full rendered content) but no `tool/call` or `tool/result` surface cards, so one outer `run_code` invocation still produces exactly one card.
 
 ## Testing
 

@@ -103,6 +103,13 @@ export interface LaunchOptions {
   replayFixture?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
   paceMs?: number
+  /**
+   * Tool presentation mode patched onto the shipped `tools` row (`code`
+   * collapses the wire to run_code + the SDK prompt section). Omit for the
+   * yml default. The code runtime row is always in the tree, so no extra
+   * insertion is needed.
+   */
+  toolsMode?: 'native' | 'code' | 'both'
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -154,6 +161,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'workspace-context', disabled: true },
     { id: 'session-title-llm', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...mode === 'record' ? [] : [{ id: 'llm-deepseek', disabled: true }],
   ]
 

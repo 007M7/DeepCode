@@ -364,6 +364,7 @@ describe('TUI terminal-state snapshots', () => {
       name: 'run_code',
       arguments: {
         code: "const first = await tools.bash({ command: 'echo CODE_ONE' })\nconst second = await tools.bash({ command: 'echo CODE_TWO' })\nconsole.log(first, second)\nreturn `${first}+${second}`",
+        description: 'Echo two markers and combine them',
       },
     }
     await renderAfter(harness, () => { appendToolCalls(harness.session, [call]) })

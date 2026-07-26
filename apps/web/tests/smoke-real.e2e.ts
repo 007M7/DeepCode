@@ -271,6 +271,83 @@ describe('dsh web keyless CLI smoke', () => {
       rmSync(workspace, { recursive: true, force: true })
     }
   })
+
+  it('DSH_TOOLS_MODE=code collapses the provider wire tools to run_code with the SDK prompt section', async () => {
+    requireDist()
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-code-mode-'))
+
+    interface CodeModeProviderRequest {
+      messages?: { role?: string; content?: string }[]
+      tools?: { function?: { name?: string } }[]
+    }
+    let resolveProviderRequest!: (request: CodeModeProviderRequest) => void
+    const providerRequest = new Promise<CodeModeProviderRequest>((resolve) => {
+      resolveProviderRequest = resolve
+    })
+    const provider = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        resolveProviderRequest(JSON.parse(body) as CodeModeProviderRequest)
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        response.end([
+          'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
+          'data: {"choices":[{"delta":{"content":"done"}}]}',
+          'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'))
+      })
+    })
+    await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (address === null || typeof address === 'string') throw new Error('mock provider did not bind a TCP port')
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      {
+        cwd: workspace,
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: 'keyless-web-code-mode',
+          DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+          DSH_TOOLS_MODE: 'code',
+          DSH_HOME: join(workspace, '.dsh'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const baseUrl = await waitForReadyLine(child)
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
+      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+        sessionId: created.sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: 'go' }],
+      })
+      const captured = await Promise.race([
+        providerRequest,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
+        }),
+      ])
+      expect(captured.tools?.map(tool => tool.function?.name)).toEqual(['run_code'])
+      const system = captured.messages?.find(message => message.role === 'system')
+      expect(system?.content).toContain('## Writing code for run_code')
+      expect(system?.content).toContain('declare const tools')
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
 })
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key, W5)', () => {
