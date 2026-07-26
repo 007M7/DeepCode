@@ -4,6 +4,7 @@
  */
 import type {
   AssistantMessageNode,
+  CodeSubCall,
   ConversationSnapshot,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -27,6 +28,8 @@ export interface TrajectoryLayoutInput {
   nodes: ConversationSnapshot['nodes']
   partial: ConversationSnapshot['partial']
   runningCalls: ConversationSnapshot['runningCalls']
+  /** run_code sub-dispatches by parent callId (sub-cells nest under the parent Tool cell). */
+  codeDispatches: ConversationSnapshot['codeDispatches']
 }
 
 interface UsageLike {
@@ -49,7 +52,7 @@ interface LaidCell {
  * @returns turns ordered by first appearance.
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
-  const { nodes, partial, runningCalls } = input
+  const { nodes, partial, runningCalls, codeDispatches } = input
   const resultByCall = indexResults(nodes)
   const turns = new Map<number, { message: LaidCell[]; steps: Map<number, LaidCell[]> }>()
   let index = 0
@@ -96,7 +99,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (node.kind === 'assistant') {
-      const laidList = expandAssistant(node, index + 1, prevAbsTime, resultByCall)
+      const laidList = withSubCalls(expandAssistant(node, index + 1, prevAbsTime, resultByCall), codeDispatches)
       for (const laid of laidList) {
         if (node.step > 0) pushStep(node.turn, node.step, laid)
         else pushMessage(node.turn, laid)
@@ -128,6 +131,10 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
             timeSeconds: durationSeconds(node.time, node.callTime),
           },
         })
+        for (const laid of expandSubCalls(codeDispatches.get(node.callId), index)) {
+          pushStep(0, 1, laid)
+          index = laid.cell.index
+        }
       }
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
     }
@@ -161,6 +168,10 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         timeSeconds: null,
       },
     })
+    for (const laid of expandSubCalls(codeDispatches.get(call.callId), index)) {
+      pushStep(call.turn, call.step > 0 ? call.step : 1, laid)
+      index = laid.cell.index
+    }
   }
 
   // Orphan turn-0 cells (orphaned tools / steering turn 0) fold into Turn 1.
@@ -385,6 +396,53 @@ function collectCallIds(
     }
   }
   return ids
+}
+
+
+
+/** Interleave each tool cell's run_code sub-dispatch cells right after it, reindexing followers. */
+function withSubCalls(laidList: LaidCell[], codeDispatches: ConversationSnapshot['codeDispatches']): LaidCell[] {
+  if (codeDispatches.size === 0) return laidList
+  const out: LaidCell[] = []
+  let index = laidList[0] !== undefined ? laidList[0].cell.index - 1 : 0
+  for (const laid of laidList) {
+    out.push({ ...laid, cell: { ...laid.cell, index: ++index } })
+    if (laid.callId === undefined) continue
+    for (const sub of expandSubCalls(codeDispatches.get(laid.callId), index)) {
+      out.push(sub)
+      index = sub.cell.index
+    }
+  }
+  return out
+}
+
+/** Sub-dispatch cells for one run_code parent, in start order (running = null duration). */
+function expandSubCalls(
+  subs: readonly CodeSubCall[] | undefined,
+  startIndex: number,
+): LaidCell[] {
+  if (subs === undefined || subs.length === 0) return []
+  const out: LaidCell[] = []
+  let index = startIndex
+  for (const sub of subs) {
+    const settled = 'kind' in sub
+    out.push({
+      absTime: settled ? finiteTime(sub.callTime ?? sub.time) : finiteTime(sub.time),
+      toolName: settled ? sub.call?.name ?? sub.callId : sub.name,
+      callId: sub.callId,
+      cell: {
+        index: ++index,
+        kind: 'subtool',
+        text: settled
+          ? (sub.call !== null ? summarizeCall(sub.call.name, sub.call.argsRaw) : summarizeResult(sub))
+          : summarizeCall(sub.name, sub.argsRaw),
+        // PR3's start/settle pair carries per-sub-call wall time; a running
+        // (unsettled) or pre-pair log entry shows the em dash.
+        timeSeconds: settled ? durationSeconds(sub.time, sub.callTime) : null,
+      },
+    })
+  }
+  return out
 }
 
 function summarizeCall(name: string, argsRaw: string): string {

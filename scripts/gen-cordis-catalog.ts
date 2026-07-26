@@ -170,6 +170,7 @@ export const LINK_MAP: Record<string, string> = {
   TaskSnapshot: 'tasks.md',
   TaskStart: 'tasks.md',
   TokenMeasurement: 'token-meter.md',
+  CodeDispatchLog: 'tools.md',
   PostToolDecision: 'tools.md',
   PreToolDecision: 'tools.md',
   ToolDefinition: 'tools.md',

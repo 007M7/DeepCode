@@ -611,6 +611,11 @@
     },
     {
       "doc": "docs/core-data-structures/tools.md",
+      "symbol": "CodeDispatchLog",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
       "symbol": "ToolRunContext",
       "source": "packages/core/tools/src/index.ts"
     },

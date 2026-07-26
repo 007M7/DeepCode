@@ -152,7 +152,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(view.getByText('Tool call')).toBeTruthy()
   })
 
-  it('expanding the code row reveals the program body verbatim', async () => {
+  it('expanding the code row reveals the program body verbatim (shiki-tokenized)', async () => {
     const parent = 'call-64'
     const b = await bench(snapshotWith([codeResult(10, parent)], new Map()))
     const view = mountApp(b.slots)
@@ -160,7 +160,12 @@ describe('run_code sub-calls through the real chat machinery', () => {
     const toggle = view.container.querySelector('[data-variant="code"] button[aria-expanded]')
     expect(toggle).not.toBeNull()
     fireEvent.click(toggle!)
-    expect(view.getByText(/const listing = await tools\.bash/)).toBeTruthy()
+    // Shiki splits the program into token spans inside one <pre class="shiki">:
+    // assert the whole text and the highlighted tree rather than one node.
+    const pre = view.container.querySelector('pre.shiki')
+    expect(pre).not.toBeNull()
+    expect(pre!.textContent).toContain('const listing = await tools.bash')
+    expect(pre!.querySelectorAll('span[style]').length).toBeGreaterThan(3)
   })
 
   it('an isError sub-call renders the error state dot exactly like a failed native row', async () => {
