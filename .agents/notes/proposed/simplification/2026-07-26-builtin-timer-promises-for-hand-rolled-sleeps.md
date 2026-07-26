@@ -14,7 +14,7 @@ Three packages hand-roll promise-wrapped timers that the `node:timers/promises` 
 
 ## Proposal
 
-Replace both with `import { setTimeout } from 'node:timers/promises'`:
+Replace all three with `import { setTimeout } from 'node:timers/promises'`:
 
 - llm-retry: `try { await setTimeout(delayMs, undefined, { signal }); /* retry */ } catch { /* abort → fail */ }` — with a signal, the promise rejects only with the abort error, and a pre-aborted signal rejects immediately; behavior is identical, including timer clearing on abort. The empty `catch` names the abort rejection per the repo's empty-catch rule.
 - workflow-workerthread: `setTimeout(ms, undefined, { ref: false })` — exact semantics including not holding the event loop open.
@@ -29,8 +29,8 @@ No dedicated tests pin the helpers themselves; the packages' behavior suites kee
 
 ## Acceptance criteria
 
-- Neither package defines a promise-wrapped `setTimeout` helper; both import from `node:timers/promises`.
-- `llm-retry` and `workflow-workerthread` test suites pass unchanged (behavioral parity).
+- None of the three packages defines a promise-wrapped `setTimeout` helper; all import from `node:timers/promises`.
+- The `llm-retry`, `workflow-workerthread`, and `pty-local` test suites pass unchanged (behavioral parity).
 
 ## Risks
 

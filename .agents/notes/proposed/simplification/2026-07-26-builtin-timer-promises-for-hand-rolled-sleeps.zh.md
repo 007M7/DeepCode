@@ -14,7 +14,7 @@ Status: proposed
 
 ## 提案
 
-用 `import { setTimeout } from 'node:timers/promises'` 替换上述实现：
+用 `import { setTimeout } from 'node:timers/promises'` 替换这三处实现：
 
 - llm-retry：`try { await setTimeout(delayMs, undefined, { signal }); /* retry */ } catch { /* abort → fail */ }`。传入 signal 后，该 promise 只会以 abort 错误拒绝，已提前中止的 signal 则立即拒绝；行为完全一致，包括中止时清除定时器。按仓库的空 catch 规则，这个空 `catch` 注明其吞下的是 abort 拒绝。
 - workflow-workerthread：`setTimeout(ms, undefined, { ref: false })`，语义完全等价，包括不会让事件循环保持存活。
@@ -29,8 +29,8 @@ Status: proposed
 
 ## 验收标准
 
-- 上述包不再各自定义 promise 包装的 `setTimeout` 辅助函数，而是都从 `node:timers/promises` 导入。
-- `llm-retry` 与 `workflow-workerthread` 的测试套件原样通过（行为等价）。
+- 这三个包都不再各自定义 promise 包装的 `setTimeout` 辅助函数，而是都从 `node:timers/promises` 导入。
+- `llm-retry`、`workflow-workerthread` 与 `pty-local` 的测试套件原样通过（行为等价）。
 
 ## 风险
 
