@@ -46,14 +46,14 @@ Replay is positional and therefore permits only one in-flight model stream per s
 
 Recording runs the scenario with the real `llm-deepseek` adapter and the JSONL persistence backend configured with `persistenceCompression: 'none'`, then copies the produced `.jsonl` into the scenario dir. The explicit raw mode keeps committed replay fixtures line-readable while ordinary deployments use the backend's compressed default. Per-event appends are durable, but the harness shuts the subprocess down gracefully (close stdin → `await ctx.dispose()`) before harvesting so the final events are flushed. `llm-replay` itself does no recording — it is replay-only.
 
-Replay uses a `cordis.snapshot.yml` overlay that replaces the real adapter with `llm-replay` while retaining the live composition. Recording uses the ordinary config and a harness-supplied persistence root. Replay mode skips `.env` loading, so a stray API key cannot trigger a live call. See the [single-source config Agent Note](2026-07-04-single-source-acp-replay-config.md).
+Replay uses a `cordis.snapshot.yml` overlay that replaces the real adapter with `llm-replay` while retaining the live composition. Recording uses the ordinary config and a harness-supplied persistence root. Replay mode skips `.env` loading, so a stray API key cannot trigger a live call. See the [single-source config Agent Note](../../archived/testing/2026-07-04-single-source-acp-replay-config.md).
 
 ### Two surfaces: normalize, then compare
 
 A snapshot run asserts **two** normalized surfaces, because the harness's external surfaces are distinct:
 
 1. The **stdout transcript** — the framed ACP JSON-RPC responses and committed-message updates an automation client receives. It catches regressions in the transport contract and is compared against a committed `stdout.expected.jsonl`.
-2. The **re-persisted session JSONL**, normalized and compared with `session.jsonl`. The same fixture is both replay source and expected log. Prompt text is scrubbed; one scenario per header class pins readable prompt and tool content as described in the [header-pinning Agent Note](2026-07-06-pin-request-header-content-in-one-scenario.md). Override scenarios derive model behavior solely from their sidecar.
+2. The **re-persisted session JSONL**, normalized and compared with `session.jsonl`. The same fixture is both replay source and expected log. Prompt text is scrubbed; one scenario per header class pins readable prompt and tool content as described in the [header-pinning Agent Note](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md). Override scenarios derive model behavior solely from their sidecar.
 
 The surfaces are complementary: stdout covers the minimal automation wire, while JSONL covers loop, tool, and boundary structure that the wire intentionally omits.
 

@@ -53,6 +53,7 @@
     "verify-mermaid": "tsx scripts/verify-mermaid.ts",
     "verify-agent-note-classification": "tsx scripts/verify-agent-note-classification.ts",
     "verify-agent-note-format": "tsx scripts/verify-agent-note-format.ts",
+    "verify-archived-agent-notes": "tsx scripts/verify-archived-agent-notes.ts",
     "verify-type-equiv": "tsx scripts/verify-type-equiv.ts",
     "verify-translation-prompt": "tsx scripts/verify-translation-prompt.ts",
     "verify-translation-pairing": "tsx scripts/verify-translation-pairing.ts",
