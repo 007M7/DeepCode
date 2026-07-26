@@ -99,8 +99,12 @@ export class SandboxPolicyService extends Service {
    */
   resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy {
     const { session } = request
+    // Resolve the session override FIRST even when an explicit approved mode
+    // outranks it: the unconditional durable-header validation must hold on
+    // every resolution — a one-shot grant is not a validation bypass.
+    const override = session === undefined ? undefined : this.overrideOf(session)
     return {
-      mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
+      mode: request.mode ?? override ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
     }
   }

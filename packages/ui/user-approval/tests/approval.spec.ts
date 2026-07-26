@@ -517,6 +517,36 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
   })
 
+  it('does not attribute a fork child\'s baseline delta to a stale seed-carried user switch', async () => {
+    // A fork child: the seed carries the parent's OLD 'ask' switch (event 0,
+    // inside seedLength) and the last request header told 'ask'; the header
+    // baseline captured at delegation is 'never'. The delta must not be
+    // attributed to "the user" — the seed switch is stale parent history, not
+    // this session's runtime action.
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const id = SessionId('sess-narr-fork-baseline')
+    const session = new Session(id, undefined, {
+      version: 0,
+      id,
+      createdAt: 0,
+      approvalPolicy: 'never',
+      seedLength: 2,
+    })
+    setApprovalPolicy(session, 'ask')
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'mock' }, system: `persona\n${ASK_MARKER}` }, reason: 'initial' })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const injected: string[] = []
+    const agent = {
+      id,
+      session,
+      inject: (content: { type: string; text: string }[]) => { injected.push(content[0]?.text ?? '') },
+    } as unknown as Agent
+
+    await preStep(ctx, agent)
+    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
+  })
+
   it('a pinned override survives a default change silently', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService, { policy: 'never' })

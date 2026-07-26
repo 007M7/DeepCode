@@ -679,6 +679,27 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('a live session with a CONFLICTING policy baseline cannot adopt a stored prefix', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        // A stored artifact carrying a WIDE baseline. A same-id live session
+        // claiming a NARROW baseline must be rejected: adoption retains the
+        // stored header, so accepting the pair would let the session append
+        // under read-only now but resume under danger-full-access later.
+        await ctx.sessionPersistence.create({ ...meta('baseline-conflict', WORK), sandboxMode: 'danger-full-access' })
+        await ctx.sessionPersistence.append(SessionId('baseline-conflict'), oneTurnLog())
+        const live = ctx.sessions.create(SessionId('baseline-conflict'), {
+          seed: oneTurnLog(),
+          meta: { cwd: WORK, sandboxMode: 'read-only' },
+        })
+        await expect(ctx.sessions.flush(live)).rejects.toThrow(/policy baseline|id collision/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('a no-cwd ownerless state cannot be claimed by a live session WITH a cwd (cwd scope, undefined side)', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)

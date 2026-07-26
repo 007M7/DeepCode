@@ -276,17 +276,21 @@ export class ApprovalService extends Service {
     // turn's first step (net-zero → nothing), and a mid-turn switch is
     // narrated no later than the next step. What each session was last told
     // is in-memory with a log-derived fallback (the folded header's system
-    // text), so restarts lose nothing. Attribution is positional: an
-    // override event after the log's last `request/header` was a runtime
-    // switch by the user; otherwise the configured default moved under the
-    // session (operator/config).
+    // text), so restarts lose nothing. Attribution is positional over the
+    // session's OWN events (past the seed boundary — a seed-carried switch is
+    // stale parent history, never this session's runtime action): an own
+    // override after the last own `request/header` was a runtime switch by
+    // the user; no own override with the delta matching the inherited header
+    // baseline came from the delegating session; otherwise the configured
+    // default moved under the session (operator/config).
     const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
     ctx.on('agent/pre-step', (agent) => {
       const session = agent.session
       const events = session.events
+      const seedStart = Math.min(session.header.seedLength ?? 0, events.length)
       let overrideIndex = -1
       let headerIndex = -1
-      for (let index = events.length - 1; index >= 0 && (overrideIndex < 0 || headerIndex < 0); index -= 1) {
+      for (let index = events.length - 1; index >= seedStart && (overrideIndex < 0 || headerIndex < 0); index -= 1) {
         const event = events[index] as (typeof events)[number]
         if (overrideIndex < 0 && event.type === 'approval/policy') {
           overrideIndex = index
@@ -294,8 +298,8 @@ export class ApprovalService extends Service {
           headerIndex = index
         }
       }
-      // Same fold effectivePolicy performs — override is scanned here anyway
-      // for POSITIONAL attribution; the default lives once, in the method.
+      // Same fold effectivePolicy performs — the own override is scanned here
+      // anyway for POSITIONAL attribution; the default lives once, in the method.
       const current = this.effectivePolicy(session)
       const header = session.requestHeader()
       const told = narrated.get(session) ?? toldApprovalPolicy(header?.system)
@@ -303,7 +307,11 @@ export class ApprovalService extends Service {
       // Cold start (nothing ever told) narrates nothing — the section about
       // to go out states the truth, and there is no delta to explain.
       if (told === undefined || told === current) return
-      const cause = overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
+      const cause = overrideIndex > headerIndex
+        ? 'changed by the user'
+        : overrideIndex < 0 && session.header.approvalPolicy === current
+          ? 'inherited from the delegating session'
+          : 'changed by the operator/config'
       agent.inject(
         [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
         { source: { kind: 'plugin', plugin: 'user-approval' } },

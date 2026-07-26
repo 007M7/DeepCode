@@ -113,6 +113,22 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
   return errors
 }
 
+/**
+ * Reject a stored/live pair whose immutable policy baselines differ.
+ * Adoption and ownerless claims retain the STORED header, so accepting a
+ * conflicting pair would let a session run under its live baseline now but
+ * resume under the stored one later — a silent policy swap.
+ */
+function assertSamePolicyBaselines(id: SessionId, stored: SessionHeader, live: SessionHeader): void {
+  if (stored.sandboxMode !== live.sandboxMode || stored.approvalPolicy !== live.approvalPolicy) {
+    throw new Error(
+      `session "${id}" is already persisted with a different policy baseline `
+      + `(persisted: ${String(stored.sandboxMode)}/${String(stored.approvalPolicy)}, `
+      + `live: ${String(live.sandboxMode)}/${String(live.approvalPolicy)}) (id collision)`,
+    )
+  }
+}
+
 /** Whether a live session seed reproduces a persisted prefix exactly. */
 function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
   return prefix.length <= seed.length
@@ -534,6 +550,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         if (tracked.meta.cwd !== session.header.cwd) {
           throw new Error(`session "${id}" is already persisted at a different cwd (persisted: ${String(tracked.meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
         }
+        assertSamePolicyBaselines(id, tracked.meta, session.header)
         if (!await this.seedMatchesPersisted(id, seed, tracked.cursor)) {
           throw new Error(`session "${id}" is already persisted with ${tracked.cursor} event(s) that do not match this live session (id collision)`)
         }
@@ -587,6 +604,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (meta.cwd !== session.header.cwd) {
       throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
     }
+    assertSamePolicyBaselines(session.header.id, meta, session.header)
     this.assertVersion(meta)
     assertSupportedEvents(events, session.header.id)
     if (!seedCoversPrefix(seed, events)) {

@@ -229,4 +229,13 @@ describe('delegation inheritance (overrideOf over the header baseline)', () => {
 
     expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/seedLength/)
   })
+
+  it('resolve() validates the durable header even when an explicit approved mode is supplied', async () => {
+    const ctx = await mounted()
+    const child = inheritedSession('sess-resolve-invalid', { sandboxMode: 'yolo' })
+
+    // The explicit one-shot grant must not become a validation bypass: the
+    // unconditional durable-header contract holds on EVERY resolution.
+    expect(() => ctx.sandboxPolicy.resolve({ session: child, mode: 'workspace-write' })).toThrow(/sandboxMode/)
+  })
 })
