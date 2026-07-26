@@ -2,7 +2,6 @@ import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import type { DshEnvironment } from '@deepseek-ai/dsh-subprocess'
 import { killGroup, OutputCollector, spawnSubprocess, taskkillProcessTree } from '../src/spawn.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 
@@ -840,27 +839,18 @@ describe('environment and spill-file hardening', () => {
     }
   })
 
-  it('injects only the current trusted DSH environment after scrubbing ambient values', async () => {
+  it('forwards explicit DSH_* env entries while scrubbing ambient ones', async () => {
+    // Both facts through one explicit map: the ambient DSH_STALE is dropped by
+    // the scrub, and the deliberately supplied current values merge after it.
     process.env.DSH_STALE = 'old-value'
     try {
       const result = await finish(spawnSubprocess(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {
-        dshEnv: { DSH_SHELL: '1', DSH_SESSION_ID: 'current-session' },
+        env: { DSH_SHELL: '1', DSH_SESSION_ID: 'current-session' },
       })))
       expect(result.stdout.text.trim()).toBe('[absent|1|current-session]')
     } finally {
       delete process.env.DSH_STALE
     }
-  })
-
-  it('rejects DSH variables on the ordinary env channel', () => {
-    expect(() => spawnSubprocess(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
-      .toThrow(/DSH_WRONG_CHANNEL.*dshEnv/)
-  })
-
-  it('rejects ordinary variables on the managed env channel', () => {
-    const invalid = { PATH: '/wrong-channel' } as unknown as DshEnvironment
-    expect(() => spawnSubprocess(spec('true', { dshEnv: invalid })))
-      .toThrow(/managed child env.*PATH.*use env/)
   })
 
   it('creates spill files with owner-only permissions and random names', async () => {

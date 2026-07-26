@@ -25,7 +25,6 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
-import { splitEnvChannels } from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 /** Fixed response to child permission requests: reject by default, or select the first allow option. */
@@ -51,8 +50,8 @@ export interface AcpRunSpec {
    * parent env. A value here is forwarded even if its name matches the
    * credential-scrub pattern (an explicit opt-in for the child's own creds).
    * Explicit `DSH_*` entries are deployment-owned facts for the child harness
-   * (e.g. `DSH_PERMISSION_MODE`) and ride the seam's managed channel, which
-   * the scrubbed base reserves for current values.
+   * (e.g. `DSH_PERMISSION_MODE`); they simply merge after the scrub that
+   * dropped their stale ambient namesakes.
    */
   env: Record<string, string>
   /**
@@ -169,15 +168,14 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   const id = SessionId(randomUUID())
 
   // Keep diagnostics on parent stderr ('inherit'); only ACP output contributes
-  // to the result. The seam's scrub drops ambient credentials while spec.env
-  // (the child's own key) merges after it; explicit DSH_* entries ride the
-  // managed channel via the seam's split.
+  // to the result. The seam's scrub drops ambient credentials and DSH_* names
+  // while spec.env (the child's own key, its deployment facts) merges after it.
   const child = spec.spawn({
     argv: [spec.command, ...spec.args],
     cwd: spec.cwd,
     stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
     graceMs: spec.disposeGraceMs,
-    ...splitEnvChannels(spec.env),
+    env: spec.env,
   })
   /* v8 ignore start -- 'pipe' dispositions expose both streams by the seam contract; defensive. */
   if (child.stdin === undefined || child.stdout === undefined) {

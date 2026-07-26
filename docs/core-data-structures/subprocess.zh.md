@@ -8,7 +8,7 @@
 
 ## 受管环境命名空间与捕获的输出
 
-`DSH_*` 变量是归 Harness 所有的子进程事实；实现会在合并调用方快照之前丢弃环境中已有的 `DSH_*` 名称，每条被收集的流都通过 `CollectedOutput` 报告自身的截断与 spill 恢复状态。
+`DSH_*` 变量是归 Harness 所有的子进程事实；实现会在合并调用方显式 `env` 之前丢弃环境中已有的 `DSH_*` 名称，因此当前事实只会以有意提供的条目形式到达，每条被收集的流都通过 `CollectedOutput` 报告自身的截断与 spill 恢复状态。
 
 ```ts type-equiv
 /** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
@@ -114,19 +114,14 @@ interface SubprocessSpawnSpec {
    */
   signal?: AbortSignal | undefined
   /**
-   * Ordinary environment entries merged onto the implementation's scrubbed
-   * parent base (see `scrubbedParentEnv`). `DSH_*` names are rejected and
-   * belong in {@link dshEnv}; a deliberately forwarded credential-shaped
-   * entry survives because this layer merges after the scrub.
+   * Explicit environment entries merged onto the implementation's scrubbed
+   * parent base (see `scrubbedParentEnv`), with no namespace validation:
+   * every entry is a deliberate caller opt-in, so a forwarded
+   * credential-shaped entry or a current `DSH_*` fact survives precisely
+   * because this layer merges after the scrub that drops its ambient
+   * namesake.
    */
   env?: Record<string, string> | undefined
-  /**
-   * Harness-owned `DSH_*` variables for this execution. The scrubbed base has
-   * already discarded ambient `DSH_*` entries, so an unavailable current fact
-   * cannot inherit a stale value from the harness process; non-`DSH_*` names
-   * on this channel are rejected.
-   */
-  dshEnv?: DshEnvironment | undefined
 }
 ```
 

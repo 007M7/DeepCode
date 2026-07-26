@@ -12,7 +12,6 @@
 
 import { Context, Service } from 'cordis'
 import { DSH_ENV_PREFIX } from './types.ts'
-import type { DshEnvironment, DshEnvironmentKey } from './types.ts'
 import type { SubprocessHandle, SubprocessSpawnSpec } from './types.ts'
 
 export { DSH_ENV_PREFIX } from './types.ts'
@@ -46,11 +45,10 @@ export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
  * The ambient parent environment minus credential-shaped names and minus all
  * `DSH_*` names — the canonical base every harness child starts from. `PATH`,
  * `HOME`, locale, and proxy variables survive, so child CLIs run normally;
- * harness identity never leaks implicitly (a child that needs current `DSH_*`
- * facts receives them through {@link SubprocessSpawnSpec.dshEnv}, and a
- * deliberately forwarded credential goes through an explicit env layer, which
- * merges after this scrub). Exported as a plain function so spawners that
- * cannot route through the service (node-pty backends, SDK-managed
+ * harness identity never leaks implicitly (a deliberately forwarded
+ * credential or current `DSH_*` fact goes through the spec's explicit `env`,
+ * which merges after this scrub). Exported as a plain function so spawners
+ * that cannot route through the service (node-pty backends, SDK-managed
  * transports) share the one scrub definition.
  * @returns a fresh environment object safe to hand to a child spawn.
  */
@@ -60,27 +58,6 @@ export function scrubbedParentEnv(): Record<string, string> {
     if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
   return env
-}
-
-/**
- * Partition one mixed explicit-env map onto the spec's two channels: `DSH_*`
- * names are deployment-owned facts for the child and take the managed
- * {@link SubprocessSpawnSpec.dshEnv} channel (the ordinary channel rejects the
- * reserved namespace), everything else stays ordinary `env`. For consumers
- * whose configs expose a single env map (lsp-local servers, the ACP backend)
- * rather than two channel-shaped fields.
- * @param env - explicit entries from a consumer's config, both namespaces mixed.
- * @returns the two spec channels, each safe for its validator.
- */
-export function splitEnvChannels(env: Readonly<Record<string, string>>): { env: Record<string, string>; dshEnv: DshEnvironment } {
-  const ordinary: Record<string, string> = {}
-  const managed: Record<DshEnvironmentKey, string> = {}
-  const isDshKey = (key: string): key is DshEnvironmentKey => key.startsWith(DSH_ENV_PREFIX)
-  for (const [key, value] of Object.entries(env)) {
-    if (isDshKey(key)) managed[key] = value
-    else ordinary[key] = value
-  }
-  return { env: ordinary, dshEnv: managed }
 }
 
 declare module 'cordis' {

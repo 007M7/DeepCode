@@ -16,10 +16,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import { deadline } from '@deepseek-ai/dsh-timeout'
-import { DSH_ENV_PREFIX, scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type {
   CollectedOutput,
-  DshEnvironment,
   SubprocessCollect,
   SubprocessDisposeGraces,
   SubprocessHandle,
@@ -29,28 +28,14 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 
 /**
- * Build a child environment from the scrubbed parent base, ordinary caller
- * entries, and a managed `DSH_*` snapshot. Ordinary and managed entries
- * reject the other channel's namespace before `dshEnv` merges last.
- * @param extra - caller entries; `DSH_*` names are rejected.
- * @param dshEnv - managed entries; non-`DSH_*` names are rejected.
+ * Build a child environment: explicit caller entries merge after the scrubbed
+ * parent base, so a deliberately supplied credential or current `DSH_*` fact
+ * wins over the scrub that dropped its ambient namesake.
+ * @param extra - explicit caller entries, merged verbatim after the scrub.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(
-  extra?: Readonly<Record<string, string>>,
-  dshEnv?: DshEnvironment,
-): NodeJS.ProcessEnv {
-  for (const key of Object.keys(extra ?? {})) {
-    if (key.startsWith(DSH_ENV_PREFIX)) {
-      throw new Error(`ordinary child env cannot set reserved variable "${key}"; use dshEnv`)
-    }
-  }
-  for (const key of Object.keys(dshEnv ?? {})) {
-    if (!key.startsWith(DSH_ENV_PREFIX)) {
-      throw new Error(`managed child env cannot set ordinary variable "${key}"; use env`)
-    }
-  }
-  return { ...scrubbedParentEnv(), ...extra, ...dshEnv }
+export function childEnv(extra?: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+  return { ...scrubbedParentEnv(), ...extra }
 }
 
 /** Injectable knobs so tests can exercise spill and platform behavior deterministically. */
@@ -339,7 +324,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const errMode = spec.stdio.stderr
   const stdinMode = spec.stdio.stdin
 
-  const env = childEnv(spec.env, spec.dshEnv)
+  const env = childEnv(spec.env)
   const child = spawn(program, args, {
     cwd: spec.cwd,
     env,

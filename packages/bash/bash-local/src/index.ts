@@ -19,8 +19,8 @@ import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
  * Model-friendly environment overrides: disable colors, pagers, and
  * interactive terminal features that would garble tool output (the same set
  * Codex hardcodes; Claude Code achieves it via TERM=dumb). Bash-tool policy —
- * merged into the ordinary env channel, so a trusted caller's own entry still
- * wins; the subprocess service applies its credential scrub independently.
+ * merged first into the spawn's explicit env, so a trusted caller's own entry
+ * still wins; the subprocess service applies its credential scrub independently.
  */
 export const ENV_OVERRIDES = {
   NO_COLOR: '1',
@@ -152,8 +152,10 @@ export class LocalBashExecutor extends BashExecutor {
       },
       graceMs: this.config.graceMs,
       signal,
-      env: { ...ENV_OVERRIDES, ...spec.env },
-      dshEnv: spec.dshEnv,
+      // One explicit env map for the seam, layered so the trusted dshEnv
+      // snapshot beats both the caller's env and the terminal overrides; the
+      // subprocess service merges the whole map after its ambient scrub.
+      env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },
     }
   }
 
