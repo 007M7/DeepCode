@@ -36,7 +36,7 @@ import { executeToolCalls } from './tool-calls.ts'
 
 /** One completed step or a final-adapter failure eligible for recovery. */
 type StepOutcome =
-  | { kind: 'completed'; continueTurn: boolean; maxTokens: boolean }
+  | { kind: 'completed'; continueTurn: boolean; concluded: boolean; maxTokens: boolean }
   | { kind: 'request-failed'; error: RequestError; failure: LlmFailure }
 
 /**
@@ -197,6 +197,7 @@ export class ReactLoopAgent implements Agent {
   private kick(): void {
     if (this.abort !== undefined || !this.queued.some(item => item.wakeup)) return
     const item = this.queued.shift()
+    /* v8 ignore next -- unreachable: the some() guard above proves the queue is non-empty */
     if (item === undefined) return
     const { message } = item
 
@@ -229,6 +230,10 @@ export class ReactLoopAgent implements Agent {
         }
       }
 
+      // cancel() aborts but never clears the slot, and kick()/run()/retry()
+      // all refuse to install a new owner while one exists, so the admission
+      // still owns the slot here.
+      /* v8 ignore next -- unreachable false arm: no writer replaces the abort owner mid-admission */
       if (this.abort === admission) this.abort = undefined
       if (admitted === undefined) {
         this.continueOrIdle()
@@ -243,6 +248,9 @@ export class ReactLoopAgent implements Agent {
    * only after `turn/start` commits; until then it has no owner state to unwind.
    */
   private async run(trigger: TurnTrigger, admitted: UserMessageData[] = []): Promise<void> {
+    // Both entries hold the invariant: kick() clears the admission slot before
+    // awaiting run(), and retry() returns early whenever a slot owner exists.
+    /* v8 ignore next -- unreachable guard: every caller clears or checks the abort slot first */
     if (this.abort !== undefined) throw new Error(`agent "${this.id}" is already running`)
     const controller = new AbortController()
     this.abort = controller
@@ -279,6 +287,11 @@ export class ReactLoopAgent implements Agent {
         switch (outcome.kind) {
           case 'completed':
             if (outcome.maxTokens) reason = { kind: 'max-tokens' }
+            // A concluding tool result is terminal: steering already in the
+            // log waits for the next turn's request instead of reopening this
+            // one, and the agent/stopping drain below is skipped for the same
+            // reason.
+            if (outcome.concluded) break steps
             if (outcome.continueTurn || this.outbox.some(item => 'id' in item)) continue
             break
           case 'request-failed': {
@@ -313,6 +326,7 @@ export class ReactLoopAgent implements Agent {
             idle = settlement.idle
             break steps
           }
+          /* v8 ignore next 2 -- closed-union exhaustiveness guard */
           default:
             assertNever(outcome)
         }
@@ -455,6 +469,7 @@ export class ReactLoopAgent implements Agent {
     return {
       kind: 'completed',
       continueTurn: (toolCalls.length > 0 && !concluded) || steered,
+      concluded,
       maxTokens: finish.kind === 'max-tokens',
     }
   }

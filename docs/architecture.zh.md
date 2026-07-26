@@ -100,6 +100,7 @@ forever:
         each model-order result -> ordered tools/post-execute -> 'tool/result'
       drain accepted tool context and steering
       'step/end'
+      a concluding tool result ends the turn; drained steering waits for the next turn
       continue when tools or steering require another step
       otherwise agent/stopping -> drain once more -> continue only for steering
     'turn/end' -> agent/idle

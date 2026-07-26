@@ -508,6 +508,46 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'tool/result')).toBe(true)
   })
 
+  it('a concluding tool result beats steering that arrived during the same step', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'finalize', {}),
+      textResponse('next turn reply'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineContentToolFixture({
+      name: 'finalize',
+      description: '',
+      parameters: {},
+      async execute(_args, exec) {
+        // Steering lands while the concluding tool is still executing.
+        agent.steer({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } })
+        exec.concludeTurn()
+        return [{ type: 'text', text: 'final' }]
+      },
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // The terminal result stands: no extra request reopens the concluded turn.
+    expect(adapter.requests).toHaveLength(1)
+    const events = agent.session.events.map(event => event.type)
+    expect(events.filter(type => type === 'turn/end')).toHaveLength(1)
+    // The steering is durable inside the concluded turn and feeds the NEXT
+    // turn's request instead of being dropped or re-queued.
+    expect(events).toContain('steering/message')
+
+    send(agent, 'follow up')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(2)
+    const texts = adapter.requests[1]!.messages
+      .flatMap(message => message.content)
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+    expect(texts).toContain('late steering')
+  })
+
   it('agent/request waterfall switches models by returning a replacement config; the switch is logged', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
