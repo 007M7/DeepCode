@@ -37,10 +37,10 @@ jobs:
     env:
       DSH_GATE_CONCURRENCY: '8'
     steps:
-      # The archive gate reads the PR base manifest from the synthetic merge commit's first parent.
+      # Fetch complete history so the archive gate can read the trusted PR base from a reused shallow checkout.
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       # Pull requests consume the default-branch cache but do not put cache

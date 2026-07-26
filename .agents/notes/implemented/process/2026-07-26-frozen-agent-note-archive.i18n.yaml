@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-26-frozen-agent-note-archive.md: 97a7fcba671b16233001d0de9f078bf4ffad1f8a
-2026-07-26-frozen-agent-note-archive.zh.md: b46e405d7b0617307f47c5c2717882892cd76db4
+2026-07-26-frozen-agent-note-archive.md: e829d30853c7b80dee76da0fdc22db7e9b04e828
+2026-07-26-frozen-agent-note-archive.zh.md: f90a81561eb4c11c8d48400d2adfbcfff7e6a9ed
