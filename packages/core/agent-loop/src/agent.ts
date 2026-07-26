@@ -150,7 +150,11 @@ export class ReactLoopAgent implements Agent {
    * all owned by the factory.
    */
   cancel(cause: AgentInterruptReason, options: CancelOptions = {}): void {
-    if (this.abort !== undefined || this.queued.length > 0 || this.outbox.length > 0) {
+    // Effective only when it aborts the active turn or actually discards
+    // pending work: a keepInbox call with no active turn is a documented
+    // no-op, so it must not emit cancel-requested for consumers to misread.
+    const discards = !options.keepInbox && (this.queued.length > 0 || this.outbox.length > 0)
+    if (this.abort !== undefined || discards) {
       // Observe-only: coordination consumers update their state before the
       // inboxes clear; listener failures are contained by the dispatcher.
       if (cause.kind !== 'disposed') emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)

@@ -104,12 +104,17 @@ describe('Agent.cancel()', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     const discards: unknown[] = []
     ctx.on('agent/inbox/discard', (subject, items) => { if (subject === agent) discards.push(items) })
+    const cancelRequests: unknown[] = []
+    ctx.on('agent/cancel-requested', (subject, cause) => { if (subject === agent) cancelRequests.push(cause) })
 
     // Queue a turn WITHOUT waking the driver, so it sits in the inbox.
     agent.send({ content: [{ type: 'text', text: 'preserved' }], source: { kind: 'user' } }, { target: 'next-turn', wakeup: false })
-    // keepInbox cancel: no active turn, work preserved, no discard event.
+    // keepInbox cancel: no active turn, work preserved, no discard event. With
+    // nothing to abort and nothing discarded, the call is a documented no-op,
+    // so it emits no cancel-requested either.
     agent.cancel({ kind: 'user' }, { keepInbox: true })
     expect(discards).toEqual([])
+    expect(cancelRequests).toEqual([])
 
     // The preserved item still runs once the driver is woken by a later send.
     send(agent, 'wake it')
