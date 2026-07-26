@@ -35,4 +35,4 @@ No new dependency is needed anywhere; every replacement is an existing devDep or
 ## Risks
 
 - Behavioral deltas on pathological markdown: mdast honors tilde/indented fences the regex scanners ignored, so `doc-typecheck`'s opt-out ratio could shift if any stray fence shape exists in the docs tree; verify by running `doc-sync` before/after.
-- `parseArgs` keeps the last value of a duplicated option instead of erroring and consumes a `--`-prefixed next token as a value; both are dev-tool edge cases the tests don't pin.
+- `parseArgs` keeps the last value of a duplicated option instead of erroring — a dev-tool edge case the tests don't pin. (Strict mode still rejects a `--`-prefixed token where a value is expected, matching the current parsers.)
