@@ -29,10 +29,10 @@ Status: implemented
 
 **把 pty-local 与 mcp-client 的 spawn 也一并迁移。**基于所有权而非范围否决：node-pty 的 `fork()` 自行分配终端，MCP SDK 的 `StdioClientTransport` 在内部完成 spawn——这两处调用点都不归我们路由。它们采纳共享的凭据清除（那正是属于策略的部分），并在各自的 README 中说明 spawn 为何留在原地。
 
-**迁移 test-support 启动器（acp-snapshot、loader-smoke）与 SDK package-manager 运行器。**否决：support 各包是刻意保持轻依赖的测试基础设施，不得依赖产品 seam；而 SDK 向导那套附带重定向的 `stdio: 'inherit'` 语义，加上其完全脱离组合的生命周期（根本没有 cordis 上下文），使该服务并不合用；它改为共享凭据清除。
+**迁移 test-support 启动器（acp-snapshot、loader-smoke）与 SDK package-manager 运行器。**否决：support 各包（package）是刻意保持轻依赖的测试基础设施，不得依赖产品 seam；而 SDK 向导那套附带重定向的 `stdio: 'inherit'` 语义，加上其完全脱离组合的生命周期（根本没有 cordis 上下文），使该服务并不合用；它改为共享凭据清除。
 
 ## 后果
 
 换来的是：进程树信号发送、升级、dispose 阶梯、有界收集与凭据清除各自只剩一份实现，且只在 `dsh-subprocess-local` 的测试套件中测试一次（其中包括 lsp-local 的私有副本从未有过的、以注入平台方式实现的 Windows 覆盖）；lsp-local 与 subagent-acp 卸下了自己的进程管道，其子进程如今像 bash 的一样，在插件重载后存活、随组合拆除而终止；一个完整的包（`dsh-subagent-subprocess`）就此消失。seam README 中「只有一个消费方家族」的限制说明也随之退役。
 
-代价是：这道 seam 变宽了（stdio 模式从一种变为三种、终止动词从一个变为四个），未来的后端因此要实现更宽的表面；lsp-local/subagent-acp 的各组合如今都带上 subprocess 这一行配置；`SubprocessOutcome` 也不再承载输出，这是仍未发布的堆叠变更内部的一次破坏性形状变更（依照预发布立场，PR2 那一层被就地更新，而非加 shim）。pty-local/mcp-client/SDK/test-support 的 spawn 因所有权归属留在该服务之外，以凭据清除作为共享底线。
+代价是：这道 seam 变宽了（stdio 模式从一种变为三种、终止动词从一个变为四个），未来的后端因此要实现更宽的表面；lsp-local/subagent-acp 的各组合如今都多出 subprocess 这一行组合配置；`SubprocessOutcome` 也不再承载输出，这是仍未发布的堆叠变更内部的一次破坏性形状变更（依照预发布立场，PR2 那一层被就地更新，而非加 shim）。pty-local/mcp-client/SDK/test-support 的 spawn 因所有权归属留在该服务之外，以凭据清除作为共享底线。
