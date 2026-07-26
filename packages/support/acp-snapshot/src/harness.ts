@@ -457,7 +457,7 @@ async function waitForPersistedTurnStart(
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
   minimumTurn?: number,
 ): Promise<void> {
-  let invalidRecord: Error | undefined
+  let invalidRecord: { error: unknown } | undefined
   await vi.waitFor(async () => {
     const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
     let openTurn: number | undefined
@@ -467,7 +467,7 @@ async function waitForPersistedTurnStart(
       // A malformed persisted record is a scenario bug, not a not-yet state:
       // vi.waitFor retries every callback throw, so capture the validation
       // failure, resolve the wait, and rethrow immediately below.
-      invalidRecord = error instanceof Error ? error : new Error(String(error))
+      invalidRecord = { error }
       return
     }
     if (openTurn === undefined || (minimumTurn !== undefined && openTurn < minimumTurn)) {
@@ -475,7 +475,7 @@ async function waitForPersistedTurnStart(
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist ${detail} within ${timeoutMs}ms`)
     }
   }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
-  if (invalidRecord !== undefined) throw invalidRecord
+  if (invalidRecord !== undefined) throw invalidRecord.error
 }
 
 /**
