@@ -479,6 +479,101 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
+  it('settles a goal round from its successful retry turn, not the failed original', async () => {
+    const test = await harness([
+      new LlmError('transient', 'SERVER'),
+      textResponse('retry succeeded'),
+    ])
+    // The llm-retry shape: schedule one retry for the failed goal-round request.
+    let retried = false
+    test.ctx.on('agent/request-error', async (subject) => {
+      if (!retried) {
+        retried = true
+        subject.retry()
+      }
+    })
+    test.ctx.goals.create(test.agent, { objective: 'survive a transient failure', maxGoalRounds: 1 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    // The retry turn's completed outcome settles the round: round-limit, not
+    // the failed original turn's turn-error.
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(1)
+    expect(test.adapter.requests).toHaveLength(2)
+  })
+
+  it('does not double-clear when a throwing hook already cancelled the round', async () => {
+    const test = await harness([])
+    // The downstream hook cancels (pausing the goal and clearing the queued
+    // attempt through cancel-requested) and THEN throws: the catch finds no
+    // matching reservation and must not reschedule a paused goal.
+    let fired = false
+    test.ctx.on('agent/prompt-submit', async (agent, _content, source, _signal, next) => {
+      if (source.kind === 'goal' && !fired) {
+        fired = true
+        agent.cancel({ kind: 'user' })
+        throw new Error('hook cancelled then exploded')
+      }
+      return next()
+    })
+    test.ctx.goals.create(test.agent, { objective: 'cancel then throw' })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setImmediate(resolve) })
+
+    expect(goal?.roundsStarted).toBe(0)
+    expect(test.adapter.requests).toHaveLength(0)
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'paused' })
+  })
+
+  it('reschedules the round when a downstream admission hook throws', async () => {
+    const test = await harness([textResponse('second admission succeeded')])
+    // Registered after goal-session's own listener: the throw propagates back
+    // through goal-session's next() await, dropping the whole admission.
+    let threw = false
+    test.ctx.on('agent/prompt-submit', async (_agent, _content, source, _signal, next) => {
+      if (source.kind === 'goal' && !threw) {
+        threw = true
+        throw new Error('downstream admission hook exploded')
+      }
+      return next()
+    })
+    test.ctx.goals.create(test.agent, { objective: 'survive a throwing hook', maxGoalRounds: 1 })
+
+    // The cleared reservation lets the driver reschedule; the second
+    // admission passes and the round completes to its limit.
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(1)
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('a retry turn on a non-goal failure leaves the goal reservation untouched', async () => {
+    const test = await harness([
+      new LlmError('transient on human turn', 'SERVER'),
+      textResponse('human retry succeeded'),
+      textResponse('goal round ran'),
+    ])
+    let retried = false
+    test.ctx.on('agent/request-error', async (subject) => {
+      if (!retried) {
+        retried = true
+        subject.retry()
+      }
+    })
+    // A human prompt fails and retries while a goal is armed but its round
+    // is not yet reserved: the retry trigger must not adopt or clear
+    // anything (the attempt is absent), and the goal proceeds normally.
+    test.ctx.goals.create(test.agent, { objective: 'ignore foreign retries', maxGoalRounds: 1 })
+    test.agent.followup({ content: [{ type: 'text', text: 'human work' }], source: { kind: 'user' } })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(1)
+  })
+
   it('blocks the goal when a custom agent rejects the otherwise valid follow-up', async () => {
     const test = await harness([])
     // Reject only the goal-sourced round follow-up, not the state-change injection

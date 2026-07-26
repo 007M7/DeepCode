@@ -390,6 +390,29 @@ describe('post-turn continuation edges', () => {
   })
 })
 
+describe('persistent step-close rejection', () => {
+  it('still publishes the terminal status when both step-close attempts are vetoed', async () => {
+    const adapter = new MockAdapter([textResponse('will not close')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('stepend-double-veto'), { provider: 'mock', model: 'mock' })
+    // Persistently reject step/end: the catch's own close attempt fails too,
+    // and the contained failure must not strand status at running.
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'step/end') throw new Error('step close permanently rejected')
+    })
+    const statuses: string[] = []
+    ctx.on('agent/status', (subject, status) => { if (subject === agent) statuses.push(status) })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(agent.status).toBe('idle')
+    expect(statuses).toEqual(['running', 'idle'])
+  })
+})
+
 describe('tool result meta persistence', () => {
   it('records a presentationMeta payload on the tool/result event', async () => {
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
@@ -504,13 +527,12 @@ describe('driver bookkeeping edges', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('waiter-chain'), { provider: 'mock', model: 'mock' })
-    // A persistent step/end veto escapes even the catch block's own close
-    // attempt, so the driver promise REJECTS; the waiter's catch arm must
-    // treat that rejection as quiescence instead of propagating it.
-    ctx.on('internal/dispatch', (_mode, name, args) => {
-      if (name !== 'session/event') return
-      const event = args[1] as SessionEvent
-      if (event.type === 'step/end') throw new Error('step close permanently rejected')
+    // A throwing terminal-notification listener rejects the driver promise
+    // (the run's containment covers only session appends); the waiter's
+    // catch arm must treat that rejection as quiescence instead of
+    // propagating it.
+    ctx.on('agent/idle', (subject) => {
+      if (subject === agent) throw new Error('idle listener exploded')
     })
 
     send(agent, 'one')

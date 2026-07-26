@@ -186,8 +186,11 @@ export class ReactLoopAgent implements Agent {
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
   async whenIdle(): Promise<void> {
-    // `done` is replaced per activity, so re-reading it follows chained turns;
-    // a run failure still counts as quiescence for the waiter.
+    // `done` is replaced per activity, so re-reading it follows chained turns.
+    // Every driver failure today is contained before it can reject `done`,
+    // but the waiter must not gamble quiescence on that: a future escape
+    // still counts as settled activity.
+    /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
     while (this.abort !== undefined || this.queued.some(item => item.wakeup)) {
       await this.done.catch(() => undefined)
     }
@@ -357,9 +360,18 @@ export class ReactLoopAgent implements Agent {
         if (!this.drainOutbox(turn)) break
       }
     } catch (caught: unknown) {
-      if (this.stepOpen) {
-        this.stepOpen = false
-        this.session.append('step/end', { turn, step })
+      try {
+        if (this.stepOpen) {
+          this.stepOpen = false
+          this.session.append('step/end', { turn, step })
+        }
+      } catch (closeError: unknown) {
+        // Contained like the finally's turn close: a persistently rejecting
+        // step boundary must not escape run(), or the post-finally tail would
+        // never publish the terminal status and observers would see a
+        // permanently running agent whose whenIdle() already resolved.
+        this.loopCtx.logger.warn(`agent "${this.id}": closing step ${turn}/${step} failed: ${errorChain(closeError)}`)
+        emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, closeError)
       }
       ({ reason, idle } = this.settle(turn, step, caught, signal))
     } finally {

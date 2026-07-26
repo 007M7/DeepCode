@@ -979,6 +979,32 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('folds an already-appended baseline from the log after a plugin remount', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      const fiber = await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+
+      // Hot remount over the live session: the durable baseline survived, so
+      // the fresh mount must fold it from the log instead of appending a
+      // duplicate on its next step.
+      await fiber.dispose()
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toHaveLength(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('tracks only baseline files that were actually included under the byte budget', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

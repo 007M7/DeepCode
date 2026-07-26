@@ -2802,16 +2802,14 @@ export function createTuiChat(
     // prompt and its attached context together instead of stranding the
     // snapshot in history for the next unrelated prompt.
     let cleanedUp = false
-    // Assigned after followup(); cleanup() can run earlier from the catch.
-    let detachDiscard: (() => void) | undefined = undefined
     const cleanup = (): void => {
-      // Both triggers detach themselves, so a second call needs a future
-      // third trigger; kept so adding one cannot double-release.
+      // Each trigger detaches both listeners, so a second call needs a
+      // future third trigger; kept so adding one cannot double-release.
       /* v8 ignore next -- unreachable idempotence guard, see above */
       if (cleanedUp) return
       cleanedUp = true
       detachSubmit()
-      detachDiscard?.()
+      detachDiscard()
     }
     // Prepended so this wrapper is outermost: it observes the admission
     // whether a downstream hook allows or blocks, and detaches either way.
@@ -2822,7 +2820,14 @@ export function createTuiChat(
       if (decision.kind !== 'allow') return decision
       return { ...decision, additionalContexts: [...decision.additionalContexts ?? [], attachedContext] }
     }, { prepend: true })
-    let id: AgentMessageId
+    // Installed BEFORE followup(): admission runs synchronously inside it on
+    // the common path, and a listener registered after cleanup() already ran
+    // would never be released. The id lands before any discard can name it —
+    // discard is only ever emitted by a later cancel().
+    let id: AgentMessageId | undefined
+    const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
+      if (subject === agent && messages.some(message => message.id === id)) cleanup()
+    })
     // followup() accepts any typed input and contains listener failures;
     // this guards a future synchronous throw so the wrapper cannot leak.
     /* v8 ignore start -- future-proofing guard, see above */
@@ -2833,10 +2838,6 @@ export function createTuiChat(
       throw error
     }
     /* v8 ignore stop */
-    // A prompt discarded before admission (broad cancel) releases the wrapper.
-    detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
-      if (subject === agent && messages.some(message => message.id === id)) cleanup()
-    })
   }
 
   /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */

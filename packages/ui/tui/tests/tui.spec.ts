@@ -1923,6 +1923,52 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('releases the reference-admission wrapper on the ordinary allowed path', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(TestSessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(SessionId('leak-source'), { meta: { cwd: process.cwd(), createdAt: 1 } })
+        appendUser(source, 'source background')
+      },
+    })
+    const send = async (): Promise<void> => {
+      result.terminal.send('@leak-source')
+      await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · leak-source') })
+      result.terminal.send('\t')
+      await tick()
+      result.terminal.send('\r')
+    }
+    await send()
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+    await send()
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
+
+    // Both wrappers released on the allowed path: a discard for either prompt
+    // finds no armed listener, and an unrelated admission is untouched. The
+    // leak regression: a listener installed after its cleanup already ran
+    // would survive every future cleanup.
+    result.ctx.emit('agent/inbox/discard', result.agent, [{
+      id: AgentMessageId('stub'), content: result.agent.sent[0]!, source: { kind: 'user' },
+    }])
+    const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/prompt-submit', [{ type: 'text', text: 'unrelated' }], { kind: 'user' },
+      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+    )
+    expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
+    // Replaying either sent prompt attaches nothing: the one-shot wrappers
+    // are gone, not merely spent.
+    for (const sent of result.agent.sent) {
+      const replay = await agentEvents(result.ctx, result.agent).waterfall(
+        'agent/prompt-submit', sent, { kind: 'user' },
+        new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      )
+      expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
+    }
+    await dispose(result)
+  })
+
   it('discards the reference snapshot with its blocked or cancelled prompt', async () => {
     const result = await setup({
       async configureContext(ctx) {

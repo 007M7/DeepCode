@@ -358,6 +358,17 @@ export function apply(ctx: Context): void {
                 state.attempt.turn = event.data.turn
               }
               return
+            case 'retry':
+              // A recovery policy (llm-retry) closed the round's failed turn
+              // and reopened its history: the attempt rides the retry turn,
+              // and the failed turn's provisional reason no longer settles
+              // the round — the retry's own outcome does.
+              if (state.attempt !== undefined && state.attempt.reason !== undefined
+                && state.attempt.reason.kind === 'error') {
+                state.attempt.turn = event.data.turn
+                state.attempt.reason = undefined
+              }
+              return
             default:
               // Injection and merge-extensible plugin triggers cannot admit a queued goal message.
               return
@@ -415,7 +426,21 @@ export function apply(ctx: Context): void {
         requestDrive(state)
         return { kind: 'block', reason: STALE_ROUND_REASON }
       }
-      const decision = await next()
+      let decision: PromptDecision
+      try {
+        decision = await next()
+      } catch (error: unknown) {
+        // A throwing downstream hook drops the whole admission: the loop
+        // returns to idle without a turn, so a still-queued reservation would
+        // starve every later drive pass. Clear it and let the driver
+        // reschedule the round.
+        const attempt = state.attempt
+        if (attempt !== undefined && sameRound(source, attempt) && attempt.turn === undefined) {
+          state.attempt = undefined
+          requestDrive(state)
+        }
+        throw error
+      }
       if (decision.kind === 'block') {
         const attempt = state.attempt
         if (attempt !== undefined && sameRound(source, attempt)) state.attempt = undefined

@@ -62,6 +62,14 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
     if (baselineLoaded.has(agent.session)) return
+    // The guard is mount-local, but the baseline is durable: a hot remount
+    // over a live session must fold the already-appended baseline from the
+    // log instead of injecting a duplicate.
+    if (agent.session.events.some(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin' && event.data.source.plugin === 'workspace-context')) {
+      baselineLoaded.add(agent.session)
+      return
+    }
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
       baselineLoaded.add(agent.session)
       return
