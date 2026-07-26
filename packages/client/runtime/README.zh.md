@@ -16,7 +16,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## Code Mode 子调用索引
 
-`ConversationSnapshot.codeDispatches` 按父调用的 callId 和分发顺序，将一个 `run_code` 调用的子调用组织为已完结的 `ToolResultNode` 条目（即原生结果形状）：每条 `tool/code-dispatch` 事件追加一个。该事件只携带完结时间戳，因此 `callTime` 为 `null`（起始时间未知）；此索引目前无法据此作出任何耗时声明。live mux 帧与历史回放构建相同的索引；子调用永不进入 surface `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
+`ConversationSnapshot.codeDispatches` 按父调用的 callId 和启动顺序，用原生调用块形状组织一个 `run_code` 调用的子调用：`tool/code-dispatch-start` 事件落成 `RunningToolCall` 形状（行组件从该形状推导运行中的转圈状态），其 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode` 形状，`callTime` 携带成对 start 事件的时间。start 落在回放窗口之外的完结事件则直接追加，`callTime: null`（耗时未知——绝不伪造零耗时）。live mux 帧与历史回放构建相同的索引；子调用永不进入 surface `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
 
 ## Session 标题投影
 
