@@ -289,8 +289,10 @@ export type ToolExecutionMode =
  * One settled `run_code` sub-dispatch about to be logged, as seen by the
  * `tools/code-dispatch-log` waterfall: the parent execution (session owner,
  * outer call identity), the sub-call identity, and the outcome whose durable
- * copy a listener may reshape. The complete `content` is what the program
- * already received; only the `tool/code-dispatch` event's copy changes.
+ * copy a listener may reshape. `content` is the RENDERED result projection
+ * (what a native `tool/result` would carry) — the program itself received
+ * the structured `value` (or just the error message on failure); only the
+ * `tool/code-dispatch` event's copy changes.
  */
 export interface CodeDispatchLog {
   /** The outer `run_code` execution. */
@@ -670,6 +672,15 @@ interface FusedToolSignal {
   dispose(): void
 }
 
+/** Resolve the run_code overlap cap at the owning config boundary (direct construction bypasses the Loader schema). */
+function resolveMaxParallelSubCalls(value: number | undefined): number {
+  const maxParallelSubCalls = value ?? 10
+  if (!Number.isInteger(maxParallelSubCalls) || maxParallelSubCalls < 1) {
+    throw new Error('maxParallelSubCalls must be a positive integer')
+  }
+  return maxParallelSubCalls
+}
+
 /**
  * Tool registry and execution pipeline. Scoped registrations shadow globals;
  * one visibility resolver feeds presentation, lookup, and dispatch.
@@ -716,7 +727,7 @@ export class ToolRegistry extends Service {
     // the filterable global/scoped capability layers.
     this.codeTransport = this.mode === 'native'
       ? undefined
-      : createRunCodeTool(this, () => this.requireCodeRuntime(), config.maxParallelSubCalls ?? 10)
+      : createRunCodeTool(this, () => this.requireCodeRuntime(), resolveMaxParallelSubCalls(config.maxParallelSubCalls))
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
       ctx.systemPrompt.section({
@@ -982,7 +993,7 @@ export class ToolRegistry extends Service {
         () => Promise.resolve(dispatch.content),
       )
     } catch (error: unknown) {
-      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${String(error)}; logging the unshaped content`)
+      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the unshaped content`)
       return dispatch.content
     }
   }

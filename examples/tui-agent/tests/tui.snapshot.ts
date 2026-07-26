@@ -27,6 +27,8 @@ import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import { createTuiChat, FILE_REFERENCE_PROMPT } from '@deepseek-ai/dsh-tui'
+import LocalSpillStore from '@deepseek-ai/dsh-spill-local'
+import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-terminal.ts'
@@ -56,6 +58,13 @@ interface Scenario {
    * mounts it; the rest cover the default, todo-free composition.
    */
   enableTodo?: boolean
+  /**
+   * Mount the spill stack (local backend + policy) with this inline cap, as the
+   * shipped configs do. The dispatch-spill scenario proves the durable
+   * `tool/code-dispatch` copy of an oversized sub-result is bounded to a
+   * preview + locator while the program value stays whole.
+   */
+  spillMaxInlineBytes?: number
 }
 
 const SCENARIOS: Scenario[] = [
@@ -95,6 +104,14 @@ const SCENARIOS: Scenario[] = [
     expectedTools: ['run_code'],
     expectedEventCounts: { 'tool/code-dispatch': 2 },
     recorded: true,
+  },
+  {
+    name: 'code-mode-dispatch-spill',
+    composition: 'code',
+    expectedTools: ['run_code'],
+    expectedEventCounts: { 'tool/code-dispatch-start': 1, 'tool/code-dispatch': 1 },
+    recorded: true,
+    spillMaxInlineBytes: 600,
   },
   {
     name: 'dynamic-workflow',
@@ -225,6 +242,10 @@ async function mountScenarioContext(
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
   }
+  if (scenario.spillMaxInlineBytes !== undefined) {
+    await ctx.plugin(LocalSpillStore, { root: join(cwd, '.spill') })
+    await ctx.plugin(SpillPolicy, { maxInlineBytes: scenario.spillMaxInlineBytes })
+  }
   if (scenario.composition === 'advanced') await ctx.plugin(ToolCordis, { vmTimeoutMs: 5_000 })
   if (MODE === 'record' && scenario.recorded) {
     await ctx.plugin(LlmDeepSeek)
@@ -343,6 +364,17 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(afterExit.data.header.system).not.toContain('Snapshot plan mode instructions.')
       expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin').map(event => (event.data as { content: unknown }).content))
         .toContainEqual([{ type: 'text', text: 'The user switched this session back to the default mode.' }])
+    }
+    if (scenario.spillMaxInlineBytes !== undefined) {
+      // The REAL pipeline ran (tools execute on replay too): the durable
+      // dispatch copy is bounded to a preview + locator under the run cwd,
+      // while the outer result still carries the program's whole value.
+      const dispatch = events.find(event => (event.type as string) === 'tool/code-dispatch')
+      const content = (dispatch?.data as { content: { type: string; text?: string }[] }).content
+      const text = content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
+      expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(scenario.spillMaxInlineBytes)
+      expect(text).toContain('Full formatted result stored at:')
+      expect(text).toContain('.spill')
     }
     expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)
