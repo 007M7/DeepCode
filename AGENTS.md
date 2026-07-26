@@ -12,8 +12,7 @@ DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **every
 vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
 packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
-  prompt/      workspace instructions
-  llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
+  llm/         LLM seam + DeepSeek adapters (hand-rolled + pi-ai design twin)
   bash/        bash executor seam + local impl + model-facing bash tools
   pty/         persistent PTY seam/backend/tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
@@ -23,17 +22,17 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   compact/     compaction seam + basic backend
   context/     request-context plugins
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
-  workflow/    workflow seam + worker-thread engine + the workflow tool
-  todo/        the todo_write tool
+  workflow/    workflow seam + worker-thread engine + workflow tool
+  todo/        todo_write tool
   plan/        plan mode as logged per-agent collaboration state
   guard/       loop-hygiene plugins
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
-  hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
+  hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
   acp/         automation-only Agent Client Protocol server
   ui/          TUI/JSON-RPC bridges; boot, approval, interaction plugins
   examples/    demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load
-  support/     dev/test infrastructure packages
+  support/     dev/test infrastructure
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
 native/      node-addon-landlock-run source of record (see native/README.md)
@@ -61,11 +60,11 @@ pnpm run lint
 pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
-pnpm run doc-sync       # all documentation gates; see the doc-sync leaf list in scripts/run-gates.ts
-pnpm run website:build  # VitePress build (doubles as the site's dead-link check)
+pnpm run doc-sync       # all documentation gates; leaf list in scripts/run-gates.ts
+pnpm run website:build  # VitePress build (doubles as dead-link check)
 pnpm run demo:headless "task" # one-shot agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:tui       # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
+pnpm run demo:cordis    # the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP automation server (needs DEEPSEEK_API_KEY)
 ```
 
@@ -97,6 +96,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the session log; a new model-visible input requires a session event.
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer; don't split preemptively.
+- **Prefer maintained dependencies over hand-rolling** when they genuinely delete owned code and tests ([policy](.agents/notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
 - **Explicit > implicit at package seams**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
 - **No hardcoded tunables in plugins**: deployment-varying choices are validated `Config` fields changeable from cordis.yml; a `DEFAULT_*` constant or test seam is not configurability. Protocol constants, external specs, and security invariants stay fixed.
 - **Misconfiguration fails loud** at load when self-contained, otherwise at the earliest resolvable point; never silently skip a missing referent.
