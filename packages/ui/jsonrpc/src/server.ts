@@ -149,6 +149,12 @@ export class HarnessSdkServer {
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     const rec = await this.getOrCreateSession(params.sessionId)
     if (rec.activePrompt) throw new Error(`session already has an active prompt: ${params.sessionId}`)
+    // An agent-loop-only reload disposes the loop's agents while this record
+    // survives; a retained agent accepts followup() silently, so validate the
+    // record against the live registry before delivery (as the ACP bridge does).
+    if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
+      throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
+    }
     rec.activePrompt = true
     try {
       rec.lastTurnEnd = undefined
