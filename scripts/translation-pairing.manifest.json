@@ -43,6 +43,7 @@
     ".agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md",
     ".agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md",
     ".agents/notes/implemented/architecture/2026-07-23-client-plugin-loading-model.md",
+    ".agents/notes/implemented/architecture/2026-07-26-subprocess-consumer-migration.md",
     ".agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md",
     ".agents/notes/implemented/feature/2026-06-14-acp-multi-session.md",
     ".agents/notes/implemented/feature/2026-06-15-code-mode.md",
