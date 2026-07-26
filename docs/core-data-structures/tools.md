@@ -238,8 +238,10 @@ Code Mode's bridge additionally exposes each settled sub-dispatch to the `tools/
  * One settled `run_code` sub-dispatch about to be logged, as seen by the
  * `tools/code-dispatch-log` waterfall: the parent execution (session owner,
  * outer call identity), the sub-call identity, and the outcome whose durable
- * copy a listener may reshape. The complete `content` is what the program
- * already received; only the `tool/code-dispatch` event's copy changes.
+ * copy a listener may reshape. `content` is the RENDERED result projection
+ * (what a native `tool/result` would carry) — the program itself received
+ * the structured `value` (or just the error message on failure); only the
+ * `tool/code-dispatch` event's copy changes.
  */
 interface CodeDispatchLog {
   /** The outer `run_code` execution. */
