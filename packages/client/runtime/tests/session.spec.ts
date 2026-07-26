@@ -645,6 +645,32 @@ describe('resync', () => {
 })
 
 describe('run_code sub-dispatch indexing', () => {
+  it('a start event lands as a running-shaped sub-call and its settle replaces it in place', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
+    feed(ev.codeDispatchStart(8, 'p1', 1, 'bash', { command: 'sleep' }))
+    feed(ev.codeDispatchStart(9, 'p1', 2, 'read', { path: 'a.txt' }))
+    const live = session.getSnapshot().codeDispatches.get('p1')
+    expect(live).toHaveLength(2)
+    // Running shape (no 'kind'): the exact RunningToolCall form native rows use.
+    expect(live?.[0]).toMatchObject({ callId: 'p1:code:1', name: 'bash', argsRaw: '{"command":"sleep"}' })
+    expect(live?.[0] !== undefined && 'kind' in live[0]).toBe(false)
+    // Settle out of order (parallel run): #2 first — replaces in place, keeping start order.
+    feed(ev.codeDispatch(10, 'p1', 2, 'read', { path: 'a.txt' }, 'alpha'))
+    const mixed = session.getSnapshot().codeDispatches.get('p1')
+    expect(mixed?.map(sub => 'kind' in sub)).toEqual([false, true])
+    expect(mixed?.[1]).toMatchObject({ callId: 'p1:code:2', content: [{ type: 'text', text: 'alpha' }] })
+    // The settle carries the paired start's time as callTime (duration source).
+    feed(ev.codeDispatch(11, 'p1', 1, 'bash', { command: 'sleep' }, 'done'))
+    const settled = session.getSnapshot().codeDispatches.get('p1')
+    expect(settled?.map(sub => 'kind' in sub)).toEqual([true, true])
+    expect(settled?.[0]).toMatchObject({ callId: 'p1:code:1', callTime: 1_700_000_000_008 })
+  })
+
   it('indexes live tool/code-dispatch events under their parent as native-shaped result nodes', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
@@ -665,6 +691,9 @@ describe('run_code sub-dispatch indexing', () => {
       isError: false, content: [{ type: 'text', text: 'demo.txt' }],
     })
     expect(subs?.[1]).toMatchObject({ callId: 'p1:code:2', isError: true })
+    // No paired start in the window: duration is UNKNOWN (null), never a
+    // fabricated zero-duration span.
+    expect(subs?.[0]).toMatchObject({ callTime: null })
     // Sub-dispatches never join the surface flow.
     expect(session.getSnapshot().nodes.some(n => n.kind === 'tool-result' && n.callId.includes(':code:'))).toBe(false)
   })

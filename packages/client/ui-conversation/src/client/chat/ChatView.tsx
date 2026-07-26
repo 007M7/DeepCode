@@ -20,7 +20,7 @@ import {
   memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type {
-  ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
+  CodeSubCall, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -46,18 +46,22 @@ type RenderToolRow = ChatViewSlotProps['renderSlot']
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 
 /** One `run_code` sub-dispatch row: the identical keyed-slot dispatch as a
- *  top-level call (same registrations, same fallback), nested by the parent. */
+ *  top-level call (same registrations, same fallback), nested by the parent.
+ *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
+ *  renders the running state exactly as a native in-flight row. */
 const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, selected }: {
   renderSlot: RenderToolRow
-  node: ToolResultNode
+  node: CodeSubCall
   onOpenDetails: OpenDetails
   selected: boolean
 }) {
-  const toolName = node.call?.name ?? ''
+  const settled = 'kind' in node
+  const toolName = settled ? node.call?.name ?? '' : node.name
+  const seq = settled ? node.seq : node.time
   const owner = useMemo(() => ({
     callId: node.callId, toolName, block: node,
-    openDetails: () => { onOpenDetails({ turnSeq: node.seq, callId: node.callId, toolName }) },
-  }), [node, toolName, onOpenDetails])
+    openDetails: () => { onOpenDetails({ turnSeq: seq, callId: node.callId, toolName }) },
+  }), [node, toolName, seq, onOpenDetails])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -82,8 +86,8 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
   seq: number
   onOpenDetails: OpenDetails
   selected: boolean
-  /** `run_code` sub-dispatches in dispatch order (reference-stable per parent); undefined for ordinary calls. */
-  subCalls?: readonly ToolResultNode[] | undefined
+  /** `run_code` sub-dispatches in dispatch order (reference-stable per parent; running entries settle in place); undefined for ordinary calls. */
+  subCalls?: readonly CodeSubCall[] | undefined
   /** The store's selected callId, matched against sub-rows (undefined when no sub-row here is selected). */
   selectedCallId?: string | undefined
 }) {
@@ -122,7 +126,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
   /** Only set when the selected call lives in THIS group, top-level or nested (memo economy). */
   selectedCallId: string | undefined
   /** Sub-dispatch index off the snapshot (map reference is chunk-storm stable). */
-  codeDispatches: ReadonlyMap<string, readonly ToolResultNode[]>
+  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
 }) {
   return (
     <div className={css.toolGroup}>

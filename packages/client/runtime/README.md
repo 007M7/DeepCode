@@ -16,7 +16,7 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 ## Code Mode sub-dispatch index
 
-`ConversationSnapshot.codeDispatches` groups a `run_code` call's sub-dispatches under their parent callId, in dispatch order, as settled `ToolResultNode` entries (the native result shape): each `tool/code-dispatch` event appends one. The event carries only the settle timestamp, so `callTime` is `null` (start unknown) — no duration claim is possible from this index yet. Live mux frames and history replay build the identical index; sub-calls never join the surface `nodes` flow; per-parent array and map references are memo-stable across unrelated snapshot swaps.
+`ConversationSnapshot.codeDispatches` groups a `run_code` call's sub-dispatches under their parent callId, in start order, using the native call-block shapes: a `tool/code-dispatch-start` event lands the `RunningToolCall` form (rows derive the running ring from the shape) and its `tool/code-dispatch` settlement replaces it in place with the `ToolResultNode` form, `callTime` carrying the paired start's time. A settle whose start fell outside the replay window appends directly with `callTime: null` (duration unknown — never a fabricated zero). Live mux frames and history replay build the identical index; sub-calls never join the surface `nodes` flow; per-parent array and map references are memo-stable across unrelated snapshot swaps.
 
 ## Session title projection
 
