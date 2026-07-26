@@ -12,7 +12,7 @@ Billing health, a runner definition's `Ready` state, and a large autoscaling cei
 
 ## Decision
 
-[CI](../../../../.github/workflows/ci.yml) runs the required primary Node 24 and Windows jobs on repo-restricted enterprise 32-core pools. Standard `ubuntu-latest` jobs retain Node 22.19, Node 26, and Python SDK compatibility, and `master` runs complete serial Linux, macOS, and Windows references. Those standard-hosted jobs keep the portable execution boundary observable without duplicating the primary inventory on every pull request.
+[CI](../../../../.github/workflows/ci.yml) runs the required primary Node 24 and Windows jobs, plus the stable `all checks passed` aggregate, on repo-restricted enterprise 32-core pools. The aggregate performs no checkout or repository gate, but sharing the enterprise pool prevents the required verdict from introducing a separate standard-hosted billing dependency after its substantive jobs have already succeeded. Standard `ubuntu-latest` jobs retain Node 22.19, Node 26, and Python SDK compatibility, and `master` runs complete serial Linux, macOS, and Windows references. Those standard-hosted jobs keep the portable execution boundary observable without duplicating the primary inventory on every pull request.
 
 The two Linux primary jobs, Node compatibility, Python SDK, and `windows node 24 / complete` remain dependencies of `all checks passed`; branch protection continues to require `e2e` and `all checks passed`. There is no automatic fallback when an enterprise label cannot allocate: the standard jobs continue to report their own contracts, but they cannot manufacture the missing required result.
 
