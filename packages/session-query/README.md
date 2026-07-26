@@ -1,5 +1,7 @@
 # session-query/ — session retrieval capability family
 
+English | [中文](README.zh.md)
+
 Trusted exact reads, relationship traces, provider-independent semantic filtering, and SQLite full-text search over live and durable session logs.
 
 | Package | Role | ctx key |

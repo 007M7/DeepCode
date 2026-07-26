@@ -1,30 +1,59 @@
 /**
- * Shared Workspace picker contract for the sidebar and page-local Session Intent hero
- * slots. Each runtime share provides its owner's popover controls plus the
- * global useWorkspaces hook; this package adds the injected Host Workspace
- * creation callback.
+ * ui-workspace contracts. Two registrations share this package:
+ *
+ * - WorkspaceBrowser fills the sidebar shell's `sidebar.workspaces` hole —
+ *   the whole browsing region (section header, search, grouped/flat session
+ *   list, workspace dialogs). It registers this package's viewing store and
+ *   consumes the shell's two-fact owner share (wide / expandSidebar).
+ * - WorkspacePicker fills the conversation empty-state hole (menu +
+ *   create dialogs shared with the browser).
  */
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: pull both owner SlotMap merges into programs that resolve the
-// picker runtime union below.
+import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: pull the owner SlotMap merges into programs that resolve the
+// runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type { createWorkspaceViewStore } from '../stores.ts'
 
 /**
- * Registrant-private injected share. Pick semantics remain in each owner's
- * onPick callback; this callback creates only the real Host Workspace. A type
- * alias supplies the implicit index signature required by the registry.
+ * Browser-private injected share (arrives via the register inject factory).
+ * Data reads use the global framework hooks; these are the Host actions the
+ * browsing region drives.
+ */
+export type WorkspaceBrowserInjected = {
+  /** Start or replace the current frontend Session Intent. */
+  startSession: (workspaceId?: WorkspaceId, prompt?: string) => void
+  /** Open a real Session. */
+  open: (sessionId: SessionId) => void
+  /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
+  renameWorkspace: (workspaceId: WorkspaceId, title: string) => Promise<void>
+  /**
+   * Reorder a session inside its Workspace account (DOM-insertBefore
+   * semantics: omitted anchor appends to the end). The view refreshes from
+   * the Host response/changed frame; failures leave the order unchanged.
+   */
+  insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
+  /** Explicitly create or adopt a real Workspace before targeting a Session. */
+  createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
+}
+
+/** Full browser props: shell owner share + viewing store + injected actions. */
+export type WorkspaceBrowserProps =
+  PropsRuntime<'sidebar.workspaces'>
+  & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
+  & WorkspaceBrowserInjected
+
+/**
+ * Picker-private injected share. Pick semantics remain in the owner's onPick
+ * callback; this callback creates only the real Host Workspace. A type alias
+ * supplies the implicit index signature required by the registry.
  */
 export type WorkspacePickerInjected = {
   /** Explicitly create or adopt a real Workspace before targeting a Session. */
   createWorkspace(input: { name: string } | { path: string }): Promise<WorkspaceView>
 }
 
-/**
- * Full picker props: either owner's runtime share, including useWorkspaces,
- * plus this package's injected creation callback.
- */
+/** Full picker props: the empty-state owner share plus the creation callback. */
 export type WorkspacePickerProps =
-  (PropsRuntime<'sidebar.workspace'> | PropsRuntime<'conversation.empty.workspace'>)
-  & WorkspacePickerInjected
+  PropsRuntime<'conversation.empty.workspace'> & WorkspacePickerInjected
