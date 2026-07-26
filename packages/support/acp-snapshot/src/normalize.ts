@@ -33,12 +33,16 @@ const SNAPSHOT_SPILL_PATH_RE = new RegExp(
 /**
  * Extract every snapshot-mode spill path from a session log, keyed by spill
  * filename. Used by refresh write-back to keep spill paths stable across runs.
+ * @param content - the raw session log text to scan.
+ * @returns spill filename → the full matched spill path, last match wins per name.
  */
 export function extractSnapshotSpillPaths(content: string): Map<string, string> {
   const result = new Map<string, string>()
   for (const match of content.matchAll(SNAPSHOT_SPILL_PATH_RE)) {
     const name = match[1]
-    if (name) result.set(name, match[0])
+    /* v8 ignore next -- the filename capture is required and non-empty whenever the spill regex matches */
+    if (name === undefined) continue
+    result.set(name, match[0])
   }
   return result
 }

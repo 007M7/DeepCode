@@ -215,7 +215,9 @@ interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: HookContext): void
+  deferContext(context: UserMessageData): void
+  /** Mark a successful final result as terminal for the current agent turn. */
+  concludeTurn(): void
 }
 ```
 
@@ -292,7 +294,9 @@ interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessageData[]
+  /** The agent loop stops after committing this successful result batch. */
+  readonly concludesTurn?: true
 }
 ```
 
@@ -304,7 +308,8 @@ interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessageData[]
+  readonly concludesTurn?: never
 }
 ```
 
@@ -340,9 +345,9 @@ type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: HookContext[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: HookContext[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessageData[] }
 ```
 
 调用 `next()` 获取默认决策，或直接返回一个决策以短路。前置策略可以 deny 或 ask；只有 `allowed-once` 才继续执行，而未授权、缺少审批通道或服务、或无 agent 的请求都会变为拒绝。Guard 仍可施加最终拒绝。参数不可被改写，因为历史记录、审计、UI 和执行必须保持一致。

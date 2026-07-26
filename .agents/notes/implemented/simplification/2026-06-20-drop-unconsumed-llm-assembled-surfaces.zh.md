@@ -12,7 +12,7 @@ Status: implemented
 - `streamBlocks()`：一个「便捷视图」，将分片送入 `BlockAssembler` 并按流顺序产出已组装的 `ContentBlock`（[index.ts:137-144](../../../../packages/llm/llm/src/index.ts)）。
 - `generate()`：一个完整组装的 `GenerateResult`，通过第二条 `llm/generate` waterfall 分发（[index.ts:151-157](../../../../packages/llm/llm/src/index.ts)）。
 
-LLM（大语言模型）服务唯一的生产消费方是 agent loop（智能体循环），它只使用 `stream()`：将原始分片送入自己的 `BlockAssembler`，以便在并行组装的同时记录分片，保证回放保真度（[packages/core/agent-loop/src/loop.ts](../../../../packages/core/agent-loop/src/loop.ts)，`ctx.llm.stream(req)` 步骤）。在 `packages/*/src` 和 `examples/*/src` 中 grep `streamBlocks` 与 `ctx.llm.generate`，找不到任何生产调用方。仅有的引用来自服务方法定义、文档和测试；适配器测试用 `generate()` 作为便捷驱动，但它们完全可以通过同一个 assembler 辅助函数手动消费 `stream()`，无需为此保留一个公开的生产 API。
+LLM（大语言模型）服务唯一的生产消费方是 agent loop（智能体循环），它只使用 `stream()`：将原始分片送入自己的 `BlockAssembler`，以便在并行组装的同时记录分片，保证回放保真度（[packages/core/agent-loop/src/agent.ts](../../../../packages/core/agent-loop/src/agent.ts)，`ctx.llm.stream(req)` 步骤）。在 `packages/*/src` 和 `examples/*/src` 中 grep `streamBlocks` 与 `ctx.llm.generate`，找不到任何生产调用方。仅有的引用来自服务方法定义、文档和测试；适配器测试用 `generate()` 作为便捷驱动，但它们完全可以通过同一个 assembler 辅助函数手动消费 `stream()`，无需为此保留一个公开的生产 API。
 
 这属于[删除可变会话 summary](2026-06-19-drop-mutable-session-summary.md) 的同类模式：带有受测契约的组装视图 API，由测试而非生产代码消费。它们是为不关心 token 级增量的消费方推测性构建的，但唯一的真实消费方恰恰关心增量，以便持久化高保真重放数据。
 
