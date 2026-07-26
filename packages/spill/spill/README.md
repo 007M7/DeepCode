@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-spill
 
+English | [中文](README.zh.md)
+
 The **spill storage seam**: an abstract `SpillStore` service (`ctx.spillStore`) defining WHAT a spill backend does — persist a tool's oversized text and return a model-facing locator plus retrieval guidance — without saying HOW.
 
 This package is one third of the spill capability, split so each concern evolves (and swaps) independently:

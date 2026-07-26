@@ -1,5 +1,7 @@
 # bash/ — bash capability family
 
+English | [中文](README.zh.md)
+
 The canonical three-package capability seam (see [capability seams](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract executor interface, concrete implementations, and the model-facing tool that consumes it. All **product** packages.
 
 | Package | Role | ctx key |

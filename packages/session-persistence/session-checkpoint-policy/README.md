@@ -1,5 +1,7 @@
 # dsh-session-checkpoint-policy
 
+English | [中文](README.zh.md)
+
 Semantic durability policy for persisted agents. It checkpoints the event-sourced session before a model adapter receives a request, before a top-level tool body may produce an external side effect, and at each `agent/step` boundary so the preceding response and ordered tool results are durable before the next request.
 
 ## Plugin (namespace: `session-checkpoint-policy`)
