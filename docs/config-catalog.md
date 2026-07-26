@@ -1003,7 +1003,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:39`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:40`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 

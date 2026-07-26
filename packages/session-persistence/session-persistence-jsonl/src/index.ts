@@ -27,6 +27,7 @@ import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 
 export type { JsonlCompression } from './format.ts'
 
+const DEFAULT_PACK_CHUNKS = true
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
 
 /** Loader schema for the JSONL artifact's physical encoding. */
@@ -79,7 +80,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   static Config: z<Config> = z.object({
     root: z.string().required(),
-    packChunks: z.boolean().default(true),
+    packChunks: z.boolean().default(DEFAULT_PACK_CHUNKS),
     compression: JsonlCompressionSchema,
   })
 
@@ -100,9 +101,8 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     super(ctx)
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
-    // schemastery (static Config) applied the default before construction;
-    // the cast records that runtime fact for exactOptionalPropertyTypes.
-    this.packChunks = (config as Required<Config>).packChunks
+    // Programmatic wrappers may construct the backend without Schemastery normalization.
+    this.packChunks = config.packChunks ?? DEFAULT_PACK_CHUNKS
     this.compression = config.compression ?? DEFAULT_COMPRESSION
     this.assertUsableRoot()
     this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this)
