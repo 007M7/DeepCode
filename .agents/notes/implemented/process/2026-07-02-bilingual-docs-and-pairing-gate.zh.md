@@ -13,7 +13,7 @@ Status: implemented
 - **配对兄弟文件，两种语言同权。** 一对文档由三个兄弟文件组成：英文 `foo.md`、中文 `foo.zh.md`，以及一份一致性记录 `foo.i18n.yaml`。没有哪种语言是正典：一篇文档可以先用中文撰写和评审、之后再译成英文，反之亦可；约束配对的是：两侧必须表达相同的内容，且配对整体合并（两种语言加记录，绝不单独落一侧）。政策见 [docs/i18n/README.md](../../../../docs/i18n/README.md)；翻译规则见 [docs/i18n/translation-rules.md](../../../../docs/i18n/translation-rules.md)；术语真源见 [docs/i18n/terminology.md](../../../../docs/i18n/terminology.md)。
 - **伴随记录保存两侧 blob hash，使一致性可检查。** `foo.i18n.yaml` 保存两侧文件在上一次确认一致时各自的完整 git blob hash。此后修改了任一侧而未重新确认配对，都能被机械检测出来（纯内容比较，无需查询历史），而且同一个 PR（Pull Request）内改动的文件也能计算出 hash，commit hash 式的记录做不到这一点。重新记录（`verify-translation-pairing --write`）会产生一份可评审的 yaml diff：确认一致在 PR 中是一个显式、可见的动作。
 - **`verify-translation-pairing` 加入 `doc-sync`。** 门禁（[scripts/verify-translation-pairing.ts](../../../../scripts/verify-translation-pairing.ts)）强制执行以下规则：通过显式指定、文档类别或 manifest（元数据清单）的 `requiredSince` 分界日期选中的源文档必须有完整配对；任何已存在的配对必须完整（三个文件齐全）且一致（两个 hash 匹配、切换行双向互链、结构签名一致）；被排除的生成文档、指令文档或本身即双语的文档不得配对。[scripts/translation-pairing.manifest.json](../../../../scripts/translation-pairing.manifest.json) 中的 `requiredClasses` 集合会将已完成翻译的类别纳入强制范围，对其当前及今后所有文件强制执行契约，而不再依赖一份枚举式快照。只有当 `.zh.md` 围栏序列与其无后缀兄弟文件拥有顺序相同、正文按字节一致的同一组受跟踪围栏时，面向源码的代码门禁才会将其作为派生内容消费；不完整、顺序变更、重分类或已改动的序列仍会独立受检，因此由其所属的代码门禁或配对门禁报告不匹配。
-- **执行红线按连贯的评审批次推进，再以类别为单位完成强制覆盖。** 在存量文档仍处于评审阶段时，显式 `required` 条目会纳入相关文件；存量文档全部完成后，其 `non-readme` 或 `readme` 类别进入 `requiredClasses`，不再产生新的 backlog。发布到文档站的配对使用 `pairedPages()`，由根 locale 投影 `.zh.md`，由 `/en/` 投影 `.md`；仅创建对侧文件并不会发布它。
+- **执行红线按连贯的评审批次推进，再以类别为单位完成强制覆盖。** 在存量文档仍处于评审阶段时，显式 `required` 条目会纳入相关文件；存量文档全部完成后，其 `non-readme` 或 `readme` 类别进入 `requiredClasses`，不再产生新的 backlog。这两个类别均已纳入强制范围。README 发现会覆盖 vendor 源码、依赖目录与被忽略的构建产物目录之外所有文件名不区分大小写匹配 README 的文件，包括今后新增的顶层目录。发布到文档站的配对使用 `pairedPages()`，由根 locale 投影 `.zh.md`，由 `/en/` 投影 `.md`；仅创建对侧文件并不会发布它。
 - **配对记录是元数据，而不是 Cordis Loader 配置。** Cordis 配置发现会接受实际的 `.cordis.yml` 和 `.cordis.yaml` 文件，同时排除 `*.i18n.yaml`，即使文档名中包含 `cordis` 也不例外。这样既能继续校验可执行的 Loader 配置项，又不会把翻译 hash 当作配置来解析。
 - **翻译是 agent 的工作，由人评审。** 仓库内置的工作流是 [.agents/skills/dsh-translate-docs](../../../skills/dsh-translate-docs/SKILL.md)，与 [dsh-code-review](../../../skills/dsh-code-review/SKILL.md) 模式相同：skill（技能）承载工作流，并将文档作为真源。该 skill 要求编排 agent 把翻译写作委派给 subagent。
 
@@ -40,5 +40,5 @@ Status: implemented
 - 每个配对给目录树多添一个文件。记录由机器写入（`--write`），代价是目录噪音而非维护负担；换来的是「谁在何时确认过这对文档一致」可以从 yaml 的 git blame 直接回答。
 - 两侧说法冲突时，没有机械规则裁决谁赢，由 PR 评审裁决。这是同权的代价，且是有意接受的：另一个选项（正典语言）会禁止中文先行撰写。
 - 生成文档（`cordis-catalog/`、`tool-catalog/`、`module-graph.md`）暂被排除；计划中的后续工作是让生成器在输出英文的同时输出中文，届时将这些文件移出排除清单。
-- 在文档类别全部完成之前，推进仍然是渐进的：显式 `required` 条目与日期分界可在评审批次期间防止回退，已纳入强制范围的类别则将其当前及今后的每个成员都列为必选项。非 README 类别已纳入强制范围，因此只有 README 类别仍可能出现 backlog（待翻清单）。
+- 显式 `required` 条目与日期分界保留已经评审的推进历史，而两个已纳入强制范围的类别会将当前及今后所有范围内的文档列为必选项。任何文档类别都不能新增 backlog（待翻清单）。
 - 记录的 hash 兼作更新工具（`git cat-file -p <hash>` 能还原任一侧上次确认的文本，用于基于 diff 的最小更新），因此这套机制从不强迫整篇重译。

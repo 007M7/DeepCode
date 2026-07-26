@@ -15,7 +15,9 @@ import {
   linksTo,
   parseTranslationMarkdown,
   parseTranslationPairingManifest,
+  isTranslationScopeFile,
   requiresTranslationPair,
+  TRANSLATION_SCOPE_GLOB_EXCLUDES,
   translationDocumentClass,
   translationStructureDiff,
   translationStructureSignature,
@@ -25,17 +27,12 @@ const root = resolve(import.meta.dirname, '..')
 const listMode = process.argv.includes('--list')
 const writeMode = process.argv.includes('--write')
 
-/** Scope of the bilingual contract: root docs, Agent Notes, the docs tree, and the Python SDK tree. */
+/** Discover source Markdown and pairing sidecars before applying the corpus predicate. */
 const SCOPE_PATTERNS = [
-  'README.md',
-  'README.zh.md',
-  'README.i18n.yaml',
+  '**/*.md',
+  '**/*.i18n.yaml',
   '.agents/notes/**/*.md',
   '.agents/notes/**/*.i18n.yaml',
-  'docs/**/*.md',
-  'docs/**/*.i18n.yaml',
-  'python/**/*.md',
-  'python/**/*.i18n.yaml',
 ]
 
 const manifest = parseTranslationPairingManifest(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8'))
@@ -93,7 +90,10 @@ function renderMeta(source: string, sourceHash: string, zh: string, zhHash: stri
 // Enumerate the scope once.
 const files = new Set<string>()
 for (const pattern of SCOPE_PATTERNS) {
-  for (const match of globSync(pattern, { cwd: root })) files.add(match.split(sep).join('/'))
+  for (const match of globSync(pattern, { cwd: root, exclude: TRANSLATION_SCOPE_GLOB_EXCLUDES })) {
+    const normalized = match.split(sep).join('/')
+    if (isTranslationScopeFile(normalized)) files.add(normalized)
+  }
 }
 const translations = [...files].filter(f => f.endsWith('.zh.md')).sort()
 const metas = [...files].filter(f => f.endsWith('.i18n.yaml')).sort()

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-theme
 
+English | [中文](README.zh.md)
+
 Theme plugin: ThemeService over the --dsw-* token base stylesheets (static scale + alias semantic layers); apply(id) toggles the `body[data-ds-dark-theme]` attribute, so theme switches are pure CSS cascade. Contract: api-contracts v3 §8.
 
 ## Model Experience

@@ -26,6 +26,63 @@ const TRANSLATION_DOCUMENT_CLASSES: TranslationDocumentClass[] = ['readme', 'non
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const DATED_DOCUMENT = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
+const README_ARTIFACT = /(?:^|\/)readme(?:\.md|\.zh\.md|\.i18n\.yaml)$/i
+const NON_SOURCE_DIRECTORIES = new Set([
+  'node_modules',
+  'lib',
+  '.pnpm-store',
+  '.cache',
+  'coverage',
+  '.sessions',
+  '.storages',
+  'tmp',
+  'dist-exe',
+  '__pycache__',
+  '.pytest_cache',
+  '.artifacts',
+  'vendor',
+])
+
+/** Glob traversal exclusions corresponding to the non-source path predicate. */
+export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
+  '**/node_modules/**',
+  '**/lib/**',
+  '**/.pnpm-store/**',
+  '**/.cache/**',
+  '**/coverage/**',
+  '**/.doc-typecheck-*/**',
+  '**/.node-next-types-*/**',
+  '**/.sessions/**',
+  '**/.storages/**',
+  '**/tmp/**',
+  '**/dist-exe/**',
+  '**/__pycache__/**',
+  '**/.pytest_cache/**',
+  'apps/web/dist/**',
+  '.artifacts/**',
+  'python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-*/**',
+  'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/**',
+  'vendor/**',
+]
+
+/** Whether a repository-relative path belongs to a dependency or generated tree. */
+function isTranslationSourceExcluded(file: string): boolean {
+  const segments = file.split('/')
+  return segments.some(segment => NON_SOURCE_DIRECTORIES.has(segment)
+      || segment.startsWith('.doc-typecheck-')
+    || segment.startsWith('.node-next-types-'))
+    || file.startsWith('apps/web/dist/')
+    || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-')
+    || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/')
+}
+
+/** Whether one discovered Markdown or sidecar path belongs to the bilingual source corpus. */
+export function isTranslationScopeFile(file: string): boolean {
+  return !isTranslationSourceExcluded(file) && (README_ARTIFACT.test(file)
+    || file.startsWith('.agents/notes/')
+    || file.startsWith('docs/')
+    || file.startsWith('python/'))
+}
 
 /** Whether a string names one real calendar day in canonical ISO form. */
 export function isIsoDate(value: string): boolean {

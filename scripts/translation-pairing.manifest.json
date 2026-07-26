@@ -1,6 +1,7 @@
 {
   "requiredClasses": [
-    "non-readme"
+    "non-readme",
+    "readme"
   ],
   "requiredSince": "2026-07-14",
   "required": [

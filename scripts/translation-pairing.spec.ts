@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   datedDocumentDate,
   isIsoDate,
+  isTranslationScopeFile,
   parseTranslationMarkdown,
   parseTranslationPairingManifest,
   requiresPairByDate,
@@ -81,6 +82,45 @@ describe('document-class pairing frontier', () => {
     expect(requiresTranslationPair('docs/guide.md', manifest)).toBe(true)
     expect(requiresTranslationPair('docs/legacy/README.md', manifest)).toBe(true)
     expect(requiresTranslationPair('docs/new/README.md', manifest)).toBe(false)
+  })
+
+  it('requires both document classes after the README frontier closes', () => {
+    const closed = parseTranslationPairingManifest(JSON.stringify({
+      ...manifest,
+      requiredClasses: ['non-readme', 'readme'],
+    }))
+    expect(requiresTranslationPair('docs/guide.md', closed)).toBe(true)
+    expect(requiresTranslationPair('future/subtree/README.md', closed)).toBe(true)
+  })
+})
+
+describe('translation scope discovery', () => {
+  it.each([
+    'README.md',
+    'apps/cli/README.md',
+    'future/subtree/readme.md',
+    'packages/example/README.zh.md',
+    'native/example/README.i18n.yaml',
+    '.agents/notes/proposed/feature.md',
+    'docs/guide.md',
+    'python/guide.md',
+  ])('includes %s', (file) => {
+    expect(isTranslationScopeFile(file)).toBe(true)
+  })
+
+  it.each([
+    'packages/example/guide.md',
+    'examples/tutorial.md',
+    'website/reference.md',
+    'packages/example/README.txt',
+    'vendor/example/README.md',
+    'packages/example/node_modules/dependency/README.md',
+    'packages/example/lib/README.md',
+    'coverage/report/README.md',
+    'python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-macos-arm64/README.md',
+    'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/README.md',
+  ])('excludes non-source or non-README path %s', (file) => {
+    expect(isTranslationScopeFile(file)).toBe(false)
   })
 })
 

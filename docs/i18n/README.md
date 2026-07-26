@@ -38,7 +38,7 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 ## Scope, exclusions, and rollout
 
-**Scope**: the root `README.md`, everything under `.agents/notes/**`, `docs/**`, and `python/**`. Package READMEs (`packages/**`) join the scope in a later batch.
+**Scope**: every non-vendor README, plus every document under `.agents/notes/**`, `docs/**`, and `python/**`. README matching is case-insensitive on the basename and covers future directories without another manifest edit. Dependency and ignored build-output trees are discovery exclusions, not source documentation.
 
 **Excluded** (never paired, and the gate rejects a `.zh.md` or `.i18n.yaml` for them):
 
@@ -47,7 +47,7 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 - `docs/i18n/terminology.md` and [style-samples.md](style-samples.md) — both are bilingual by construction.
 - [translation-prompt.md](translation-prompt.md) — the automated pipeline's prompt template; its body is machine-consumed verbatim, so a paired translation would change pipeline behavior.
 
-**Enforcement frontier**: `requiredClasses` closes a whole document class after its back-catalog has been translated. `non-readme` is closed: every current or future in-scope non-README document must merge bilingual. README coverage remains an explicit-file rollout until `readme` joins the closed set. The manifest's `required` list retains already-admitted files, and a date-named document (`yyyy-mm-dd-*.md`, i.e. an Agent Note) dated on or after `requiredSince` must merge with its pair regardless of class. `--list` reports any unclosed-class backlog while every existing pair remains governed by the full contract.
+**Enforcement frontier**: `requiredClasses` closes a whole document class after its back-catalog has been translated. Both `non-readme` and `readme` are closed: every current or future in-scope document must merge bilingual. The manifest's `required` list retains already-admitted files, and a date-named document (`yyyy-mm-dd-*.md`, i.e. an Agent Note) dated on or after `requiredSince` must merge with its pair regardless of class. `--list` reports any unclosed-class backlog while every existing pair remains governed by the full contract.
 
 ## Division of labor
 
