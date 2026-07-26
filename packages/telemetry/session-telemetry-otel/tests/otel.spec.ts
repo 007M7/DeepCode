@@ -123,12 +123,14 @@ describe('TelemetryOtel wire', () => {
     expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
   })
 
-  it('delivers records enqueued while a turn-boundary flush is in flight (flush/shutdown race)', async () => {
-    // Hold the collector's response to the flush-triggered export open until
-    // after disposal has begun: the SDK's concurrent-flush guard makes the
-    // shutdown-internal flush return early while another flush is running, so
-    // without ordering in the backend the coordinator's dispose-time shutdown
-    // marker (enqueued after the flush snapshot) would be dropped silently.
+  it('drains records enqueued after a timer export began: dispose during an in-flight batch', async () => {
+    // The backend implements NO flush() — the batch processor exports on its
+    // own cadence, and shutdown's internal drain is complete exactly because
+    // nothing in the process calls forceFlush() concurrently (the SDK's
+    // concurrent-flush guard skips draining otherwise). Pin that: hold the
+    // collector's response to the timer-triggered export open across
+    // disposal, and the dispose-time shutdown marker (enqueued after that
+    // batch's snapshot) must still arrive.
     const gate = Promise.withResolvers<boolean>()
     const arrived = Promise.withResolvers<boolean>()
     const { url, captures } = await mockCollector(async (index) => {
@@ -137,48 +139,18 @@ describe('TelemetryOtel wire', () => {
         await gate.promise
       }
     })
-    const { ctx, fiber } = await boot(url)
-    const session = ctx.sessions.create(SessionId('race'), { meta: {} })
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(TelemetryOtel, {
+      exporter: { url },
+      processor: { scheduledDelayMillis: 10 },
+    })
+    const session = ctx.sessions.create(SessionId('drain'), { meta: {} })
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    ctx.telemetry.flush!()
     await arrived.promise
 
     const disposal = fiber.dispose()
     // Let disposal reach the backend's shutdown while the export is held open.
-    await new Promise(resolve => setTimeout(resolve, 50))
-    gate.resolve(true)
-    await disposal
-
-    const records = allRecords(captures)
-    const ops = records.filter(r => r.scope === '@deepseek-ai/dsh-session-telemetry-otel/ops')
-    expect(ops).toHaveLength(1)
-    expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
-  })
-
-  it('orders shutdown behind the OLDEST in-flight flush when hints overlap', async () => {
-    // The SDK's concurrent-flush guard resolves an overlapping forceFlush()
-    // immediately; if the backend RETAINS only the latest flush promise, two
-    // back-to-back turn flushes leave shutdown awaiting the instantly-resolved
-    // second one while the first still exports — reopening the same silent
-    // drop the single-flush race test pins.
-    const gate = Promise.withResolvers<boolean>()
-    const arrived = Promise.withResolvers<boolean>()
-    const { url, captures } = await mockCollector(async (index) => {
-      if (index === 0) {
-        arrived.resolve(true)
-        await gate.promise
-      }
-    })
-    const { ctx, fiber } = await boot(url)
-    const session = ctx.sessions.create(SessionId('race2'), { meta: {} })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    ctx.telemetry.flush!()
-    await arrived.promise
-    // Second hint while the first export is held open: resolves immediately
-    // under the SDK's guard and must not displace the outstanding one.
-    ctx.telemetry.flush!()
-
-    const disposal = fiber.dispose()
     await new Promise(resolve => setTimeout(resolve, 50))
     gate.resolve(true)
     await disposal
@@ -209,15 +181,14 @@ describe('TelemetryOtel wire', () => {
     expect(types).toContain('turn/start')
   })
 
-  it('maps the warn severity and forwards the flush hint to the SDK', async () => {
+  it('maps the warn severity and leaves the seam flush hint unimplemented', async () => {
     const { url, captures } = await mockCollector()
     const { ctx, fiber } = await boot(url)
     const session = ctx.sessions.create(SessionId('warn'), { meta: {} })
     session.append('prompt/blocked', { content: [], source: { kind: 'user' }, reason: 'vetoed' })
-    // The turn-boundary hint: safe, non-blocking, and enough to push the batch out.
-    expect(() => {
-      ctx.telemetry.flush!()
-    }).not.toThrow()
+    // No flush(): the coordinator's optional-call forwarding no-ops, and the
+    // batch processor owns export cadence end to end (see the backend note).
+    expect('flush' in ctx.telemetry && ctx.telemetry.flush !== undefined).toBe(false)
     await fiber.dispose()
     const blocked = allRecords(captures).find(r =>
       r.record.attributes?.some(a => a.key === 'event.type' && a.value.stringValue === 'prompt/blocked'))

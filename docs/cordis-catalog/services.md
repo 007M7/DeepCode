@@ -1717,7 +1717,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:129`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:134`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 

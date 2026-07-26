@@ -147,36 +147,26 @@ export class TelemetryOtel extends Telemetry {
     })
   }
 
-  /** Every not-yet-settled turn-boundary flush, retained so {@link shutdown} can order behind ALL of them. */
-  private inflightFlush: Promise<void> = Promise.resolve()
-
-  /** Forward the turn-boundary hint to the SDK's flush, fire-and-forget. */
-  override flush(): void {
-    // Best-effort hint: the SDK resolves forceFlush even when exports fail
-    // (failures go to its own diagnostics), and the coordinator stops calling
-    // this once the fiber is disposed — a rejection would be SDK drift. The
-    // settled promise is retained (not awaited): the SDK's concurrent-flush
-    // guard makes a flush that overlaps another return WITHOUT draining, so
-    // an overlapping hint resolves instantly and must JOIN the outstanding
-    // one, not displace it — shutdown orders behind the whole set.
-    /* v8 ignore next -- unreachable guard: forceFlush does not reject while the provider is alive */
-    const flush = this.provider.forceFlush().catch(() => {})
-    this.inflightFlush = Promise.all([this.inflightFlush, flush]).then(() => undefined)
-  }
+  // The seam's optional flush() hint is deliberately NOT implemented. The
+  // batch processor exports on its own cadence (`processor.scheduledDelayMillis`,
+  // the SDK's documented knob), and this backend is the SDK pipeline's only
+  // caller — forwarding the hint to `forceFlush()` was the sole source of
+  // concurrent flushes, whose undocumented interactions with shutdown's
+  // internal drain (concurrent-flush guard, provider-level flush timeout)
+  // silently dropped tail records. Removal history and the revival trigger:
+  // the revival Agent Note.
 
   /**
-   * Delegate disposal to the SDK's shutdown contract: flush the queue and
-   * quiesce. Orders behind every outstanding turn-boundary flush first —
-   * shutdown's internal flush is a no-op while one is in flight (the SDK's
-   * concurrent-flush guard), which would silently drop everything enqueued
-   * after that flush snapshot, including the coordinator's dispose-time
-   * `shutdown` markers. Awaited (and error-contained) by the coordinator's
-   * disposer.
+   * Delegate disposal to the SDK's shutdown contract: drain the queue and
+   * quiesce. With no concurrent `forceFlush()` in the process (see above),
+   * shutdown's internal drain is complete — everything emitted before this
+   * call, including the coordinator's dispose-time `shutdown` markers, is
+   * exported before the exporter closes. Awaited (and error-contained) by
+   * the coordinator's disposer.
    * @returns resolves when the SDK pipeline has quiesced.
    */
-  async shutdown(): Promise<void> {
-    await this.inflightFlush
-    await this.provider.shutdown()
+  shutdown(): Promise<void> {
+    return this.provider.shutdown()
   }
 }
 

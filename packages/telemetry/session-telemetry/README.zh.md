@@ -6,7 +6,7 @@
 
 ## 后端契约
 
-`TelemetryBackend` 只有三个成员：`emit(record)`（必须是非阻塞入队；它在 `session/event` 热路径上同步执行）、可选的 `flush()`（轮次边界提示，触发后不等待结果）、以及 `shutdown()`（生命周期转发点：flush 并完全停稳，在 dispose（资源释放）时被等待）。`Telemetry` 是它注册在 `telemetry` 上下文键下的服务形态：每个上下文只允许一个实现，重复加载会抛出异常。后端在其构造函数中组合 `TelemetryCoordinator`。
+`TelemetryBackend` 只有三个成员：`emit(record)`（必须是非阻塞入队；它在 `session/event` 热路径上同步执行）、可选的 `flush()`（轮次边界提示，触发后不等待结果；多数后端不实现它，而由其 SDK 的批处理节奏决定导出时机；并发 flush 与 `shutdown()` 的排空之间的交互由实现方自行负责）、以及 `shutdown()`（生命周期转发点：排空并完全停稳，在 dispose（资源释放）时被等待）。`Telemetry` 是它注册在 `telemetry` 上下文键下的服务形态：每个上下文只允许一个实现，重复加载会抛出异常。后端在其构造函数中组合 `TelemetryCoordinator`。
 
 ## 捕获点
 

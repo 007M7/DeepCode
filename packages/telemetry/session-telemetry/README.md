@@ -6,7 +6,7 @@ The telemetry seam: the CAPTURE side of session-event reporting, behind a backen
 
 ## The backend contract
 
-`TelemetryBackend` is three members: `emit(record)` (MUST be a non-blocking enqueue — it runs synchronously on the `session/event` hot path), optional `flush()` (a turn-boundary hint, fire-and-forget), and `shutdown()` (the lifecycle forward: flush-and-quiesce, awaited at dispose). `Telemetry` is its service-registered form under the `telemetry` context key — one implementation per context, duplicate load throws. A backend composes `TelemetryCoordinator` in its constructor.
+`TelemetryBackend` is three members: `emit(record)` (MUST be a non-blocking enqueue — it runs synchronously on the `session/event` hot path), optional `flush()` (a turn-boundary hint, fire-and-forget; most backends leave it unimplemented and let their SDK's batching cadence govern export timing — an implementer owns the interaction between concurrent flushes and `shutdown()`'s drain), and `shutdown()` (the lifecycle forward: drain-and-quiesce, awaited at dispose). `Telemetry` is its service-registered form under the `telemetry` context key — one implementation per context, duplicate load throws. A backend composes `TelemetryCoordinator` in its constructor.
 
 ## Capture points
 

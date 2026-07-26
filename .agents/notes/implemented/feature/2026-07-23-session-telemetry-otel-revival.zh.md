@@ -28,6 +28,8 @@ Status: implemented
 
 **映射到 OTel span（GenAI 语义约定）而非日志。** 本次复活否决：分支实现的日志映射已经过评审、形态可交付；span 模型对可 fork、可中断的会话有损，留给将来真正有 span 查询需求的消费者。
 
+**将 seam 的轮次边界 `flush()` 提示转发到 OTel provider 的 `forceFlush()`。** 首轮复活曾交付此转发，其后移除：三轮评审在同一份包装层状态中各发现一条新的静默丢失路径——dispose 与进行中的 flush 之间的竞态（SDK 的并发 flush 防护会令 shutdown 的内部排空被跳过）、相互重叠的提示顶掉留存的 promise、以及 provider 固定的 30 秒 flush 超时在批处理器仍在排空时便 reject。这些路径存在的唯一原因，是该转发让这个后端成为进程内第二个执行 flush 的组件，面对的还是上游实验性（experimental）源码树中未见诸文档的 SDK 内部行为；不实现 `flush()` 时，批处理器就是唯一执行 flush 的组件，其 `scheduledDelayMillis`（已可由部署方经 `processor` passthrough 调优）决定导出节奏，`shutdown()` 的排空从构造上就是完整的。仅当某个部署提出 `scheduledDelayMillis` 无法满足的轮次边界延迟要求时才恢复此转发——且届时应调用留存的 `BatchLogRecordProcessor` 自身的 `forceFlush()`，绝不调用 provider 那个带超时包装的版本。
+
 ## Consequences
 
 部署方在 `cordis.yml` 加一个带 OTLP endpoint 的条目即可把会话流接入任何 OTel 兼容体系；删除条目即退出，无残留状态。未挂载规则的部署导出的记录与捕获时完全一致——包括文件内容与命令输出中内嵌的任何凭据——因此跨信任边界的部署必须挂载 `telemetry/redact` 监听器，两个 README 对此如实陈述。挂载规则后，导出的 body 可能与 canonical log 字节不同，接收端不得把遥测当作字节精确副本；日志仍是唯一事实源。崩溃持久性在上述 outbox 决定重启前明确不在范围内。

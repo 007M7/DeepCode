@@ -103,7 +103,12 @@ export interface TelemetryBackend {
    * Optional hint that a natural boundary (turn end) passed — a backend may
    * forward it to its SDK's flush so records land at turn boundaries. Called
    * fire-and-forget; implementations must not block and must not throw
-   * meaningfully (the coordinator contains exceptions).
+   * meaningfully (the coordinator contains exceptions). Most backends should
+   * leave this unimplemented and let their SDK's own batching cadence govern
+   * export timing: a backend that does implement it owns the interaction
+   * between its concurrent flushes and {@link shutdown}'s drain (the OTel
+   * backend removed its implementation for exactly that hazard — see the
+   * revival Agent Note).
    */
   flush?(): void
   /**

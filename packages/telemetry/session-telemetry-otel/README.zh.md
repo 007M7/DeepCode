@@ -17,7 +17,7 @@
     processor: {}            # optional; passed verbatim to BatchLogRecordProcessor
 ```
 
-`exporter.url` 是本包唯一自行校验的字段：必填、无默认值、必须能解析为 `http(s)`，因此缺失端点会在插件加载时失败。其余全部是 SDK 自己的选项形态，由 SDK 拥有并在 SDK 文档中说明，两个配置块都整体透传（passthrough）：`OTLPExporterNodeConfigBase` 的每个字段（`headers`、`timeoutMillis`、`compression`、`keepAlive` 等）都会到达导出器；批处理、重试、队列上限，以及持续失败下的丢失策略，都是 SDK 的文档化行为，经 `processor` 透传调优。从 `cordis.yml` 中删除该配置块即为退出方式：无残留状态，也没有 `enabled` 开关。
+`exporter.url` 是本包唯一自行校验的字段：必填、无默认值、必须能解析为 `http(s)`，因此缺失端点会在插件加载时失败。其余全部是 SDK 自己的选项形态，由 SDK 拥有并在 SDK 文档中说明，两个配置块都整体透传（passthrough）：`OTLPExporterNodeConfigBase` 的每个字段（`headers`、`timeoutMillis`、`compression`、`keepAlive` 等）都会到达导出器；批处理、导出节奏（`scheduledDelayMillis`）、重试、队列上限，以及持续失败下的丢失策略，都是 SDK 的文档化行为，经 `processor` 透传调优。该后端刻意不实现 `flush()`：批处理器是进程内唯一执行 flush 的组件，`shutdown()` 的排空正因如此才是完整的。从 `cordis.yml` 中删除该配置块即为退出方式：无残留状态，也没有 `enabled` 开关。
 
 ## 哪些数据会离开本机
 
