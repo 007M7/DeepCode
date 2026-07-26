@@ -9,8 +9,14 @@ import type { ConversationNode, ConversationSnapshot } from '@deepseek-ai/dsh-cl
 export interface SubSpanLane {
   callId: string
   name: string
-  /** Wall duration in ms; null while running (start seen, settle not). */
+  /** Wall duration in ms; null unless both endpoints were observed (`timing: 'measured'`). */
   durationMs: number | null
+  /**
+   * Timing provenance: `measured` = start/settle pair observed; `running` =
+   * start seen, settle pending; `unknown` = settle-only replay window (the
+   * start fell outside), so no duration claim is possible.
+   */
+  timing: 'measured' | 'running' | 'unknown'
   /** Start offset as a fraction of the parent turn's dispatch window [0, 1). */
   offsetFraction: number
   /** Width as a fraction of the window (running lanes extend to the window end). */
@@ -106,6 +112,9 @@ export function deriveSubSpans(
   for (const [parent, subs] of codeDispatches) {
     if (subs.length === 0) continue
     const turn = turnByCall.get(parent) ?? currentTurn
+    // A settle-only entry (callTime null: its start fell outside the replay
+    // window) anchors the window by its settle time — a real observation —
+    // but must never masquerade as a measured zero-duration span.
     const starts: number[] = []
     const ends: number[] = []
     for (const sub of subs) {
@@ -119,12 +128,14 @@ export function deriveSubSpans(
     const windowSpan = windowEnd - windowStart
     const lanes: SubSpanLane[] = subs.map((sub, i) => {
       const settled = 'kind' in sub
+      const timing = settled ? (sub.callTime === null ? 'unknown' as const : 'measured' as const) : 'running' as const
       const start = starts[i] ?? windowStart
       const end = settled ? sub.time : windowEnd
       return {
         callId: sub.callId,
         name: settled ? sub.call?.name ?? sub.callId : sub.name,
-        durationMs: settled ? Math.max(0, sub.time - start) : null,
+        durationMs: timing === 'measured' ? Math.max(0, end - start) : null,
+        timing,
         offsetFraction: (start - windowStart) / windowSpan,
         widthFraction: Math.max((end - start) / windowSpan, 0.02),
       }

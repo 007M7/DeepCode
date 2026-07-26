@@ -71,6 +71,12 @@
   background: var(--dsw-alias-state-business-primary);
 }
 
-.barSub[data-running] {
+.barSub[data-timing='running'] {
   opacity: 0.45;
+}
+
+/* Settle-only replay entries: no measured span — hollow, not a solid bar. */
+.barSub[data-timing='unknown'] {
+  background: transparent;
+  border: 1px dashed var(--dsw-alias-state-business-primary);
 }

@@ -55,12 +55,15 @@ export function WaterfallView({ useSession, pxPerNode }: ConvViewProps & Waterfa
                 <span className={css.subTag}>{lane.name}</span>
                 <span
                   className={`${css.bar} ${css.barSub}`}
-                  data-running={lane.durationMs === null || undefined}
+                  data-timing={lane.timing}
                   style={{
                     marginLeft: Math.round(lane.offsetFraction * SUB_LANE_PX),
                     width: Math.max(Math.round(lane.widthFraction * SUB_LANE_PX), 4),
                   }}
-                  title={lane.durationMs === null ? `${lane.name} · running` : `${lane.name} · ${(lane.durationMs / 1000).toFixed(2)}s`}
+                  title={lane.timing === 'measured'
+                    /* durationMs is non-null exactly when timing is measured. */
+                    ? `${lane.name} · ${((lane.durationMs ?? 0) / 1000).toFixed(2)}s`
+                    : lane.timing === 'running' ? `${lane.name} · running` : `${lane.name} · duration unknown`}
                 />
               </div>
             ))}

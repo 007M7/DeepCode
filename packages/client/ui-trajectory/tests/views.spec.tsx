@@ -288,7 +288,7 @@ describe('deriveSubSpans (waterfall lanes)', () => {
     const turn3 = lanes.get(3)
     expect(turn3).toHaveLength(2)
     // Window = 6200..8200 (2000ms). bash: 0..0.4; read: 0.4..1.0.
-    expect(turn3?.[0]).toMatchObject({ name: 'bash', durationMs: 800, offsetFraction: 0 })
+    expect(turn3?.[0]).toMatchObject({ name: 'bash', durationMs: 800, timing: 'measured', offsetFraction: 0 })
     expect(turn3?.[0]?.widthFraction).toBeCloseTo(0.4)
     expect(turn3?.[1]).toMatchObject({ name: 'read', durationMs: 1200 })
     expect(turn3?.[1]?.offsetFraction).toBeCloseTo(0.4)
@@ -305,9 +305,21 @@ describe('deriveSubSpans (waterfall lanes)', () => {
     ]]]) as unknown as ConversationSnapshot['codeDispatches']
     const lanes = deriveSubSpans(dispatchNodes, codeDispatches)
     const running = lanes.get(3)?.find((lane) => lane.name === 'grep')
-    expect(running).toMatchObject({ durationMs: null })
+    expect(running).toMatchObject({ durationMs: null, timing: 'running' })
     // Extends from its start to the window end.
     expect(running!.offsetFraction + running!.widthFraction).toBeCloseTo(1)
+  })
+
+  it('a settle-only entry (null callTime) is unknown timing, never a measured 0 ms', () => {
+    const codeDispatches = new Map([['p1', [
+      {
+        kind: 'tool-result', seq: 101, time: 8_000, callId: 'p1:code:1',
+        call: { name: 'bash', argsRaw: '{}' }, callTime: null,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+    ]]]) as unknown as ConversationSnapshot['codeDispatches']
+    const lane = deriveSubSpans(dispatchNodes, codeDispatches).get(3)?.[0]
+    expect(lane).toMatchObject({ durationMs: null, timing: 'unknown' })
   })
 
   it('waterfall renders sub-span lanes under the owning turn row', () => {
@@ -333,5 +345,30 @@ describe('deriveSubSpans (waterfall lanes)', () => {
     expect(lane).not.toBeNull()
     expect(lane!.textContent).toContain('bash')
     expect(lane!.querySelector('[title*="1.80s"]')).not.toBeNull()
+    expect(lane!.querySelector('[data-timing="measured"]')).not.toBeNull()
+  })
+
+  it('waterfall labels a settle-only lane as duration unknown', () => {
+    const codeDispatches = new Map([['p1', [
+      {
+        kind: 'tool-result', seq: 101, time: 8_000, callId: 'p1:code:1',
+        call: { name: 'read', argsRaw: '{}' }, callTime: null,
+        content: [], isError: false, callView: null, resultView: null,
+      },
+    ]]]) as unknown as ConversationSnapshot['codeDispatches']
+    const store = createSnapshotStore({
+      nodes: dispatchNodes, partial: null,
+      runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches,
+    })
+    const props = {
+      sessionId: SID,
+      useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>,
+      useSessions: emptySessions(),
+      useWorkspaces: emptyWorkspaces(),
+    } as unknown as ConvViewProps
+    const view = render(createElement(WaterfallView as FC<ConvViewProps>, props))
+    const bar = view.container.querySelector('[data-timing="unknown"]')
+    expect(bar).not.toBeNull()
+    expect(bar!.getAttribute('title')).toContain('duration unknown')
   })
 })
