@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-The process-local background task registry (`ctx.tasks`). It gives long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup. Producer plugins extend `TaskKindMap` with their opaque id namespace.
+The background task registry seam (`ctx.tasks`). The abstract `TaskService` and its vocabulary types give long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup under one contract; the process-local registry lives in [`dsh-tasks-local`](../tasks-local/README.md). Producer plugins extend `TaskKindMap` with their opaque id namespace.
 
-## Service API
+## Service contract
 
 - `start(spec): TaskId` validates the control surface, spec, exact live owner, and optional positive `outputLimitBytes` before calling the producer's `run()` once. A starter throw leaves nothing registered; successful return commits without another failable step.
 - `get(id, caller?)` and `list(caller?)` return non-consuming snapshots. Listing includes only caller-owned and unowned tasks.
@@ -18,13 +18,9 @@ Owned access compares the task's `SessionId` with the caller's. Ids such as `bas
 
 `outputLimitBytes` is producer-owned model-presentation policy carried unchanged into snapshots. A control surface applies it after adding status or notice metadata; the registry does not rewrite producer output or invent a default for producers that omit it.
 
-## Lifecycle
+Implementations also owe the lifecycle semantics of the contract: registrations outlive producer and control-surface fibers, owner and service disposal cancel live work and await compliant producers, and settlement is first-wins — one terminal record, one round of contained listener notification, released waiters.
 
-Tasks belong to their owner and backend, not the producer tool fiber, so producer and surface reloads do not stop them. The first task for an owner attaches one awaited effect to the exact `Agent` scope. Owner disposal cancels that object's tasks, awaits producer quiescence, and removes their snapshots; reused agent or session ids cannot redirect an old cleanup.
-
-Service disposal closes listeners, cancels all live tasks, awaits their records, and detaches effects from surviving owner scopes. If teardown cancellation throws, the service force-fails the record and warns that work may be orphaned instead of deadlocking. A cancellation that returns but never settles `done` remains indistinguishable from a slow stop and can stall teardown.
-
-See the [task type catalog](../../../docs/core-data-structures/tasks.md) and [runtime Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md).
+See the [task type catalog](../../../docs/core-data-structures/tasks.md), the [runtime Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md), and the [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md).
 
 ## Model Experience
 
@@ -36,8 +32,6 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **Tasks are process-local** — durable or cross-restart execution needs a separate lifecycle.
-- **The service and implementation are not split** — a second backend must define the lifecycle that shapes that boundary.
 - **Stream output has one consuming cursor** — independent observers need a cursor or snapshot API.
 - **Foreground work cannot be promoted** — producers choose foreground or background before starting.
-- **A silently ineffective cancel can stall teardown** — only an explicit throw can be force-failed safely.
+- **The contract is in-process** — `TaskStart.run()` passes callbacks and exact `Agent` objects; a durable or cross-process backend must reshape identity, restart, ownership, and observation semantics before it can implement this seam.

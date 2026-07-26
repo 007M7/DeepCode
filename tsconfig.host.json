@@ -143,6 +143,7 @@
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
     { "path": "./packages/tasks/tasks" },
+    { "path": "./packages/tasks/tasks-local" },
     { "path": "./packages/tasks/tool-tasks" },
     { "path": "./packages/workflow/workflow" },
     { "path": "./packages/workflow/workflow-workerthread" },

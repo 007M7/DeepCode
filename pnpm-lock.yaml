@@ -242,9 +242,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../packages/core/system-prompt
-      '@deepseek-ai/dsh-tasks':
+      '@deepseek-ai/dsh-tasks-local':
         specifier: workspace:^
-        version: link:../../packages/tasks/tasks
+        version: link:../../packages/tasks/tasks-local
       '@deepseek-ai/dsh-timeout-policy':
         specifier: workspace:^
         version: link:../../packages/timeout/timeout-policy
@@ -487,6 +487,9 @@ importers:
       '@deepseek-ai/dsh-subagent-spawn':
         specifier: workspace:*
         version: link:../packages/subagent/subagent-spawn
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:*
+        version: link:../packages/tasks/tasks-local
       '@deepseek-ai/dsh-time-context':
         specifier: workspace:*
         version: link:../packages/context/time-context
@@ -701,6 +704,9 @@ importers:
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../../tasks/tasks
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:^
+        version: link:../../tasks/tasks-local
       '@deepseek-ai/dsh-tool-tasks':
         specifier: workspace:^
         version: link:../../tasks/tool-tasks
@@ -1804,6 +1810,9 @@ importers:
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../../tasks/tasks
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:^
+        version: link:../../tasks/tasks-local
       '@deepseek-ai/dsh-tool-bash':
         specifier: workspace:^
         version: link:../../bash/tool-bash
@@ -2844,6 +2853,9 @@ importers:
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../../tasks/tasks
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:^
+        version: link:../../tasks/tasks-local
       '@deepseek-ai/dsh-tool-tasks':
         specifier: workspace:^
         version: link:../../tasks/tool-tasks
@@ -3758,6 +3770,9 @@ importers:
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../../tasks/tasks
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:^
+        version: link:../../tasks/tasks-local
       '@deepseek-ai/dsh-tool-tasks':
         specifier: workspace:^
         version: link:../../tasks/tool-tasks
@@ -3875,11 +3890,32 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/tasks/tasks-local:
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:^
+        version: link:../../util/brand
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-tasks':
+        specifier: workspace:^
+        version: link:../tasks
       '@deepseek-ai/dsh-timeout':
         specifier: workspace:^
         version: link:../../util/timeout
       cordis:
-        specifier: ^4.0.0-rc.6
+        specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
   packages/tasks/tool-tasks:
@@ -3909,6 +3945,9 @@ importers:
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../tasks
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:^
+        version: link:../tasks-local
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
@@ -4761,6 +4800,9 @@ importers:
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../../packages/tasks/tasks
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:^
+        version: link:../../packages/tasks/tasks-local
       '@deepseek-ai/dsh-timeout':
         specifier: workspace:^
         version: link:../../packages/util/timeout

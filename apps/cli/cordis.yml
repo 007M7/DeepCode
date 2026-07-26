@@ -64,7 +64,7 @@
   name: '@deepseek-ai/dsh-agent'
 
 - id: tasks
-  name: '@deepseek-ai/dsh-tasks'
+  name: '@deepseek-ai/dsh-tasks-local'
 
 - id: agent-loop
   name: '@deepseek-ai/dsh-agent-loop'

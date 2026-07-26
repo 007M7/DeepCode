@@ -365,9 +365,10 @@ const SERVICE_ROLES: ServiceRole[] = [
     key: 'tasks',
     pkg: 'tasks',
     title: 'Background task registry',
-    mode: 'core',
+    mode: 'seam',
+    implementations: ['tasks-local'],
     consumers: ['tool-bash', 'tool-pty', 'tool-subagent', 'tool-tasks'],
-    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
+    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it; tasks-local is the process-local registry.',
   },
   {
     key: 'web',
