@@ -77,6 +77,12 @@ interface SessionRecord {
     resolve: (reason: StopReason) => void
     reject: (error: Error) => void
     turn: number | undefined
+    /**
+     * A failed turn's terminal reason, held until quiescence: a retry turn
+     * (`agent.retry()` closes the failed turn and opens a successor) adopts
+     * the prompt instead, so rejecting at `turn/end` would race the recovery.
+     */
+    pendingError: Extract<TurnEndReason, { kind: 'error' }> | undefined
   } | undefined
 }
 
@@ -125,15 +131,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
     inflight.resolve(reason)
   }
 
-  const settleFromTurnEnd = (
+  const rejectFromError = (
     inflight: NonNullable<SessionRecord['inflight']>,
-    reason: TurnEndReason,
+    reason: Extract<TurnEndReason, { kind: 'error' }>,
   ): void => {
-    if (reason.kind === 'error') {
-      inflight.reject(internalError(`turn failed: ${'failure' in reason ? reason.failure.message : reason.message}`))
-      return
-    }
-    inflight.resolve(turnEndToStopReason(reason))
+    inflight.reject(internalError(`turn failed: ${'failure' in reason ? reason.failure.message : reason.message}`))
   }
 
   // Emit only committed assistant text. Raw chunks, reasoning, tools, plans,
@@ -162,10 +164,22 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (inflight.turn === undefined && event.data.trigger.kind === 'message'
           && event.data.trigger.source.kind === 'user') {
           inflight.turn = event.data.turn
+        } else if (inflight.pendingError !== undefined && event.data.trigger.kind === 'retry') {
+          // A recovery policy opened a retry turn on the failed history: the
+          // prompt rides it instead of rejecting on the failed turn's end.
+          inflight.turn = event.data.turn
+          inflight.pendingError = undefined
         }
       } else if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
-        record.inflight = undefined
-        settleFromTurnEnd(inflight, event.data.reason)
+        if (event.data.reason.kind === 'error') {
+          // Hold the rejection: agent.retry() may adopt the prompt with a
+          // successor turn; quiescence without one delivers this error.
+          inflight.turn = undefined
+          inflight.pendingError = event.data.reason
+        } else {
+          record.inflight = undefined
+          inflight.resolve(turnEndToStopReason(event.data.reason))
+        }
       }
     }
   })
@@ -255,7 +269,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // turn cannot slip past correlation; a synchronous followup()
           // failure (invalid input) must free the slot again or the session
           // would reject every later prompt as already in flight.
-          record.inflight = { resolve, reject, turn: undefined }
+          const inflight: NonNullable<SessionRecord['inflight']> = {
+            resolve, reject, turn: undefined, pendingError: undefined,
+          }
+          record.inflight = inflight
           try {
             record.agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
           } catch (error: unknown) {
@@ -266,6 +283,19 @@ export function apply(ctx: Context, config: AcpConfig): void {
             const detail = error instanceof Error ? error.message : String(error)
             throw internalError(`prompt was not queued: ${detail}`)
           }
+          // Admission is pre-turn and retries outlive their failed turn, so a
+          // turnless slot settles only at quiescence: a held failure rejects
+          // (no retry adopted the prompt); no turn at all means admission
+          // discarded the prompt — report cancelled.
+          void record.agent.whenIdle().then(() => {
+            if (record.inflight !== inflight || inflight.turn !== undefined) return
+            record.inflight = undefined
+            if (inflight.pendingError !== undefined) {
+              rejectFromError(inflight, inflight.pendingError)
+              return
+            }
+            inflight.resolve('cancelled')
+          })
         })
         return { stopReason }
       },
