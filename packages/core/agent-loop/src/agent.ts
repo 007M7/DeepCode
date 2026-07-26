@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import { AgentMessageId, agentCarrier, agentInterruptReasonOf, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { AgentMessageId, agentCarrier, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
@@ -234,7 +234,7 @@ export class ReactLoopAgent implements Agent {
           }
         }
       } catch (error: unknown) {
-        if (agentInterruptReasonOf(signal) === undefined) {
+        if (!signal.aborted) {
           this.loopCtx.logger.warn(`agent "${this.id}": prompt admission failed: ${errorChain(error)}`)
         }
       }
@@ -317,7 +317,7 @@ export class ReactLoopAgent implements Agent {
             // and before its own step/end, so the step is always open here.
             this.stepOpen = false
             this.session.append('step/end', { turn, step })
-            if (agentInterruptReasonOf(signal) === undefined) {
+            if (!signal.aborted) {
               const retryWindow = { requested: false }
               this.retryWindow = retryWindow
               let recoveryCompleted = false
@@ -338,9 +338,10 @@ export class ReactLoopAgent implements Agent {
                 // start, so unconditional retirement is exact.
                 this.retryWindow = undefined
               }
-              retry = recoveryCompleted
-                && agentInterruptReasonOf(signal) === undefined
-                && retryWindow.requested
+              // A requested retry implies the signal is still live: cancel()
+              // retires the window before it aborts, and retry() refuses to
+              // arm a window whose signal already aborted.
+              retry = recoveryCompleted && retryWindow.requested
             }
             const settlement = this.settle(turn, step, outcome.error, signal, outcome.failure)
             reason = settlement.reason
@@ -587,8 +588,11 @@ export class ReactLoopAgent implements Agent {
     signal: AbortSignal,
     failure?: LlmFailure,
   ): { reason: TurnEndReason; idle: IdleReason } {
-    const interrupt = agentInterruptReasonOf(signal)
-    if (interrupt !== undefined) {
+    if (signal.aborted) {
+      // Slot invariant, stated rather than re-validated: the turn controller
+      // is machine-private and cancel() is its only aborter, always with one
+      // frozen canonical cause as the reason.
+      const interrupt = signal.reason as AgentInterruptReason
       return { reason: { kind: interrupt.kind === 'disposed' ? 'disposed' : 'aborted' }, idle: { kind: 'aborted' } }
     }
     if (failure !== undefined) {

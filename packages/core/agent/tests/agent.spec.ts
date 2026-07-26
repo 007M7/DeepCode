@@ -5,7 +5,6 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   AgentMessageId,
   agentEvents,
-  agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
 
 import type {
@@ -187,37 +186,10 @@ describe('agentEvents()', () => {
   })
 })
 
-describe('explicit cancellation helpers', () => {
+describe('explicit cancellation contract', () => {
   it('exposes the closed typed cancellation cause at the Agent seam', () => {
     expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause>()
     expectTypeOf<Parameters<Events['agent/cancel-requested']>[1]>().toEqualTypeOf<AgentCancelCause>()
-  })
-
-  it('reads only supported reasons from an explicit signal', () => {
-    const read = (reason: unknown) => {
-      const controller = new AbortController()
-      controller.abort(reason)
-      return agentInterruptReasonOf(controller.signal)
-    }
-    const live = new AbortController()
-    expect(agentInterruptReasonOf(live.signal)).toBeUndefined()
-
-    expect(read({ kind: 'user' })).toEqual({ kind: 'user' })
-    expect(read({ kind: 'parent' })).toEqual({ kind: 'parent' })
-
-    const disposed = new AbortController()
-    disposed.abort(Object.assign(Object.create(null) as object, { kind: 'disposed' }))
-    const disposedReason = agentInterruptReasonOf(disposed.signal)
-    expect(disposedReason).toEqual({ kind: 'disposed' })
-    expect(Object.isFrozen(disposedReason)).toBe(true)
-
-    expect(read(null)).toBeUndefined()
-    expect(read([])).toBeUndefined()
-    expect(read('private runtime reason')).toBeUndefined()
-    expect(read(new Error('private runtime reason'))).toBeUndefined()
-    expect(read({ kind: 'user', detail: true })).toBeUndefined()
-    expect(read({ other: 'user' })).toBeUndefined()
-    expect(read({ kind: 'timeout' })).toBeUndefined()
   })
 })
 
