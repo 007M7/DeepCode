@@ -60,6 +60,34 @@ describe('frontend Session and Workspace intents', () => {
     expect(workspaces.list.getSnapshot().intent).toBeUndefined()
   })
 
+  it('echoes updateIntent into the list snapshot in the same tick (controlled-input contract)', async () => {
+    const api = new FakeApiClient()
+    const { sessions, workspaces } = services(api)
+    await ready(api, workspaces, sessions, [workspace('target')])
+    let notified = 0
+    sessions.list.subscribe(() => { notified += 1 })
+    // IME composition drives change events that a controlled textarea must see
+    // reflected before the handler returns; a microtask-deferred echo makes
+    // React roll the DOM back and the composition commits partial keystrokes.
+    sessions.updateIntent('你')
+    expect(sessions.list.getSnapshot().intent?.prompt).toBe('你')
+    expect(notified).toBeGreaterThan(0)
+  })
+
+  it('ignores updateIntent with no active Intent', async () => {
+    const api = new FakeApiClient()
+    const { sessions, workspaces } = services(api)
+    await ready(api, workspaces, sessions, [workspace('only', [sid('s-real')])], [
+      { sessionId: sid('s-real'), updatedAt: 1, running: false },
+    ])
+    sessions.open(sid('s-real'))
+    expect(sessions.list.getSnapshot().intent).toBeUndefined()
+    let notified = 0
+    sessions.list.subscribe(() => { notified += 1 })
+    sessions.updateIntent('dropped')
+    expect(notified).toBe(0)
+  })
+
   it('materializes zero-state Workspace and Session intents and retains a rejected first prompt', async () => {
     const api = new FakeApiClient()
     const { sessions, workspaces } = services(api)
