@@ -51,7 +51,11 @@ root
             └─ models (order 10)         ui-models 注册
 ```
 
-Section and item contributions both use declaration-aware deferral and do not depend on the client manifest's apply order. The `settings.general.item` SlotMap entry's canonical home is the ui-settings contract; locale/ui-theme, because of the reference cycle (the shell consumes ctx.locale), consume that entry as verbatim duplicated merges, with declaration merging guaranteeing the copies agree.
+Section and item contributions both use declaration-aware deferral (ui-slots' `deferRegistration()`: ledger-judged presence, `refresh()` for localized labels, one-call disposal) and do not depend on the client manifest's apply order. The `settings.general.item` SlotMap entry's canonical home is the ui-settings contract; locale/ui-theme, because of the reference cycle (the shell consumes ctx.locale), consume that entry as verbatim duplicated merges, with declaration merging guaranteeing the copies agree.
+
+### Future work: promote slot declarations to first-class injectable waits
+
+`deferRegistration()` is behaviorally isomorphic to `ctx.inject` — one waits on a ledger declaration, the other on service presence, with matching disappear/reappear lifecycle semantics; the difference is that the fiber form's disposer lifetime naturally equals the declaration's lifetime, so the stale-disposer presence-judging machinery disappears entirely. Direction (a separate PR): SlotsService bridges each slot into a `slot:<name>` service (value = the slot spec) at declaration commit / cascade removal, registrants migrate from `deferRegistration()` to a nested `ctx.inject(['slot:<name>'], cb)`, then `deferRegistration()` is deleted and packages/client/AGENTS.md checklist item 4 is rewritten. Boundaries to pin down: the nested fiber's harmless wait must not be named by the boot fail-loud scan (needs a test); the `slot:` namespace and the silent-wait-on-typo stance; provide keys are flat names (`slot:a.b` is one key, not a property path on `ctx.slots`). This phase keeps the `deferRegistration()` function form.
 
 ### Service contracts
 

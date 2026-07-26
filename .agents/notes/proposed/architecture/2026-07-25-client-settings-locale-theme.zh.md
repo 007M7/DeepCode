@@ -51,7 +51,11 @@ root
             └─ models (order 10)         ui-models 注册
 ```
 
-section/item contribution 均使用 declaration-aware deferral，不依赖 client manifest 的 apply 顺序。`settings.general.item` 的 SlotMap 条目正家在 ui-settings contract；locale/ui-theme 因引用环（壳消费 ctx.locale）以逐字重复合并的方式消费该条目，declaration merging 保证副本一致。
+section/item contribution 均使用 declaration-aware deferral（ui-slots 的 `deferRegistration()`：ledger 判在位、`refresh()` 换本地化 label、一键 dispose），不依赖 client manifest 的 apply 顺序。`settings.general.item` 的 SlotMap 条目正家在 ui-settings contract；locale/ui-theme 因引用环（壳消费 ctx.locale）以逐字重复合并的方式消费该条目，declaration merging 保证副本一致。
+
+### Future work：坑位声明升格为可 inject 的一等等待物
+
+`deferRegistration()` 与 `ctx.inject` 行为同构——一个等 ledger 声明、一个等服务在场，消失/重现的生命周期语义一致；差别只在 fiber 版的 disposer 生命周期天然等于声明生命周期，stale-disposer 判在位机器可整体消失。方向（另开 PR）：SlotsService 在声明落账/级联拆除处把每个坑位桥接成 `slot:<name>` 服务（value 为坑位 spec），注册方从 `deferRegistration()` 迁为嵌套 `ctx.inject(['slot:<name>'], cb)`，随后删除 `deferRegistration()` 并改写 packages/client/AGENTS.md checklist 第 4 条。待钉死的边界：嵌套 fiber 的无害等待不被 boot fail-loud 扫描点名（需测试）；`slot:` 名字空间与 typo 静默等待的口径；provide 键是平面名（`slot:a.b` 是一个键，不是 `ctx.slots` 的属性路径）。本期维持 `deferRegistration()` 函数形式。
 
 ### Service contracts
 
