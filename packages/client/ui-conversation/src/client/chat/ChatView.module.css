@@ -45,6 +45,18 @@
   outline-offset: 1px;
 }
 
+/* run_code sub-dispatch rows: indented under the parent row, left-edged so
+   the code turn reads as one unit; each nested row is itself a .callRow
+   (same components, same selection outline as top-level rows). */
+.subCalls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 2px 22px;
+  padding-left: 8px;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
 .hint {
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;

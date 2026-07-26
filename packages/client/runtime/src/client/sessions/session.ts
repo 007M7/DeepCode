@@ -11,7 +11,7 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  ComposerPhase, ConversationNode, ConversationSnapshot, OpenState, PendingPrompt,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState, PendingPrompt,
   PromptError, RunningToolCall, SessionIntentSnapshot, SessionIntentTarget,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
@@ -66,6 +66,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
+  /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
+   *  copy-on-write the per-parent array so published snapshot references never mutate. */
+  private codeDispatches = new Map<string, readonly CodeSubCall[]>()
+  private dispatchesRev = 0
+  private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -611,6 +616,65 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
+    // the host-side dsh-tools plugin whose types cannot enter the client
+    // program (its host Context merges collide with the client's), so this
+    // wire consumer narrows them structurally — the same posture as every
+    // other cross-wire event payload.
+    if ((event.type as string) === 'tool/code-dispatch-start') {
+      // A started sub-dispatch enters the index as a RunningToolCall — the
+      // exact shape a native in-flight call renders from — under its parent
+      // run_code callId; it never joins the surface flow.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+      }
+      const running: CodeSubCall = {
+        callId: data.subCallId, name: data.name,
+        argsRaw: JSON.stringify(data.arguments),
+        turn: 0, step: 0, time: event.time, callView: null,
+      }
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      this.codeDispatches.set(data.parentCallId, [...siblings, running])
+      this.dispatchesRev++
+      return
+    }
+    if ((event.type as string) === 'tool/code-dispatch') {
+      // Settlement replaces the running entry in place (same array position,
+      // so parallel sub-calls keep their start order) with the
+      // ToolResultNode form; a settle with no observed start (history window
+      // cut mid-pair, or a pre-start-event log) appends directly.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+        isError: boolean
+        content: ContentBlock[]
+      }
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      const at = siblings.findIndex(sub => sub.callId === data.subCallId)
+      const started = at === -1 ? undefined : siblings[at]
+      const settled: CodeSubCall = {
+        kind: 'tool-result', seq: event.seq, time: event.time,
+        callId: data.subCallId,
+        call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
+        // Duration source: the paired start's time when observed; null =
+        // unknown (settle-only window), matching the native tool-result
+        // contract so views never present a fabricated zero duration.
+        callTime: started === undefined ? null : started.time,
+        content: data.content, isError: data.isError,
+        callView: null, resultView: null,
+      }
+      this.codeDispatches.set(
+        data.parentCallId,
+        at === -1 ? [...siblings, settled] : siblings.map((sub, index) => (index === at ? settled : sub)),
+      )
+      this.dispatchesRev++
+      return
+    }
     switch (event.type) {
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
@@ -690,6 +754,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.callsRev++
     this.frozenNodes = []
     this.frozenRev++
+    this.codeDispatches = new Map()
+    this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -722,6 +788,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
+    if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
+      this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
+    }
     const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
@@ -730,6 +799,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
+      codeDispatches: this.dispatchesCache.value,
       running: this.running,
       composerPhase: derivePhase(
         nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
