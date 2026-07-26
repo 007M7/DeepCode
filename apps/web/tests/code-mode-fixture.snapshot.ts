@@ -5,7 +5,8 @@
 // the code-variant parent row titled by the model-authored description, its
 // three always-visible nested sub-rows (bash through the sample registration,
 // read through GenericToolCard, the failing read wearing the error state),
-// the expanded program body, and details-panel resolution of a sub-callId.
+// the expanded program body, details-panel resolution of a sub-callId, and
+// the trajectory/waterfall tabs' sub-call cells and timing lanes.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -155,13 +156,20 @@ it('expands the code row into the program body and resolves a sub-row through th
   boot()
   await openFixtureSession()
 
-  // Expand: the leading control reveals the program verbatim.
+  // Expand: the leading control reveals the program (shiki-tokenized: the
+  // text splits into styled spans inside one <pre class="shiki"> tree).
   const codeRoot = document.querySelector('[data-variant="code"]')
   if (codeRoot === null) throw new Error('code-variant row missing')
   const toggle = codeRoot.querySelector('button[aria-expanded]')
   if (toggle === null) throw new Error('code row expand control missing')
   fireEvent.click(toggle)
-  await screen.findByText(/const listing = await tools\.bash/)
+  await waitFor(() => {
+    // Scope to THIS row: the markdown fixture turn also renders shiki pres.
+    const pre = codeRoot.querySelector('pre.shiki')
+    if (pre === null || !(pre.textContent ?? '').includes('const listing = await tools.bash')) {
+      throw new Error('highlighted program body missing under the code row')
+    }
+  })
 
   // Sub-row click → details panel resolves the sub-callId with FULL output.
   const nest = document.querySelector('[data-subcalls]')
@@ -183,6 +191,67 @@ it('expands the code row into the program body and resolves a sub-row through th
       "inputEchoesArgs": true,
       "outputComplete": true,
       "title": "bash",
+    }
+  `)
+})
+
+it('trajectory and waterfall surface the run_code sub-calls with real timing', async () => {
+  boot()
+  await openFixtureSession()
+
+  // Switch to the trajectory tab (same slot ring the chat view registers in).
+  fireEvent.click(await screen.findByRole('tab', { name: 'Trajectory' }))
+  await waitFor(() => {
+    expect(document.querySelector('[data-kind="subtool"]')).not.toBeNull()
+  }, { timeout: 10_000 })
+  const subCells = [...document.querySelectorAll('[data-kind="subtool"]')]
+  expect({
+    // Three Sub cells nested under the run_code Tool cell, in dispatch order,
+    // each with a real +N.Ns own-duration off the start/settle pair (the
+    // fixture spaces every event 800ms apart — never the em dash).
+    subCells: subCells.map(cell => visibleText(cell)),
+  }).toMatchInlineSnapshot(`
+    {
+      "subCells": [
+        "#53Subbash · {"command":"ls notes","description":"List notes"}+0.8s",
+        "#54Subread · {"path":"notes/demo.txt"}+0.8s",
+        "#55Subread · {"path":"notes/missing.txt"}+0.8s",
+      ],
+    }
+  `)
+
+  // Waterfall: each sub-call draws a measured lane scaled into the parent
+  // turn's dispatch window.
+  fireEvent.click(screen.getByRole('tab', { name: 'Waterfall' }))
+  await waitFor(() => {
+    expect(document.querySelector('[data-subspan]')).not.toBeNull()
+  }, { timeout: 10_000 })
+  const lanes = [...document.querySelectorAll('[data-subspan]')]
+  expect({
+    lanes: lanes.map(lane => ({
+      label: visibleText(lane.querySelector('[class*="subTag"]') ?? lane),
+      title: lane.querySelector('[data-timing]')?.getAttribute('title'),
+      timing: lane.querySelector('[data-timing]')?.getAttribute('data-timing'),
+    })),
+  }).toMatchInlineSnapshot(`
+    {
+      "lanes": [
+        {
+          "label": "bash",
+          "timing": "measured",
+          "title": "bash · 0.80s",
+        },
+        {
+          "label": "read",
+          "timing": "measured",
+          "title": "read · 0.80s",
+        },
+        {
+          "label": "read",
+          "timing": "measured",
+          "title": "read · 0.80s",
+        },
+      ],
     }
   `)
 })

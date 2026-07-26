@@ -231,6 +231,34 @@ type ToolExecutionMode =
   | { kind: 'exclusive' }
 ```
 
+Code Mode 的桥接层还会把每个已结算的子分派暴露给 `tools/code-dispatch-log` waterfall，该 waterfall 可以改写持久事件所存的内容副本（程序取得的值与模型契约均不受影响）：
+
+```ts type-equiv
+/**
+ * One settled `run_code` sub-dispatch about to be logged, as seen by the
+ * `tools/code-dispatch-log` waterfall: the parent execution (session owner,
+ * outer call identity), the sub-call identity, and the outcome whose durable
+ * copy a listener may reshape. `content` is the RENDERED result projection
+ * (what a native `tool/result` would carry) — the program itself received
+ * the structured `value` (or just the error message on failure); only the
+ * `tool/code-dispatch` event's copy changes.
+ */
+interface CodeDispatchLog {
+  /** The outer `run_code` execution. */
+  readonly exec: ToolExecution
+  /** The calling agent (the scope routing key and the spill owner), when the outer call has one. */
+  readonly agent?: Agent
+  /** Deterministic sub-call id (`<parent>:code:<n>`). */
+  readonly subCallId: CallId
+  /** The dispatched sub-tool name. */
+  readonly name: string
+  /** Whether the sub-call settled as an error. */
+  readonly isError: boolean
+  /** The sub-call's complete model-facing content (the settle event's default payload). */
+  readonly content: ContentBlock[]
+}
+```
+
 ```ts type-equiv
 /**
  * One pending tool call inside the registry pipeline. Parsed arguments cross
