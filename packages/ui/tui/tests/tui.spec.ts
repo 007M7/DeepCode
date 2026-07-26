@@ -2387,6 +2387,36 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: Standard.')
 
+    const resetDefaultOutput = result.terminal.output.length
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Standard — current')
+    })
+    result.terminal.send('\x1b[Z')
+    await tick()
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Ultra — current')
+    result.terminal.send('\x1b[Z')
+    await tick()
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — provider default')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Reasoning effort: provider default.')
+    const explicitResetSeed: LlmCallConfig = {
+      provider: 'beta',
+      model: 'b1',
+      reasoningEffort: ReasoningEffortId('max'),
+    }
+    await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+    await expect(agentEvents(result.ctx, result.agent).waterfall(
+      'agent/request',
+      0,
+      0,
+      explicitResetSeed,
+      new AbortController().signal,
+      () => Promise.resolve(explicitResetSeed),
+    )).resolves.toEqual({ provider: 'alpha', model: 'shared' })
+
     const nonReasoningOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')

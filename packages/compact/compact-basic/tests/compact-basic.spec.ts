@@ -463,6 +463,18 @@ describe('pressure measurement and retention', () => {
       .resolves.not.toBeNull()
   })
 
+  it('forwards turn cancellation to proactive model metadata resolution', async () => {
+    const ctx = createContext()
+    const resolveModelInfo = vi.spyOn(ctx.llm, 'resolveModelInfo')
+    const compact = service(compactConfig, ctx)
+    const session = conversation()
+    const signal = new AbortController().signal
+
+    await expect(compact.compactIfNeeded(agent(session, MODEL), 'pressure', signal))
+      .resolves.not.toBeNull()
+    expect(resolveModelInfo).toHaveBeenCalledWith(MODEL, MODEL, signal)
+  })
+
   it('re-resolves capacity after a same-model-id provider switch in one session', async () => {
     const ctx = new Context()
     void new LlmService(ctx)

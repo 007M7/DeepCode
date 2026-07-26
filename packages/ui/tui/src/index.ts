@@ -586,6 +586,11 @@ interface ModelChoice extends AgentLlmTarget {
   reasoning?: LlmModelReasoningInfo
 }
 
+interface ModelDialogSelection {
+  choice: ModelChoice
+  reasoningEffort: ReasoningEffortId | undefined
+}
+
 function targetLabel(target: AgentLlmTarget): string {
   return `${target.provider}/${target.model}`
 }
@@ -1262,7 +1267,7 @@ class ModelDialog implements Component {
     current: AgentLlmTarget | undefined,
     maxVisible: number,
     private readonly palette: Palette,
-    done: (choice: ModelChoice) => void,
+    done: (selection: ModelDialogSelection) => void,
     cancel: () => void,
   ) {
     this.items = new Map()
@@ -1294,10 +1299,9 @@ class ModelDialog implements Component {
       const selected = choices.find(choice => targetLabel(choice) === item.value)
       /* v8 ignore next -- SelectList only returns values built from `choices`. */
       if (selected === undefined) return
-      const effort = this.efforts.get(item.value)
       done({
-        ...selected,
-        ...effort === undefined ? {} : { reasoningEffort: effort },
+        choice: selected,
+        reasoningEffort: this.efforts.get(item.value),
       })
     }
     this.list.onCancel = cancel
@@ -1324,11 +1328,13 @@ class ModelDialog implements Component {
     const choice = this.choices.get(selectedItem.value)
     if (choice?.reasoning === undefined) return
     const current = this.efforts.get(selectedItem.value)
-    const currentIndex = choice.reasoning.efforts.findIndex(effort => effort.id === current)
-    const next = choice.reasoning.efforts[(currentIndex + 1) % choice.reasoning.efforts.length]
-    /* v8 ignore next -- validated reasoning metadata always carries at least one effort. */
-    if (next === undefined) return
-    this.efforts.set(selectedItem.value, next.id)
+    const efforts: Array<ReasoningEffortId | undefined> = [
+      ...choice.reasoning.defaultEffort === undefined ? [undefined] : [],
+      ...choice.reasoning.efforts.map(effort => effort.id),
+    ]
+    const currentIndex = efforts.indexOf(current)
+    const next = efforts[(currentIndex + 1) % efforts.length]
+    this.efforts.set(selectedItem.value, next)
     const item = this.items.get(selectedItem.value)
     /* v8 ignore next -- items and choices are constructed from the same values. */
     if (item === undefined) return
@@ -2118,10 +2124,14 @@ export function createTuiChat(
   }
   resolveContextWindow(target.current)
 
-  const selectModel = (selected: ModelChoice): void => {
+  const selectModel = (
+    selected: ModelChoice,
+    explicitReasoning?: { effort: ReasoningEffortId | undefined },
+  ): void => {
     const sameRoute = target.current?.provider === selected.provider && target.current.model === selected.model
-    const reasoningEffort = selected.reasoningEffort
-      ?? (sameRoute ? target.current?.reasoningEffort ?? selected.reasoning?.defaultEffort : selected.reasoning?.defaultEffort)
+    const reasoningEffort = explicitReasoning === undefined
+      ? (sameRoute ? target.current?.reasoningEffort ?? selected.reasoning?.defaultEffort : selected.reasoning?.defaultEffort)
+      : explicitReasoning.effort
     if (sameRoute && target.current?.reasoningEffort === reasoningEffort) {
       const reasoning = targetReasoningLabel(selected, reasoningEffort)
       appendNotice(`Model is already ${targetLabel(selected)}${reasoning === undefined ? '' : ` with reasoning effort ${displayText(reasoning)}`}.`)
@@ -2154,9 +2164,9 @@ export function createTuiChat(
         target.current,
         resolved.maxModelOptions,
         palette,
-        (selected) => {
+        (selection) => {
           void session.close()
-          selectModel(selected)
+          selectModel(selection.choice, { effort: selection.reasoningEffort })
         },
         () => { void session.close() },
       ),

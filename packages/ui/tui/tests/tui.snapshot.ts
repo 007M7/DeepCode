@@ -632,7 +632,7 @@ describe('TUI terminal-state snapshots', () => {
     await harness.terminal.dispose()
   })
 
-  it('pins the model selector and selection notice', async () => {
+  it('pins the model selector, effort cycling, and provider-default selection', async () => {
     const harness = await setupSnapshot({
       catalog: {
         providers: [{ id: 'deepseek', name: 'DeepSeek' }],
@@ -640,7 +640,7 @@ describe('TUI terminal-state snapshots', () => {
           { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
           { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
         ],
-        resolveModelInfo: () => Promise.resolve({
+        resolveModelInfo: (_provider, model) => Promise.resolve({
           context: { contextWindow: 128_000 },
           reasoning: {
             efforts: [
@@ -648,7 +648,9 @@ describe('TUI terminal-state snapshots', () => {
               { id: ReasoningEffortId('high'), name: 'High' },
               { id: ReasoningEffortId('max'), name: 'Max' },
             ],
-            defaultEffort: ReasoningEffortId('high'),
+            ...model === 'deepseek-v4-flash'
+              ? { defaultEffort: ReasoningEffortId('high') }
+              : {},
           },
         }),
       },
@@ -660,6 +662,8 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('model-selector', harness.terminal, { includeScrollback: true })
     await renderAfter(harness, () => {
       harness.terminal.send('\x1b[B')
+      harness.terminal.send('\x1b[Z')
+      harness.terminal.send('\x1b[Z')
       harness.terminal.send('\x1b[Z')
       harness.terminal.send('\x1b[Z')
     })
