@@ -24,7 +24,7 @@ export type {
   EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
 } from './contract/store.ts'
 export type {
-  AssistantBlock, AssistantMessageNode, ComposerPhase, ContextMessageNode, ConversationNode,
+  AssistantBlock, AssistantMessageNode, CodeSubCall, ComposerPhase, ContextMessageNode, ConversationNode,
   ConversationSnapshot, PendingPrompt, RunningToolCall, SessionIntentSnapshot, SessionIntentTarget,
   SteeringMessageNode, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'

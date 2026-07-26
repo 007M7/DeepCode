@@ -41,6 +41,6 @@ Internally, `wakeup` is the “should the model run” signal, so the inbox dist
 ## Related
 
 - [one-send-one-turn](../simplification/2026-07-17-one-send-one-turn.md) — the one-claimed-message-per-turn rule this builds on.
-- [remove-agent-steering-mirror](../simplification/2026-07-04-remove-agent-steering-mirror.md) — the precedent for collapsing a mirrored live event.
+- [remove-agent-steering-mirror](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md) — the precedent for collapsing a mirrored live event.
 - [explicit-turn-cancellation](2026-07-16-explicit-turn-cancellation.md) — the cancel-cause signal `keepInbox` extends.
 - [intent-named-agent-delivery](2026-07-24-intent-named-agent-delivery.md) — the public helpers and fully resolved acceptance interface.

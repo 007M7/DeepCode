@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-07-04-trim-acp-bridge-unreachable-surface.md: 959cad37f279888fda79b1632c3553ea122803c5
-2026-07-04-trim-acp-bridge-unreachable-surface.zh.md: 9127b7f167c3e5c74cdb99266828c20e79f3cb90
