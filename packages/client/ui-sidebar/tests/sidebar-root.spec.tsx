@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { SidebarRootComponentProps, SidebarSectionOwnerProps } from '../src/client/contract/slots.ts'
+import type { SidebarRootComponentProps, SidebarSectionOwnerProps, SidebarSettingsOwnerProps } from '../src/client/contract/slots.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
 
 afterEach(() => {
@@ -17,14 +17,19 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
   const startSession = vi.fn()
   const toggleSidebar = vi.fn()
   let regionOwner: SidebarSectionOwnerProps | undefined
+  let settingsOwner: SidebarSettingsOwnerProps | undefined
   let current = { collapsed, width }
   const root = () => (
     <SidebarRoot
       collapsed={current.collapsed} width={current.width}
       useSessions={neverHook} useWorkspaces={neverHook}
       startSession={startSession} toggleSidebar={toggleSidebar}
-      renderSlot={((_key: string, owner: SidebarSectionOwnerProps) => {
-        regionOwner = owner
+      renderSlot={((key: string, owner: SidebarSectionOwnerProps | SidebarSettingsOwnerProps) => {
+        if (key === 'sidebar.settings') {
+          settingsOwner = owner as SidebarSettingsOwnerProps
+          return <div data-testid="settings-seat" data-wide={owner.wide} />
+        }
+        regionOwner = owner as SidebarSectionOwnerProps
         return <div data-testid="region" data-wide={owner.wide} />
       }) as SidebarRootComponentProps['renderSlot']}
     />
@@ -36,6 +41,10 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
     regionOwner: () => {
       if (regionOwner === undefined) throw new Error('region owner not rendered')
       return regionOwner
+    },
+    settingsOwner: () => {
+      if (settingsOwner === undefined) throw new Error('settings owner not rendered')
+      return settingsOwner
     },
     rerender(next: Partial<typeof current>) {
       current = { ...current, ...next }
@@ -56,6 +65,8 @@ describe('SidebarRoot shell', () => {
   it('hands the region its wide flag and clamps expandSidebar to the collapsed state', () => {
     const b = mountShell()
     expect(b.regionOwner().wide).toBe(true)
+    // The settings seat rides the same wide flag (ui-settings renders the row).
+    expect(b.settingsOwner().wide).toBe(true)
     // Expanded: the request is a no-op (no accidental collapse).
     b.regionOwner().expandSidebar()
     expect(b.toggleSidebar).not.toHaveBeenCalled()
