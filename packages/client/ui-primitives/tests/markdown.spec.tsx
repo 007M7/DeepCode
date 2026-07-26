@@ -64,6 +64,15 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
   })
 
+  it('an empty fence keeps the stock pre; a language-less fence renders the plain CodeBlock arm', () => {
+    const empty = render(<MarkdownText text={'```\n```'} />)
+    expect(empty.container.querySelector('pre')?.outerHTML).toBe('<pre><code></code></pre>')
+
+    const plain = render(<MarkdownText text={'```\nno language here\n```'} />)
+    expect(plain.container.querySelector('pre.shiki')).toBeNull()
+    expect(plain.container.querySelector('pre code')?.textContent).toContain('no language here')
+  })
+
   it('streaming renders fences plain; the finalize swap highlights them', () => {
     const fence = '```ts\nconst answer = 42\n```'
     const live = render(<MarkdownText text={fence} streaming />)
