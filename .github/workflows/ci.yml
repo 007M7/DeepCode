@@ -281,17 +281,17 @@ jobs:
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
-  # One Windows box shares setup across the required build/site checks and the
-  # observational portability inventory. Linux owns duplicate lint, coverage,
-  # and snapshots so they do not dominate the paid Windows critical path.
+  # One standard Windows box shares setup across the required build/site checks
+  # and the observational portability inventory. Serial worker bounds keep this
+  # recovery path portable; Linux owns duplicate lint, coverage, and snapshots.
   windows:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-enterprise-windows-2025-32core-test
+    runs-on: windows-2025
     name: windows node 24 / complete
     env:
-      DSH_COVERAGE_MAX_WORKERS: '12'
-      DSH_GATE_CONCURRENCY: '16'
-      DSH_PUBLINT_CONCURRENCY: '16'
+      DSH_COVERAGE_MAX_WORKERS: '1'
+      DSH_GATE_CONCURRENCY: '1'
+      DSH_PUBLINT_CONCURRENCY: '1'
     steps:
       - uses: actions/checkout@v6
 
