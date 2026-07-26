@@ -157,24 +157,13 @@ export class PlanModeService extends Service {
     this.section = resolveConfig(config).section
     let disposed = false
 
-    // Boundary flushes use loop interception seams, not post-commit
-    // `session/event` observation. Flush after next(): a selection arriving
-    // while a downstream async listener awaits must still shape the request
-    // this boundary precedes. Failures are contained so policy cannot block a
-    // prompt or turn; a failed append remains pending for a later boundary.
-    const flushAfter = async <T>(agent: Agent, next: () => Promise<T>): Promise<T> => {
-      const decision = await next()
-      if (!disposed) {
-        try {
-          this.onBoundary(agent)
-        } catch (error) {
-          ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
-        }
-      }
-      return decision
-    }
-    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) =>
-      flushAfter(agent, next), { prepend: true })
+    // The boundary flush uses the loop's `agent/step` interception seam, not
+    // post-commit `session/event` observation. `agent/step` runs inside the
+    // open turn before every request derivation (including turn 1 step 1), so
+    // it is the sole flush point: prompt admission happens pre-turn, where a
+    // `plan/mode` append would land outside any open turn. Failures are
+    // contained so policy cannot block a turn; a failed append remains
+    // pending for a later boundary.
     ctx.on('agent/step', (agent) => {
       if (disposed) return
       try {
