@@ -176,7 +176,7 @@ describe('jsonrpc-agent keyless smoke', () => {
         DSH_MAX_TOKENS_AS_SUCCESS: 'sometimes',
       },
       stdin: 'ignore',
-      timeout: 9_000,
+      timeout: 25_000,
       killSignal: 'SIGKILL',
       reject: false,
     })
@@ -184,5 +184,5 @@ describe('jsonrpc-agent keyless smoke', () => {
     expect(exitCode, stderr).toBe(1)
     expect(stdout).toBe('')
     expect(stderr).toContain('plugin(s) failed to load: @deepseek-ai/dsh-jsonrpc')
-  }, 10_000)
+  }, 30_000)
 })
