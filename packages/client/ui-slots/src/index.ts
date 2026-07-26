@@ -18,6 +18,7 @@ import type { BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDec
 
 export * from './store.ts'
 export * from './renderer.ts'
+export * from './deferred.ts'
 
 /** Slot contract table. Owners extend via declaration merging; entries are {@link SlotEntryDef}. */
 export interface SlotMap {}
