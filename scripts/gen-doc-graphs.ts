@@ -271,8 +271,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Subprocess seam',
     mode: 'seam',
     implementations: ['subprocess-local'],
-    consumers: ['bash-local', 'bash-sandbox'],
-    note: 'The bash executors spawn their process groups through ctx.subprocess; the service owns group lifetime, bounded spill-backed output, and kill escalation.',
+    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp'],
+    note: 'The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
   },
   {
     key: 'bash',

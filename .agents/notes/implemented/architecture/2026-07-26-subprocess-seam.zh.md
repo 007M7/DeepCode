@@ -12,7 +12,7 @@ Status: implemented
 
 新的 `subprocess/` 能力家族拥有「运行并管理一个进程」；bash 家族保留「运行一条 bash 命令」，并成为前者的消费方：
 
-- **`@deepseek-ai/dsh-subprocess`（接口）**——拥有 `ctx.subprocess` 的抽象 `SubprocessService`（仅一个方法：`spawn(spec): SubprocessHandle`），以及共享词汇：完全显式的 `SubprocessSpawnSpec`（argv、cwd、按流划分的上限、spill 上限、宽限期，一律不设默认值；随部署变化的旋钮依照 `dsh-bash` 的 request/spec 模板与无隐藏默认值规则，留在调用方 seam 的配置里）、携带基于偏移量的非消费式读取器的 `SubprocessHandle`、刻意不含超时/取消分类的 `SubprocessOutcome`，以及 `DSH_ENV_PREFIX`/`DshEnvironment`/`CollectedOutput` 类型。`argv` 绝不经过 shell 解释。
+- **`@deepseek-ai/dsh-subprocess`（接口）**——拥有 `ctx.subprocess` 的抽象 `SubprocessService`（仅一个方法：`spawn(spec): SubprocessHandle`），以及共享词汇：完全显式的 `SubprocessSpawnSpec`（argv、cwd、按流划分的 stdio 处置方式（disposition）、宽限期，一律不设默认值；随部署变化的旋钮依照 `dsh-bash` 的 request/spec 模板与无隐藏默认值规则，留在调用方 seam 的配置里）、携带基于偏移量的非消费式读取器的 `SubprocessHandle`、刻意不含超时/取消分类的 `SubprocessOutcome`，以及共享的凭据清除与 `DSH_ENV_PREFIX`/`DshEnvironment`/`CollectedOutput` 类型。`argv` 绝不经过 shell 解释。（[消费方迁移 Agent Note](2026-07-26-subprocess-consumer-migration.md) 其后将 stdio 与终止词汇拓宽为 Node 形状。）
 - **`@deepseek-ai/dsh-subprocess-local`（实现）**——`LocalSubprocessService`，构建在原 `run.ts` 管道（现为 `spawn.ts`）之上：detached 进程组、带私有有界 spill 文件的尾部保留截断、带双通道 `DSH_*` 合并的凭据清除、进程组 kill 升级，以及会终止每个仍在运行的受管进程并等待其退出的 dispose。该实现没有任何配置；每项限制都随 spec 到达。终端相关的 `ENV_OVERRIDES`（`TERM=dumb` 等）并未迁移：那是 bash 工具的呈现策略，留在 `dsh-bash-local` 里，经普通 env 通道合并。
 - **`dsh-bash-local`（消费方）**——`inject: ['subprocess']`；把每个解析后的 `BashExecSpec` 映射为一个 `SubprocessSpawnSpec`（`['bash', '-c', command]`），并保留自身配置、`resolve()` 默认值补全、基于融合 deadline 的 `timedOut`/`aborted` 分类、带 `[stderr]` 标记的后台读取合并及其消费游标，以及 `onProcessDone` 子类钩子。`dsh-bash-sandbox` 除了重新声明继承来的 inject 之外没有变化；它仍在命令字符串层面做包装，并重新进入继承的 spawn 路径。
 - **`dsh-bash`（seam）**——把迁走的词汇从 `dsh-subprocess` 重导出，因此没有任何 bash 消费方需要改动导入；`BashExecRequest`/`BashExecSpec`/`BashProcess` 与沙箱事实仍归 bash 所有。
@@ -25,7 +25,7 @@ Status: implemented
 
 **把进程管道留在 `dsh-bash-local` 里（维持现状）。**否决的理由与[任务注册表拆分](2026-07-26-task-registry-seam.md)得以落地的理由相同：这条边界既稳定，也早已记录在代码里（`run.ts` 的模块文档曾写明「this layer reacts to an abort signal; the executor owns deadlines and classifies causes」），而若继续将它保持私有，未来每个非 shell 运行器就只能要么 fork 这套机制，要么为非 bash 工作去依赖一个以 bash 命名的包。这组堆叠变更对用户可见的动因正是这一拆分。
 
-**在同一变更中把仓库其余 spawn 调用点（lsp-local、pty-local、subagent-subprocess、sdk package-manager、test-support 各启动器）迁到 `ctx.subprocess` 上。**作为带有真实设计风险的范围蔓延否决。这些调用点在流与生命周期上的需求存在实质差异：node-pty 所有权（pty）、长生命周期 stdio 上的 LSP 分帧加进程树终止回退（lsp）、以 stdin EOF 打头的 dispose 阶梯和完全不缓冲输出（subagent 传输层）。把它们强行纳入一个按有界批量输出塑形的句柄之下，要么会让这道 seam 膨胀，要么会让句柄与消费方错配。依照「接口围绕当前消费方塑形」的规则，该 seam 在其唯一真实的消费方家族上得到验证后交付；其余调用点已在 seam README 中列为暂缓工作。
+**在同一变更中把仓库其余 spawn 调用点（lsp-local、pty-local、subagent-subprocess、sdk package-manager、test-support 各启动器）迁到 `ctx.subprocess` 上。**在本 PR（Pull Request）的规模下，作为带有真实设计风险的范围蔓延否决。这些调用点在流与生命周期上的需求存在实质差异：node-pty 所有权（pty）、长生命周期 stdio 上的 LSP 分帧加进程树终止回退（lsp）、以 stdin EOF 打头的 dispose 阶梯和完全不缓冲输出（subagent 传输层）。把它们强行纳入一个按有界批量输出塑形的句柄之下，要么会让这道 seam 膨胀，要么会让句柄与消费方错配。依照「接口围绕当前消费方塑形」的规则，该 seam 当时在其唯一真实的消费方家族上得到验证后交付。评审随后恰恰要求以堆叠 PR 的形式完成这项后续工作；[消费方迁移 Agent Note](2026-07-26-subprocess-consumer-migration.md) 记录了向 Node 形状的重塑，以及哪些调用点迁入（哪些因所有权归属而留在原地）。
 
 **改把 `run_in_background`/任务语义放进进程 seam。**否决：那条边界已经存在。`ctx.tasks` 拥有 id、所有权与通知，bash 工具则把 `BashProcess` 适配成任务钩子。进程 seam 位于 bash 执行器*之下*，而不是与任务注册表并列。
 

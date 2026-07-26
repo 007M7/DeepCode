@@ -7,9 +7,11 @@ function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): Su
   return {
     argv: ['bash', '-c', command],
     cwd: process.cwd(),
-    stdoutMaxBytes: 64_000,
-    stderrMaxBytes: 64_000,
-    maxSpillBytes: 64 * 1024 * 1024,
+    stdio: {
+      stdin: 'ignore',
+      stdout: { maxBytes: 64_000, spill: { maxBytes: 64 * 1024 * 1024 } },
+      stderr: { maxBytes: 64_000, spill: { maxBytes: 64 * 1024 * 1024 } },
+    },
     graceMs: 200,
     ...overrides,
   }
@@ -19,9 +21,10 @@ describe('LocalSubprocessService', () => {
   it('registers as ctx.subprocess and spawns managed handles', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
-    const result = await ctx.subprocess.spawn(spec('echo managed')).done
+    const handle = ctx.subprocess.spawn(spec('echo managed'))
+    const result = await handle.done
     expect(result.exitCode).toBe(0)
-    expect(result.stdout.text).toBe('managed\n')
+    expect(handle.collected.stdout!.readFrom(0).text).toBe('managed\n')
     await fiber.dispose()
   })
 

@@ -57,7 +57,7 @@ ACP advertises no start-time capabilities because this process cannot enforce th
 
 ## Process boundary
 
-The child environment is built by [`buildChildEnv`](../subagent-subprocess/README.md): credential-shaped ambient variables are removed, then explicit `config.env` values are applied. The ACP wire is the real serialization boundary; same-process subagent values are not defensively cloned.
+The child spawns through the [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam: credential-shaped ambient variables are removed by the shared scrub, then explicit `config.env` values merge after it (an intended `DEEPSEEK_API_KEY` survives), stderr is inherited to the parent's own stream, and disposal runs the seam's cooperative stdin-EOF→SIGTERM→SIGKILL ladder with this plugin's configured graces. The ACP wire is the real serialization boundary; same-process subagent values are not defensively cloned.
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 

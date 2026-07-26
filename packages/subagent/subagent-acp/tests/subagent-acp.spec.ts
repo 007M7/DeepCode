@@ -6,10 +6,11 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import { buildChildEnv } from '@deepseek-ai/dsh-subagent-subprocess'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
 import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
 
 /**
  * Keyless integration tests for the ACP subagent backend. Each spawns a REAL
@@ -41,6 +42,7 @@ interface SetupEnv {
 async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'reject') {
   const ctx = new Context()
   await ctx.plugin(SubagentService)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(acp, {
     providerName: 'acp',
     command: process.execPath,
@@ -98,19 +100,23 @@ describe('acpContentText / toAcpPrompt', () => {
   })
 })
 
-describe('buildChildEnv', () => {
-  it('drops credential-shaped ambient vars but keeps the explicit extras', () => {
-    process.env.DSH_ACP_TEST_SECRET_TOKEN = 'leak-me'
+describe('child env layering (through the subprocess seam)', () => {
+  it('drops credential-shaped ambient vars but keeps the explicit extras', async () => {
+    process.env.ACP_TEST_AMBIENT_SECRET_TOKEN = 'leak-me'
     try {
-      const env = buildChildEnv({ DEEPSEEK_API_KEY: 'explicit' })
-      // The credential-shaped ambient var is scrubbed.
-      expect(env.DSH_ACP_TEST_SECRET_TOKEN).toBeUndefined()
-      // The explicitly-supplied key survives (an opt-in for the child's creds).
-      expect(env.DEEPSEEK_API_KEY).toBe('explicit')
-      // A normal ambient var is forwarded.
-      expect(env.PATH).toBe(process.env.PATH)
+      // The spec.env layer merges after the seam's scrub, so the child's own
+      // explicitly-forwarded key survives while ambient credentials do not.
+      const running = spawnSubprocess({
+        argv: ['bash', '-c', 'echo "[${ACP_TEST_AMBIENT_SECRET_TOKEN:-absent}|$DEEPSEEK_API_KEY]"'],
+        cwd: process.cwd(),
+        stdio: { stdin: 'ignore', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
+        graceMs: 1000,
+        env: { DEEPSEEK_API_KEY: 'explicit' },
+      })
+      await running.done
+      expect(running.collected.stdout!.readFrom(0).text.trim()).toBe('[absent|explicit]')
     } finally {
-      delete process.env.DSH_ACP_TEST_SECRET_TOKEN
+      delete process.env.ACP_TEST_AMBIENT_SECRET_TOKEN
     }
   })
 })
@@ -140,6 +146,7 @@ describe('cwd resolution', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
+      await ctx.plugin(LocalSubprocessService)
       // A command that would create the sentinel if the child were ever spawned.
       await ctx.plugin(acp, { providerName: 'acp', command: 'touch', args: [sentinel], permission: 'reject', env: {} })
       const parent = { id: 'parent', session: { header: {} } } as unknown as Agent
@@ -158,6 +165,7 @@ describe('cwd resolution', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(acp, {
         providerName: 'acp',
         command: process.execPath,
@@ -185,6 +193,7 @@ describe('cwd resolution', () => {
     const absolute = resolve(relative)
     const ctx = new Context()
     await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: process.execPath,
@@ -204,6 +213,7 @@ describe('cwd resolution', () => {
     // reintroduce the launch-directory fallback this resolution removed.
     const ctx = new Context()
     await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(acp, {
       providerName: 'acp',
       command: 'true',
@@ -224,6 +234,7 @@ describe('cwd resolution', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
+      await ctx.plugin(LocalSubprocessService)
       await expect(ctx.plugin(acp, {
         providerName: 'acp',
         command: 'true',
@@ -242,6 +253,7 @@ describe('cwd resolution', () => {
   it('rejects a config cwd that is not an accessible directory at load', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(acp, {
       providerName: 'acp',
       command: 'true',
@@ -283,6 +295,7 @@ describe('cwd resolution', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(acp, { providerName: 'acp', command: 'touch', args: [sentinel], permission: 'reject', env: {} })
       const parent = { id: 'parent', session: { header: { cwd: join(tmp, 'vanished') } } } as unknown as Agent
       await expect(ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
@@ -360,7 +373,7 @@ describe('dsh-subagent-acp', () => {
       await expect(startAcpRun(
         request('p', controller.signal),
         // `touch <sentinel>` — runs only if the process is actually spawned.
-        { command: 'touch', args: [sentinel], cwd: tmp, permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS },
+        { command: 'touch', args: [sentinel], cwd: tmp, permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS, spawn: spawnSubprocess },
       )).rejects.toThrow('aborted before the ACP child started')
       // The binary was never launched — no sentinel.
       expect(existsSync(sentinel)).toBe(false)
@@ -385,6 +398,7 @@ describe('dsh-subagent-acp', () => {
         },
         disposeEofGraceMs: 1000,
         disposeGraceMs: 100,
+        spawn: spawnSubprocess,
       })).rejects.toThrow('ACP child published without a session id')
       // Startup rejects only after its private child reaches quiescence. The
       // marker proves rollback closed stdin and allowed the child's EOF flush.
@@ -412,6 +426,7 @@ describe('dsh-subagent-acp', () => {
         // small so the whole ladder finishes well within the 4000ms bound.
         disposeEofGraceMs: 150,
         disposeGraceMs: 150,
+        spawn: spawnSubprocess,
       }
       const run = await startAcpRun(request(), spec)
       // Wait until the child has BOOTED AND ARMED THE TRAP (a condition, not a
@@ -459,6 +474,7 @@ describe('dsh-subagent-acp', () => {
         },
         disposeEofGraceMs: 2000,
         disposeGraceMs: 50,
+        spawn: spawnSubprocess,
       }
       const run = await startAcpRun(request(), spec)
       // Wait until the child is fully booted with its prompt in flight (its ACP
@@ -492,6 +508,7 @@ describe('dsh-subagent-acp', () => {
         // Tiny EOF grace so the ignored-EOF window elapses quickly.
         disposeEofGraceMs: 150,
         disposeGraceMs: 2000,
+        spawn: spawnSubprocess,
       }
       const run = await startAcpRun(request(), spec)
       await waitForFile(ready)
@@ -587,7 +604,7 @@ describe('dsh-subagent-acp', () => {
   it('rejects a spawn failure after provider-owned cleanup', async () => {
     await expect(startAcpRun(
       request(),
-      { command: '/nonexistent/acp-agent-binary', args: [], cwd: process.cwd(), permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS },
+      { command: '/nonexistent/acp-agent-binary', args: [], cwd: process.cwd(), permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS, spawn: spawnSubprocess },
     )).rejects.toThrow()
   })
 
@@ -601,6 +618,7 @@ describe('dsh-subagent-acp', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(acp, {
         providerName: 'acp',
         command: process.execPath,
@@ -626,6 +644,7 @@ describe('dsh-subagent-acp', () => {
     for (const bad of [{ disposeEofGraceMs: 0 }, { disposeGraceMs: -1 }, { disposeEofGraceMs: Number.NaN }]) {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
+      await ctx.plugin(LocalSubprocessService)
       await expect(ctx.plugin(acp, { providerName: 'acp', command: 'true', args: [], permission: 'reject', env: {}, ...bad }))
         .rejects.toThrow(/subagent-acp: dispose(?:Eof)?GraceMs must be a positive finite number/)
       await ctx.fiber.dispose()
@@ -635,6 +654,7 @@ describe('dsh-subagent-acp', () => {
   it('rejects a startup failure via the provider load path', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: '/nonexistent/acp-agent-binary',
@@ -661,6 +681,7 @@ describe('dsh-subagent-acp', () => {
         env: { MOCK_CRASH_ON_PROMPT: '1' },
         disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
         disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+        spawn: spawnSubprocess,
         onError: (error, stopReason) => { errors.push({ message: error.message, stopReason }) },
       },
     )
@@ -699,6 +720,7 @@ describe('dsh-subagent-acp', () => {
         env: { MOCK_CRASH_ON_PROMPT: '1' },
         disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
         disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+        spawn: spawnSubprocess,
         onError: () => { throw new Error('sink boom') },
       },
     )
@@ -763,6 +785,7 @@ describe('dsh-subagent-acp', () => {
   it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
     const fiber = await ctx.plugin(acp, { providerName: 'acp', command: 'x', args: [], permission: 'reject', env: {} })
     expect(ctx.subagents.list()).toEqual(['acp'])
     await fiber.dispose()
@@ -772,7 +795,7 @@ describe('dsh-subagent-acp', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in acp).toBe(false)
     expect(acp.name).toBe('subagent-acp')
-    expect(acp.inject).toEqual(['subagents'])
+    expect(acp.inject).toEqual(['subagents', 'subprocess'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(acp) as Record<string, unknown>
     expect(unwrapped).toBe(acp)

@@ -8,9 +8,8 @@
  * @module @deepseek-ai/dsh-subagent-acp/run
  */
 
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { Readable, Writable } from 'node:stream'
+import { Readable as NodeReadable, Writable as NodeWritable } from 'node:stream'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -26,7 +25,7 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
-import { buildChildEnv, disposeChildProcess, spawnFailure } from '@deepseek-ai/dsh-subagent-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 /** Fixed response to child permission requests: reject by default, or select the first allow option. */
 export type PermissionPolicy = 'allow' | 'reject'
@@ -47,9 +46,9 @@ export interface AcpRunSpec {
   permission: PermissionPolicy
   /**
    * Extra environment variables to ADD for the child (e.g. the child harness's
-   * `DEEPSEEK_API_KEY`). Merged on top of the scrubbed ambient env — see
-   * {@link buildChildEnv}. A value here is forwarded even if its name matches
-   * the credential-scrub pattern (an explicit opt-in for the child's own creds).
+   * `DEEPSEEK_API_KEY`). Merged on top of the subprocess seam's scrubbed
+   * parent env. A value here is forwarded even if its name matches the
+   * credential-scrub pattern (an explicit opt-in for the child's own creds).
    */
   env: Record<string, string>
   /**
@@ -65,6 +64,12 @@ export interface AcpRunSpec {
    * fills this from its `disposeGraceMs` config.
    */
   disposeGraceMs: number
+  /**
+   * Spawn function from the subprocess seam (`ctx.subprocess.spawn`), so the
+   * child rides the shared scrub, tree-scoped teardown, and service-owned
+   * lifetime instead of a package-local child_process path.
+   */
+  spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /**
    * Sink for a child-level failure that the run flattened into a stop reason
    * (the seam contract forbids `result` rejecting). The driver calls this with
@@ -159,20 +164,37 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   // each other or with a local agent that happens to use the same session id.
   const id = SessionId(randomUUID())
 
-  // Keep diagnostics on parent stderr; only ACP output contributes to the result.
-  const child = spawn(spec.command, spec.args, {
+  // Keep diagnostics on parent stderr ('inherit'); only ACP output contributes
+  // to the result. The seam's scrub drops ambient credentials while spec.env
+  // (the child's own key) merges after it.
+  const child = spec.spawn({
+    argv: [spec.command, ...spec.args],
     cwd: spec.cwd,
-    env: buildChildEnv(spec.env),
-    stdio: ['pipe', 'pipe', 'inherit'],
+    stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+    graceMs: spec.disposeGraceMs,
+    env: spec.env,
   })
-  // Capture the child-process error event immediately.
-  const spawnFailed = spawnFailure(child)
+  /* v8 ignore start -- 'pipe' dispositions expose both streams by the seam contract; defensive. */
+  if (child.stdin === undefined || child.stdout === undefined) {
+    throw new Error('subagent-acp: subprocess implementation dropped a piped protocol stream')
+  }
+  /* v8 ignore stop */
+  // Spawn-level failure surfaces as `done` rejecting into the startup race; a
+  // clean exit must never win it, so the success arm parks forever. (The ACP
+  // connection observing its streams closing bounds a child that exits
+  // without speaking the protocol.)
+  const spawnFailed: Promise<never> = child.done.then(
+    /* v8 ignore next -- the success arm's never-settling executor is intentionally empty. */
+    () => new Promise<never>(() => {}),
+    (err: unknown) => Promise.reject(toError(err)),
+  )
+  spawnFailed.catch(() => { /* observed by the startup race; never unhandled */ })
 
   // Startup rollback and the published handle share one process teardown.
   let processDisposal: Promise<void> | undefined
-  const disposeProcess = (): Promise<void> => (processDisposal ??= disposeChildProcess(child, {
-    disposeEofGraceMs: spec.disposeEofGraceMs,
-    disposeGraceMs: spec.disposeGraceMs,
+  const disposeProcess = (): Promise<void> => (processDisposal ??= child.dispose({
+    eofGraceMs: spec.disposeEofGraceMs,
+    graceMs: spec.disposeGraceMs,
   }))
 
   // Accumulate the child's streamed assistant text — the SubagentResult output.
@@ -207,8 +229,8 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   const conn = new ClientSideConnection(
     makeClient,
     ndJsonStream(
-      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      NodeWritable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+      NodeReadable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     ),
   )
 
@@ -252,7 +274,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
         sessionId = returnedSessionId
         if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
       })(),
-      spawnFailed.then((err): never => { throw err }),
+      spawnFailed,
       cancelSettled.then((): never => { throw new Error('subagent cancelled before the ACP session started') }),
     ])
   } catch (error: unknown) {
