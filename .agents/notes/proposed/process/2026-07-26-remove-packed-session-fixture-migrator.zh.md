@@ -12,7 +12,7 @@ Status: proposed
 
 ## 提案
 
-最新清单确认不再有任何开放 PR（Pull Request）需要转换会话格式 JSONL 后，移除临时 CLI `scripts/migrate-packed-session-fixtures.ts`，以及根包（package）提供的 `migrate:packed-session-fixtures` 命令。在同一变更中，移除测试政策、ACP 快照 README 和已实现打包行 Agent Note（agent 决策记录）中指向该过渡命令的链接。
+最新清单确认不再有任何开放 PR（Pull Request）需要转换会话格式 JSONL 后，移除临时 CLI `scripts/migrate-packed-session-fixtures.ts`，以及根包（package）提供的 `migrate:packed-session-fixtures` 命令。在同一变更中，移除测试政策、ACP 快照 README 和已实现打包行 Agent Note（agent 决策记录）中指向该过渡命令的链接，并将 `scripts/session-fixture-layout.snapshot.ts` 中仅适用于该命令的修复指引替换为与具体命令无关的规范布局指引。
 
 保留 `scripts/session-fixture-layout.ts`、其单元测试和 `scripts/session-fixture-layout.snapshot.ts`。它们定义并强制执行永久规范布局；只有面向分支的写入器是临时机制。
 
@@ -29,7 +29,7 @@ Status: proposed
 ## 验收标准
 
 - 最新开放 PR 清单未发现任何仍依赖临时迁移命令处理会话格式 JSONL 改动的分支。
-- 临时 CLI、根包命令与所有分支收敛链接均不存在；永久规范布局转换器、单元测试和快照检查仍然保留。
+- 临时 CLI、根包命令、所有分支收敛链接与仅适用于该命令的门禁诊断均不存在；永久规范布局转换器、单元测试和快照检查仍然保留。
 - `pnpm run test:snapshot`、`pnpm run doc-sync`、lint 和空白校验在没有临时命令的情况下通过。
 - 当前文档仅描述打包默认值和永久规范布局强制机制。
 

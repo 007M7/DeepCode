@@ -41,7 +41,15 @@ function isSessionHeader(value: unknown): boolean {
 }
 
 function decodeBody(lines: readonly RecordLine[], label: string): SessionEvent[] {
-  return lines.flatMap(line => decodeStorageRecord(parseRecord(line, label)))
+  return lines.flatMap((line) => {
+    const record = parseRecord(line, label)
+    try {
+      return decodeStorageRecord(record)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`${label}:${line.line}: invalid session storage record: ${detail}`, { cause: error })
+    }
+  })
 }
 
 function renderFixture(headerLine: string, events: readonly SessionEvent[]): string {

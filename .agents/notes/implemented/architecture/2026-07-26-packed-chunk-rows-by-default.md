@@ -34,7 +34,7 @@ Focused package tests keep unpacked and mixed-layout inputs for reader compatibi
 
 The temporary [`scripts/migrate-packed-session-fixtures.ts`](../../../../scripts/migrate-packed-session-fixtures.ts) command lets in-flight branches converge after merging current `master`: `pnpm run migrate:packed-session-fixtures` discovers the same repository-wide fixture set as the permanent gate, preserves each header line, decodes existing mixed records, writes the canonical packed body, proves decoded equality, and proves idempotence. It never calls a model or regenerates transcript and presentation outputs.
 
-The command remains linked from the testing policy and ACP snapshot README while older branches may carry fixture edits. The [removal proposal](../../proposed/process/2026-07-26-remove-packed-session-fixture-migrator.md) deletes the CLI, package command, this transitional section, and the documentation links once a live open-PR inventory shows that every affected branch is merged, closed, or canonical. The shared canonicalizer and snapshot gate remain permanent.
+The command remains linked from the testing policy and ACP snapshot README while older branches may carry fixture edits. The [removal proposal](../../proposed/process/2026-07-26-remove-packed-session-fixture-migrator.md) deletes the CLI, package command, this transitional section, and the documentation links, then replaces the permanent gate's command-specific remediation text once a live open-PR inventory shows that every affected branch is merged, closed, or canonical. The shared canonicalizer and snapshot gate remain permanent.
 
 ### Verification contract
 

@@ -12,7 +12,7 @@ Once every such branch is merged, closed, or already canonical, the write comman
 
 ## Proposal
 
-Remove the temporary `scripts/migrate-packed-session-fixtures.ts` CLI and the root `migrate:packed-session-fixtures` package command after a live inventory confirms that no open pull request still needs to convert session-format JSONL. Remove the transitional command links from the testing policy, the ACP snapshot README, and the implemented packed-row Agent Note in the same change.
+Remove the temporary `scripts/migrate-packed-session-fixtures.ts` CLI and the root `migrate:packed-session-fixtures` package command after a live inventory confirms that no open pull request still needs to convert session-format JSONL. Remove the transitional command links from the testing policy, the ACP snapshot README, and the implemented packed-row Agent Note in the same change; replace the command-specific remediation text in `scripts/session-fixture-layout.snapshot.ts` with command-independent canonical-layout guidance.
 
 Retain `scripts/session-fixture-layout.ts`, its unit tests, and `scripts/session-fixture-layout.snapshot.ts`. They define and enforce the permanent canonical layout; only the branch-facing writer is temporary.
 
@@ -29,7 +29,7 @@ Before removing the command, each affected branch merges the current `master`, r
 ## Acceptance criteria
 
 - A live open-PR inventory finds no branch with session-format JSONL changes that still depends on the temporary migration command.
-- The temporary CLI, root package command, and every branch-convergence link are absent; the permanent canonicalizer, unit tests, and snapshot check remain.
+- The temporary CLI, root package command, every branch-convergence link, and the command-specific gate diagnostic are absent; the permanent canonicalizer, unit tests, and snapshot check remain.
 - `pnpm run test:snapshot`, `pnpm run doc-sync`, lint, and whitespace validation pass without the temporary command.
 - Current documentation describes only the packed default and permanent canonical-layout enforcement.
 
