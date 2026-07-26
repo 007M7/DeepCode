@@ -26,18 +26,18 @@ async function bench() {
   const listStore = createSnapshotStore<SessionListState>({
     ids: [ROOT, CHILD],
     byId: {
-      [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', running: false, updatedAt: 1 },
-      [CHILD]: { id: CHILD, title: 'C', displayTitle: 'C', parentId: ROOT, running: false, updatedAt: 2 },
+      [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', running: false, blank: false, updatedAt: 1 },
+      [CHILD]: { id: CHILD, title: 'C', displayTitle: 'C', parentId: ROOT, running: false, blank: false, updatedAt: 2 },
     },
     current: undefined,
-    intent: undefined,
     phase: 'ready',
   } as SessionListState)
   const sessionsFake = {
     list: listStore,
     binding: vi.fn(),
     scope: () => undefined,
-    cell: () => undefined,
+    provideInfo: () => undefined,
+    provide: vi.fn(() => () => {}),
     create: vi.fn(),
     open: vi.fn(),
     updateIntent: vi.fn(),
@@ -57,9 +57,8 @@ async function bench() {
   slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session' },
+      'conversation': { kind: 'single', scope: 'session-maybe' },
       'details': { kind: 'single', scope: 'session' },
-      'conversation.empty': { kind: 'single', scope: 'root' },
     },
   }, (_p: { renderSlot?: unknown }) => null)
 
@@ -68,7 +67,7 @@ async function bench() {
 }
 
 /** First stored entry for a key (inject/store live directly on StoredEntry). */
-function renderEntryOf(slots: SlotsService, key: 'conversation' | 'conversation.view' | 'details' | 'conversation.empty') {
+function renderEntryOf(slots: SlotsService, key: 'conversation' | 'conversation.view' | 'details') {
   return slots.entries(key)[0] as undefined | { inject?: unknown; store?: unknown }
 }
 
@@ -91,23 +90,22 @@ describe('apply wiring', () => {
     expect(b.slots.spec('conversation.chat.toolview')).toEqual({ kind: 'keyed', scope: 'session' })
   })
 
-  it('occupies the three slots + the ring; session entries share one store handle, empty injects runtime actions', async () => {
+  it('occupies the slots + the ring; session entries share one store handle', async () => {
     const b = await bench()
     await b.fiber.await()
     const conversation = renderEntryOf(b.slots, 'conversation')
     const chatView = renderEntryOf(b.slots, 'conversation.view')
     const details = renderEntryOf(b.slots, 'details')
-    const empty = renderEntryOf(b.slots, 'conversation.empty')
     expect(conversation?.inject).toBeTypeOf('function')
     expect(chatView?.inject).toBeTypeOf('function')
     expect(details?.inject).toBeTypeOf('function')
-    expect(empty?.inject).toBeTypeOf('function')
     // The shared handle: one apply-built store value on ALL session entries.
     expect(conversation?.store).toBeDefined()
     expect(details?.store).toBe(conversation?.store)
     expect(chatView?.store).toBe(conversation?.store)
-    // The empty slot is storeless (local state + useSessions derivation).
-    expect(empty?.store).toBeUndefined()
+    // The hero workspace picker hole rides the conversation entry's children
+    // declaration (the empty-state occupant is gone).
+    expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
   })
 
   it('mounts the bash sample as a keyed entry through the load-order seam', async () => {
@@ -130,7 +128,6 @@ describe('apply wiring', () => {
     expect(b.slots.entries('conversation.chat.toolview')).toHaveLength(0)
     expect(b.slots.spec('conversation.chat.toolview')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
-    expect(b.slots.entries('conversation.empty')).toHaveLength(0)
     expect(b.ctx.get('conversation')).toBeUndefined()
   })
 })

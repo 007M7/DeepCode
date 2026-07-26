@@ -9,8 +9,10 @@ async function bench(declare = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const layout = { toggleSidebar: vi.fn() }
-  const workspaces = { startSession: vi.fn() }
+  const workspaces = { connectWorkspace: vi.fn(async () => 'blank-1' as never) }
+  const sessions = { open: vi.fn(), clear: vi.fn() }
   ctx.provide('layout', layout)
+  ctx.provide('sessions', sessions as never)
   ctx.provide('workspaces', workspaces as never)
   const slots = ctx.get('slots') as SlotsService
   if (declare) {
@@ -19,12 +21,12 @@ async function bench(declare = true) {
       () => null,
     )
   }
-  return { ctx, slots, layout, workspaces }
+  return { ctx, slots, layout, workspaces, sessions }
 }
 
 describe('ui-sidebar apply', () => {
   it('declares only the services it uses', () => {
-    expect(inject).toEqual(['slots', 'layout', 'workspaces'])
+    expect(inject).toEqual(['slots', 'layout', 'sessions', 'workspaces'])
   })
 
   it('registers the shell and declares the browsing-region hole', async () => {
@@ -34,8 +36,13 @@ describe('ui-sidebar apply', () => {
     expect(b.slots.spec('sidebar.workspaces')).toEqual({ kind: 'single', scope: 'root' })
     const injected = (b.slots.entries('sidebar')[0]!.inject as () => SidebarRootInjected)()
     expect(Object.keys(injected)).toEqual(['startSession', 'toggleSidebar'])
-    injected.startSession('workspace' as never, 'prompt')
-    expect(b.workspaces.startSession).toHaveBeenCalledWith('workspace', 'prompt')
+    // Workspace given: reuse-or-create the blank session, then navigate.
+    injected.startSession('workspace' as never)
+    expect(b.workspaces.connectWorkspace).toHaveBeenCalledWith('workspace')
+    await vi.waitFor(() => { expect(b.sessions.open).toHaveBeenCalledWith('blank-1') })
+    // No workspace (the shell's New Session button): clear into the view state.
+    injected.startSession()
+    expect(b.sessions.clear).toHaveBeenCalledOnce()
     injected.toggleSidebar()
     expect(b.layout.toggleSidebar).toHaveBeenCalledOnce()
   })

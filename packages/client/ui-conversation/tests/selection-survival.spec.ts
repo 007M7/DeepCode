@@ -20,13 +20,14 @@ function bench(): Bench {
   const ctx = new Context()
   ctx.provide('sessions', {
     list: createSnapshotStore<SessionListState>({
-      ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready',
+      ids: [], byId: {}, current: undefined, phase: 'ready',
     }),
-    cell: () => undefined,
+    provideInfo: () => undefined,
+    provide: () => () => {},
   })
   ctx.provide('workspaces', {
     list: createSnapshotStore<WorkspaceListState>({
-      items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+      items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     }),
   })
@@ -40,7 +41,7 @@ function bench(): Bench {
   slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session' },
+      'conversation': { kind: 'single', scope: 'session-maybe' },
       'details': { kind: 'single', scope: 'session' },
     },
   }, (_p: { renderSlot?: unknown }) => null)

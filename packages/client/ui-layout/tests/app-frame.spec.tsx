@@ -18,7 +18,7 @@ import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client
 import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import type {
-  SessionId, SessionListState, WorkspaceId, WorkspaceListState,
+  SessionId, SessionListState, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 // Session-mode switch for the SessionProvider stub prop.
@@ -61,24 +61,21 @@ function mountFrame() {
     if (key === 'sidebar') return <div data-testid="sidebar-content" />
     if (key === 'conversation') return <div data-testid="center-content" />
     if (key === 'details') return <div data-testid="details-content" />
-    return <div data-testid="empty-content" />
+    if (key === 'conversation.empty') return <div data-testid="empty-content" />
+    return <div data-testid="other-content" />
   }) as AppFrameProps['renderSlot']
   const sessionId = 's-test' as SessionId
-  const workspaceId = 'w-test' as WorkspaceId
   const sessionState = {
     ids: sessionMode.current ? [sessionId] : [],
     byId: sessionMode.current
-      ? { [sessionId]: { id: sessionId, displayTitle: 'Test', running: false, updatedAt: 1 } }
+      ? { [sessionId]: { id: sessionId, displayTitle: 'Test', running: false, blank: false, updatedAt: 1 } }
       : {},
     current: sessionMode.current ? sessionId : undefined,
     phase: 'ready',
-    intent: sessionMode.current
-      ? undefined
-      : { sessionId: 'intent' as SessionId, target: { kind: 'workspace', workspaceId }, prompt: '', phase: 'connecting' },
   } as SessionListState
   const useSessions = ((sel: (s: SessionListState) => unknown) => sel(sessionState)) as never
   const workspaceState: WorkspaceListState = {
-    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+    items: [], state: 'idle', phase: 'ready', error: null,
     baselinesReady: baselinesReady.current, recentWorkspaceId: undefined,
   }
   const utils = render(
@@ -154,14 +151,15 @@ describe('AppFrame', () => {
     expect(slotCalls.find((c) => c.key === 'details')!.props).toEqual({})
   })
 
-  it('keeps a connecting page-local Session intent in conversation.empty', () => {
+  it('renders the New Session view state through the empty seat while no session is current', () => {
+    // No current session = the pure view state: the conversation.empty slot
+    // renders in the center column; no session slot dispatches.
     sessionMode.current = false
     const { slotCalls, getByTestId, queryByTestId } = mountFrame()
     expect(getByTestId('empty-content')).toBeTruthy()
     expect(queryByTestId('center-content')).toBeNull()
     expect(slotCalls.map((c) => c.key)).toContain('conversation.empty')
     expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
-    expect(slotCalls.find((c) => c.key === 'conversation.empty')!.props).toEqual({})
   })
 
   it('keeps the loading branch until both object-layer baselines are ready', () => {
@@ -169,7 +167,6 @@ describe('AppFrame', () => {
     const { slotCalls, getByRole } = mountFrame()
     expect(getByRole('status').textContent).toContain('Loading workspaces and sessions')
     expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
-    expect(slotCalls.map((c) => c.key)).not.toContain('conversation.empty')
   })
 
   it('sidebar slot receives live concession output as owner props', () => {

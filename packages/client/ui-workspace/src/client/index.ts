@@ -1,8 +1,9 @@
 /**
  * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
- * and WorkspacePicker fills the conversation empty-state hole. Both read real
- * Host Workspaces through the global useWorkspaces hook. Export discipline:
+ * and WorkspacePicker fills the conversation hero's picker hole
+ * (`conversation.hero.workspace` — both hero forms). Both read real Host
+ * Workspaces through the global useWorkspaces hook. Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -33,7 +34,19 @@ export const inject = ['slots', 'sessions', 'workspaces']
  */
 export function apply(ctx: ClientContext): void {
   const browserInjected = (): WorkspaceBrowserInjected => ({
-    startSession: (workspaceId, prompt) => { ctx.workspaces.startSession(workspaceId, prompt) },
+    // Explicit group actions keep their target; an unscoped New Session
+    // action resolves through the runtime's recent-Workspace projection.
+    startSession: (workspaceId) => {
+      const target = workspaceId ?? ctx.workspaces.list.getSnapshot().recentWorkspaceId
+      if (target === undefined) {
+        ctx.sessions.clear()
+        return
+      }
+      void ctx.workspaces.connectWorkspace(target).then(
+        (sessionId) => { ctx.sessions.open(sessionId) },
+        (reason: unknown) => { console.warn('new session failed:', reason) },
+      )
+    },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
@@ -60,10 +73,10 @@ export function apply(ctx: ClientContext): void {
         ),
       },
       {
-        name: 'conversation.empty.workspace' as const,
+        name: 'conversation.hero.workspace' as const,
         component: WorkspacePicker,
         register: () => ctx.slots.register(
-          { name: 'conversation.empty.workspace', inject: pickerInjected },
+          { name: 'conversation.hero.workspace', inject: pickerInjected },
           WorkspacePicker,
         ),
       },

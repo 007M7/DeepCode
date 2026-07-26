@@ -27,8 +27,8 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
 
@@ -123,11 +123,10 @@ describe('bash sample row', () => {
     return createSnapshotStore<SessionListState>({
       ids: [ROOT, CHILD],
       byId: {
-        [ROOT]: { id: ROOT, title: 'r', displayTitle: 'r', running: false, updatedAt: 0 },
-        [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, updatedAt: 0 },
+        [ROOT]: { id: ROOT, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 },
+        [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, blank: false, updatedAt: 0 },
       },
       current: undefined,
-      intent: undefined,
       phase: 'ready',
     } as SessionListState)
   }
@@ -160,7 +159,7 @@ describe('bash sample row', () => {
     const orphan = 'late-child' as SessionId
     store.update((d) => {
       d.ids.push(orphan)
-      d.byId[orphan] = { id: orphan, title: 'l', displayTitle: 'l', running: false, updatedAt: 0 }
+      d.byId[orphan] = { id: orphan, title: 'l', displayTitle: 'l', running: false, blank: false, updatedAt: 0 }
     })
     const view = render(<BashRow {...rowProps(orphan, { store })} />)
     expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()

@@ -6,14 +6,26 @@ import { SidebarRoot } from './SidebarRoot.tsx'
 export type { SidebarRootComponentProps, SidebarRootInjected, SidebarSectionOwnerProps, SidebarSettingsOwnerProps } from './contract/slots.ts'
 
 /** Services required by the sidebar plugin. */
-export const inject = ['slots', 'layout', 'workspaces']
+export const inject = ['slots', 'layout', 'sessions', 'workspaces']
 
 /** Registers the sidebar shell and its service callbacks.
  * @param ctx - Client root context.
  */
 export function apply(ctx: ClientContext): void {
   const injectProps = (): SidebarRootInjected => ({
-    startSession: (workspaceId, prompt) => { ctx.workspaces.startSession(workspaceId, prompt) },
+    // The shell's New Session button targets the most recently active
+    // Workspace; an explicit Workspace still wins for scoped create actions.
+    startSession: (workspaceId) => {
+      const target = workspaceId ?? ctx.workspaces.list.getSnapshot().recentWorkspaceId
+      if (target === undefined) {
+        ctx.sessions.clear()
+        return
+      }
+      void ctx.workspaces.connectWorkspace(target).then(
+        (sessionId) => { ctx.sessions.open(sessionId) },
+        (reason: unknown) => { console.warn('new session failed:', reason) },
+      )
+    },
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
   })
   ctx.effect(

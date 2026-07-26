@@ -7,13 +7,11 @@ import type {
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionsService } from '../sessions/service.ts'
-import { WorkspaceManager, type WorkspaceIntentSnapshot, type WorkspaceListPhase } from './manager.ts'
+import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
 export interface WorkspaceListState {
   items: readonly WorkspaceView[]
-  /** Sole client-local Workspace projection; its state remains owned by Workspace. */
-  intent: WorkspaceIntentSnapshot | undefined
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -29,64 +27,46 @@ export class WorkspacesService {
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
   private readonly manager: WorkspaceManager
-  private initialSessionResolved = false
-  private composingIntent = false
 
   /**
    * @param ctx - client root context.
    * @param api - shared wire client.
-   * @param sessions - lower-level Session service used for recency and cross-domain intent orchestration.
+   * @param sessions - lower-level Session service used for recency and blank-session reuse.
    */
   constructor(ctx: Context, api: IApiClient, private readonly sessions: SessionsService) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
-      items: [], intent: undefined, state: 'idle', phase: 'pending', error: null,
+      items: [], state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
-    this.manager.subscribe(() => { if (!this.composingIntent) this.project() })
-    this.sessions.list.subscribe(() => { if (!this.composingIntent) this.project() })
+    this.manager.subscribe(() => { this.project() })
+    this.sessions.list.subscribe(() => { this.project() })
     ctx.reflect.provide('workspaces', this, undefined)
   }
 
   /**
-   * Start the sole Session intent, resolving the default Workspace here.
-   * @param workspaceId - optional explicit real Workspace target.
-   * @param prompt - optional prompt retained while retargeting.
+   * Resolve the session a New Session flow lands in once this Workspace is
+   * chosen: reuse the workspace's existing blank session when one is in the
+   * list mirror, else create a fresh one on the host (`session.create` births
+   * the full Session+Agent — the client holds no intermediate state). The
+   * caller owns navigation: take the returned id to `sessions.open`.
+   * Resolution guarantee (both arms): the returned id is already in the list
+   * store and `sessions.binding(id)` resolves synchronously — draft hand-off
+   * may write the new scope's machine before opening.
+   * @param workspaceId - chosen Workspace (must be in the workspace list).
+   * @returns the reused or newly created session id.
    */
-  startSession(workspaceId?: WorkspaceId, prompt = ''): void {
-    const snapshot = this.list.getSnapshot()
-    const resolved = workspaceId ?? snapshot.recentWorkspaceId ?? snapshot.items[0]?.workspaceId
-    this.composingIntent = true
-    try {
-      if (resolved === undefined) {
-        this.manager.startIntent()
-        this.sessions.startIntent({ kind: 'workspace-intent' }, prompt)
-      } else {
-        this.manager.discardIntent()
-        this.sessions.startIntent({ kind: 'workspace', workspaceId: resolved }, prompt)
-      }
-    } finally {
-      this.composingIntent = false
-      this.project()
+  async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {
+    const workspace = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
+    if (workspace === undefined) throw new Error(`workspaces.connectWorkspace: unknown workspace ${workspaceId}`)
+    // Reuse: blank && same canonical cwd (workspace.path is the host realpath
+    // canon; summary cwd is the session header passthrough of the same canon).
+    const sessions = this.sessions.list.getSnapshot()
+    for (const id of sessions.ids) {
+      const summary = sessions.byId[id]
+      if (summary !== undefined && summary.blank && summary.cwd === workspace.path) return summary.id
     }
-  }
-
-  /** Connect the current frontend Workspace and Session, then flush the Session-owned prompt. */
-  sendSession(): void {
-    const session = this.sessions.intent()
-    const target = session?.getSnapshot().intent?.target
-    if (session === undefined || target === undefined) return
-    if (target.kind === 'workspace') {
-      session.connect(target.workspaceId)
-      return
-    }
-    if (session.getSnapshot().pendingPrompt?.text.trim() === '') return
-    void this.manager.materializeIntent().then((result) => {
-      if (this.sessions.intent() !== session) return
-      if (result?.ok) {
-        session.connect(result.value.workspace.workspaceId)
-      }
-    })
+    return this.sessions.create({ workspaceId })
   }
 
   /**
@@ -153,20 +133,15 @@ export class WorkspacesService {
   private project(): void {
     const workspace = this.manager.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
-    if (workspace.intent !== undefined && sessions.intent?.target.kind !== 'workspace-intent') {
-      this.manager.discardIntent()
-      return
-    }
     const baselinesReady = workspace.phase === 'ready' && sessions.phase === 'ready'
     this.list.set({
-      ...workspace,
+      items: workspace.items,
+      state: workspace.state,
+      phase: workspace.phase,
+      error: workspace.error,
       baselinesReady,
       recentWorkspaceId: baselinesReady ? recentWorkspace(workspace.items, sessions.byId) : undefined,
     })
-    if (!this.initialSessionResolved && baselinesReady) {
-      this.initialSessionResolved = true
-      if (sessions.current === undefined && sessions.intent === undefined) this.startSession()
-    }
   }
 }
 

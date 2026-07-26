@@ -50,7 +50,7 @@ describe('runtime client apply', () => {
     // Frame sinks reach the object layer: a host session-added lands in the list store.
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r1' as never,
-      payload: { type: 'host/session-added', sessionId: 's-new' } as never,
+      payload: { type: 'host/session-added', blank: true, sessionId: 's-new' } as never,
     })
     await Promise.resolve()
     expect((sessions as { list: { getSnapshot(): { ids: string[] } } }).list.getSnapshot().ids).toContain('s-new')
