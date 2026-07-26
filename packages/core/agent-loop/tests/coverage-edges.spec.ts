@@ -498,3 +498,48 @@ describe('unrenderable failure settlement', () => {
     }
   })
 })
+
+describe('driver bookkeeping edges', () => {
+  it('a whenIdle waiter survives a rejected driver promise', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('waiter-chain'), { provider: 'mock', model: 'mock' })
+    // A persistent step/end veto escapes even the catch block's own close
+    // attempt, so the driver promise REJECTS; the waiter's catch arm must
+    // treat that rejection as quiescence instead of propagating it.
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'step/end') throw new Error('step close permanently rejected')
+    })
+
+    send(agent, 'one')
+    // Entered while the run owns the abort slot, the waiter awaits the
+    // driver promise; its rejection must count as quiescence and resolve.
+    await expect(agent.whenIdle()).resolves.toBeUndefined()
+  })
+
+  it('a request failure that concludes recovery after step/end closed keeps the boundary balanced', async () => {
+    const { LlmError } = await import('@deepseek-ai/dsh-llm')
+    // The failure finish-chunk path returns request-failed AFTER step() has
+    // already appended step/end, so the request-failed branch's own
+    // step-close guard must see stepOpen === false and skip the append.
+    const adapter = new MockAdapter([
+      [
+        { type: 'usage' as const, usage: { inputTokens: 1, outputTokens: 0 } },
+        { type: 'finish' as const, reason: { kind: 'error' as const, failure: { message: 'empty', code: 'EMPTY_RESPONSE' } } },
+      ] satisfies StreamChunk[],
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('finish-after-close'), { provider: 'mock', model: 'mock' })
+    void LlmError
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    const types = agent.session.events.map(e => e.type)
+    expect(types.filter(t => t === 'step/end')).toHaveLength(1)
+    const end = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason.kind).toBe('error')
+  })
+})

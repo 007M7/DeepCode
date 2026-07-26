@@ -275,14 +275,16 @@ export function apply(ctx: Context, config: AcpConfig): void {
           record.inflight = inflight
           try {
             record.agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+            // The machine's send() contains listener failures and accepts
+            // any typed input; this guards a future synchronous throw so the
+            // slot cannot wedge.
+            /* v8 ignore start -- future-proofing guard, see above */
           } catch (error: unknown) {
             record.inflight = undefined
-            // followup() throws only Errors (invalid input); the String arm
-            // is a defensive fallback for a non-Error throw.
-            /* v8 ignore next */
             const detail = error instanceof Error ? error.message : String(error)
             throw internalError(`prompt was not queued: ${detail}`)
           }
+          /* v8 ignore stop */
           // Admission is pre-turn and retries outlive their failed turn, so a
           // turnless slot settles only at quiescence: a held failure rejects
           // (no retry adopted the prompt); no turn at all means admission

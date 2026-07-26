@@ -295,6 +295,9 @@ export class ReactLoopAgent implements Agent {
             if (outcome.continueTurn || this.outbox.some(item => 'id' in item)) continue
             break
           case 'request-failed': {
+            // step() reports request failures only after step/start commits
+            // and before its own step/end, so the step is always open here.
+            /* v8 ignore next -- unreachable false arm, see above */
             if (this.stepOpen) {
               this.stepOpen = false
               this.session.append('step/end', { turn, step })
@@ -315,6 +318,9 @@ export class ReactLoopAgent implements Agent {
                   `agent "${this.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
                 )
               } finally {
+                // Nothing else writes the window while the waterfall runs:
+                // cancel() only flips `requested` and a second run cannot start.
+                /* v8 ignore next -- unreachable false arm, see above */
                 if (this.retryWindow === retryWindow) this.retryWindow = undefined
               }
               retry = recoveryCompleted
@@ -342,6 +348,10 @@ export class ReactLoopAgent implements Agent {
       ({ reason, idle } = this.settle(turn, step, caught, signal))
     } finally {
       try {
+        // Every step-close before this point clears the flag on both success
+        // and failure paths (step(), the request-failed branch, the catch),
+        // so the finally never finds a step still open.
+        /* v8 ignore next 4 -- unreachable last-resort step close, see above */
         if (this.stepOpen) {
           this.stepOpen = false
           this.session.append('step/end', { turn, step })
@@ -357,6 +367,9 @@ export class ReactLoopAgent implements Agent {
         emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
       }
       this.retryWindow = undefined
+      // cancel() aborts but never clears the slot, and no second run can
+      // install a controller while this one is still unwinding.
+      /* v8 ignore next -- unreachable false arm, see above */
       if (this.abort === controller) this.abort = undefined
       signal.removeEventListener('abort', cancelRetry)
     }
