@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-scripts`
 
+English | [中文](README.zh.md)
+
 The `dsh-sdk` launcher owns SDK project startup and configuration.
 
 | Command | Behavior |

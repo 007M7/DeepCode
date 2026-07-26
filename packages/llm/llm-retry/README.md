@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-llm-retry`
 
+English | [中文](README.zh.md)
+
 Function plugin that retries selected transient model-request failures on the agent loop's closed-step recovery seam. It does not wrap `ctx.llm.stream()`: every adapter call remains one provider attempt, and every retry opens a fresh numbered step.
 
 The default policy permits two retries for `EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, using bounded exponential backoff from 500 ms to 10 seconds with 10 percent jitter. `EMPTY_RESPONSE` is the adapters' classification of a degenerate provider completion (a terminal stop with zero content blocks); the attempt produced nothing durable, so repeating it is safe. Delay bounds must fit Node's supported timer range. A valid `providerRetryAfterMs` replaces local backoff when it is within the configured cap; an over-cap instruction delegates to the next recovery policy instead.

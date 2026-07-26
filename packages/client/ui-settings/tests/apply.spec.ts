@@ -1,0 +1,111 @@
+/** Settings shell registration: declaration-aware deferral, the ledger projections, and HMR recovery. */
+import { Context } from 'cordis'
+import { describe, expect, it, vi } from 'vitest'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsRootInjected } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
+
+async function bench() {
+  const ctx = new Context()
+  await ctx.plugin(SlotsService).await()
+  return { ctx, slots: ctx.get('slots') as SlotsService }
+}
+
+function declare(slots: SlotsService): () => void {
+  return slots.register(
+    { name: 'root', children: { 'sidebar.settings': { kind: 'single', scope: 'root' } } } as never,
+    () => null,
+  )
+}
+
+function injectedOf(slots: SlotsService): SettingsRootInjected {
+  const entry = slots.entries('sidebar.settings')[0]!
+  return (entry.inject as () => SettingsRootInjected)()
+}
+
+/** The shell's four child declarations (chrome seats + the section list). */
+const CHILD_SPECS = {
+  'settings.trigger': { kind: 'single', scope: 'root' },
+  'settings.header': { kind: 'single', scope: 'root' },
+  'settings.close': { kind: 'single', scope: 'root' },
+  'settings.section': { kind: 'list', scope: 'root' },
+} as const
+
+describe('ui-settings apply', () => {
+  it('declares only the slot registry (a pure composition face, no locale)', () => {
+    expect(inject).toEqual(['slots'])
+  })
+
+  it('registers the shell and declares the four child slots, before or after the declaration', async () => {
+    const before = await bench()
+    declare(before.slots)
+    await before.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(before.slots.entries('sidebar.settings')[0]!.component).toBe(SettingsRoot)
+    for (const [name, spec] of Object.entries(CHILD_SPECS)) {
+      expect(before.slots.spec(name as never)).toEqual(spec)
+    }
+
+    const after = await bench()
+    await after.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(after.slots.entries('sidebar.settings')).toHaveLength(0)
+    declare(after.slots)
+    await Promise.resolve()
+    expect(after.slots.entries('sidebar.settings')[0]!.component).toBe(SettingsRoot)
+    // The self-inflicted ledger notifications hit the duplicate guard.
+    expect(after.slots.entries('sidebar.settings')).toHaveLength(1)
+  })
+
+  it('projects the section ledger into ordered nav rows with option defaults', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const injected = injectedOf(b.slots)
+    // The shell ships no sections of its own — registrants fill the ledger.
+    expect(injected.sections()).toEqual([])
+    b.slots.register({ name: 'settings.section', id: 'z', order: 20, label: 'Z' } as never, () => null)
+    // No order and no label: both projection defaults apply.
+    b.slots.register({ name: 'settings.section', id: 'a' } as never, () => null)
+    expect(injected.sections()).toEqual([
+      { id: 'a', order: 0, label: '' },
+      { id: 'z', order: 20, label: 'Z' },
+    ])
+    expect(injected.sectionsVersion()).toBe(b.slots.getVersion('settings.section'))
+    const listener = vi.fn()
+    const off = injected.subscribeSections(listener)
+    b.slots.register({ name: 'settings.section', id: 'b', order: 1, label: 'B' } as never, () => null)
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalled()
+    off()
+  })
+
+  it('re-registers after an HMR collapse re-declares the slot (stale disposer must not block)', async () => {
+    const b = await bench()
+    const redeclare = declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries('sidebar.settings')).toHaveLength(1)
+    // Declarer unload: the cascade removes our entry and every child
+    // declaration while our local disposer variable goes stale.
+    redeclare()
+    expect(b.slots.entries('sidebar.settings')).toHaveLength(0)
+    expect(b.slots.spec('settings.trigger')).toBeUndefined()
+    declare(b.slots)
+    await Promise.resolve()
+    expect(b.slots.entries('sidebar.settings')[0]!.component).toBe(SettingsRoot)
+    for (const [name, spec] of Object.entries(CHILD_SPECS)) {
+      expect(b.slots.spec(name as never)).toEqual(spec)
+    }
+  })
+
+  it('unregisters the shell and collapses all four child slots on teardown', async () => {
+    const b = await bench()
+    declare(b.slots)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    await fiber.dispose()
+    expect(b.slots.entries('sidebar.settings')).toHaveLength(0)
+    for (const name of Object.keys(CHILD_SPECS)) {
+      expect(b.slots.spec(name as never)).toBeUndefined()
+    }
+  })
+})

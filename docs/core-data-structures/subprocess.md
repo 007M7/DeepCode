@@ -1,5 +1,7 @@
 # Subprocess
 
+English | [中文](subprocess.zh.md)
+
 The subprocess seam is split across interface ([dsh-subprocess](../../packages/subprocess/subprocess), `ctx.subprocess`) and implementation ([dsh-subprocess-local](../../packages/subprocess/subprocess-local)); its consumers are other capability seams and out-of-process backends — the [bash executor family](bash.md) (collect-mode batch output), the LSP host (piped protocol streams + a collected stderr tail), and the ACP subagent backend (piped protocol streams + inherited stderr). This seam owns the managed `DSH_*` environment namespace, the shared credential scrub (`scrubbedParentEnv`), and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports the vocabulary so bash consumers keep one import root.
 
 Source: [`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts)

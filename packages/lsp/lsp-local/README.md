@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-lsp-local
 
+English | [中文](README.zh.md)
+
 A **generic local stdio language-server backend** for `ctx.lsp`. One plugin instance accepts a named server table and registers one isolated provider per entry. This is a generic host, not a language-server catalog or installer — deployments configure commands and mappings explicitly; presets belong in `cordis.yml` overlays.
 
 Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export).

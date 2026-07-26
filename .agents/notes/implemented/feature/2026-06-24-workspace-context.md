@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-24-workspace-context.zh.md)
+
 ## Problem
 
 Repository guidance such as `AGENTS.md` belongs in a coding session's effective context so project conventions, build commands, and review rules arrive without repeated user pasting. The stdio and ACP products need the same behavior, isolated by session cwd: a global system-prompt section leaks one workspace's files into another live ACP session.

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-conversation
 
+English | [中文](README.zh.md)
+
 Conversation domain: skeleton (header/tabs/composer/empty state), chat view (grouped step-summary flow, streaming tail isolation, stats line, per-tool row slot with a bash sample registrant), minimal details panel, scope-addressed ConversationService. Contract: api-contracts v3 §7 plus the slot terminal design (store seat / props shares).
 
 The no-session hero renders the frontend Session Intent from the Session list projection, including its frontend Workspace Intent when no real Workspace exists. It declares `conversation.empty.workspace`, where ui-workspace registers the same picker used by the sidebar. WorkspacesService starts the cross-object flow; each Workspace or Session object owns its own materialization. The Session keeps its identity across publication and retains any prompt that still needs connection or delivery; ConversationRoot reads that `pendingPrompt` from `useSession` and edits or retries it through the scoped ConversationService.

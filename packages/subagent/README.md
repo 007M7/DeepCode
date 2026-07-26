@@ -1,5 +1,7 @@
 # subagent/ — subagent capability family
 
+English | [中文](README.zh.md)
+
 The subagent seam: an agent delegating work to a child agent. Like the [bash](../bash/README.md) and [llm](../llm/README.md) families this is a capability seam (see [capability seams](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)) — but with one defining difference: **multiple provider implementations coexist in one context**, registered by name, rather than the single-implementation bash shape. The registry mirrors the LLM adapter registry.
 
 | Package | Role | ctx key |

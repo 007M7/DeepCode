@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-app-boot`
 
+English | [中文](README.zh.md)
+
 Shared boot glue for the app bins ([`dsh`](../../../apps/cli/README.md), [`dsh-cli-demo`](../../examples/cli-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)): each bin is a thin self-executing composition over these helpers, parameterized by its diagnostic prefix, so the loader-failure lore lives once — under the per-file coverage gate — instead of drifting between published artifacts.
 
 | Export | Role |

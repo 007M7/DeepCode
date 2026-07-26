@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-fs-search
 
+English | [中文](README.zh.md)
+
 The **model-facing filesystem discovery tools**—`glob`, `grep`—are backed by the **bash executor seam**, not by `ctx.fs` provider methods. At load, the package probes `command -v rg` through `ctx.bash`; if the executor cannot find ripgrep on its `PATH`, it logs a warning and registers no tools or prompt sections. Each call assembles a fixed ripgrep command (every model-controlled value through one package-private shell-quoting helper), runs it via `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` as an ordinary foreground tool call, parses the raw `rg` output, and returns a workdir-relative canonical value. The package injects `tools`, `systemPrompt`, and `bash`—deliberately **not** `fs`; `ctx.spillStore` is read opportunistically with `ctx.get()` because formatted-result spill is optional.
 
 ```ts ignore-check

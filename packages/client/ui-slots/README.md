@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-slots
 
+English | [中文](README.zh.md)
+
 Slot registry pure core, slot terminal design: SlotMap declaration merging, the single `register` composition API on SlotCore, the four-share component-props type family, the store-seat type family, and the renderer install-seam contract. React types only at runtime — the package is React-free and cordis-free.
 
 One `register({ name, children?, store?, inject?, ...kind }, Component)` call contributes a component into a declared slot and, in the same breath, declares child slots (declaration = render authorization = runtime spec, one table), a store seat, and the registrant's business face. The component is checked at the call site against `ComposedProps` — the intersection of four shares, each derived from its single source of truth:

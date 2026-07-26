@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-subprocess-local
 
+English | [中文](README.zh.md)
+
 Local implementation of the [`@deepseek-ai/dsh-subprocess`](../subprocess/README.md) seam: `LocalSubprocessService` spawns each spec's argv as a detached process tree, wires the spec's per-stream stdio dispositions (raw pipes, inherit, bounded tail-keep collection with optional spill files), and signals tree-scoped with SIGTERM→SIGKILL escalation. It has no config: every disposition, limit, and directory arrives on the spawn spec, so the deployment-varying knobs stay with the calling seams' configs ([`dsh-bash-local`](../../bash/bash-local/README.md), [`dsh-lsp-local`](../../lsp/lsp-local/README.md), [`dsh-subagent-acp`](../../subagent/subagent-acp/README.md)).
 
 ## Behavior (and where it came from)
