@@ -15,13 +15,16 @@ export const name = 'session-projection-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the registry's own contracts (duplicate-key rejection,
- * effect-tied removal) are enforced synchronously at the register() boundary,
- * and the served-block relation — every served key has a live registration —
- * lives on each carrier's wire path, which emits no cordis event this
- * companion could observe; carrier specs assert it instead. Synchronous-`get`
- * discipline is enforced as far as practical by the carrier's `schema.parse`
- * (a Promise value fails loudly).
+ * No runtime invariant: the registry's own contracts (duplicate-key and
+ * stateVersion rejection, effect-tied removal, the Object.is change gate) are
+ * enforced synchronously inside the service and proven by its spec, the
+ * drive relation (every committed `session/event` passes every unit) would
+ * require re-running the drive to check — duplicating the implementation
+ * rather than detecting drift — and the served-value relation (every served
+ * key has a live registration) lives on each carrier's wire path, which
+ * emits no cordis event this companion could observe; carrier specs assert
+ * it. Synchronous-unit discipline is enforced as far as practical by the
+ * boundary `schema.parse` (a Promise-returning view fails loudly).
  */
 const install: InvariantInstaller = () => {}
 
