@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-02-remove-stream-chunk-mirror.md: 1d9ff86800521eb5ef226575e33a35dcaffd6f6e
-2026-07-02-remove-stream-chunk-mirror.zh.md: 26dcc36038efd2857a90c15a675d843d57282ec1
+2026-07-02-remove-stream-chunk-mirror.md: cc75f71407a3c54d71b11e91cea2eb2658649b5e
+2026-07-02-remove-stream-chunk-mirror.zh.md: 47e4c42daedadb09b6f51508af84e593ee8218a9

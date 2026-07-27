@@ -27,7 +27,7 @@ create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd
 
 /**
  * Create an owned agent on a caller-supplied session id.
- * @param ownerCtx - caller context that structurally owns the transaction.
+ * @param ownerCtx - caller context that structurally owns the lifecycle.
  * @param options - identities, session seed/metadata, loop options, setup, and cancellation.
  * @returns the published handle.
  */
@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:398`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:188`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:225`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:220`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -656,7 +656,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:134`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -722,6 +722,13 @@ registerAdapter(providers: string[], adapter: LlmAdapter): () => void
 listProviders(): LlmProviderInfo[]
 
 /**
+ * Resolve the retry policy captured when one provider route was registered.
+ * @param provider - registered provider route to inspect.
+ * @returns the provider-owned policy, with normal defaults already resolved.
+ */
+providerRetryPolicy(provider: string): ResolvedRetryPolicy
+
+/**
  * Discover models advertised by one registered provider. Catalog membership
  * is advisory and never changes routing or request validation.
  * @param provider - registered provider route to inspect.
@@ -778,9 +785,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:177`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:189`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -840,7 +847,7 @@ Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/
 get(agent: Agent): { active: boolean; pending?: boolean }
 
 /**
- * Select whether plan mode should be active from the next turn boundary.
+ * Select whether plan mode should be active from the next request boundary.
  * Repeated selection of the current or already-pending state is a no-op.
  *
  * @param agent The agent to switch.
@@ -1210,7 +1217,7 @@ async listCandidates( agent: Agent, query = '', limit = this.config.candidateLim
  * @param content - already host-normalized readable message content.
  * @param references - structured source sessions in mention order.
  * @param signal - optional cancellation boundary for host request teardown.
- * @returns detached content and zero or one prepared contexts.
+ * @returns detached content and optional referenced-session context.
  */
 async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
 ```
@@ -1366,7 +1373,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:625`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1400,7 +1407,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:284`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:283`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1927,7 +1934,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:688`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:700`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 

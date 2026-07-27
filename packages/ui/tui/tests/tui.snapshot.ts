@@ -282,6 +282,9 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('llm/retry', {
         turn: 1,
         step: 1,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: '["normal",2,["RATE_LIMIT"],1,10000,0]',
         retry: 1,
         maxRetries: 2,
         delayMs: 500,
@@ -310,8 +313,10 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('llm/retry', {
         turn: 1,
         step: 1,
+        provider: 'mock',
+        mode: 'always',
+        policyKey: '["always",1,10000,0]',
         retry: 1,
-        maxRetries: 2,
         delayMs: 1_000,
         failure: { message: 'temporary transport failure', code: 'TRANSPORT' },
       })
@@ -489,11 +494,6 @@ describe('TUI terminal-state snapshots', () => {
           content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
           source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
         }, { surfaceOp: 'append' })
-        session.append('prompt/blocked', {
-          content: [{ type: 'text', text: 'blocked' }],
-          source: { kind: 'user' },
-          reason: `Unsafe policy ${CONTROL_PROBE}`,
-        })
         session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', {
           turn: 1,

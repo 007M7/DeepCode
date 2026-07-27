@@ -73,8 +73,6 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and tools. */
   goals?: agentCore.GoalConfig | false
-  /** Bounded transient model-request retry policy forwarded through agent-core. */
-  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
 ```
 
@@ -110,7 +108,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:147`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -124,8 +122,9 @@ Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loo
  * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
  * the fallback title service, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
- * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
- * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
+ * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
+ * plugins this bundle owns. Provider adapters own their `retryPolicy`; this
+ * bundle always mounts its executor.
  * `goals` opts into and configures the persisted goal domain plus its model tool
  * and same-session driver; `invariants` configures global and package-filtered
  * relational checks. Owner schemas supply defaults for optional input;
@@ -161,8 +160,6 @@ export interface Config {
   invariants?: InvariantConfig
   /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
   goals?: GoalConfig | false
-  /** Bounded transient model-request retry policy. */
-  llmRetry?: llmRetry.Config
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
@@ -186,9 +183,9 @@ export interface GoalConfig {
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`llmRetry`](../packages/llm/llm-retry/src/index.ts) · [`SessionTitleConfig`](#deepseek-aidsh-session-title) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`SessionTitleConfig`](#deepseek-aidsh-session-title) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:87`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:88`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -264,8 +261,6 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task control-tool config forwarded through agent-spine-demo. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
-  /** Bounded transient model-request retry policy forwarded through agent-spine-demo. */
-  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
@@ -331,7 +326,7 @@ Requires: `llm` · `tokenMeter`
 export interface BasicCompactConfig extends CompactPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
-  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
+  /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
 }
 
@@ -424,7 +419,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/goal/src/index.ts:56`](../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:55`](../packages/goal/goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -460,7 +455,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:44`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:45`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -485,7 +480,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
@@ -586,6 +581,8 @@ export interface Config {
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
   streamIdleTimeoutMs?: number
+  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  retryPolicy?: RetryPolicyConfig
 }
 
 /** One optional model entry advertised by the direct-fetch adapter. */
@@ -601,7 +598,9 @@ export interface DeepSeekCatalogModel {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:35`](../packages/llm/llm-deepseek/src/index.ts)
+Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
+
+Source: [`packages/llm/llm-deepseek/src/index.ts:36`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -638,12 +637,14 @@ export interface PiAiProviderProfile {
   websocketConnectTimeoutMs?: number
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
+  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  retryPolicy?: RetryPolicyConfig
 }
 ```
 
-Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
+Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:48`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:54`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -676,6 +677,8 @@ export interface ReplayProviderConfig {
   name?: string
   /** Advisory models exposed to replay scenarios that exercise discovery. */
   models?: ReplayModelConfig[]
+  /** Optional provider-owned retry policy used by assembled recovery snapshots. */
+  retryPolicy?: RetryPolicyConfig
 }
 
 /** One model exposed by a replay-only provider catalog. */
@@ -691,29 +694,20 @@ export interface ReplayModelConfig {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:598`](../packages/support/llm-replay/src/index.ts)
+Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
+
+Source: [`packages/support/llm-replay/src/index.ts:617`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
 Requires: `agents`
 
 ```ts config-catalog
-/** Deployment-owned limits and classification for transient request recovery. */
-export interface Config {
-  /** Maximum transient retries after the first request (default 2). */
-  maxTransientRetries?: number
-  /** Initial local exponential-backoff delay in milliseconds (default 500). */
-  initialDelayMs?: number
-  /** Maximum accepted or locally scheduled delay in milliseconds (default 10000). */
-  maxDelayMs?: number
-  /** Symmetric random multiplier range around one (default 0.1). */
-  jitterRatio?: number
-  /** Stable failure codes eligible for this policy. */
-  retryableCodes?: string[]
-}
+/** This policy executor has no config; providers own `retryPolicy`. */
+export type Config = Readonly<Record<string, never>>
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:39`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:45`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
@@ -920,7 +914,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/guard/repeat-tool-guard/src/index.ts:26`](../packages/guard/repeat-tool-guard/src/index.ts)
+Source: [`packages/guard/repeat-tool-guard/src/index.ts:27`](../packages/guard/repeat-tool-guard/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -1148,7 +1142,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-title/session-title/src/index.ts:70`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:69`](../packages/session-title/session-title/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 
@@ -1530,7 +1524,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/tool-goal/src/index.ts:27`](../packages/goal/tool-goal/src/index.ts)
+Source: [`packages/goal/tool-goal/src/index.ts:25`](../packages/goal/tool-goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-lsp`
 
@@ -1614,7 +1608,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:19`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:20`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
@@ -1756,7 +1750,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:566`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:578`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 

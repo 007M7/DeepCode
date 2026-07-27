@@ -55,7 +55,9 @@ describe('goal domain through a real cordis.yml and headless process', () => {
     expect(contexts).toHaveLength(1)
     const context = contexts[0]
     if (context?.type !== 'user/message') throw new Error('expected goal context event')
-    const change = decodeGoalChange(context.data.meta)
+    const change = context.data.source.kind === 'goal'
+      ? decodeGoalChange(context.data.source.change)
+      : undefined
     if (change === undefined) throw new Error('expected durable goal change')
     expect(change).toMatchObject({
       operation: 'create',

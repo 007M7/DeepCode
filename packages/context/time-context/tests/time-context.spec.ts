@@ -41,15 +41,12 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     options: {},
     session,
     status: 'running',
+    acceptsNextStep: true,
     ctx: new Context(),
     followup: () => AgentMessageId('stub'),
-    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content, options) {
-      session.append('user/message', {
-        content,
-        source: options?.source ?? { kind: 'user' },
-      }, { surfaceOp: 'append' })
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
     send: () => AgentMessageId('stub'),
@@ -85,7 +82,7 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/pre-step', turn, step, signal)
+  await agentEvents(ctx, agent).serial('agent/step', turn, step, signal)
 }
 
 function textResponse(text: string): StreamChunk[] {
@@ -294,7 +291,7 @@ describe('durable step context', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
     let ordinarySawContext = false
-    ctx.on('agent/pre-step', (subject) => {
+    ctx.on('agent/step', (subject) => {
       ordinarySawContext = subject.session.events.some(event => event.type === 'user/message')
     })
 
@@ -363,22 +360,22 @@ describe('real agent-loop request history', () => {
   it.each([
     ['throws', 'error'],
     ['cancels', 'aborted'],
-  ] as const)('retains the preparation reading when a later pre-step listener %s', async (mode, reasonKind) => {
+  ] as const)('discards the pending preparation reading when a later step listener %s', async (mode, reasonKind) => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
     let laterSawReading = false
-    ctx.on('agent/pre-step', (subject) => {
+    ctx.on('agent/step', (subject) => {
       laterSawReading = contextTexts(subject.session).length === 1
       if (mode === 'throws') throw new Error('later pre-step failure')
       subject.cancel({ kind: 'user' })
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'start' }])
+    agent.followup({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
-    expect(laterSawReading).toBe(true)
-    expect(contextTexts(agent.session)).toHaveLength(1)
+    expect(laterSawReading).toBe(false)
+    expect(contextTexts(agent.session)).toHaveLength(0)
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
@@ -400,7 +397,7 @@ describe('real agent-loop request history', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('loop'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'start' }])
+    agent.followup({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } })
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(2)

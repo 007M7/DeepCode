@@ -40,7 +40,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 - `ctx.agents.create(options: CreateAgentOptions): Promise<AgentHandle>`：创建会话和 agent，在不发布的情况下等待可选 setup，然后通过最终的 `SessionStore.enter()` 与 `AgentRegistry.enter()` 检查发布。不支持并发创建同一 ID：多个操作可以进行准备，但只有一个能进入；每个失败方都会回滚其私有作用域／会话／驱动器。可选且只用于创建的 `signal` 会取消未发布的 setup，并在返回 handle 前分离；之后的取消使用 `handle.dispose()` 或 `agent.cancel()`。发布包含在回滚范围内，回滚期间每条已交付创建边都会成对处理。未注册工厂时拒绝。
 - `ctx.agents.resume(options: ResumeAgentOptions): Promise<AgentHandle>`：加载持久化会话（[会话持久化](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)），创建新的未发布 agent 作用域，等待可选 setup，并使用相同的最终进入发布序列。其可选 `signal` 同样只用于创建。未注册工厂或未配置会话持久化时拒绝。
 
-`AgentHandle = { agent: Agent; dispose(): Promise<void> }`。Disposer 是一项 **消费方能力**；仅持有裸注册表条目的观察方不能 teardown agent。调用方 fiber 和已注册工厂提供方是结构化共同拥有者：调用方卸载会强制结构化所有权，而工厂卸载必须停止旧实例，因为它们的作用域依赖表层属于该提供方。任意拥有者调用 `dispose()` 都会到达同一个记忆化静默边界：它停止循环，`await` 循环退出以及每次未完成的空闲注入刷新（而不只是 `disposed` 状态翻转），注销 agent，从存储中移除其会话，最后撤销其作用域世界。该顺序会在分离会话前捕获 agent 启动的每个 `session/flush`，并让作用域监听器存活到这些检查点完成。`ctx.agents.get(id)` 仍返回裸 `Agent`；ACP 桥接层与进程内 subagent 后端持有消费方 handle，而配置创建的 agent 已由循环 fiber 拥有。
+`AgentHandle = { agent: Agent; dispose(): Promise<void> }`。Disposer 是一项 **消费方能力**；仅持有裸注册表条目的观察方不能 teardown agent。调用方 fiber 和已注册工厂提供方是结构化共同拥有者：调用方卸载会强制结构化所有权，而工厂卸载必须停止旧实例，因为它们的作用域依赖表层属于该提供方。任意拥有者调用 `dispose()` 都会到达同一个记忆化静默边界：它停止循环，等待循环退出，注销 agent，从存储中移除其会话，最后撤销其作用域世界。`ctx.agents.get(id)` 仍返回裸 `Agent`；ACP 桥接层与进程内 subagent 后端持有消费方 handle，而配置创建的 agent 已由循环 fiber 拥有。
 
 ### 实时事件
 
@@ -48,22 +48,22 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 生命周期边有两个重要的本地注意事项。`agent/created` 在作用域 setup 之后、会话与 agent 注册表条目都存在之后运行。Setup 是受信任、仅用于组合的代码；紧随其后且不可 veto 的 `agent/session-start` 通知是第一个受支持的启动注入点。`agent/disposed` 始终表示确切 agent 已离开注册表。AgentLoop 在其驱动器静默后发出该事件，而有序 teardown 此时可能仍在分离会话并撤销作用域；直接注册的自定义 agent 自行拥有任何更强的驱动器顺序契约。
 
-大多数拦截点都是返回 seam 专属决策的协作式 waterfall。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。信号在终止策略执行期间仍是权威来源，并在发布 `turn/end` 前立即退役，因此终止观察方与之后的持久性刷新无法取消已完成的轮次工作。`agent/pre-step` 与 `agent/post-step` 是步骤持久工作前后的串行检查点，而 `agent/request-error` 是失败模型请求的恢复 waterfall：失败步骤关闭后，它接收确切错误、规范化失败事实、不可变的先前重试事实和信号；重试会打开一个新的编号步骤。`agent/turn-stop` 是终止串行 fold：它在普通 continuation 与 steering fold 之后运行；返回的停止会持续到轮次关闭和刷新，因此之后的 steering 不能创建额外步骤或轮次。普通排队提示词保持原样。有效的广义取消会先发出只观测的 `agent/cancel-requested` 及其解析后的类型化原因，再清空队列并中止；通知失败会被收容，不能 veto 停止。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
+大多数拦截点都是协作式 waterfall。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点，而 `agent/request-error` 是失败模型请求的恢复 waterfall：失败步骤关闭后，它接收确切错误、规范化失败事实和信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`；循环会关闭失败轮次，并打开一个编号重试轮次。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。有效的广义取消会先发出只观测的 `agent/cancel-requested` 及其解析后的类型化原因，再清空队列并中止；通知失败会被收容，不能 veto 停止。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
 
-`PromptDecision.additionalContexts` 是数组，因此每个上下文都保留自己的来源、元数据和放置位置。`SendOptions.contexts` 将同一形状绑定到一条排队消息，并且发生在提示词拦截前：默认允许决策会继续携带它，而被阻止的提示词不记录上下文。缺席或 `separate` 放置会写入独立注入的 `user/message`（plugin／goal 来源）；`prompt-prefix` 会把上下文、`## My request:` 分隔符和有效提示词写入一条 `user/message` 或 `steering/message`，其对模型隐藏的 envelope 会保留直接提示词与上下文描述符供人类回放。包装下游允许决策的监听器会保留其 `content` 与 `additionalContexts`，除非有意替换任一字段；返回的允许决策是权威来源。`ContinuationDecision` 原因更窄：它成为不附带上下文元数据的 `steering/message`。
+`PromptDecision.additionalContexts` 是数组，因此每个上下文都保留自己的来源。获准的提示词内容与每个附加上下文都会在轮次运行前成为各自独立、面向模型的 `user/message` 事件。包装下游允许决策的监听器会保留其 `content` 与 `additionalContexts`，除非有意替换任一字段；返回的允许决策是权威来源。
 
 轮次和步骤边界以及模型 token 流是持久 `session/event` 事实，而不是镜像的 `agent/*` 通知。消费方从会话 feed 读取 `turn/*`、`step/*` 和 `assistant/chunk`；工具策略与结果观测属于 [`dsh-tools`](../tools/README.md) 记录的完整流水线。
 
 ### Agent 接口（`types.ts`）
 
-`Agent` 是结构化接口。`followup()`、`queue()`、`steer()` 与 `inject()` 指名常见调用方意图；调用方已经拥有确切路由事实时，`send(ResolvedAgentInput)` 公开同一接受路径（[决策](../../../.agents/notes/implemented/architecture/2026-07-24-intent-named-agent-delivery.md)）。每个 `ResolvedAgentInput` 字段均为必填，其可辨识联合会排除附带上下文的非唤醒下一步骤注入。FIFO 接受会返回不透明 `AgentMessageId`，由该条目的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件携带。驱动器会在通知和入队前，把内容、已解析来源、附带上下文与对模型隐藏的元数据快照为一条已分离、深度冻结的无损 JSON 记录；无效数据同步抛出。辅助方法应用默认值：在省略 `options.source` 的 `followup()`、`queue()` 或 `steer()` 调用中，会将直接人类输入声明为 `{ kind: 'user' }`，因此每个非人类生产方都要标记自身内容。
+每个插件面向的 handle：
 
-- `agent.followup(content, options?)`：将一条独立 FIFO 消息作为自己的轮次排队，并唤醒驱动器。接纳后，独立上下文成为注入的 `user/message` 事件，而 prompt-prefix 上下文会在同一 `user/message` 中写到有效请求之前；阻止或替换默认附加上下文决策可以丢弃它们。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
-- `agent.queue(content, options?)`：将相同的普通消息排队，但不唤醒空闲驱动器。单独的排队项会让 `whenIdle()` 保持已解析，并在下一条唤醒消息前一并处理。
-- `agent.steer(content, options?)`：运行时为下一个检查点排队 steering，且不分发 `agent/prompt-submit`；空闲时创建会唤醒的普通轮次。附带上下文留在同一冻结记录中；独立上下文紧跟 steering 事件追加，prompt-prefix 上下文则写入该事件。二者都能在迟到 steering 转为排队输入时保留，并随消息在取消或终止丢弃时消失。策略仍可以在另一步骤前停止；轮次关闭及其检查点之后，剩余 steering 会成为稍后的排队输入，除非终止轮次策略、取消或释放将其丢弃。
-- `agent.inject(content, options?)`：接受已分离的会话内上下文而不运行模型；下一次请求会看到其 `user/message`（默认 plugin 来源），其中 `content` 逐字渲染为 user role 消息。`InjectOptions` 有意不提供附带上下文。`options.meta` 持久化不透明 JSON 状态，但不渲染。轮次打开时，注入加入该轮次；当前工具批次执行时会延后 FIFO，如果执行被中断则在轮次关闭前 drain。空闲时，它会被包在一次性 `injection` 轮次和持久性检查点内（[轮次包围不变式](../../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)）。注入绕过 FIFO，不发出 `agent/inbox/*` 事件。
-- `agent.send(input)`：接受完整指定的路由，不应用辅助方法默认值。`next-turn` 指向普通 FIFO；带 wakeup 的 `next-step` 指向 steering，并在空闲时回退为会唤醒的普通轮次；不带 wakeup 的 `next-step` 是注入，且要求 `contexts: []`。调用方没有元数据时也要显式提供 `meta: undefined`。
-- `agent.cancel(cause?, options?)`：取消活动轮次，并在未设置 `options.keepInbox` 时取消全部待处理工作：省略原因表示 `{ kind: 'user' }`；TypeScript 把调用方限制在 `user | parent` 联合中，活动持有者会在中止前把其判别字段复制为已分离、冻结的信号原因。有效调用会在清除排队与 steering 工作前，随原因发出 `agent/cancel-requested`；丢弃项在 `agent/inbox/discard` 上报告，观察方可以同步状态，但不能 veto 取消。`keepInbox: true` 会中止轮次，但保留排队与 steering 项（不丢弃，且不删除尚未开始的工作）。同进程类型化 seam 不会为无类型调用方添加运行时校验或兼容回退。重复取消活动轮次时，首个信号生效；空闲取消是安全空操作，不发通知。ACP 映射到 `user`，进程内父传播映射到 `parent`。原因只存在于运行时；持久 `turn/end` 保持粗粒度的 `aborted`。
+- `agent.send(input, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`input` 是既有的 `UserMessageData { content, source }`，而 `SendOptions` 只要求路由策略 `target` 与 `wakeup`。agent 会在发布或入队前为 `input` 创建快照并将其冻结，因此调用方或观察方后续的修改无法改变已接受的消息。它返回被接受消息的不透明 `AgentMessageId`，由该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件携带，调用方可据此把排队项与其生命周期关联；入队事件还会携带解析出的 `queued | steering` 路由归类，使监听器无需从后续状态重建接收时的路由。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
+- `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
+- `agent.steer(input)`：`next-step`／wakeup 预设：提示词接纳期间或轮次打开时，为下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；该接收窗口之外则委托给会唤醒的后续轮次。接纳失败会保留暂存的 steering，以供重试或之后获准的提示词使用，而取消或 dispose 可能丢弃它。
+- `agent.inject(input)`：`next-step`／不唤醒预设：追加面向模型的上下文而不运行模型；下一次请求会看到一条逐字的 user role 消息，其来源由必填的 `input.source` 携带。提示词接纳期间或轮次打开时，注入会在 outbox 中等待下一个安全边界。该接收窗口之外，它会立即追加而不开启轮次；如果接纳结束却未开启轮次，仅含上下文的接纳批次会采用这一回退，而与 steering 一同暂存的上下文则会随其继续待处理。持久化独立地响应 `session/event`。注入不发出 `agent/inbox/*` 事件。
+- `agent.acceptsNextStep`：当前发送 `next-step` 时，是否会加入提示词接纳或已打开的轮次。当调用方必须在 steering 与新接纳的提示词之间选择时，应使用这一更窄的路由判定；`status === 'running'` 还涵盖接纳收尾与轮次结算阶段。
+- `agent.cancel(cause, options?)`：取消活动轮次，并在未设置 `options.keepInbox` 时取消全部待处理工作。调用方必须显式选择 `user | parent` 原因；活动持有者会在中止前把其判别字段复制为已分离、冻结的信号原因。有效调用会在清除排队与 steering 工作前，随原因发出 `agent/cancel-requested`；丢弃项在 `agent/inbox/discard` 上报告，观察方可以同步状态，但不能 veto 取消。`keepInbox: true` 会中止轮次，但保留排队与 steering 项（不丢弃，且不删除尚未开始的工作）。同进程类型化 seam 不会为无类型调用方添加运行时校验或兼容回退。重复取消活动轮次时，首个信号生效；空闲取消是安全空操作，不发通知。ACP 映射到 `user`，进程内父传播映射到 `parent`。原因只存在于运行时；持久 `turn/end` 保持粗粒度的 `aborted`。
 - `agent.whenIdle()`：agent 从 `running` 结算后达到静默时解析（idle ⇒ 立即；disposed ⇒ 等待循环退出）。这是非拥有者的静默观测钩子：观察工作结算，但不 teardown agent。Teardown 独立存在；生命周期拥有者通过 `AgentHandle.dispose()` 停止并注销，并直接等待循环退出。
 - `agent.session`、`agent.status`、`agent.options`、`agent.id`
 
@@ -81,7 +81,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 #### 模型所见
 
-四个意图辅助方法与完整解析的 `send` 路径会向所属会话提供输入。`agent/prompt-submit`、`agent/session-prefix` 和其他已声明事件让插件能够阻止提示词或添加请求材料；此接口本身不贡献固定文案。
+`send`、`steer` 与 `inject` 会向所属会话提供输入。`agent/prompt-submit`、`agent/step` 和其他已声明事件让插件能够阻止提示词或添加持久请求材料；此接口本身不贡献固定文案。
 
 #### Token 影响
 
@@ -112,5 +112,5 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 - **委派以外的 agent 间通道**：共享状态、流式子输出和后台／轮询语义仍在当前同步 `ctx.subagents` seam 之外。
 - **`agent/session-start` 不能为启动设置门禁**：它仍是同步且不可 veto 的通知；必须在发布前完成的异步组合属于工厂的 `setup(agentCtx)` 事务。
 - **`cancel()` 默认清空 inbox**：它会中止正在处理的轮次以及排队和 steering 工作；`cancel(cause, { keepInbox: true })` 只中止轮次并保留待处理项。仍不存在只中止步骤、同时让正在处理的轮次继续运行的操作（[停止表层 Agent Note](../../../.agents/notes/implemented/simplification/2026-06-20-public-agent-stop-surface.md)）。
-- **`HookContext` 恰好携带一个 `MessageSource`**：多个插件合并到一次工具调用上的贡献会归入一个来源；无法表示混合来源。
+- **每条附加 `UserMessageData` 恰好携带一个 `MessageSource`**：多个插件合并到一次工具调用上的贡献会归入一个来源；无法表示混合来源。
 - **`SessionStartSource` 预留 `'clear'`/`'compact'`，但还没有发出方**：在驱动子系统落地前，只会出现 `'startup'`/`'resume'`（`TODO(compaction)`）。

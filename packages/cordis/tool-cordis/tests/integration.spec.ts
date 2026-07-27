@@ -48,7 +48,7 @@ describe('cordis tools through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-cordis'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'give yourself reverse_text, use it, clean up' }])
+    agent.followup({ content: [{ type: 'text', text: 'give yourself reverse_text, use it, clean up' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -80,9 +80,9 @@ describe('cordis tools through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-cordis-turn-lifetime'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'Mount the marker and inspect it.' }])
+    agent.followup({ content: [{ type: 'text', text: 'Mount the marker and inspect it.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
-    agent.followup([{ type: 'text', text: 'On this later turn, inspect the marker, unmount it, then inspect again.' }])
+    agent.followup({ content: [{ type: 'text', text: 'On this later turn, inspect the marker, unmount it, then inspect again.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const resultText = new Map(

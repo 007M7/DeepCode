@@ -59,9 +59,9 @@ export type WorkspaceBrowserProps =
  */
 export type WorkspacePickerInjected = {
   /** Explicitly create or adopt a real Workspace before targeting a Session. */
-  createWorkspace(input: { name: string } | { path: string }): Promise<WorkspaceView>
+  createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
   /** Ask the local Host to open its native single-directory picker. */
-  pickDirectory(): Promise<string | null>
+  pickDirectory: () => Promise<string | null>
 }
 
 /**

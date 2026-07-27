@@ -59,7 +59,7 @@ function snapshotWith(
     pending: [], queue: [], todos: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
-  } as ConversationSnapshot
+  }
 }
 
 /** Test-owned AppFrame role: declares and renders the resident conversation area. */

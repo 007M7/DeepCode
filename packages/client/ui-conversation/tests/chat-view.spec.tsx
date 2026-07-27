@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
+  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId,
+  SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
@@ -39,7 +40,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
   let snap: ConversationSnapshot = { ...snapshotBase(), ...init }
   const subs = new Set<() => void>()
   return {
-    set(next: Partial<ConversationSnapshot>) {
+    set: (next: Partial<ConversationSnapshot>) => {
       snap = { ...snap, ...next }
       for (const fn of [...subs]) fn()
     },
@@ -104,8 +105,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
-    useInput: (() => { throw new Error('unused') }) as never,
-    inputActions: { setDraft: () => {}, submit: () => {} } as never,
+    useInput: (() => { throw new Error('unused') }),
+    inputActions: { setDraft: () => {}, submit: () => {} },
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
     renderSlot,
@@ -124,9 +125,9 @@ describe('chat-flow derivation', () => {
       assistant(5, 'found'), toolResult(6, 'c'),
     ]
     const items = deriveChatFlow(nodes)
-    expect(items.map((i) => i.kind)).toEqual(['node', 'node', 'tool-group', 'node', 'tool-group'])
+    expect(items.map(i => i.kind)).toEqual(['node', 'node', 'tool-group', 'node', 'tool-group'])
     const group = items[2]!
-    expect(group.kind === 'tool-group' && group.results.map((r) => r.callId)).toEqual(['a', 'b'])
+    expect(group.kind === 'tool-group' && group.results.map(r => r.callId)).toEqual(['a', 'b'])
     expect(flowKeys(items)).toBe('n1|n2|g3|n5|g6')
     expect(flowKeys(deriveChatFlow([...nodes, toolResult(7, 'd')]))).toBe('n1|n2|g3|n5|g6')
   })
@@ -155,7 +156,7 @@ describe('ChatView', () => {
     fireEvent.scroll(scroller)
     fireEvent.click(view.getByText('加载更早'))
     Object.defineProperty(scroller, 'scrollHeight', { value: 1300, writable: true })
-    act(() => h.set({ nodes: [assistant(2, 'older'), user(9, 'late')] }))
+    act(() => { h.set({ nodes: [assistant(2, 'older'), user(9, 'late')] }) })
     expect(scroller.scrollTop).toBe(550) // 50 + (1300 - 800)
   })
 
@@ -240,10 +241,10 @@ describe('ChatView', () => {
     // Count renderSlot invocations: the memo boundary holds when CallRow does
     // not re-render, so the row's renderSlot call count freezes during chunks.
     let rowRenders = 0
-    h.props.renderSlot = (((_key: string, _owner: object) => {
+    h.props.renderSlot = ((_key: string, _owner: object) => {
       rowRenders += 1
       return <div data-testid="counting-row" />
-    }) as unknown as ChatViewSlotProps['renderSlot'])
+    })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByTestId('counting-row')).toBeTruthy()
     const afterMount = rowRenders
@@ -270,7 +271,7 @@ describe('ChatView', () => {
     fireEvent.click(view.getByText('run a'))
     expect(h.openDetails).toHaveBeenCalledWith({ turnSeq: 3, callId: 'a', toolName: 'bash' })
     expect(view.container.querySelector('[data-selected]')).toBeNull()
-    act(() => h.setSelection({ turnSeq: 3, callId: 'a', toolName: 'bash' }))
+    act(() => { h.setSelection({ turnSeq: 3, callId: 'a', toolName: 'bash' }) })
     expect(view.container.querySelector('[data-selected]')).not.toBeNull()
   })
 
@@ -284,10 +285,10 @@ describe('ChatView', () => {
   it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
     const calls: { key: string; entryKey?: string }[] = []
-    h.props.renderSlot = (((key: string, _owner: object, opts?: { entryKey?: string; fallback?: React.ReactNode }) => {
+    h.props.renderSlot = ((key: string, _owner: object, opts?: { entryKey?: string; fallback?: React.ReactNode }) => {
       calls.push({ key, ...(opts?.entryKey !== undefined ? { entryKey: opts.entryKey } : {}) })
       return opts?.fallback ?? null
-    }) as unknown as ChatViewSlotProps['renderSlot'])
+    })
     render(<h.ChatView {...h.props} />)
     // Keyed dispatch: slot name is the declared hole, entryKey the wire tool
     // name, and the fallback (GenericToolCard) renders on an empty ledger.
@@ -306,10 +307,10 @@ describe('ChatView', () => {
     // Arm the paging anchor, then deliver an older page (head seq decreases).
     fireEvent.click(view.getByText('加载更早'))
     Object.defineProperty(scroller, 'scrollHeight', { value: 1600, writable: true })
-    act(() => h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a')] }))
+    act(() => { h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a')] }) })
     expect(scroller.scrollTop).toBe(600) // 0 + (1600 - 1000)
     // A new trailing user bubble (own words) force-scrolls to the bottom.
-    act(() => h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a'), user(9, 'mine')] }))
+    act(() => { h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a'), user(9, 'mine')] }) })
     expect(scroller.scrollTop).toBe(1600)
   })
 
@@ -324,7 +325,7 @@ describe('ChatView', () => {
     const backButton = view.getByLabelText('回到底部')
     expect(backButton).toBeTruthy()
     // Streaming growth must NOT drag a scrolled-away reader down.
-    act(() => h.set({ partial: { turn: 1, step: 1, blocks: [{ kind: 'text', text: 'grow' }] } }))
+    act(() => { h.set({ partial: { turn: 1, step: 1, blocks: [{ kind: 'text', text: 'grow' }] } }) })
     expect(scroller.scrollTop).toBe(100)
     fireEvent.click(backButton)
     expect(scroller.scrollTop).toBe(1000)
@@ -337,7 +338,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     fireEvent.click(view.getByText('加载更早'))
     expect(h.loadOlder).toHaveBeenCalledTimes(1)
-    act(() => h.set({ loadingOlder: true }))
+    act(() => { h.set({ loadingOlder: true }) })
     expect(view.getByText('加载中…')).toBeTruthy()
   })
 
