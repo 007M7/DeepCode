@@ -59,6 +59,12 @@ interface ToolCallTextParts {
   args?: string
 }
 
+interface SelectedRequest {
+  turn: number
+  number: number
+  group: string
+}
+
 interface DetailsResizeDrag {
   pointerId: number
   startX: number
@@ -80,6 +86,10 @@ const SYSTEM_PROMPT_INDEX = 0
 const SYSTEM_PROMPT_TABS: readonly DetailTabItem[] = [
   { id: 'system-prompt', label: 'System Prompt' },
   { id: 'tools', label: 'Tools' },
+]
+const REQUEST_TABS: readonly DetailTabItem[] = [
+  { id: 'overview', label: 'Summary' },
+  { id: 'timing', label: 'Timing' },
 ]
 
 type TrajectorySplitStyle = CSSProperties & {
@@ -211,6 +221,12 @@ function flattenRecords(turns: readonly TrajectoryTurnModel[]): TableRecord[] {
     if (last !== undefined) last.turnEnd = true
     return records
   })
+}
+
+function requestNumber(group: string): number | undefined {
+  if (!group.startsWith('Step ')) return undefined
+  const value = Number(group.slice('Step '.length))
+  return Number.isInteger(value) && value > 0 ? value : undefined
 }
 
 function summarizeTurn(records: readonly TableRecord[]): string {
@@ -811,6 +827,25 @@ function RecordTiming({ record }: { record: TableRecord }) {
       )
 }
 
+function RequestTiming({
+  assistant,
+  anchor,
+}: {
+  assistant: TableRecord | undefined
+  anchor: TableRecord | undefined
+}) {
+  if (assistant !== undefined) return <RecordTiming record={assistant} />
+  return (
+    <dl className={css.overview}>
+      <div>
+        <dt>Started</dt>
+        <StartedAtValue timestamp={anchor?.cell.startedAt ?? null} />
+      </div>
+      <div><dt>Duration</dt><dd>—</dd></div>
+    </dl>
+  )
+}
+
 function RecordPayload({
   record,
   direction,
@@ -983,6 +1018,7 @@ export function TrajectoryTable({
   onToggleAssistant,
 }: TrajectoryTableProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [selectedRequest, setSelectedRequest] = useState<SelectedRequest | null>(null)
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
   const [thinkingExpanded, setThinkingExpanded] = useState(true)
   const [detailsWidth, setDetailsWidth] = useState<number | null>(null)
@@ -1000,9 +1036,46 @@ export function TrajectoryTable({
   const promptSelected = selectedIndex === SYSTEM_PROMPT_INDEX
   const selected = allRecords.find(record => record.cell.index === selectedIndex)
   const selectedState = selected === undefined ? undefined : stateOf(selected)
-  const selectedTabs = promptSelected
-    ? SYSTEM_PROMPT_TABS
-    : selected === undefined ? [] : detailTabs(selected)
+  const selectedRequestRecords = selectedRequest === null
+    ? []
+    : allRecords.filter(record =>
+        record.turn === selectedRequest.turn
+        && record.group === selectedRequest.group,
+      )
+  const selectedRequestAssistant = selectedRequestRecords.find(
+    record => record.cell.kind === 'message',
+  )
+  const selectedRequestAnchor = selectedRequestAssistant ?? selectedRequestRecords[0]
+  const selectedRequestState: RecordState | undefined = selectedRequest === null
+    ? undefined
+    : selectedRequestAssistant?.cell.assistantMetrics?.completedTime === null
+      ? 'running'
+      : selectedRequestAssistant === undefined
+        && selectedRequestRecords.some(record => stateOf(record) === 'running')
+        ? 'running'
+        : 'complete'
+  const selectedRequestToolCalls = selectedRequestRecords.filter(
+    record => record.cell.kind === 'tool',
+  ).length
+  const selectedRequestSubtoolCalls = selectedRequestRecords.filter(
+    record => record.cell.kind === 'subtool',
+  ).length
+  const selectedRequestInputTotal = selectedRequestAssistant !== undefined
+    && (
+      selectedRequestAssistant.cell.input !== undefined
+      || selectedRequestAssistant.cell.cacheRead !== undefined
+      || selectedRequestAssistant.cell.cacheWrite !== undefined
+    )
+    ? (selectedRequestAssistant.cell.input ?? 0)
+      + (selectedRequestAssistant.cell.cacheRead ?? 0)
+      + (selectedRequestAssistant.cell.cacheWrite ?? 0)
+    : undefined
+  const activeTurn = selectedRequest?.turn ?? selected?.turn
+  const selectedTabs = selectedRequest !== null
+    ? REQUEST_TABS
+    : promptSelected
+      ? SYSTEM_PROMPT_TABS
+      : selected === undefined ? [] : detailTabs(selected)
   const selectedParents: ParentRecords = selected === undefined
     ? {}
     : parentRecords(allRecords, selected)
@@ -1022,6 +1095,7 @@ export function TrajectoryTable({
 
   const selectRecord = (index: number) => {
     const record = allRecords.find(candidate => candidate.cell.index === index)
+    setSelectedRequest(null)
     setSelectedIndex(index)
     if (record === undefined) return
     const available = new Set(detailTabs(record).map(tab => tab.id))
@@ -1030,8 +1104,15 @@ export function TrajectoryTable({
   }
 
   const selectSystemPrompt = () => {
+    setSelectedRequest(null)
     setSelectedIndex(SYSTEM_PROMPT_INDEX)
     activateTab('system-prompt')
+  }
+
+  const selectRequest = (request: SelectedRequest) => {
+    setSelectedIndex(null)
+    setSelectedRequest(request)
+    activateTab('overview')
   }
 
   const openRecordSummary = (target: TableRecord) => {
@@ -1046,6 +1127,7 @@ export function TrajectoryTable({
         break
       }
     }
+    setSelectedRequest(null)
     setSelectedIndex(target.cell.index)
     activateTab('overview')
   }
@@ -1101,13 +1183,18 @@ export function TrajectoryTable({
                 ? displayText
                 : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
               const isCollapsedSummary = record.collapsedSummary !== undefined
+              const request = record.groupStart
+                && !isCollapsedSummary
+                && !collapsedTurns.has(record.turn)
+                ? requestNumber(record.group)
+                : undefined
               return (
                 <tr
                   key={`${record.cell.index}:${record.collapsedSummaryKind ?? 'record'}`}
                   tabIndex={0}
                   aria-label={isCollapsedSummary
                     ? `Collapsed ${record.collapsedSummaryKind} summary, ${record.collapsedSummary}`
-                    : `${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
+                    : `${request === undefined ? '' : `Request ${request}, `}${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
                   aria-selected={!isCollapsedSummary && selectedIndex === record.cell.index}
                   data-kind={record.cell.kind}
                   data-group-start={record.groupStart || undefined}
@@ -1155,7 +1242,28 @@ export function TrajectoryTable({
                   }}
                 >
                 <td className={css.event}>
-                  {selected?.turn === record.turn && (
+                  {request !== undefined && (
+                    <button
+                      type="button"
+                      className={css.requestBoundaryControl}
+                      aria-label={`Request #${request}`}
+                      aria-pressed={
+                        selectedRequest?.turn === record.turn
+                        && selectedRequest.number === request
+                      }
+                      data-label={`Request #${request}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        selectRequest({
+                          turn: record.turn,
+                          number: request,
+                          group: record.group,
+                        })
+                      }}
+                      onDoubleClick={(event) => { event.stopPropagation() }}
+                    />
+                  )}
+                  {activeTurn === record.turn && (
                     <span className={css.turnRail} aria-hidden="true" />
                   )}
                   {!isCollapsedSummary && selectedIndex === record.cell.index && (
@@ -1188,7 +1296,7 @@ export function TrajectoryTable({
                         </span>
                         {record.turnStart && record.cell.opensTurn && (
                           <span
-                            className={selected?.turn === record.turn
+                            className={activeTurn === record.turn
                               ? `${css.turnLabel} ${css.turnLabelActive}`
                               : css.turnLabel}
                           >
@@ -1247,7 +1355,9 @@ export function TrajectoryTable({
           </tbody>
         </table>
       </div>
-      {(promptSelected || (selected !== undefined && selectedState !== undefined)) && (
+      {(selectedRequest !== null
+        || promptSelected
+        || (selected !== undefined && selectedState !== undefined)) && (
         <aside
           className={css.details}
           aria-label="Event details"
@@ -1329,7 +1439,17 @@ export function TrajectoryTable({
           />
           <div className={css.detailsHeader}>
             <div className={css.detailsTitle}>
-              {promptSelected
+              {selectedRequest !== null
+                ? (
+                    <>
+                      <span className={css.requestDetailsDot} aria-hidden="true" />
+                      <span className={css.requestDetailsName}>
+                        Request #{selectedRequest.number}
+                      </span>
+                      <span className={css.detailsLocation}>Turn {selectedRequest.turn}</span>
+                    </>
+                  )
+                : promptSelected
                 ? (
                     <span className={`${css.kindTag} ${css.systemNeutral}`}>SYSTEM</span>
                   )
@@ -1357,7 +1477,10 @@ export function TrajectoryTable({
               type="button"
               className={css.close}
               aria-label="Close details"
-              onClick={() => { setSelectedIndex(null) }}
+              onClick={() => {
+                setSelectedIndex(null)
+                setSelectedRequest(null)
+              }}
             >
               <span aria-hidden="true">×</span>
             </button>
@@ -1384,6 +1507,101 @@ export function TrajectoryTable({
             role="tabpanel"
             aria-labelledby={`trajectory-detail-${activeTab}`}
           >
+            {selectedRequest !== null
+              && selectedRequestState !== undefined
+              && activeTab === 'overview' && (
+              <>
+                <dl className={css.overview}>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{statusLabel(selectedRequestState)}</dd>
+                  </div>
+                  <div>
+                    <dt>Started</dt>
+                    <StartedAtValue
+                      timestamp={selectedRequestAnchor?.cell.startedAt ?? null}
+                    />
+                  </div>
+                  <div>
+                    <dt>Duration</dt>
+                    <dd>
+                      {formatElapsedSeconds(
+                        selectedRequestAssistant?.cell.timeSeconds ?? null,
+                      )}
+                    </dd>
+                  </div>
+                  {selectedRequestInputTotal !== undefined && (
+                    <div>
+                      <dt>Input</dt>
+                      <dd>{selectedRequestInputTotal} tok</dd>
+                    </div>
+                  )}
+                  {selectedRequestAssistant?.cell.cacheRead !== undefined && (
+                    <div className={css.requestTokenDetail}>
+                      <dt>Cached</dt>
+                      <dd>{selectedRequestAssistant.cell.cacheRead} tok</dd>
+                    </div>
+                  )}
+                  {selectedRequestAssistant?.cell.cacheWrite !== undefined && (
+                    <div className={css.requestTokenDetail}>
+                      <dt>Cache created</dt>
+                      <dd>{selectedRequestAssistant.cell.cacheWrite} tok</dd>
+                    </div>
+                  )}
+                  {selectedRequestAssistant?.cell.input !== undefined && (
+                    <div className={css.requestTokenDetail}>
+                      <dt>Other</dt>
+                      <dd>{selectedRequestAssistant.cell.input} tok</dd>
+                    </div>
+                  )}
+                  {selectedRequestAssistant?.cell.output !== undefined && (
+                    <div>
+                      <dt>Output</dt>
+                      <dd>{selectedRequestAssistant.cell.output} tok</dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt>Tool calls</dt>
+                    <dd>{selectedRequestToolCalls}</dd>
+                  </div>
+                  {selectedRequestSubtoolCalls > 0 && (
+                    <div>
+                      <dt>Subtool calls</dt>
+                      <dd>{selectedRequestSubtoolCalls}</dd>
+                    </div>
+                  )}
+                </dl>
+                <div className={css.overviewSections}>
+                  {selectedRequestAssistant !== undefined && (
+                    <OverviewSection
+                      label="Result"
+                      onOpen={() => { openRecordSummary(selectedRequestAssistant) }}
+                    >
+                      <MarkdownRecordContent
+                        record={selectedRequestAssistant}
+                        rendered
+                        preview
+                        thinkingExpanded={thinkingExpanded}
+                        onThinkingExpandedChange={setThinkingExpanded}
+                        onOpenCall={openCallSummary}
+                      />
+                    </OverviewSection>
+                  )}
+                  <OverviewSection label="Timing" onOpen={() => { activateTab('timing') }}>
+                    <RequestTiming
+                      assistant={selectedRequestAssistant}
+                      anchor={selectedRequestAnchor}
+                    />
+                  </OverviewSection>
+                </div>
+              </>
+            )}
+            {selectedRequest !== null && activeTab === 'timing' && (
+              <RequestTiming
+                assistant={selectedRequestAssistant}
+                anchor={selectedRequestAnchor}
+              />
+            )}
             {promptSelected && activeTab === 'system-prompt' && (
               prompt === undefined
                 ? <p className={css.noPayload}>Request header not recorded</p>

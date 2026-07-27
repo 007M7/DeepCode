@@ -39,6 +39,8 @@ export interface TrajectoryLayoutInput {
 
 interface UsageLike {
   inputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
   outputTokens?: number
   reasoningTokens?: number
 }
@@ -498,7 +500,7 @@ function safeImageSource(value: string): string | undefined {
 
 function stringifySourceValue(value: unknown): string {
   const json = JSON.stringify(value, null, 2)
-  return json ?? String(value)
+  return json || String(value)
 }
 
 /**
@@ -526,6 +528,8 @@ function enclosingUserTurn(
 function attachUsage(cell: TrajectoryCellProps, usage: UsageLike | undefined): void {
   if (usage === undefined) return
   if (usage.inputTokens !== undefined) cell.input = usage.inputTokens
+  if (usage.cacheReadTokens !== undefined) cell.cacheRead = usage.cacheReadTokens
+  if (usage.cacheWriteTokens !== undefined) cell.cacheWrite = usage.cacheWriteTokens
   if (usage.outputTokens !== undefined) cell.output = usage.outputTokens
   if (usage.reasoningTokens !== undefined) cell.think = usage.reasoningTokens
 }

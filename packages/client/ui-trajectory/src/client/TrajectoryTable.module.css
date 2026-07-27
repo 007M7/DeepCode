@@ -32,7 +32,7 @@
 }
 
 .eventColumn {
-  width: 96px;
+  width: 104px;
 }
 
 .contentColumn {
@@ -91,6 +91,78 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
+.requestBoundaryControl {
+  position: absolute;
+  z-index: 6;
+  top: -8px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.requestBoundaryControl::before {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-caption);
+  box-shadow:
+    0 0 0 2px var(--dsw-alias-bg-layer-1),
+    0 0 0 3px transparent;
+  content: '';
+  transition:
+    background 120ms var(--ds-ease-in-out),
+    transform 120ms var(--ds-ease-in-out);
+}
+
+.requestBoundaryControl::after {
+  position: absolute;
+  top: 2px;
+  left: 17px;
+  width: max-content;
+  padding: 0 4px;
+  border-radius: 2px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1);
+  content: attr(data-label);
+  font: 9px/12px var(--ds-font-family-code);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-2px);
+  transition:
+    opacity 120ms var(--ds-ease-in-out),
+    transform 120ms var(--ds-ease-in-out);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.requestBoundaryControl:hover::before,
+.requestBoundaryControl:focus-visible::before,
+.requestBoundaryControl[aria-pressed='true']::before {
+  background: var(--dsw-alias-label-primary);
+  transform: scale(1.25);
+}
+
+.requestBoundaryControl:hover::after,
+.requestBoundaryControl:focus-visible::after {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.requestBoundaryControl:focus-visible {
+  outline: none;
+}
+
+.table tbody tr:has(.requestBoundaryControl:hover):not([data-selected='true']) {
+  background: transparent;
+}
+
 .event {
   position: relative;
 }
@@ -143,7 +215,7 @@
 .event {
   overflow: visible !important;
   padding-right: 4px !important;
-  padding-left: 10px !important;
+  padding-left: 18px !important;
 }
 
 .turnLabel {
@@ -475,6 +547,19 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.requestDetailsDot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-secondary);
+}
+
+.requestDetailsName {
+  flex: none;
+  font: 500 12px/16px var(--ds-font-family-code);
+}
+
 .detailsLocation {
   min-width: 0;
   overflow: hidden;
@@ -608,6 +693,10 @@
   min-height: 22px;
   padding: 0 14px;
   align-items: center;
+}
+
+.overview > .requestTokenDetail dt {
+  padding-left: 12px;
 }
 
 .overview dt {
