@@ -3,7 +3,7 @@
  * `method` are requests, `id` alone is a response, and `method` alone is a
  * notification. Malformed lines are ignored; handler failures become error frames.
  *
- * @module @deepseek-ai/dsh-jsonrpc/transport
+ * @module @deepseek-ai/dsh-sdk-protocol/transport
  */
 
 import { randomUUID } from 'node:crypto'
@@ -14,23 +14,38 @@ type JsonRpcId = string | number
 type RequestHandler = (method: string, params: Record<string, unknown>) => Promise<unknown>
 type NotificationHandler = (method: string, params: Record<string, unknown>) => void
 
+/** A JSON-RPC error response, preserving the wire `code` and optional `data`. */
+export class JsonRpcResponseError extends Error {
+  /**
+   * @param code - the wire error code, or `undefined` when the peer sent none.
+   * @param message - the wire error message.
+   * @param data - the optional structured error payload, verbatim.
+   */
+  constructor(readonly code: number | undefined, message: string, readonly data?: unknown) {
+    super(message)
+    this.name = 'JsonRpcResponseError'
+  }
+}
+
 /**
- * Outbound request and notification surface used by {@link HarnessSdkServer}.
+ * Outbound request and notification surface used by the runtime server and
+ * SDK clients.
  */
 export interface JsonRpcTransportPeer {
   /**
    * Send a request and await its response.
    * @param method - the JSON-RPC method name.
    * @param params - the request parameters object.
-   * @returns the result; rejects on an error response, write failure, or closure.
+   * @returns the result; rejects with {@link JsonRpcResponseError} on an error
+   * response, and with a plain `Error` on a write failure or closure.
    */
-  request(method: string, params: Record<string, unknown>): Promise<unknown>
+  request(method: string, params: object): Promise<unknown>
   /**
    * Send a notification; omitted params produce no `params` member.
    * @param method - the JSON-RPC method name.
    * @param params - the optional notification parameters object.
    */
-  notify(method: string, params?: Record<string, unknown>): void
+  notify(method: string, params?: object): void
 }
 
 interface PendingRequest {
@@ -94,21 +109,53 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     this.notificationHandler = handler
   }
 
-  request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  /**
+   * Send a request and await its response.
+   * @param method - the JSON-RPC method name.
+   * @param params - the request parameters object.
+   * @param signal - optional abandonment signal: aborting removes the pending
+   * entry (no state is retained for a response that may never come) and
+   * rejects with the signal's reason.
+   * @returns the result; rejects per {@link JsonRpcTransportPeer.request}.
+   */
+  request(method: string, params: object, signal?: AbortSignal): Promise<unknown> {
     const id = `req_${randomUUID().replaceAll('-', '')}`
     const message = { jsonrpc: '2.0', id, method, params }
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      let detach = (): void => {}
+      if (signal !== undefined) {
+        if (signal.aborted) {
+          reject(abortError(signal.reason))
+          return
+        }
+        const onAbort = (): void => {
+          this.pending.delete(id)
+          reject(abortError(signal.reason))
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        detach = () => { signal.removeEventListener('abort', onAbort) }
+      }
+      this.pending.set(id, {
+        resolve: (value) => {
+          detach()
+          resolve(value)
+        },
+        reject: (error) => {
+          detach()
+          reject(error)
+        },
+      })
       try {
         this.write(message)
       } catch (error) {
         this.pending.delete(id)
+        detach()
         reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
   }
 
-  notify(method: string, params?: Record<string, unknown>): void {
+  notify(method: string, params?: object): void {
     this.write(params === undefined ? { jsonrpc: '2.0', method } : { jsonrpc: '2.0', method, params })
   }
 
@@ -196,7 +243,11 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     this.pending.delete(id)
     if (frame.error && typeof frame.error === 'object') {
       const error = frame.error as Record<string, unknown>
-      pending.reject(new Error(typeof error.message === 'string' ? error.message : 'JSON-RPC error'))
+      pending.reject(new JsonRpcResponseError(
+        typeof error.code === 'number' ? error.code : undefined,
+        typeof error.message === 'string' ? error.message : 'JSON-RPC error',
+        error.data,
+      ))
       return
     }
     pending.resolve(frame.result)
@@ -220,4 +271,9 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
 /** Normalize JSON-RPC `params` to a plain object (arrays and scalars collapse to `{}`). */
 function objectParams(params: unknown): Record<string, unknown> {
   return params && typeof params === 'object' && !Array.isArray(params) ? params as Record<string, unknown> : {}
+}
+
+/** Normalize an abort reason into the rejection Error (a non-Error reason is stringified). */
+function abortError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(`JSON-RPC request aborted: ${String(reason)}`)
 }
