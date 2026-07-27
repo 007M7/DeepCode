@@ -877,6 +877,9 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../session-projection/session-projection
+      '@deepseek-ai/dsh-session-title':
+        specifier: workspace:^
+        version: link:../../session-title/session-title
       immer:
         specifier: ^10.1.1
         version: 10.2.0
@@ -958,6 +961,12 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection
+      '@deepseek-ai/dsh-tool-todo':
+        specifier: workspace:^
+        version: link:../../todo/tool-todo
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
