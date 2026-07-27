@@ -129,15 +129,16 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the prompt section and the narrator's notices). The LAST such
- * event is the session's override ({@link effectiveApprovalPolicy});
- * who asked for it is derivable from position (an event after the log's
- * last `request/header` was a runtime switch by the user).
+ * from the prompt section and the narrator's notices). The last such OWN
+ * (post-seed) event is the session's override
+ * ({@link approvalOverrideOf}); who asked for it is derivable from
+ * position (an own event after the log's last own `request/header` was a
+ * runtime switch by the user).
  */
 'approval/policy': { policy: ApprovalPolicy }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:68`](../packages/ui/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -353,15 +354,16 @@ Source: [`packages/core/session/src/types.ts:332`](../packages/core/session/src/
 /**
  * The session's sandbox mode was switched — log-only (like `approval/*`;
  * NOT a surface event, carries no `surfaceOp`): durable and replayable,
- * never in the model transcript. The LAST such event is the session's
- * override ({@link effectiveSandboxMode}); who asked for it is derivable
- * from position (an event after the log's last `request/header*` was a
- * runtime switch by the user; see the tool layer's narrator).
+ * never in the model transcript. The last such OWN (post-seed) event is
+ * the session's override ({@link sandboxOverrideOf}); who asked for it is
+ * derivable from position (an event after the log's last
+ * `request/header*` was a runtime switch by the user; see the tool
+ * layer's narrator).
  */
 'sandbox/mode': { mode: SandboxMode }
 ```
 
-Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
+Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:39`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `session/*`
 
