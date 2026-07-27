@@ -21,7 +21,7 @@ import {
   sessionListRequestSchema,
   sessionPromptRequestSchema,
 } from '../api/sessions.schema.ts'
-import { hostDescribeRequestSchema } from '../api/host.schema.ts'
+import { hostDescribeRequestSchema, hostPickDirectoryRequestSchema } from '../api/host.schema.ts'
 import {
   workspaceCreateRequestSchema,
   workspaceDeleteRequestSchema,
@@ -55,6 +55,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
+  'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
   'workspace.list': { schema: workspaceListRequestSchema, invoke: (api, r) => api.workspace.list(r) },
   'workspace.create': { schema: workspaceCreateRequestSchema, invoke: (api, r) => api.workspace.create(r) },
   'workspace.rename': { schema: workspaceRenameRequestSchema, invoke: (api, r) => api.workspace.rename(r) },
