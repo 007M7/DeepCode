@@ -49,7 +49,7 @@ describe('workspace cache/table invariant', () => {
       .toThrow(/cache still publishes/)
   })
 
-  it('allows deletion only after a provisional create cache entry was removed for rollback', async () => {
+  it('allows deletion after the registry removed the cache entry for rollback or explicit deletion', async () => {
     const ctx = await setup([])
     expect(() => { ctx.emit('domain/changed', deleted()) }).not.toThrow()
   })

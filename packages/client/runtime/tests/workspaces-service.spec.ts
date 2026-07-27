@@ -76,6 +76,48 @@ describe('WorkspaceManager', () => {
       ok: false, error: { code: 'internal', message: 'create transport' },
     })
   })
+
+  it('replays removal over an in-flight baseline and ignores duplicate or late updates', async () => {
+    const api = new FakeApiClient()
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
+    api.onWorkspaceList = () => gate.promise
+    const manager = new WorkspaceManager(api)
+    const hydration = manager.refresh()
+    manager.handleHostEnvelope({
+      rpcId: 'removed' as never,
+      payload: { type: 'host/workspace-removed', workspaceId: wid('gone') },
+    })
+    gate.resolve(ok({ items: [workspace('gone'), workspace('kept')] as never[] }))
+    await hydration
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['kept'])
+
+    manager.handleHostEnvelope({
+      rpcId: 'late-change' as never,
+      payload: { type: 'host/workspace-changed', workspace: workspace('gone') },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'duplicate-remove' as never,
+      payload: { type: 'host/workspace-removed', workspaceId: wid('gone') },
+    })
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['kept'])
+  })
+
+  it('removes from the unary delete echo while a refresh is in flight', async () => {
+    const api = new FakeApiClient()
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('gone')] as never[] }))
+    const manager = new WorkspaceManager(api)
+    await manager.refresh()
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
+    api.onWorkspaceList = () => gate.promise
+    const refresh = manager.refresh()
+
+    await expect(manager.delete(wid('gone'))).resolves.toMatchObject({ ok: true })
+    expect(api.callsOf('workspace.delete')).toEqual([{ workspaceId: 'gone' }])
+    expect(manager.getSnapshot().items).toEqual([])
+    gate.resolve(ok({ items: [workspace('gone')] as never[] }))
+    await refresh
+    expect(manager.getSnapshot().items).toEqual([])
+  })
 })
 
 describe('WorkspacesService', () => {
@@ -174,5 +216,21 @@ describe('WorkspacesService', () => {
       code: 'workspace-invalid-path', message: 'missing', details: { path: '/missing' },
     }))
     await expect(workspaces.create({ path: '/missing' })).rejects.toThrow(/workspace-invalid-path: missing/)
+  })
+
+  it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
+    await workspaces.refresh()
+    await expect(workspaces.delete(wid('alpha'))).resolves.toBeUndefined()
+    expect(workspaces.list.getSnapshot().items).toEqual([])
+
+    api.onWorkspaceDelete = () => Promise.resolve(err({
+      code: 'workspace-not-found', message: 'gone', details: { workspaceId: 'ghost' },
+    }))
+    await expect(workspaces.delete(wid('ghost'))).rejects.toThrow(/workspace-not-found: gone/)
   })
 })

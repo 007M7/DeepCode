@@ -14,15 +14,15 @@ Status: implemented
 
 ## 决策
 
-[CI](../../../../.github/workflows/ci.yml) 为拉取请求事件与 master 推送事件赋予互补的职责。拉取请求在 GitHub 标准托管容量上运行合并后的 Linux 和 Windows 作业，以及 Node 兼容性与 Python 契约。向 `master` 推送时会跳过这些作业，改为运行三个显式参考作业，名称分别为 `serial / linux`、`serial / macos` 和 `serial / windows`。这些作业有意分别重复简短的代码检出、运行时设置和依赖锁定的安装步骤，不用矩阵或可复用工作流把操作系统差异隐藏起来。`workflow_dispatch` 仅用于运行器基准测试。
+[CI](../../../../.github/workflows/ci.yml) 为拉取请求事件与 master 推送事件赋予互补的职责。拉取请求在 GitHub 标准托管容量上运行合并后的 Linux 和 Windows 作业，以及 Node 兼容性与 Python 契约。向 `master` 推送时会跳过这些作业，改为运行四个显式参考作业：在标准托管运行器上的 `serial / linux`、`serial / macos` 和 `serial / windows`，以及在公司自有 `vm-backup` 池上的 `serial / linux (self-hosted standby)`——后者是热备演练，持续验证[故障切换手册](2026-07-26-ci-failover-runbook.md)所描述的切换目标。这些作业有意分别重复简短的代码检出、运行时设置和依赖锁定的安装步骤，不用矩阵或可复用工作流把操作系统差异隐藏起来。`workflow_dispatch` 仅用于运行器基准测试。
 
-每个参考作业均在不设置任何分片选择器的情况下运行 `pnpm run check:ci`。`DSH_GATE_CONCURRENCY=1` 使顶层聚合每次只执行一个已经就绪的门禁；覆盖率、快照回放、built-bin 冒烟测试和发布验证的并发数也设为 1。三种操作系统的作业可以彼此并行，但每台主机上的仓库门禁都串行运行且完整执行。Linux 在回放快照前安装 bubblewrap，Windows 则在安装采用符号链接的工作区前启用开发人员模式。
+每个参考作业均在不设置任何分片选择器的情况下运行 `pnpm run check:ci`。`DSH_GATE_CONCURRENCY=1` 使顶层聚合每次只执行一个已经就绪的门禁；覆盖率、快照回放、built-bin 冒烟测试和发布验证的并发数也设为 1。各参考作业可以彼此并行，但每台主机上的仓库门禁都串行运行且完整执行。Linux 在回放快照前安装 bubblewrap，Windows 则在安装采用符号链接的工作区前启用开发人员模式。
 
 该完整聚合流程仍明确划分平台归属。`pty-local` 支持 Linux 与 macOS，因此其单元测试和逐文件覆盖率契约由 POSIX 平台负责，而不会在 Windows 上加载一个明确拒绝 `win32` 的后端；Windows 仍会执行所有可移植包（package）。可移植 fixture（测试前置数据）通过 `node:path` 派生原生路径，使用与生产代码相同的原生 realpath 实现比较规范化后的路径标识，并采用所有宿主机均允许的文件名。ACP（Agent Client Protocol）快照运行还会把生成的 cwd 分别通过 realpath 的 JavaScript 实现与原生实现得到的两种表示一并传给规范化器；规范化器按长度从长到短替换这些别名，避免 Windows 的短路径与长路径表示差异导致共享 fixture 反复变化。
 
 macOS 参考流程使用 fork 进程运行常规 Vitest 项目。macOS arm64 上的 Node 24 曾在工作线程中执行 CJS 词法分析器时异常终止；进程边界能够隔离这一外部运行时故障，且无需从聚合流程中删除任何测试，而 Linux 与 Windows 仍使用开销更低的线程池。仓库自身引入的竞态均在相应的观测边界修复：开发构建产物的轮询逻辑每次发布重新扫描结果前，都会先暂存候选表、候选图和候选监视基线映射；构建产物缺失后会一直保持脏状态，直到成功计算内容哈希。PTY 就绪检测会在轮询检查前台进程组归属期间保留提示符候选项；常规静默时限也适用于交互式子进程继承提示符标记的情况。真实 PTY fixture 会在运行时拼接同步标记，使就绪等待逻辑不会把交互式 shell 的输入回显误判为子进程已就绪。实时链接场景下的包管理器 e2e 会保留由工作流预先准备的 Corepack 主目录、pnpm 元数据缓存和 store 缓存，同时隔离其他包管理器的可变缓存，因此不会在安装前丢弃可复用的包管理器状态。
 
-master 分支的参考作业仅用于诊断，不参与拉取请求所要求的 `all checks passed` 结果。拉取请求只运行其必需作业；向 master 推送时只运行三个串行参考作业。系统根据已完成托管作业的时间戳评估性能，并将其报告为测量结果，而不是写成 `timeout-minutes` 值。
+master 分支的参考作业仅用于诊断，不参与拉取请求所要求的 `all checks passed` 结果。拉取请求只运行其必需作业；向 master 推送时只运行串行参考作业。系统根据已完成托管作业的时间戳评估性能，并将其报告为测量结果，而不是写成 `timeout-minutes` 值。
 
 可移植的参考流程使用 GitHub 标准的 `ubuntu-latest`、`macos-latest` 和 `windows-2025` 标签；`serial / windows` 是仅存的原生 Windows 作业，是 Wine 托管拉取请求通道背后的完整内核标尺（[Wine 通道决策](2026-07-27-wine-windows-gates-experiment.md)）。依据[必需 CI 决策](2026-07-23-portable-required-pull-request-ci.md)，拉取请求必需作业使用可移植的标准容量。更高核心数的托管运行器仍仅用于手动基准测试，因为正确性路径必须无需仓库外部的运行器配置即可运行。
 
