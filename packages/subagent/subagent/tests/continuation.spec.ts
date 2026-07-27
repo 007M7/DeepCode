@@ -162,7 +162,7 @@ describe('SubagentService.startContinuable', () => {
     expect(ctx.agents.get(started.childId)).toBeUndefined()
   })
 
-  it('publishes the service-allocated child id and appends the turn-enclosed descriptor', async () => {
+  it('publishes the service-allocated child id and appends the pre-turn descriptor', async () => {
     const { ctx, parent } = await setup([textResponse('answer')])
     const seen: SessionEvent[] = []
     ctx.on('session/event', (session, event) => {
@@ -174,7 +174,7 @@ describe('SubagentService.startContinuable', () => {
     const descriptorIndex = seen.findIndex(event => event.type === 'subagent/descriptor')
     const turnStartIndex = seen.findIndex(event => event.type === 'turn/start')
     const firstAssistant = seen.findIndex(event => event.type === 'assistant/message')
-    expect(descriptorIndex).toBeGreaterThan(turnStartIndex)
+    expect(descriptorIndex).toBeLessThan(turnStartIndex)
     expect(descriptorIndex).toBeLessThan(firstAssistant)
     const descriptor = seen[descriptorIndex] as SessionEvent<'subagent/descriptor'>
     expect(descriptor.data).toEqual({
@@ -192,6 +192,29 @@ describe('SubagentService.startContinuable', () => {
     expect(loaded.meta.parentSession).toBe(SessionId('parent'))
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
   })
+
+  it.each(['block', 'throw'] as const)(
+    'persists the descriptor before initial prompt admission can $0',
+    async (outcome) => {
+      const { ctx, parent, adapter } = await setup([])
+      ctx.on('agent/prompt-submit', async (subject, _message, _signal, next) => {
+        if (subject === parent) return next()
+        if (outcome === 'block') return { kind: 'block', reason: 'blocked by policy' }
+        throw new Error('prompt admission failed')
+      })
+
+      const started = ctx.subagents.startContinuable(startSpec(parent))
+      const snapshot = await waitTerminal(ctx, started.taskId, parent)
+
+      expect(snapshot.status).toBe('failed')
+      expect(adapter.requests).toEqual([])
+      const loaded = await ctx.sessionPersistence.load(started.childId)
+      const descriptorIndexes = loaded.events.flatMap((event, index) =>
+        event.type === 'subagent/descriptor' ? [index] : [])
+      expect(descriptorIndexes).toHaveLength(1)
+      expect(loaded.events.some(event => event.type === 'turn/start')).toBe(false)
+    },
+  )
 
   it('rejects synchronously with no Task when persistence is not configured', async () => {
     const { ctx, parent } = await setup([textResponse('unused')], { persistence: false })

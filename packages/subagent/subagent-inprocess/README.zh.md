@@ -12,7 +12,7 @@
 
 1. 校验父 agent 深度和可选的绝对 `maxDepth`，然后把子 agent 深度推导为父 agent 深度加一，并将其持久化到子 agent 会话 header。
 2. 直接调用 `parent.ctx.agents.create`，把必需的请求信号传入工厂的创建事务。可继续请求会精确发布 `request.continuation.sessionId`，而不是内部生成的 ID。
-3. 在该事务未发布的设置窗口中，安装请求的 persona、工具限制和结构化输出运行时；对于可继续请求，还会安装一次性的 `agent/step` 贡献，在初始 `turn/start` 之后、首次请求之前追加 `subagent/descriptor` 事件，使描述符随该轮次的 flush 到达持久化层。
+3. 在该事务未发布的设置窗口中，安装请求的 persona、工具限制和结构化输出运行时；对于可继续请求，还会前置安装一次性的 `agent/prompt-submit` 贡献。它会在下游 prompt admission 能够阻止请求或抛出异常之前追加 `subagent/descriptor` 事件；admission 获准后才会开启初始轮次，即使没有轮次开启，最终的必需检查点仍会持久化该描述符。
 4. 发布子 agent，保留返回的 `AgentHandle`，并通过先调用 `child.followup(prompt)`、再调用 `child.whenIdle()` 来驱动一项任务。
 5. 对于可继续启动或恢复，在返回结果前再次调用 `child.ctx.sessions.flushRequired(child.session)`。这次最终确认要求有已安装的持久性监听器参与，并会重试轮次检查点失败后保留的事件；如果没有监听器参与或任一监听器失败，`result` 会以 `SubagentError.code === 'DURABILITY_FAILED'` 拒绝，将检查点失败保留为 `cause`，并在消息中说明恢复风险。即使已记录完成的轮次，或随后检查点失败，等待期间发生的激活取消仍决定尚未发布的结果。前台运行保留循环的尽力检查点行为。
 6. 读取子 agent 自身最后一条 assistant 消息，以及由消息触发的最新轮次原因；排除任何 fork 初始内容和后续由插件拥有的轮次间记录。

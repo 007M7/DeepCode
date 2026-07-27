@@ -85,17 +85,16 @@ function prePublicationAbort(): Error {
 
 /**
  * Register the one-shot child-scoped contribution that appends the durable
- * `subagent/descriptor` event. `agent/step` is the first serial seam
- * inside the child's initial turn, so the append lands after `turn/start` and
- * before the first request, and reaches persistence with that turn's flush.
+ * `subagent/descriptor` event. The prepended `agent/prompt-submit` wrapper
+ * appends before downstream admission can block or throw. Allowed admission
+ * opens the initial turn afterward; the final required checkpoint also
+ * persists the descriptor when no turn opens.
  */
 function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescriptorData): void {
-  let appended = false
-  childCtx.on('agent/step', (agent) => {
-    if (appended) return
-    appended = true
+  childCtx.once('agent/prompt-submit', (agent, _message, _signal, next) => {
     agent.session.append('subagent/descriptor', descriptor)
-  })
+    return next()
+  }, { prepend: true })
 }
 
 /**
@@ -103,7 +102,7 @@ function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescripto
  * already published in the registry; rejection means the agent factory's
  * creation transaction and any partially-created child have reached quiescence.
  * A `request.continuation` publishes exactly its stable child id and appends
- * its descriptor inside the child's initial turn.
+ * its descriptor before the child's initial prompt admission.
  * @param request - the trusted typed start request, including its required signal.
  * @param options - the optional fork seed.
  * @returns a ready holder-owned run.
