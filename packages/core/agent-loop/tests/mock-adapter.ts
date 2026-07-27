@@ -1,4 +1,4 @@
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 /** Helpers to write scripted responses tersely. */
@@ -64,8 +64,23 @@ export function toolCallResponse(rawCallId: string, name: string, args: object, 
 export class MockAdapter extends LlmAdapter {
   requests: GenerateOptions[] = []
 
-  constructor(private script: (StreamChunk[] | ((options: GenerateOptions) => StreamChunk[]) | 'hang')[]) {
+  constructor(
+    private script: (StreamChunk[] | ((options: GenerateOptions) => StreamChunk[]) | 'hang')[],
+    private readonly reasoning?: LlmModelReasoningInfo,
+  ) {
     super()
+  }
+
+  override resolveModel(
+    provider: string,
+    model: string,
+  ): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      ...this.reasoning === undefined ? {} : { reasoning: this.reasoning },
+    })
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
