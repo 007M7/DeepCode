@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type ToolResult } from '@deepseek-ai/dsh-tools'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -432,6 +432,11 @@ describe('tool-owned presentation (pure presentCall)', () => {
     return ctx.tools.get(name)?.presentCall?.(args)
   }
 
+  const presentResult = async (name: string, args: unknown, result: ToolResult) => {
+    const { ctx } = await setup()
+    return ctx.tools.get(name)?.presentResult?.(args, result)
+  }
+
   it('read: generic card titled by file with the read window, read kind, location with the offset line', async () => {
     expect(await presentCall('read', { file_path: 'src/a.ts', offset: 12, limit: 40 })).toEqual({
       card: 'generic', title: 'Read src/a.ts (12 - 51)', kind: 'read',
@@ -443,6 +448,36 @@ describe('tool-owned presentation (pure presentCall)', () => {
     expect(await presentCall('read', { file_path: 'a.txt' })).toEqual({
       card: 'generic', title: 'Read a.txt', kind: 'read', locations: [{ path: 'a.txt', line: 1 }],
     })
+  })
+
+  it('read: completed presentation removes the model-facing XML envelope', async () => {
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\n1: hello\n\n(End of file - total 1 lines)\n</content>' }],
+      isError: false,
+    })).toEqual({
+      card: 'generic',
+      content: [{ type: 'text', text: '1: hello\n\n(End of file - total 1 lines)' }],
+    })
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: 'malformed replay' }],
+      isError: false,
+    })).toBeUndefined()
+  })
+
+  it('read: completed presentation declines errors and non-single-text content', async () => {
+    const envelope = '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\nbody\n</content>'
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: envelope }],
+      isError: true,
+    })).toBeUndefined()
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: envelope }, { type: 'text', text: 'second' }],
+      isError: false,
+    })).toBeUndefined()
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'reasoning', text: envelope }],
+      isError: false,
+    })).toBeUndefined()
   })
 
   it('read: "from line N" window when only offset is set', async () => {

@@ -1,6 +1,6 @@
 /**
- * Self-referential runtime tools: inspect live services/plugins/tools, mount a returned plugin
- * under an owned dynamic fiber, and unmount it to quiescence. Registrations are fiber effects,
+ * Self-referential runtime tools: inspect live services/plugins/tools, mount a returned temporary
+ * plugin under an owned dynamic fiber, and unmount it to quiescence. Registrations are fiber effects,
  * so plugin disposal removes the entire dynamic subtree. The VM and context façade prevent
  * accidental misuse, not hostile code: an allowed service such as `ctx.bash` reaches the real
  * runtime. Named exports preserve loader injection metadata.
@@ -40,8 +40,8 @@ export const Config: z<Config> = z.object({
 type ResolvedConfig = Required<Config>
 
 /**
- * Mount the three cordis tools on `ctx.tools` and create the `cordis-dynamic`
- * group fiber every dynamic mount hangs under.
+ * Register the three cordis tools and own every temporary plugin under one
+ * `cordis-dynamic` group fiber.
  * @param ctx - the plugin context (`tools` injected).
  * @param config - the schemastery-resolved {@link Config}.
  */
@@ -56,19 +56,21 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'cordis_inspect',
     description:
-      'Inspect the live cordis runtime that is running THIS agent. Read-only. '
+      'Inspect the live Cordis runtime in the current DSH process. Read-only. '
       + 'Sections: `services` (every provided ctx service and the plugin fiber that owns it), '
-      + '`plugins` (a flat list of the loaded plugins with their lifecycle states), '
+      + '`plugins` (all live plugin fibers with their lifecycle states), '
       + '`tools` (the model-facing tools currently registered, i.e. what you can call), '
-      + '`dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), '
+      + '`temporary` (only temporary Plugins created by cordis_mount: id, name, state, provided services, awaited services, and lifetime), '
       + '`api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), '
       + '`events` (every harness event with its dispatch mode and exact signature — pick listener targets here). '
-      + 'Omit `what` to get all six sections. With `what:"api"` or `what:"events"`, pass an exact `name` '
+      + 'Temporary Plugins exist only in memory, remain active across later turns, and disappear after cordis_unmount, toolset unload, or DSH restart; they are not restored automatically. '
+      + 'The `temporary` section is a subset of `plugins`. Omit `what` to get all six sections. '
+      + 'With `what:"api"` or `what:"events"`, pass an exact `name` '
       + 'to narrow to one service/event and include its original source JSDoc.',
     parameters: {
       what: {
         type: 'string',
-        enum: ['services', 'plugins', 'tools', 'dynamic', 'api', 'events'],
+        enum: ['services', 'plugins', 'tools', 'temporary', 'api', 'events'],
         description: 'Limit the report to one section. Omit for all sections.',
       },
       name: {
@@ -84,19 +86,19 @@ export function apply(ctx: Context, config: Config): void {
       if (args.name !== undefined && args.what !== 'api' && args.what !== 'events') {
         throw new Error('name is valid only with what:"api" or what:"events"')
       }
-      const sections: [heading: string, body: () => string[]][] = [
-        ['services', () => describeServices(ctx)],
-        ['plugins', () => describePlugins(ctx)],
+      const sections: [key: string, heading: string, body: () => string[]][] = [
+        ['services', 'services', () => describeServices(ctx)],
+        ['plugins', 'plugins', () => describePlugins(ctx)],
         // The calling agent's view: scoped/shadowed tools included, restricted
         // globals absent — "what you can call", not the global registry.
-        ['tools', () => describeTools(ctx, exec.agent)],
-        ['dynamic', () => describeDynamic(ctx, mounts)],
-        ['api', () => describeApi(ctx, SERVICE_API, INHERITED_CTX_API, TYPE_API, args.name)],
-        ['events', () => describeEvents(EVENT_API, args.name)],
+        ['tools', 'tools', () => describeTools(ctx, exec.agent)],
+        ['temporary', 'Temporary Plugins', () => describeDynamic(ctx, mounts)],
+        ['api', 'api', () => describeApi(ctx, SERVICE_API, INHERITED_CTX_API, TYPE_API, args.name)],
+        ['events', 'events', () => describeEvents(EVENT_API, args.name)],
       ]
-      const selected = sections.filter(([heading]) => args.what === undefined || args.what === heading)
+      const selected = sections.filter(([key]) => args.what === undefined || args.what === key)
       const text = selected
-        .map(([heading, body]) => `## ${heading}\n${body().join('\n')}`)
+        .map(([, heading, body]) => `## ${heading}\n${body().join('\n')}`)
         .join('\n\n')
       return Promise.resolve(text)
     },
@@ -106,8 +108,13 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'cordis_mount',
     description:
-      'Mount a NEW cordis plugin into the live runtime that is running THIS agent '
-      + '(self-modification). `code` runs as the body of an async JavaScript function '
+      'Mount a temporary Cordis Plugin in the current DSH process. '
+      + 'This creates an in-memory runtime Plugin, not an installed or configured Plugin. '
+      + 'It remains active across later turns until cordis_unmount, toolset unload, or DSH restart. '
+      + 'It does not create files, install a package, change cordis.yml or personal/project config, survive restart, or automatically become permanent. '
+      + 'To keep it, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow. '
+      + 'It may affect other sessions in the same process; the sandbox is not a security boundary, and injected services reach the real runtime. '
+      + '`code` runs now as the body of an async JavaScript function '
       + 'in an isolated sandbox and MUST `return` a plugin. Two forms: '
       + 'FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register '
       + 'tools, listen to events, and provide services, but reaching ANY service (e.g. '
@@ -131,10 +138,10 @@ export function apply(ctx: Context, config: Config): void {
       + 'oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: \'object\', properties, required?: […] } wrapper is also accepted with open-by-default objects. A '
       + 'tool\'s `execute` MUST return the lossless JSON value declared by `output.schema`; '
       + '`output.render(args, value)` separately returns Native/model content blocks. '
-      + 'Mounts can COMPOSE: one plugin may `ctx.provide(\'name\', value)` a service and '
+      + 'Temporary Plugins can COMPOSE: one Plugin may `ctx.provide(\'name\', value)` a service and '
       + 'another may declare `inject: [\'name\']` to consume it — the consumer stays pending '
       + 'until the provider exists and returns to pending when the provider is unmounted. '
-      + 'Everything registered inside `apply` is cleaned up automatically on unmount. '
+      + 'Everything registered inside `apply` is cleaned up automatically by cordis_unmount. '
       + 'Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness '
       + 'terminal), `harness.defineTool`, `harness.registerTool`, '
       + '`btoa`, `atob`, `TextEncoder`, `TextDecoder`. '
@@ -143,7 +150,7 @@ export function apply(ctx: Context, config: Config): void {
       + 'errors; `process` and `Buffer` are undefined. Instead use inject: [\'fs\'] + ctx.fs for '
       + 'files, inject: [\'web\'] + ctx.web for HTTP, inject: [\'bash\'] + ctx.bash for processes, '
       + 'and inject: [\'timer\'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, '
-      + 'auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. '
+      + 'auto-cleaned when unmounted) — cordis_inspect what:"api" shows what THIS runtime provides. '
       + 'Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). '
       + 'Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a '
       + 'trailing `next` callback which MUST be called — returning without `next()` '
@@ -159,7 +166,7 @@ export function apply(ctx: Context, config: Config): void {
       code: {
         type: 'string',
         required: true,
-        description: 'Body of an async JS function; must `return` the plugin to mount.',
+        description: 'JavaScript body returning a temporary Plugin; evaluated now and saved nowhere.',
       },
     },
     output: {
@@ -179,12 +186,12 @@ export function apply(ctx: Context, config: Config): void {
         },
       },
       render: (_args, value) => {
-        const note = value.waitingFor.length > 0
-          ? ` — waiting for service(s): ${value.waitingFor.join(', ')} (activates when provided)`
-          : ''
+        const status = value.waitingFor.length > 0
+          ? `is pending (plugin "${value.pluginName}"; missing services: ${value.waitingFor.join(', ')}`
+          : `is running (plugin "${value.pluginName}"`
         return [{
           type: 'text',
-          text: `mounted ${value.id} (plugin "${value.pluginName}", state: ${value.state}${note})`,
+          text: `Temporary Plugin ${value.id} ${status}; available until unmounted or DSH restarts).`,
         }]
       },
     },
@@ -195,13 +202,13 @@ export function apply(ctx: Context, config: Config): void {
       if (!isPlugin(evaluated)) {
         if (evaluated === undefined) {
           throw new Error(
-            'mount code returned `undefined` — did you forget `return`?\n'
+            'temporary Plugin code returned `undefined` — did you forget `return`?\n'
             + '  ✓ return (ctx) => { … }\n'
             + '  ✓ return { name: \'…\', inject: […], apply(ctx) { … } }',
           )
         }
         throw new Error(
-          'mount code must `return` a plugin: a function, or an object with an `apply(ctx)` method',
+          'temporary Plugin code must `return` a Plugin: a function, or an object with an `apply(ctx)` method',
         )
       }
       const fiber = await mountDynamic(group, evaluated)
@@ -225,15 +232,13 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'cordis_unmount',
     description:
-      'Dispose a plugin previously mounted with cordis_mount, by id. All its '
-      + 'registrations (event listeners, tools, services) are cleaned up through '
-      + 'the cordis effect lifecycle. Returns only after disposal has fully '
-      + 'completed (quiescence, not just a request to stop).',
+      'Unmount a current-process temporary Plugin created by cordis_mount. Waits for its tools, listeners, services, timers, and other owned effects to clean up completely. '
+      + 'Only dyn-N temporary ids are accepted; this cannot remove Loader, configured, or installed Plugins.',
     parameters: {
       id: {
         type: 'string',
         required: true,
-        description: 'The dynamic mount id returned by cordis_mount (e.g. "dyn-1").',
+        description: 'The temporary Plugin id returned by cordis_mount (for example "dyn-1"); valid only in this process and invalid after unmount or restart.',
       },
     },
     output: {
@@ -245,12 +250,12 @@ export function apply(ctx: Context, config: Config): void {
           pluginName: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `unmounted ${value.id} (plugin "${value.pluginName}")` }],
+      render: (_args, value) => [{ type: 'text', text: `Temporary Plugin ${value.id} was unmounted and removed.` }],
     },
     async execute(args) {
       const mount = mounts.get(args.id)
       if (!mount) {
-        throw new Error(`no dynamic plugin with id "${args.id}" (list mounts with cordis_inspect what:"dynamic")`)
+        throw new Error(`no temporary Plugin with id "${args.id}" (list them with cordis_inspect what:"temporary")`)
       }
       await mount.fiber.dispose()
       mounts.delete(args.id)

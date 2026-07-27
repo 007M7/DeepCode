@@ -22,13 +22,13 @@ describe('presenters', () => {
     expect(presentMountCall({ code: 'return (ctx) => {}' })).toEqual({
       card: 'generic',
       kind: 'execute',
-      title: 'Mount plugin into live cordis runtime',
+      title: 'Mount temporary Cordis Plugin',
       rawInput: { code: 'return (ctx) => {}' },
     })
   })
 
   it('cordis_unmount renders a generic delete card titled with the id', () => {
-    expect(presentUnmountCall({ id: 'dyn-1' })).toEqual({ card: 'generic', kind: 'delete', title: 'Unmount dyn-1' })
+    expect(presentUnmountCall({ id: 'dyn-1' })).toEqual({ card: 'generic', kind: 'delete', title: 'Unmount temporary Cordis Plugin dyn-1' })
   })
 
   it('is wired onto the registered definitions through the defineTool soft-validation path', async () => {
@@ -42,7 +42,7 @@ describe('presenters', () => {
       title: 'Inspect cordis runtime: api: tools',
     })
     expect(ctx.tools.get('cordis_mount')!.presentCall!({ code: 'return 1' })).toMatchObject({ kind: 'execute' })
-    expect(ctx.tools.get('cordis_unmount')!.presentCall!({ id: 'dyn-2' })).toMatchObject({ title: 'Unmount dyn-2' })
+    expect(ctx.tools.get('cordis_unmount')!.presentCall!({ id: 'dyn-2' })).toMatchObject({ title: 'Unmount temporary Cordis Plugin dyn-2' })
     // Soft validation: presenter args that fail the schema render as no card, never a throw.
     expect(ctx.tools.get('cordis_unmount')!.presentCall!({ id: 42 })).toBeUndefined()
   })

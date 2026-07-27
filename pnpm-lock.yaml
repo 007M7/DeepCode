@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@earendil-works/pi-tui@0.80.7': 6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946
+
 importers:
 
   .:
@@ -11,6 +14,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 0.25.1
         version: 0.25.1(zod@4.4.3)
+      '@deepseek-ai/dsh-tool-session-query':
+        specifier: workspace:^
+        version: link:packages/session-query/tool-session-query
       '@stylistic/eslint-plugin':
         specifier: ^5.10.0
         version: 5.10.0(eslint@10.5.0(jiti@2.7.0))
@@ -2699,8 +2705,8 @@ importers:
   packages/llm/llm-pi-ai:
     dependencies:
       '@earendil-works/pi-ai':
-        specifier: ^0.81.1
-        version: 0.81.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        specifier: ^0.82.1
+        version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
@@ -4428,7 +4434,10 @@ importers:
     dependencies:
       '@earendil-works/pi-tui':
         specifier: 0.80.7
-        version: 0.80.7
+        version: 0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)
+      saxes:
+        specifier: 6.0.0
+        version: 6.0.0
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
@@ -5750,8 +5759,8 @@ packages:
       search-insights:
         optional: true
 
-  '@earendil-works/pi-ai@0.81.1':
-    resolution: {integrity: sha512-hzHE7Z8l5mgJk+ke67Lge0rwS2+wbKJrFKl9o5M1R1rh33+cCT7D1AHz1OAtX5wFs90E1/BTGhyJRTUHaMxGvQ==}
+  '@earendil-works/pi-ai@0.82.1':
+    resolution: {integrity: sha512-3WFYRhEp3lQB3444EhPMBcM7zSaEUE3eJgHOR7s4081NLqbw/FsWilIKWXSua0Gv3sRr7m9xMidR3pPDE7jI/A==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
@@ -11022,7 +11031,7 @@ snapshots:
     transitivePeerDependencies:
       - '@algolia/client-search'
 
-  '@earendil-works/pi-ai@0.81.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-ai@0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
@@ -11043,7 +11052,7 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-tui@0.80.7':
+  '@earendil-works/pi-tui@0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5

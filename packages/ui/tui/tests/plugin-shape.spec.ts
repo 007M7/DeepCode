@@ -21,6 +21,7 @@ describe('dsh-tui plugin export shape', () => {
       'llm',
       'systemPrompt',
       'tokenMeter',
+      'tuiPrompt',
     ])
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
