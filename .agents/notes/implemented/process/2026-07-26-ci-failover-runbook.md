@@ -22,9 +22,13 @@ Each of the three required Linux worker jobs — and the `all checks passed` ver
 2. Retrigger the required jobs so they re-resolve their pool. Jobs already **queued** for the hosted labels do not retarget and cannot be re-run in place, so for the documented indefinite-queue outage, cancel the stuck run and re-run all jobs, or push a new commit; "Re-run failed jobs" only helps once a job has actually failed rather than queued.
 3. That is the entire switch. Under failover the workflow also, automatically: drops `DSH_COVERAGE_MAX_WORKERS` to 8 and `DSH_SNAPSHOT_MAX_CONCURRENCY` to 12 (sized for six always-on instances: worst case 6 × 8 = 48 coverage workers on the 64-core VM) (shared-VM contention bounds), and skips the hosted-path pnpm cache restores (the VM's persistent store serves warm installs).
 
-### Capacity during failover
+#**Dependabot exception.** All four selectors deliberately exclude `dependabot[bot]`: under failover, Dependabot PRs stay queued for the hosted pool rather than executing dependency-supplied code on the persistent VM. A Dependabot PR that remains queued during an outage is expected behavior, not a failed switch; it completes when the hosted pool recovers.
 
-Six always-on instances absorb normal PR traffic (the pool's steady-state load is one serial standby job per master push, so failover capacity is effectively the full pool). If queues still build, register additional instances with an org registration token (org Settings → Actions → Runners → New runner) — cloning an existing runner directory and running `config.sh` takes about a minute per instance.
+**Who can flip the variable.** GitHub's API lets any collaborator with write access manage repository variables, so the switch is writer-level, not strictly admin-only. In this repository's trust model that is not an escalation: the runner group admits all workflows of this private, fork-disabled repository (a deliberate trade to make PR-ref failover possible at all), so any writer could already reach the VM by pushing a branch workflow. The boundary against untrusted code is repository membership; the variable only routes work for members.
+
+## Capacity during failover
+
+Six always-on instances absorb normal PR traffic (the pool's steady-state load is one serial standby job per master push, so failover capacity is effectively the full pool). If queues still build, register additional instances with an org registration token (org Settings → Actions → Runners → New runner). Clone an existing runner directory **excluding its identity files** — `rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/` — then run `config.sh`; copying `.runner`/`.credentials` verbatim makes `config.sh` refuse with "already configured". About a minute per instance.
 
 
 ### Switch back
