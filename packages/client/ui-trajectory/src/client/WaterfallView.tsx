@@ -28,7 +28,7 @@ export function WaterfallView({ useSession, pxPerNode }: ConvViewProps & Waterfa
   const codeDispatches = useSession((s) => s.codeDispatches)
   const spans = useMemo(() => deriveSpans(nodes), [nodes])
   const subSpans = useMemo(() => deriveSubSpans(nodes, codeDispatches), [nodes, codeDispatches])
-  if (spans.length === 0) return <div className={css.root}><p className={css.empty}>暂无瀑布数据</p></div>
+  if (spans.length === 0) return <div className={css.root}><p className={css.empty}>No timing data</p></div>
   return (
     <>
       <TrajectoryStatsHeader useSession={useSession} />

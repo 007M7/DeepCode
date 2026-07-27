@@ -54,12 +54,12 @@
    Handle component; the hit strip stays wider than the pill. */
 .handle {
   position: absolute;
+  z-index: 6;
   top: 0;
   bottom: 0;
   width: 8px;
   margin-left: -4px;
   cursor: col-resize;
-  z-index: 2;
   touch-action: none;
   /* Rides the same curve as the tracks so the pill stays on the moving
      border during collapse/expand; paused while dragging (frame rule). */

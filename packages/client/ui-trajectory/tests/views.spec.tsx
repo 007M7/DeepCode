@@ -4,7 +4,7 @@
  * registers trajectory/waterfall into a real SlotsService view ring, tabs
  * switch inside ConversationRoot (renderSlot share driven by the same tab
  * projection apply uses) without collapsing chat, trajectory renders the
- * turn-list chrome (no span stats bar), waterfall keeps in-body stats, and
+ * event-ledger chrome (no span stats bar), waterfall keeps in-body stats, and
  * fiber disposal removes both tabs. Span derivation edge cases ride along.
  */
 import { Context } from 'cordis'
@@ -169,20 +169,46 @@ describe('plugin registration', () => {
 })
 
 describe('tab switching in ConversationRoot', () => {
-  it('renders all three tabs, defaults to chat, and switches to trajectory without stats chrome', async () => {
+  it('renders all three tabs, defaults to chat, and switches to the trajectory ledger', async () => {
     const b = await bench()
-    mount(b.slots)
+    const view = mount(b.slots)
     expect(screen.getByTestId('chat-body')).toBeTruthy()
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Chat', 'Trajectory', 'Waterfall'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.queryByText(/turns ·/)).toBeNull()
-    expect(screen.getByText('Turn 1')).toBeTruthy()
-    expect(screen.getByText('Turn 2')).toBeTruthy()
-    expect(screen.getAllByText('Message').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Step 1').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Input').length).toBeGreaterThan(0)
+    expect(view.container.querySelectorAll('tr[data-turn-start="true"]')).toHaveLength(2)
+    expect(screen.getAllByLabelText('Step 1')).toHaveLength(2)
+    expect(screen.getByRole('columnheader', { name: '事件' })).toBeTruthy()
+    expect(screen.getByRole('columnheader', { name: '内容' })).toBeTruthy()
+    expect(screen.queryByRole('columnheader', { name: 'Tokens' })).toBeNull()
+    expect(screen.queryByRole('columnheader', { name: '耗时' })).toBeNull()
+    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' }).textContent).toContain('4 条记录')
+    fireEvent.click(screen.getByRole('button', { name: '收起记录' }))
+    expect(screen.getByText('4 条记录已收起')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '展开记录' }))
+    expect(screen.getByRole('row', { name: /记录 1，USER/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
+  })
+
+  it('opens a local record inspector and switches payload tabs without opening chat details', async () => {
+    const b = await bench()
+    mount(b.slots)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+
+    fireEvent.keyDown(screen.getByRole('row', { name: /记录 3，TOOL/ }), { key: 'Enter' })
+    expect(screen.getByRole('complementary', { name: '记录详情' })).toBeTruthy()
+    expect(screen.getByText('记录 #3')).toBeTruthy()
+    expect(screen.getByText('Turn 1 · Step 1')).toBeTruthy()
+    expect(screen.getByText('完成')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('tab', { name: '输入' }))
+    expect(screen.getByText('这条记录没有输入载荷')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: '输出' }))
+    expect(screen.getByText('[]')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
+    expect(screen.queryByRole('complementary', { name: '记录详情' })).toBeNull()
   })
 
   it('waterfall renders bars and switching back to chat does not collapse it', async () => {

@@ -9,7 +9,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
 import { SurfaceManager, isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { ConversationNode } from './conversation.ts'
+import type { AssistantTiming, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
@@ -37,6 +37,7 @@ function materializeNode(
   event: SessionEvent,
   callIndex: ReadonlyMap<string, CallIndexEntry>,
   resultView: ToolResultView | null,
+  assistantTiming?: AssistantTiming,
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
@@ -58,6 +59,7 @@ function materializeNode(
         kind: 'assistant', seq: event.seq, time: event.time,
         turn: event.data.turn, step: event.data.step,
         blocks: toAssistantBlocks(event.data.content), usage: event.data.usage,
+        ...(assistantTiming !== undefined ? { timing: assistantTiming } : {}),
       }
     case 'steering/message':
       return {
@@ -177,7 +179,12 @@ export class FoldAdapter {
       const event = this.padded[seq]
       /* v8 ignore next -- sparse guard: both seq sources (surface fold and degradedSeqs) only emit indexes present in padded. */
       if (event === undefined) continue
-      const node = materializeNode(event, this.callIdx, this.resultViews.get(seq) ?? null)
+      const node = materializeNode(
+        event,
+        this.callIdx,
+        this.resultViews.get(seq) ?? null,
+        event.type === 'assistant/message' ? this.assistantTiming(event) : undefined,
+      )
       this.nodeCache.set(seq, node)
       out.push(node)
     }
@@ -196,6 +203,33 @@ export class FoldAdapter {
     return seqs
   }
 
+  private assistantTiming(event: SessionEvent<'assistant/message'>): AssistantTiming {
+    let stepStartTime: number | null = null
+    let firstTokenTime: number | null = null
+    for (let i = this.baseSeq; i < this.padded.length; i++) {
+      const candidate = this.padded[i]
+      if (candidate === undefined || candidate.seq > event.seq) break
+      if (
+        candidate.type === 'step/start'
+        && candidate.data.turn === event.data.turn
+        && candidate.data.step === event.data.step
+      ) {
+        stepStartTime = candidate.time
+        continue
+      }
+      if (
+        firstTokenTime === null
+        && candidate.type === 'assistant/chunk'
+        && candidate.data.turn === event.data.turn
+        && candidate.data.step === event.data.step
+        && isTokenDelta(candidate.data.chunk)
+      ) {
+        firstTokenTime = candidate.time
+      }
+    }
+    return { stepStartTime, firstTokenTime, completedTime: event.time }
+  }
+
   private indexCall(event: SessionEvent, view?: ToolEventView): void {
     if (event.type === 'tool/result') {
       if (view?.for === 'result') this.resultViews.set(event.seq, view.view)
@@ -209,5 +243,17 @@ export class FoldAdapter {
     })
     // No backfill into already-materialized tool-result nodes for this callId
     // (window order puts the call before its result; cannot happen on the normal path).
+  }
+}
+
+function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): boolean {
+  switch (chunk.type) {
+    case 'text-delta':
+    case 'reasoning-delta':
+      return chunk.text !== ''
+    case 'tool-call-delta':
+      return chunk.argumentsDelta !== '' || chunk.name !== undefined
+    default:
+      return false
   }
 }

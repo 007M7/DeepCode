@@ -107,6 +107,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Owner share of the strict session content seat. */
 export interface ConversationSessionOwnerProps {
+  /** Composer chain assembled by the resident parent; only Chat mounts it. */
+  composer: ReactNode
 }
 
 /**

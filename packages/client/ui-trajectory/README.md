@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Trajectory turn-list chrome (sticky Turn / Message·Step groups / step cells) plus Waterfall placeholder; the pure-consumer minimal plugin exemplar (registers two view tabs into the conversation's `'conversation.view'` slot ring, provides no service, declares no Context merge). Contract: api-contracts v3 §8.
+Trajectory renders a turn-aware event ledger with selectable User, Assistant, Tool, and nested Subtool records. Thick rules mark Turn boundaries, compact inline markers identify Steps, and the main ledger keeps only index, event, and content; selection opens a local inspector for token usage, duration, Input, Output, and Timing. The package also provides the Waterfall view and remains a pure-consumer plugin (registers two view tabs into the conversation's `'conversation.view'` slot ring, provides no service, declares no Context merge). Contract: api-contracts v3 §8.
 
 ## Model Experience
 
@@ -14,4 +14,4 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **In-flight Time stays blank** — `partial` / `runningCalls` rows render with `—` until a live clock policy lands; selected styling is local-only (not wired to chat details); anchor deep-linking remains deferred.
+- **In-flight Time stays blank** — `partial` / `runningCalls` rows show their running state without a fabricated duration until a live clock policy lands; record selection is intentionally local to Trajectory; anchor deep-linking remains deferred.

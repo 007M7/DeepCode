@@ -66,6 +66,7 @@ function isLabel(entry: MenuEntry): entry is MenuLabel {
  * keeps the pure-CSS in-place behavior.
  * @param props.closeOnPointerLeave - close the list when the pointer leaves
  * it (default false keeps it open until outside click/Escape/selection).
+ * @param props.compact - use reduced menu typography and spacing.
  * @param props.getAnchorRect - portal mode only: supply the anchor rect
  * directly (e.g. from a host-owned trigger button) instead of measuring the
  * Menu's own wrapper span. Required when the wrapper isn't itself laid out at
@@ -74,7 +75,7 @@ function isLabel(entry: MenuEntry): entry is MenuLabel {
  * scroll/resize; return null to skip placement for that frame.
  * @returns anchor wrapper with the conditional list.
  */
-export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, getAnchorRect, className }: {
+export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, compact = false, getAnchorRect, className }: {
   open: boolean
   anchor: ReactNode
   items: readonly MenuEntry[]
@@ -85,6 +86,7 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
   side?: 'bottom' | 'top'
   portal?: boolean
   closeOnPointerLeave?: boolean
+  compact?: boolean
   getAnchorRect?: () => DOMRect | null
   className?: string
 }) {
@@ -149,7 +151,7 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
   const list = open && (!portal || fixedPos !== null) && (
     <div
       ref={listRef}
-      className={clsx(css.list, portal && css.portal, side === 'top' && !portal && css.sideTop, align === 'end' && !portal && css.alignEnd)}
+      className={clsx(css.list, compact && css.compactList, portal && css.portal, side === 'top' && !portal && css.sideTop, align === 'end' && !portal && css.alignEnd)}
       style={fixedPos ?? undefined}
       role="menu"
       onPointerLeave={closeOnPointerLeave ? () => { onClose() } : undefined}
@@ -196,7 +198,7 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
                   {entry.id === selectedId && <IconCheckOutline16 className={css.check} />}
                 </button>
                 {subOpen && entry.submenu !== undefined && (
-                  <div className={css.submenu} role="menu">
+                  <div className={clsx(css.submenu, compact && css.compactList)} role="menu">
                     {entry.submenu.map(sub => (
                       <button
                         key={sub.id}

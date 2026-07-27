@@ -1,7 +1,7 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { Context } from 'cordis'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
@@ -104,6 +104,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
+  /** Schemas in force for the next tool/call, updated by request/header. */
+  private activeToolSchemas = new Map<string, ToolSchema>()
+  /** Call-time schema snapshots keyed by native or code-dispatch call id. */
+  private callSchemas = new Map<string, ToolSchema>()
+  private callSchemasRev = 0
+  private callSchemasCache: { rev: number; value: ReadonlyMap<string, ToolSchema> } | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -611,6 +617,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         argsRaw: JSON.stringify(data.arguments),
         turn: 0, step: 0, time: event.time, callView: null,
       }
+      this.captureCallSchema(data.subCallId, data.name)
       const siblings = this.codeDispatches.get(data.parentCallId) ?? []
       this.codeDispatches.set(data.parentCallId, [...siblings, running])
       this.dispatchesRev++
@@ -630,6 +637,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         content: ContentBlock[]
       }
       const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      this.captureCallSchema(data.subCallId, data.name)
       const at = siblings.findIndex(sub => sub.callId === data.subCallId)
       const started = at === -1 ? undefined : siblings[at]
       const settled: CodeSubCall = {
@@ -651,6 +659,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       return
     }
     switch (event.type) {
+      case 'request/header': {
+        this.activeToolSchemas = new Map(
+          (event.data.header.tools ?? []).map(schema => [schema.name, schema]),
+        )
+        return
+      }
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
         if (this.partial === null || this.partial.turn !== turn || this.partial.step !== step) {
@@ -666,6 +680,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return
       }
       case 'tool/call': {
+        this.captureCallSchema(String(event.data.callId), event.data.name)
         this.openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
           turn: event.data.turn, step: event.data.step, time: event.time,
@@ -720,6 +735,15 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
+  /** Preserve the schema active when one call starts. */
+  private captureCallSchema(callId: string, name: string): void {
+    if (this.callSchemas.has(callId)) return
+    const schema = this.activeToolSchemas.get(name)
+    if (schema === undefined) return
+    this.callSchemas.set(callId, schema)
+    this.callSchemasRev++
+  }
+
   /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
    *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text). */
@@ -731,6 +755,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.frozenRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
+    this.activeToolSchemas = new Map()
+    this.callSchemas = new Map()
+    this.callSchemasRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -766,6 +793,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
       this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
     }
+    if (this.callSchemasCache === null || this.callSchemasCache.rev !== this.callSchemasRev) {
+      this.callSchemasCache = { rev: this.callSchemasRev, value: new Map(this.callSchemas) }
+    }
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
       this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
     }
@@ -778,6 +808,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
       codeDispatches: this.dispatchesCache.value,
+      callSchemas: this.callSchemasCache.value,
       queue: this.queueCache.value,
       running: this.running,
       composerPhase: derivePhase(

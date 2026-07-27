@@ -1,0 +1,319 @@
+diff --git a/dist/DataRenderer.d.ts b/dist/DataRenderer.d.ts
+index 6838d1c3aa8cea1e77534801bf02b9c11ddad1de..3dc8c6568cc4f174126dad32c33a64b0dc25f198 100644
+--- a/dist/DataRenderer.d.ts
++++ b/dist/DataRenderer.d.ts
+@@ -30,6 +30,8 @@ interface CommonRenderProps {
+     clickToExpandNode: boolean;
+     outerRef: React.RefObject<HTMLDivElement>;
+     beforeExpandChange?: (event: NodeExpandingEvent) => boolean;
++    renderExpandableValue?: (value: Object | Array<any>, expanded: boolean) => React.ReactNode;
++    renderStringValue?: (value: string) => React.ReactNode;
+ }
+ export interface JsonRenderProps<T> extends CommonRenderProps {
+     field?: string;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 23e9bca4586b7ea71e7d016230e33eb444cd1304..c49677664f0f0a10e67be688a0157ef9f0d93d6d 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -16,10 +16,12 @@ export interface Props extends React.AriaAttributes {
+     shouldExpandNode?: (level: number, value: any, field?: string) => boolean;
+     clickToExpandNode?: boolean;
+     beforeExpandChange?: (event: NodeExpandingEvent) => boolean;
++    renderExpandableValue?: (value: Object | Array<any>, expanded: boolean) => React.ReactNode;
++    renderStringValue?: (value: string) => React.ReactNode;
+     compactTopLevel?: boolean;
+ }
+ export declare const defaultStyles: StyleProps;
+ export declare const darkStyles: StyleProps;
+ export declare const allExpanded: () => boolean;
+ export declare const collapseAllNested: (level: number) => boolean;
+-export declare const JsonView: ({ data, style, shouldExpandNode, clickToExpandNode, beforeExpandChange, compactTopLevel, ...ariaAttrs }: Props) => React.JSX.Element;
++export declare const JsonView: ({ data, style, shouldExpandNode, clickToExpandNode, beforeExpandChange, renderExpandableValue, renderStringValue, compactTopLevel, ...ariaAttrs }: Props) => React.JSX.Element;
+diff --git a/dist/index.js b/dist/index.js
+index ab8b98c992bd34e00e7c3a0257d6778d7928dde8..669304fbba450c789bf4a4264f0627a8eec9d178 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -50,7 +50,9 @@ function ExpandableObject(_ref) {
+     shouldExpandNode,
+     clickToExpandNode,
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   } = _ref;
+   const shouldExpandNodeCalledRef = React.useRef(false);
+   const [expanded, setExpanded] = React.useState(() => shouldExpandNode(level, value, field));
+@@ -146,7 +148,7 @@ function ExpandableObject(_ref) {
+     onKeyDown: onKeyDown
+   }, quoteString(field, style.quotesForFieldNames), ":")) : (/*#__PURE__*/React.createElement("span", {
+     className: style.label
+-  }, quoteString(field, style.quotesForFieldNames), ":"))), /*#__PURE__*/React.createElement("span", {
++  }, quoteString(field, style.quotesForFieldNames), ":"))), renderExpandableValue ? renderExpandableValue(value, expanded) : /*#__PURE__*/React.createElement("span", {
+     className: style.punctuation
+   }, openBracket), expanded ? (/*#__PURE__*/React.createElement("ul", {
+     id: contentsId,
+@@ -162,16 +164,19 @@ function ExpandableObject(_ref) {
+     shouldExpandNode: shouldExpandNode,
+     clickToExpandNode: clickToExpandNode,
+     beforeExpandChange: beforeExpandChange,
+-    outerRef: outerRef
++    outerRef: outerRef,
++    renderExpandableValue: renderExpandableValue,
++    renderStringValue: renderStringValue
+   }))))) : (
++  renderExpandableValue ? null :
+   /*#__PURE__*/
+   React.createElement("span", {
+     className: style.collapsedContent,
+     onClick: onClick,
+     onKeyDown: onKeyDown
+-  })), /*#__PURE__*/React.createElement("span", {
++  })), renderExpandableValue ? null : /*#__PURE__*/React.createElement("span", {
+     className: style.punctuation
+-  }, closeBracket), !lastElement && /*#__PURE__*/React.createElement("span", {
++  }, closeBracket), !renderExpandableValue && !lastElement && /*#__PURE__*/React.createElement("span", {
+     className: style.punctuation
+   }, ","));
+ }
+@@ -207,7 +212,9 @@ function JsonObject(_ref3) {
+     clickToExpandNode,
+     level,
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   } = _ref3;
+   return ExpandableObject({
+     field,
+@@ -221,7 +228,9 @@ function JsonObject(_ref3) {
+     clickToExpandNode,
+     data: Object.keys(value).map(key => [key, value[key]]),
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   });
+ }
+ function JsonArray(_ref4) {
+@@ -234,7 +243,9 @@ function JsonArray(_ref4) {
+     shouldExpandNode,
+     clickToExpandNode,
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   } = _ref4;
+   return ExpandableObject({
+     field,
+@@ -246,9 +257,11 @@ function JsonArray(_ref4) {
+     style,
+     shouldExpandNode,
+     clickToExpandNode,
+-    data: value.map(element => [undefined, element]),
++    data: value.map((element, index) => [String(index), element]),
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   });
+ }
+ function JsonPrimitiveValue(_ref5) {
+@@ -256,7 +269,8 @@ function JsonPrimitiveValue(_ref5) {
+     field,
+     value,
+     style,
+-    lastElement
++    lastElement,
++    renderStringValue
+   } = _ref5;
+   let stringValue;
+   let valueStyle = style.otherValue;
+@@ -291,7 +305,7 @@ function JsonPrimitiveValue(_ref5) {
+     "aria-selected": undefined
+   }, (field || field === '') && (/*#__PURE__*/React.createElement("span", {
+     className: style.label
+-  }, quoteString(field, style.quotesForFieldNames), ":")), /*#__PURE__*/React.createElement("span", {
++  }, quoteString(field, style.quotesForFieldNames), ":")), isString(value) && renderStringValue ? renderStringValue(value) : /*#__PURE__*/React.createElement("span", {
+     className: valueStyle
+   }, stringValue), !lastElement && /*#__PURE__*/React.createElement("span", {
+     className: style.punctuation
+@@ -365,6 +379,8 @@ const JsonView = _ref => {
+     shouldExpandNode = allExpanded,
+     clickToExpandNode = false,
+     beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue,
+     compactTopLevel,
+     ...ariaAttrs
+   } = _ref;
+@@ -390,7 +406,9 @@ const JsonView = _ref => {
+       shouldExpandNode: shouldExpandNode,
+       clickToExpandNode: clickToExpandNode,
+       beforeExpandChange: beforeExpandChange,
+-      outerRef: outerRef
++      outerRef: outerRef,
++      renderExpandableValue: renderExpandableValue,
++      renderStringValue: renderStringValue
+     });
+   }) : (/*#__PURE__*/React.createElement(DataRender, {
+     value: data,
+@@ -403,7 +421,9 @@ const JsonView = _ref => {
+     shouldExpandNode: shouldExpandNode,
+     clickToExpandNode: clickToExpandNode,
+     outerRef: outerRef,
+-    beforeExpandChange: beforeExpandChange
++    beforeExpandChange: beforeExpandChange,
++    renderExpandableValue: renderExpandableValue,
++    renderStringValue: renderStringValue
+   })));
+ };
+ 
+diff --git a/dist/index.modern.js b/dist/index.modern.js
+index e25aea1bc8936b69275b9fbe7011d0466480f99c..f4c509e4459f70080b90695c00f8a17e8f4aac4e 100644
+--- a/dist/index.modern.js
++++ b/dist/index.modern.js
+@@ -50,7 +50,9 @@ function ExpandableObject(_ref) {
+     shouldExpandNode,
+     clickToExpandNode,
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   } = _ref;
+   const shouldExpandNodeCalledRef = useRef(false);
+   const [expanded, setExpanded] = useState(() => shouldExpandNode(level, value, field));
+@@ -146,7 +148,7 @@ function ExpandableObject(_ref) {
+     onKeyDown: onKeyDown
+   }, quoteString(field, style.quotesForFieldNames), ":")) : (/*#__PURE__*/createElement("span", {
+     className: style.label
+-  }, quoteString(field, style.quotesForFieldNames), ":"))), /*#__PURE__*/createElement("span", {
++  }, quoteString(field, style.quotesForFieldNames), ":"))), renderExpandableValue ? renderExpandableValue(value, expanded) : /*#__PURE__*/createElement("span", {
+     className: style.punctuation
+   }, openBracket), expanded ? (/*#__PURE__*/createElement("ul", {
+     id: contentsId,
+@@ -162,16 +164,19 @@ function ExpandableObject(_ref) {
+     shouldExpandNode: shouldExpandNode,
+     clickToExpandNode: clickToExpandNode,
+     beforeExpandChange: beforeExpandChange,
+-    outerRef: outerRef
++    outerRef: outerRef,
++    renderExpandableValue: renderExpandableValue,
++    renderStringValue: renderStringValue
+   }))))) : (
++  renderExpandableValue ? null :
+   /*#__PURE__*/
+   createElement("span", {
+     className: style.collapsedContent,
+     onClick: onClick,
+     onKeyDown: onKeyDown
+-  })), /*#__PURE__*/createElement("span", {
++  })), renderExpandableValue ? null : /*#__PURE__*/createElement("span", {
+     className: style.punctuation
+-  }, closeBracket), !lastElement && /*#__PURE__*/createElement("span", {
++  }, closeBracket), !renderExpandableValue && !lastElement && /*#__PURE__*/createElement("span", {
+     className: style.punctuation
+   }, ","));
+ }
+@@ -207,7 +212,9 @@ function JsonObject(_ref3) {
+     clickToExpandNode,
+     level,
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   } = _ref3;
+   return ExpandableObject({
+     field,
+@@ -221,7 +228,9 @@ function JsonObject(_ref3) {
+     clickToExpandNode,
+     data: Object.keys(value).map(key => [key, value[key]]),
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   });
+ }
+ function JsonArray(_ref4) {
+@@ -234,7 +243,9 @@ function JsonArray(_ref4) {
+     shouldExpandNode,
+     clickToExpandNode,
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   } = _ref4;
+   return ExpandableObject({
+     field,
+@@ -246,9 +257,11 @@ function JsonArray(_ref4) {
+     style,
+     shouldExpandNode,
+     clickToExpandNode,
+-    data: value.map(element => [undefined, element]),
++    data: value.map((element, index) => [String(index), element]),
+     outerRef,
+-    beforeExpandChange
++    beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue
+   });
+ }
+ function JsonPrimitiveValue(_ref5) {
+@@ -256,7 +269,8 @@ function JsonPrimitiveValue(_ref5) {
+     field,
+     value,
+     style,
+-    lastElement
++    lastElement,
++    renderStringValue
+   } = _ref5;
+   let stringValue;
+   let valueStyle = style.otherValue;
+@@ -291,7 +305,7 @@ function JsonPrimitiveValue(_ref5) {
+     "aria-selected": undefined
+   }, (field || field === '') && (/*#__PURE__*/createElement("span", {
+     className: style.label
+-  }, quoteString(field, style.quotesForFieldNames), ":")), /*#__PURE__*/createElement("span", {
++  }, quoteString(field, style.quotesForFieldNames), ":")), isString(value) && renderStringValue ? renderStringValue(value) : /*#__PURE__*/createElement("span", {
+     className: valueStyle
+   }, stringValue), !lastElement && /*#__PURE__*/createElement("span", {
+     className: style.punctuation
+@@ -365,6 +379,8 @@ const JsonView = _ref => {
+     shouldExpandNode = allExpanded,
+     clickToExpandNode = false,
+     beforeExpandChange,
++    renderExpandableValue,
++    renderStringValue,
+     compactTopLevel,
+     ...ariaAttrs
+   } = _ref;
+@@ -390,7 +406,9 @@ const JsonView = _ref => {
+       shouldExpandNode: shouldExpandNode,
+       clickToExpandNode: clickToExpandNode,
+       beforeExpandChange: beforeExpandChange,
+-      outerRef: outerRef
++      outerRef: outerRef,
++      renderExpandableValue: renderExpandableValue,
++      renderStringValue: renderStringValue
+     });
+   }) : (/*#__PURE__*/createElement(DataRender, {
+     value: data,
+@@ -403,7 +421,9 @@ const JsonView = _ref => {
+     shouldExpandNode: shouldExpandNode,
+     clickToExpandNode: clickToExpandNode,
+     outerRef: outerRef,
+-    beforeExpandChange: beforeExpandChange
++    beforeExpandChange: beforeExpandChange,
++    renderExpandableValue: renderExpandableValue,
++    renderStringValue: renderStringValue
+   })));
+ };
+ 

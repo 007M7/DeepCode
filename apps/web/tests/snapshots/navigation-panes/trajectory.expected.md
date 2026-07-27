@@ -1,1 +1,57 @@
-- text: "Turn 1 Message {{duration}} #1 User NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop. +{{duration}} Step 1 {{duration}} bash read×2 #2 Tool bash · {\"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\"} +{{duration}} #3 Tool read · {\"file_path\": \"nav-a.md\"} +{{duration}} #4 Tool read · {\"file_path\": \"nav-b.md\"} +{{duration}} Step 2 {{duration}} #5 Message FIRST_DONE 349 56 51 +{{duration}} Turn 2 Message {{duration}} #6 User Reply in markdown with: a level-2 heading \"Navigation Summary\", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop. +{{duration}} Step 1 {{duration}} #7 Message ## Navigation Summary - alpha nav - beta nav ``` echo WATERFALL ``` 141 36 16 +{{duration}}"
+- toolbar "轨迹工具栏":
+  - text: 轨迹
+  - strong: "8"
+  - text: 条记录
+  - strong: "2"
+  - text: 轮
+  - strong: "3"
+  - text: 次工具
+  - button "收起记录"
+- table:
+  - rowgroup:
+    - row "# 事件 内容":
+      - columnheader "#"
+      - columnheader "事件"
+      - columnheader "内容"
+  - rowgroup:
+    - 'row "记录 1，USER，NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop."':
+      - cell "#1"
+      - cell "USER"
+      - 'cell "NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop."'
+    - row "记录 2，ASSISTANT，请求调用 bash、read×2":
+      - cell "#2"
+      - cell "Step 1 ASSISTANT": S1 ASSISTANT
+      - cell "请求调用 bash、read×2"
+    - 'row "记录 3，TOOL，bash · {\"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\"}" [selected]':
+      - cell "#3"
+      - cell "TOOL"
+      - 'cell "bash · {\"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\"}→NAVIGATION_OK"'
+    - 'row "记录 4，TOOL，read · {\"file_path\": \"nav-a.md\"}"':
+      - cell "#4"
+      - cell "TOOL"
+      - 'cell "read · {\"file_path\": \"nav-a.md\"}→<path>{{cwd}}/nav-a.md</path> <type>file</type> <content> 1: # alpha nav (End of file - total 1 lines) </content>"'
+    - 'row "记录 5，TOOL，read · {\"file_path\": \"nav-b.md\"}"':
+      - cell "#5"
+      - cell "TOOL"
+      - 'cell "read · {\"file_path\": \"nav-b.md\"}→<path>{{cwd}}/nav-b.md</path> <type>file</type> <content> 1: # beta nav (End of file - total 1 lines) </content>"'
+    - row "记录 6，ASSISTANT，FIRST_DONE":
+      - cell "#6"
+      - cell "Step 2 ASSISTANT": S2 ASSISTANT
+      - cell "FIRST_DONE"
+    - 'row "记录 7，USER，Reply in markdown with: a level-2 heading \"Navigation Summary\", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop."':
+      - cell "#7"
+      - cell "USER"
+      - 'cell "Reply in markdown with: a level-2 heading \"Navigation Summary\", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop."'
+    - 'row "记录 8，ASSISTANT，## Navigation Summary - alpha nav - beta nav ``` echo WATERFALL ```"':
+      - cell "#8"
+      - cell "Step 1 ASSISTANT": S1 ASSISTANT
+      - 'cell "## Navigation Summary - alpha nav - beta nav ``` echo WATERFALL ```"'
+- complementary "记录详情":
+  - text: "TOOL 记录 #3 Turn 1 · Step 1"
+  - button "关闭详情"
+  - tablist "记录详情":
+    - tab "概览"
+    - tab "输入"
+    - tab "输出" [selected]
+    - tab "计时"
+  - tabpanel "输出": NAVIGATION_OK

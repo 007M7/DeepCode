@@ -74,6 +74,11 @@ export function ConversationRoot({
       {inputBar}
     </div>
   )
+  const composer = renderSlotChain(
+    'conversation.composer',
+    { interactions: pending },
+    { fallback: composerBar, overlay: true },
+  )
 
   return (
     <div className={css.root} data-phase={hero ? 'hero' : 'active'}>
@@ -81,12 +86,9 @@ export function ConversationRoot({
           renders no chrome while blank but owns the draft-persistence mirror
           bind — unmounting it in the hero would lose pre-first-send text on
           a refresh or scope rebuild. */}
-      {sessionId !== undefined && renderSlot('conversation.session', {})}
-      {renderSlotChain(
-        'conversation.composer',
-        { interactions: pending },
-        { fallback: composerBar, overlay: true },
-      )}
+      {sessionId !== undefined
+        ? renderSlot('conversation.session', { composer })
+        : composer}
     </div>
   )
 }

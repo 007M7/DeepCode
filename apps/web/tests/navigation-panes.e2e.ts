@@ -124,17 +124,24 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('renders the trajectory tab with turn sections and step cells', async () => {
+  it.skipIf(MODE === 'record')('renders the trajectory ledger and opens its local record inspector', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
     await page.getByRole('tab', { name: 'Trajectory' }).click()
-    // Two sticky turn sections; turn 1's step group summarizes its tool mix
-    // (bash + the two parallel reads collapse to 'bash read×2').
-    await expect.poll(() => page.getByText('Turn 1', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
-    await expect.poll(() => page.getByText('Turn 2', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    await expect.poll(() => page.getByText('bash read×2', { exact: false }).count(), { timeout: 10_000 }).toBe(1)
+    // Thick row rules mark the two turns; compact inline markers identify
+    // each step without introducing dedicated group rows.
+    await expect.poll(() => page.locator('tr[data-turn-start="true"]').count(), { timeout: 15_000 }).toBe(2)
+    await expect.poll(() => page.locator('[aria-label^="Step "]').count(), { timeout: 10_000 }).toBe(3)
+    await expect.poll(() => page.getByRole('columnheader', { name: 'Tokens' }).count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(() => page.getByRole('columnheader', { name: '耗时' }).count(), { timeout: 10_000 }).toBe(0)
+    await page.locator('tr[data-kind="tool"]').first().click()
+    await expect.poll(() => page.getByRole('complementary', { name: '记录详情' }).count(), { timeout: 10_000 }).toBe(1)
+    await page.getByRole('tab', { name: '输出' }).click()
+    await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
     const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)
+    await page.getByRole('complementary', { name: '记录详情' })
+      .getByRole('button', { name: '关闭详情' }).click()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('renders the waterfall tab with span stats and one lane per span', async () => {

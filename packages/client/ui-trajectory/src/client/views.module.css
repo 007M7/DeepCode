@@ -1,17 +1,24 @@
-/* Full-bleed scroll host so Turn sticky bars can paint edge-to-edge;
- * cell content width is capped on the turn body (max 880). */
+/* Full-bleed, fixed-height host for the trajectory ledger and waterfall. */
 .root {
-  overflow-y: auto;
+  --dsh-trajectory-toolbar-height: 48px;
+
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   height: 100%;
   min-height: 0;
   width: 100%;
   box-sizing: border-box;
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-specific-sidebar-fill);
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .empty {
-  padding: 16px;
+  display: grid;
+  flex: 1;
+  margin: 0;
+  padding: 24px;
+  place-items: center;
   color: var(--dsw-alias-label-tertiary);
   font: var(--dsw-font-xs-13);
 }

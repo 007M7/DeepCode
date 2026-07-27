@@ -1,6 +1,6 @@
 /** Strict per-session conversation content: header, view ring, and chat store bindings. */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
@@ -24,7 +24,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationSession({
   sessionId, useSession, useSessions, useInput, inputActions, useStore, actions,
-  renderSlot, views, bindDraftMirror, open,
+  renderSlot, views, bindDraftMirror, open, composer,
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -45,11 +45,11 @@ export function ConversationSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputActions])
 
-  if (blank && composerPhase === 'blank') return null
+  const blankHero = blank && composerPhase === 'blank'
 
   return (
     <>
-      <header className={css.header}>
+      {!blankHero && <header className={css.header}>
         <div className={css.crumbRow}>
           <nav className={css.crumbs} aria-label="Session hierarchy">
             {ancestry.map((summary, index) => {
@@ -88,10 +88,11 @@ export function ConversationSession({
             ))}
           </div>
         )}
-      </header>
-      <div className={css.viewArea}>
+      </header>}
+      {!blankHero && <div className={css.viewArea}>
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
-      </div>
+      </div>}
+      {(blankHero || active?.id === 'chat') && <Fragment key="composer">{composer}</Fragment>}
     </>
   )
 }

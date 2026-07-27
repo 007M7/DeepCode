@@ -3,7 +3,7 @@
 // substructures keep their references (the React.memo premise). callId/approvalId stay plain
 // string here (narrow to real brands when convenient).
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm/types'
 import type {
   RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
@@ -50,6 +50,16 @@ export interface UserMessageNode {
   source: unknown
 }
 
+/** Recorded boundaries used to derive assistant latency and throughput. */
+export interface AssistantTiming {
+  /** Matching step/start timestamp, or null when it is outside the current event window. */
+  stepStartTime: number | null
+  /** First non-empty text/reasoning/tool delta timestamp, or null when no token delta was recorded. */
+  firstTokenTime: number | null
+  /** Final assistant/message timestamp. */
+  completedTime: number
+}
+
 /** A finalized (or interruption-frozen) assistant message. */
 export interface AssistantMessageNode {
   kind: 'assistant'
@@ -60,6 +70,8 @@ export interface AssistantMessageNode {
   step: number
   blocks: readonly AssistantBlock[]
   usage?: unknown
+  /** Timing derived from the recorded step/chunk/message event sequence. */
+  timing?: AssistantTiming
   /** Frozen partial of an aborted turn (no finalize ever arrives): rendered with a 已停止 marker.
    *  Synthetic seq (fractional, derived from the turn/end seq) keeps it ordered inside the flow. */
   interrupted?: true
@@ -216,6 +228,8 @@ export interface ConversationSnapshot {
    * unrelated snapshot swaps (memo premise, same regime as `nodes`).
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
+  /** Model-visible tool schema captured for each recorded call id. */
+  callSchemas?: ReadonlyMap<string, ToolSchema>
   pending: readonly PendingInteraction[]
   /** Read-only inbox mirror (session/queued frames + mux-open baseline; cleared by the leave-running flip). */
   queue: readonly QueuedMessage[]

@@ -139,7 +139,7 @@ describe('deriveTrajectoryLayout', () => {
       },
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
-    expect(turns[0]?.groups[0]?.description).toBe('2.9s bash×2')
+    expect(turns[0]?.groups[0]?.description).toBe('3s bash×2')
   })
 
   it('assigns each user message to its enclosing turn instead of pooling into Turn 1', () => {
@@ -161,7 +161,7 @@ describe('deriveTrajectoryLayout', () => {
     expect(turns[1]?.groups.flatMap((g) => g.cells.map((c) => c.text))).toEqual(['second', 'ok2'])
   })
 
-  it('keeps usage on the fallback Message row when assistant has no text block', () => {
+  it('keeps usage and a meaningful summary when assistant has no text block', () => {
     const nodes = [
       {
         kind: 'assistant', seq: 1, time: 5_000, turn: 1, step: 0,
@@ -172,7 +172,7 @@ describe('deriveTrajectoryLayout', () => {
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
     const message = turns[0]?.groups.flatMap((g) => g.cells).find((c) => c.kind === 'message')
     expect(message).toMatchObject({
-      text: '', input: 11, output: 22, think: 3,
+      text: '仅推理输出', input: 11, output: 22, think: 3,
     })
   })
 
@@ -235,11 +235,12 @@ describe('run_code sub-dispatch cells', () => {
     ]]]) as unknown as ConversationSnapshot['codeDispatches']
     const turns = deriveTrajectoryLayout({ codeDispatches, nodes: runCodeNodes, partial: null, runningCalls: [] })
     const cells = turns[0]!.groups.flatMap((g) => g.cells)
-    expect(cells.map((c) => c.kind)).toEqual(['tool', 'subtool', 'subtool'])
+    expect(cells.map((c) => c.kind)).toEqual(['message', 'tool', 'subtool', 'subtool'])
+    expect(cells[0]?.text).toBe('请求调用 run_code')
     // Sequential indexes across the interleave; durations from the pair times.
-    expect(cells.map((c) => c.index)).toEqual([1, 2, 3])
-    expect(cells[1]).toMatchObject({ text: 'bash · {"x":1}', timeSeconds: 1 })
-    expect(cells[2]).toMatchObject({ timeSeconds: 0.5 })
+    expect(cells.map((c) => c.index)).toEqual([1, 2, 3, 4])
+    expect(cells[2]).toMatchObject({ text: 'bash · {"x":1}', timeSeconds: 1 })
+    expect(cells[3]).toMatchObject({ timeSeconds: 0.5 })
   })
 
   it('a running (unsettled) sub-call renders a subtool cell with blank time', () => {
