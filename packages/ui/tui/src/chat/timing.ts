@@ -3,7 +3,7 @@
  * front door. Timing buckets are replayed from the session event stream; the
  * running glyph fades in on turn start, throbs while the turn runs, and fades
  * out on turn end.
- * @module @deepseek-ai/dsh-tui/session/timing
+ * @module @deepseek-ai/dsh-tui/chat/timing
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'

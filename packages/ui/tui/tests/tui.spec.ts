@@ -30,7 +30,7 @@ import {
   type TuiOverlaySession,
   type TuiRuntime,
 } from '../src/index.ts'
-import { WorkspaceFileSearch } from '../src/file-autocomplete.ts'
+import { WorkspaceFileSearch } from '../src/chat/file-autocomplete.ts'
 import {
   appendAssistant,
   appendUser,

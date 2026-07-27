@@ -6,7 +6,7 @@ import {
   activeAtToken,
   formatFileMention,
   WorkspaceFileSearch,
-} from '../src/file-autocomplete.ts'
+} from '../src/chat/file-autocomplete.ts'
 
 const searches: WorkspaceFileSearch[] = []
 const roots: string[] = []

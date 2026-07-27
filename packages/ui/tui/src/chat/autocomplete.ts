@@ -1,7 +1,7 @@
 /**
  * Editor autocomplete provider merging path-only file candidates and optional
  * session-reference snapshots with the base slash-command completions.
- * @module @deepseek-ai/dsh-tui/autocomplete
+ * @module @deepseek-ai/dsh-tui/chat/autocomplete
  */
 
 import {
@@ -15,7 +15,7 @@ import {
   formatSessionReferenceMention,
   type SessionReferenceService,
 } from '@deepseek-ai/dsh-session-reference'
-import { displayInlineText } from './components/text.ts'
+import { displayInlineText } from '../components/text.ts'
 import { activeAtToken, formatFileMention, WorkspaceFileSearch } from './file-autocomplete.ts'
 
 /** Merge path-only file candidates and optional session snapshots with commands. */

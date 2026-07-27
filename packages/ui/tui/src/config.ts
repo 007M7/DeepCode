@@ -10,7 +10,7 @@ import {
   DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
   DEFAULT_FILE_SEARCH_MAX_ENTRIES,
   DEFAULT_FILE_SEARCH_MAX_RESULTS,
-} from './file-autocomplete.ts'
+} from './chat/file-autocomplete.ts'
 
 /** Theme and prompt-template settings for the pi-tui terminal mode. */
 export interface TuiThemeConfig {

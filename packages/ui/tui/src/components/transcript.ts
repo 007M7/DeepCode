@@ -25,7 +25,7 @@ import type {
   ToolResultView,
 } from '@deepseek-ai/dsh-tools'
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
-import { renderUnknownXml } from '../xml-tool-output.ts'
+import { renderUnknownXml } from './xml-tool-output.ts'
 import { displayInlineText, displayText } from './text.ts'
 import { gradientText, type Palette } from './theme.ts'
 import { contentText, type ParsedArguments } from './content.ts'
@@ -34,7 +34,7 @@ import {
   formatTimingTotals,
   stepTimingAt,
   type StepPosition,
-} from '../session/timing.ts'
+} from '../chat/timing.ts'
 
 /** Concatenate the text of every block of one type, separated by blank lines. */
 function textBlocks(content: readonly ContentBlock[], type: 'text' | 'reasoning'): string {

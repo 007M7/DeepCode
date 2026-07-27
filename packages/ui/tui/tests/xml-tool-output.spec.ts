@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderUnknownXml } from '../src/xml-tool-output.ts'
+import { renderUnknownXml } from '../src/components/xml-tool-output.ts'
 
 const render = (source: string, limit = 4, expanded = false): string[] | undefined => renderUnknownXml(
   source,
