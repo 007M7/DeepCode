@@ -15,7 +15,7 @@ JSONL 持久会话持久化后端：一个具体 `SessionPersistence`（`dsh-ses
 ```
 
 - 第一个逻辑行是不可变的 `SessionHeader`，标记为 `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`。`delegationDepth` 在磁盘上必需，顶层会话为 `0`；缺失或无效值会拒绝日志。后续每个逻辑行是一条存储记录；`assistant/chunk` 事件绝不丢弃，且 `seq` 在解码日志中保持连续（`events[i].seq === i`）。
-- 存储记录是原样 `SessionEvent` JSON，或仅在 `packChunks` 下写入的**打包分片行**（`text-chunks` / `reasoning-chunks` / `tool-call-chunks`；像 header 的 `session` 一样不带斜杠，因此行 tag 不会与事件类型混淆）：一行保存至少 3 个连续同 block `assistant/chunk` delta 事件，`seq0`/`time0` 和每成员 `dt` 间隔精确重建每个成员的 `seq`/`time`。无损 codec 位于 `@deepseek-ai/dsh-session`（`packChunkRuns`/`decodeStorageRecord`），并使用精确形态 allowlist：任何未识别内容原样存储。读取与布局无关：`load` 始终解码行，因此打包、非打包和混合文件加载结果一致。
+- 存储记录是原样 `SessionEvent` JSON，或在 `packChunks` 已启用且连续段符合条件时写入的**打包分片行**（`text-chunks` / `reasoning-chunks` / `tool-call-chunks`；像 header 的 `session` 一样不带斜杠，因此行 tag 不会与事件类型混淆）：一行保存至少 3 个连续同 block `assistant/chunk` delta 事件，`seq0`/`time0` 和每成员 `dt` 间隔精确重建每个成员的 `seq`/`time`。无损 codec 位于 `@deepseek-ai/dsh-session`（`packChunkRuns`/`decodeStorageRecord`），并使用精确形态 allowlist：任何未识别内容原样存储。读取与布局无关：`load` 始终解码行，因此打包、非打包和混合文件加载结果一致。
 - 项目目录保留规范化 cwd 可读，并限制在文件系统组件上限内。分隔符替换和截断刻意有损，因此规范化相同的 cwd 字符串共享项目目录；会话 id 仍选择不同会话目录。在不区分大小写的文件系统上，只有文件系统规范化将两种写法解析到同一 transcript 时，身份验证才接受备选路径写法。配置根仍由部署控制：可以是项目本地、共享、临时或集中式。[项目会话目录决策](../../../.agents/notes/implemented/architecture/2026-07-24-project-session-directories.md) 记录这项取舍。
 - 会话 id 是未验证的品牌化字符串，因此在使用前单射转义为一个安全路径段（无遍历、无冲突）。结果目录保留给其他会话自有产物；发现只读取固定 transcript 文件名。
 
@@ -24,7 +24,7 @@ JSONL 持久会话持久化后端：一个具体 `SessionPersistence`（`dsh-ses
 | 键 | 类型 | 说明 |
 |---|---|---|
 | `root` | `string` (required) | 所有会话文件的根目录。**无默认值**：`process.cwd()` 默认值会随进程 cwd 变更（bash 调用、子进程）而分散文件。现有根必须是可读目录；缺失根在第一次实体化时创建。 |
-| `packChunks` | `boolean` (default `false`) | 将 delta 分片运行写为打包行（在真实编码会话上测得逻辑日志约小 60%）。关闭时，写入逻辑布局与打包前格式字节相同；无论开关如何，都能读取打包行。快照预期输出仍是每事件一行时默认关闭：开启打包记录会重写每个 fixture `session.jsonl`。 |
+| `packChunks` | `boolean` (default `true`) | 将符合条件的 delta 分片连续段写为打包行（在真实编码会话上测得逻辑日志约小 60%）。设为 `false` 可用于每事件一行诊断；无论该写入侧开关如何，都能读取打包行。 |
 | `compression` | `'zstd' \| 'none'` | 默认 `'zstd'`；`'none'` 保留换行分隔 UTF-8 文本。 |
 
 `locate(meta)` 返回已解析项目/会话目录内固定 transcript 的 `{ kind: 'jsonl', path }`。它不执行文件系统 I/O：可以在目录或文件存在前返回目标，现有文件也只包含最后 flush 前缀。

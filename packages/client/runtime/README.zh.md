@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态和页面局部 Session Intent 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、页面局部 Workspace Intent 状态、默认目标派生，以及跨对象 New Session 流程。运行时把共享 Host 流分发给两个 manager。契约：api-contracts v3 §4。
+客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给两个 manager。客户端 Session 一律由 Host 出生（一次 `session.create` 同瞬产出 Session+Agent+cwd）；客户端不持有任何实体化之前的会话状态——Agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时出生，随 prune 死亡。契约：api-contracts v3 §4。
 
 ## Workspace 与 Session 列表
 
@@ -10,9 +10,9 @@ Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线�
 
 SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建 hook。Workspace 业务状态不会进入 `SessionListState` 或配置项 store。
 
-## Session 创建失败
+## New Session 与 blank 镜像
 
-`SessionsService.create` 接受可选的、由调用方预先分配的 SessionId。失败时抛出 `SessionCreateError`：传输状态不确定后仍可取得 `requestedSessionId`；如果 Host 在附加失败前已经发布真实 Session，则会设置 `publishedSessionId`，此时 `workspace-attach-failed` 提供了证明。在 New Session 流程中，前端 Session 对象拥有其保留的提示词，并推动提示词完成附加与发送；部分发布的 Session 会保留同一对象和提示词，同时显示为 Ungrouped。
+`WorkspacesService.connectWorkspace(workspaceId)` 解析 New Session 流程最终落入的会话：先在列表镜像中复用该 workspace 的既有空会话（`blank && cwd == workspace.path`），未命中则调用 `session.create({workspaceId})`，返回会话 id 由调用方 open。`SessionSummary.blank` 镜像主机派生的空日志位，在客户端只降不升：由 `session.list`／`host/session-added` 帧播种，本地首次**受理成功**的 `prompt()`（RPC 成功响应时——受理即证明用户消息已入主机日志；首讯被拒则会话保持 blank、保持可复用）与任何 `running: true` 状态帧翻为 false，每次列表重拉重新对齐。列表表面隐藏 blank 行；store 保留全部行。`SessionsService.create` 接受可选的、由调用方预先分配的 SessionId，失败时抛出 `SessionCreateError`（携带 `requestedSessionId`）。
 
 ## Code Mode 子调用索引
 
@@ -33,5 +33,5 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 ## 已知限制与暂缓事项
 
 - **`loader.unload` 是 stub（抛出 not-implemented）**：完整链路（fiber 释放 → 注册级联 → 样式移除）随 HMR 项目落地。
-- **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的 Session 精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ Session 位于 stage）；在 staged 状态下被移除的 Session，其 scope 会冻结保留，直到 stage 转向其他 Session，而非直到真实观察者数量降为零。解析（`cell()`／`binding()`／`scope()`）只是纯寻址，可安全用于渲染。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
+- **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的 Session 精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ Session 位于 stage）；在 staged 状态下被移除的 Session，其 scope 会冻结保留，直到 stage 转向其他 Session，而非直到真实观察者数量降为零。解析（`provideInfo()`／`binding()`／`scope()`）只是纯寻址，可安全用于渲染。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
 - **插件组合包从该包执行值导入时必须使用 `/client` 子路径**：裸包名不在 loader external 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配（空状态 P0 事故复盘）。

@@ -7,13 +7,11 @@ import type {
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionsService } from '../sessions/service.ts'
-import { WorkspaceManager, type WorkspaceIntentSnapshot, type WorkspaceListPhase } from './manager.ts'
+import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
 export interface WorkspaceListState {
   items: readonly WorkspaceView[]
-  /** Sole client-local Workspace projection; its state remains owned by Workspace. */
-  intent: WorkspaceIntentSnapshot | undefined
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -29,64 +27,128 @@ export class WorkspacesService {
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
   private readonly manager: WorkspaceManager
-  private initialSessionResolved = false
-  private composingIntent = false
+  /** In-flight blank-session creates keyed by workspace (connectWorkspace coalescing). */
+  private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  /** Guards the runtime-owned one-shot initial-selection subscription. */
+  private initialSelectionStarted = false
 
   /**
    * @param ctx - client root context.
    * @param api - shared wire client.
-   * @param sessions - lower-level Session service used for recency and cross-domain intent orchestration.
+   * @param sessions - lower-level Session service used for recency and blank-session reuse.
    */
   constructor(ctx: Context, api: IApiClient, private readonly sessions: SessionsService) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
-      items: [], intent: undefined, state: 'idle', phase: 'pending', error: null,
+      items: [], state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
-    this.manager.subscribe(() => { if (!this.composingIntent) this.project() })
-    this.sessions.list.subscribe(() => { if (!this.composingIntent) this.project() })
+    this.manager.subscribe(() => { this.project() })
+    this.sessions.list.subscribe(() => { this.project() })
     ctx.reflect.provide('workspaces', this, undefined)
   }
 
   /**
-   * Start the sole Session intent, resolving the default Workspace here.
-   * @param workspaceId - optional explicit real Workspace target.
-   * @param prompt - optional prompt retained while retargeting.
+   * Resolve the session a New Session flow lands in once this Workspace is
+   * chosen: reuse the workspace's existing blank session when one is in the
+   * list mirror, else create a fresh one on the host (`session.create` births
+   * the full Session+Agent — the client holds no intermediate state). The
+   * caller owns navigation: take the returned id to `sessions.open`.
+   * Resolution guarantee (both arms): the returned id is already in the list
+   * store and `sessions.binding(id)` resolves synchronously — draft hand-off
+   * may write the new scope's machine before opening.
+   * @param workspaceId - chosen Workspace (must be in the workspace list).
+   * @returns the reused or newly created session id.
    */
-  startSession(workspaceId?: WorkspaceId, prompt = ''): void {
-    const snapshot = this.list.getSnapshot()
-    const resolved = workspaceId ?? snapshot.recentWorkspaceId ?? snapshot.items[0]?.workspaceId
-    this.composingIntent = true
-    try {
-      if (resolved === undefined) {
-        this.manager.startIntent()
-        this.sessions.startIntent({ kind: 'workspace-intent' }, prompt)
-      } else {
-        this.manager.discardIntent()
-        this.sessions.startIntent({ kind: 'workspace', workspaceId: resolved }, prompt)
+  async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {
+    const workspace = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
+    if (workspace === undefined) throw new Error(`workspaces.connectWorkspace: unknown workspace ${workspaceId}`)
+    // Coalesce concurrent connects: a create's summary lands without cwd
+    // until the host frame arrives, so a second call inside that window
+    // would miss the reuse scan and mint another hidden blank session.
+    const inflight = this.connecting.get(workspaceId)
+    if (inflight !== undefined) return inflight
+    // Reuse: blank && same canonical cwd (workspace.path is the host realpath
+    // canon; summary cwd is the session header passthrough of the same canon).
+    const sessions = this.sessions.list.getSnapshot()
+    for (const id of sessions.ids) {
+      const summary = sessions.byId[id]
+      if (summary !== undefined && summary.blank && summary.cwd === workspace.path) return summary.id
+    }
+    const attempt = this.sessions.create({ workspaceId })
+      .finally(() => { this.connecting.delete(workspaceId) })
+    this.connecting.set(workspaceId, attempt)
+    return attempt
+  }
+
+  /**
+   * Follow the first complete Workspace/Session baseline and select a default
+   * session exactly once. A restored current session wins; otherwise the most
+   * recent Workspace is connected (reusing or creating its blank session).
+   * Later explicit clears stay cleared instead of retriggering this startup
+   * policy. A failed connect may retry on the next baseline projection.
+   * @returns disposer for the baseline subscription; late work cannot navigate after disposal.
+   */
+  startInitialSelection(): () => void {
+    if (this.initialSelectionStarted) {
+      throw new Error('workspaces.startInitialSelection: already started')
+    }
+    this.initialSelectionStarted = true
+    let state: 'waiting' | 'connecting' | 'done' = 'waiting'
+    let disposed = false
+    const reconcile = (): void => {
+      if (disposed || state !== 'waiting') return
+      const workspace = this.list.getSnapshot()
+      if (!workspace.baselinesReady) return
+      const current = this.sessions.list.getSnapshot().current
+      const target = workspace.recentWorkspaceId
+      if (current !== undefined || target === undefined) {
+        state = 'done'
+        return
       }
-    } finally {
-      this.composingIntent = false
-      this.project()
+      state = 'connecting'
+      void this.connectWorkspace(target).then(
+        (sessionId) => {
+          if (disposed) return
+          if (this.sessions.list.getSnapshot().current === undefined) {
+            this.sessions.open(sessionId)
+          }
+          state = 'done'
+        },
+        (reason: unknown) => {
+          if (disposed) return
+          state = 'waiting'
+          console.warn('initial workspace selection failed:', reason)
+        },
+      )
+    }
+    const unsubscribe = this.list.subscribe(reconcile)
+    reconcile()
+    return () => {
+      disposed = true
+      unsubscribe()
     }
   }
 
-  /** Connect the current frontend Workspace and Session, then flush the Session-owned prompt. */
-  sendSession(): void {
-    const session = this.sessions.intent()
-    const target = session?.getSnapshot().intent?.target
-    if (session === undefined || target === undefined) return
-    if (target.kind === 'workspace') {
-      session.connect(target.workspaceId)
+  /**
+   * The shared New Session action behind the shell entry points (sidebar
+   * button, workspace browser): resolve the target Workspace — explicit wins,
+   * else the recent-Workspace projection — connect its blank session and
+   * navigate there; with no Workspace at all, clear the selection into the
+   * New Session view state. Connect failures are non-fatal (console
+   * diagnostics; the current view stays usable).
+   * @param workspaceId - explicit target Workspace for scoped actions.
+   */
+  startSession(workspaceId?: WorkspaceId): void {
+    const target = workspaceId ?? this.list.getSnapshot().recentWorkspaceId
+    if (target === undefined) {
+      this.sessions.clear()
       return
     }
-    if (session.getSnapshot().pendingPrompt?.text.trim() === '') return
-    void this.manager.materializeIntent().then((result) => {
-      if (this.sessions.intent() !== session) return
-      if (result?.ok) {
-        session.connect(result.value.workspace.workspaceId)
-      }
-    })
+    void this.connectWorkspace(target).then(
+      (sessionId) => { this.sessions.open(sessionId) },
+      (reason: unknown) => { console.warn('new session failed:', reason) },
+    )
   }
 
   /**
@@ -153,20 +215,15 @@ export class WorkspacesService {
   private project(): void {
     const workspace = this.manager.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
-    if (workspace.intent !== undefined && sessions.intent?.target.kind !== 'workspace-intent') {
-      this.manager.discardIntent()
-      return
-    }
     const baselinesReady = workspace.phase === 'ready' && sessions.phase === 'ready'
     this.list.set({
-      ...workspace,
+      items: workspace.items,
+      state: workspace.state,
+      phase: workspace.phase,
+      error: workspace.error,
       baselinesReady,
       recentWorkspaceId: baselinesReady ? recentWorkspace(workspace.items, sessions.byId) : undefined,
     })
-    if (!this.initialSessionResolved && baselinesReady) {
-      this.initialSessionResolved = true
-      if (sessions.current === undefined && sessions.intent === undefined) this.startSession()
-    }
   }
 }
 

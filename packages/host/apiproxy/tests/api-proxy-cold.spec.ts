@@ -65,6 +65,9 @@ describe('sessions.list cold merge', () => {
     const [a, b, c] = items
     expect(a?.updatedAt).toBeCloseTo(5_000_000, -3)
     expect(a?.running).toBe(false)
+    // Cold summaries are never blank: lazy persistence keeps never-appended
+    // sessions out of list(), so a listed session necessarily has events.
+    expect(items.every(item => !item.blank)).toBe(true)
     expect(a?.cwd).toBe('/proj')
     expect(a?.parentSessionId).toBeUndefined()
     expect(b?.updatedAt).toBe(2000)

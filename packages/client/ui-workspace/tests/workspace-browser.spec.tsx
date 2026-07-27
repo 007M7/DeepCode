@@ -15,14 +15,13 @@ beforeEach(() => { localStorage.clear() })
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, updatedAt, ...overrides,
+  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
 })
 const sessionState = (items: readonly SessionSummary[], overrides: Partial<SessionListState> = {}): SessionListState => ({
   ids: items.map(item => item.id),
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   current: undefined,
   phase: 'ready',
-  intent: undefined,
   ...overrides,
 })
 const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({
@@ -30,7 +29,7 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
-  items, intent: undefined, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+  items, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
   recentWorkspaceId: items[0]?.workspaceId,
 })
 const hook = <T,>(snapshot: T) => <S,>(selector: (state: T) => S): S => selector(snapshot)
@@ -176,18 +175,31 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('b')).toBeNull()
   })
 
-  it('renders the intent placeholder in both modes', () => {
-    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('alpha') }, prompt: '', phase: 'connecting' as const }
-    const sessions = sessionState([], { intent, current: sid('intent') })
+  it('shows only the current blank session as New Session in grouped, flat, and search modes', () => {
+    const currentBlank = summary('alpha-blank', 9, { blank: true })
+    const staleBlank = summary('beta-blank', 8, { blank: true })
+    const sessions = sessionState(
+      [currentBlank, staleBlank],
+      { current: currentBlank.id },
+    )
     const b = mount({
       useSessions: hook(sessions),
-      useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      useWorkspaces: hook(workspaceState([
+        workspace('alpha', ['alpha-blank']), workspace('beta', ['beta-blank']),
+      ])),
     })
-    // Grouped: the current-group effect expands the target group.
-    expect(screen.getByText('New session')).toBeTruthy()
+    expect(screen.getByText('New Session')).toBeTruthy()
+    expect(screen.queryByText('alpha-blank')).toBeNull()
+    expect(screen.queryByText('beta-blank')).toBeNull()
+    expect(screen.getByText('1 session')).toBeTruthy()
+
+    rerender(b, { useSessions: hook({ ...sessions, current: staleBlank.id }) })
+    expect(screen.getAllByText('New Session')).toHaveLength(1)
     b.store.actions.setGroupBy('flat')
     rerender(b, {})
-    expect(screen.getByText('New session')).toBeTruthy()
+    expect(screen.getAllByText('New Session')).toHaveLength(1)
+    fireEvent.change(screen.getByPlaceholderText('Search name, keywords...'), { target: { value: 'new session' } })
+    expect(screen.getAllByText('New Session')).toHaveLength(1)
   })
 
   it('searches across groups, clears via the clear button, and shows the empty states', () => {

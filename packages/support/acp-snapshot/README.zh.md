@@ -11,6 +11,8 @@ ACP 快照套件工具包：无密钥快照层（`pnpm run test:snapshot`，见[
 - **规范化器**：将两个已捕获接口转换为稳定文本的纯函数：`normalizeStdout`（JSON-RPC id → 首次出现序列；UUID 以及生成 cwd 的每个原生/JavaScript 文件系统写法 → token，按最长优先；根据 cwd 的分隔符选择规范 `/` 或宿主原生形式；同时作为 stdout 纯度检查）、`normalizeSessionLog`（时间归零、保留 `seq`、使用同一 cwd 路径策略）、`scrubSystemPrompts`（提示词文本 → `{{system}}`）、`scrubToolSchemas`（schema bulk → `{{tools}}`）和 `scrubRequestHeaders`（每个 pin 之外的所有 header bulk → `{{system}}`/`{{tools}}`/`{{messagePrefix}}`，保留结构；见[header 固定 Agent Note](../../../.agents/notes/archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)）。
 - **`defineAcpSnapshotSuite`（工厂）**：为场景表注册完整 describe/it 树：每场景预期输出与重新持久化日志比较、录制/刷新 fixture 回写、拒绝结构化 `UNKNOWN_TOOL` 结果、每 header 类别 pin（`system-prompt.expected.md` 加 `tool-schemas.expected.json`）及其实时一致性保护，以及 fixture 保护块（无遗留场景目录、必需文件存在、每类别恰好一个 pin、每个 JSONL 的提示词/schema 已擦除、非 pin fixture 的 header 已完全擦除）。刷新会在对齐现有可变事件时间前展开打包时序 envelope，因此切换打包/非打包布局无法移动后续记录；新分片碎片数组仍为权威数据。新插入的 `session/title` 使用前一个事件的时间，因此功能驱动的插入不会扰动 fixture 余下部分。每个场景目录的 `session.jsonl` 和连续 `session.<n>.jsonl` 同级文件是有序主级/子级清单；场景表不重复其数量。必须在 vitest 收集时调用。
 
+签入仓库的会话 fixture 使用规范打包行。合并此契约的在途分支通过 `pnpm run migrate:packed-session-fixtures` 运行[临时仓库迁移器](../../../scripts/migrate-packed-session-fixtures.ts)；待受影响分支收敛后，由其[移除提案](../../../.agents/notes/proposed/process/2026-07-26-remove-packed-session-fixture-migrator.md)负责删除该迁移器。
+
 消费方 `*.snapshot.ts` 就是场景表加一次工厂调用：
 
 ```ts
