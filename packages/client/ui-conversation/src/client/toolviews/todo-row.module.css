@@ -11,10 +11,6 @@
   font-size: 13px;
 }
 
-.row:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
 .badge {
   flex: none;
   color: var(--dsw-alias-state-business-primary);
@@ -22,7 +18,7 @@
 
 .title {
   flex: none;
-  font-weight: 510;
+  font-weight: 500; /* figma wt510, rendered 500 */
   color: var(--dsw-alias-label-primary);
 }
 

@@ -9,10 +9,6 @@
   border-radius: 6px;
 }
 
-.root:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
 .leading {
   flex: none;
   width: 16px;
@@ -39,7 +35,7 @@
   flex: none;
   font-size: 14px;
   line-height: 24px;
-  color: var(--dsw-alias-label-primary-dimmed);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .sep {

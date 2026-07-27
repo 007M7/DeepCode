@@ -28,7 +28,7 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
   return (
     <ToolRow
       variant="think"
-      icon={<IconThinkOutline14 />}
+      icon={<IconThinkOutline14 size={14} />}
       title="Think"
       summary={firstLine(text)}
       body={text}

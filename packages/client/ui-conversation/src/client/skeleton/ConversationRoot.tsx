@@ -48,7 +48,7 @@ export function ConversationRoot({
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
   const heroWorkspaceRow = (
-    <>
+    <div className={css.heroWorkspaceRow}>
       <WorkspaceChip
         buttonRef={pickerAnchor}
         label={
@@ -63,6 +63,7 @@ export function ConversationRoot({
       {renderSlot('conversation.hero.workspace', {
         open: pickerOpen,
         anchorRef: pickerAnchor,
+        selectedId: pendingWorkspaceId ?? sessionWorkspace?.workspaceId,
         onPick: (workspaceId) => {
           setPickerOpen(false)
           setPendingWorkspaceId(workspaceId)
@@ -72,7 +73,7 @@ export function ConversationRoot({
         },
         onClose: () => { setPickerOpen(false) },
       })}
-    </>
+    </div>
   )
 
   const inputBar = sessionId === undefined

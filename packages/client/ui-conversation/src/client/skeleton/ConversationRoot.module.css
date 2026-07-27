@@ -87,7 +87,7 @@
   padding-left: 8px;
 }
 
-/* figma .Tab 34:11442: 13/16 wt510 text, gap 8 to the 3px bar (no bottom rounding). */
+/* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 3px bar (no bottom rounding). */
 .tab {
   position: relative;
   padding: 0 0 11px;
@@ -95,7 +95,7 @@
   background: transparent;
   font-size: 13px;
   line-height: 16px;
-  font-weight: 510;
+  font-weight: 500;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
 }
@@ -140,8 +140,17 @@
    block for position:fixed descendants (pickers/modals), shrinking them. */
 .composerHero {
   align-self: center;
+  /* figma 75:8208: 12 between hero chrome / workspace row / card. */
+  gap: 12px;
   width: min(776px, calc(100% - 48px));
   z-index: 1;
+}
+
+.heroWorkspaceRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: 8px;
 }
 
 .root[data-phase='hero'] {

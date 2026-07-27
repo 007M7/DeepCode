@@ -13,13 +13,10 @@
   min-width: 0;
 }
 
+/* Clickable rows keep only the cursor affordance — no hover fill. */
 .row[data-clickable] {
   cursor: pointer;
   border-radius: 6px;
-}
-
-.row[data-clickable]:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .leading {
@@ -65,11 +62,29 @@ button.leading {
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Hover preview on expandable rows: the idle tool icon yields to a down
+   chevron before the row is opened. */
+.iconIdle {
+  display: inline-flex;
+}
+
+.chevronHover {
+  display: none;
+}
+
+.row:hover .iconIdle {
+  display: none;
+}
+
+.row:hover .chevronHover {
+  display: inline-flex;
+}
+
 .title {
   flex: none;
   font-size: 14px;
   line-height: 24px;
-  color: var(--dsw-alias-label-primary-dimmed);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .sep {

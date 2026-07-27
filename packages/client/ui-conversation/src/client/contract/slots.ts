@@ -300,6 +300,8 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 export interface EmptyWorkspaceOwnerProps {
   open: boolean
   anchorRef?: RefObject<HTMLElement>
+  /** Currently active workspace (renders a trailing check in the picker list). */
+  selectedId?: WorkspaceId | undefined
   onPick: (workspaceId: WorkspaceId) => void
   onClose: () => void
 }

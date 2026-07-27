@@ -8,8 +8,7 @@
   justify-content: center;
   height: 100%;
   min-width: 0;
-  padding: 24px;
-  margin-bottom: -70px;
+  padding: 0 24px;
 }
 
 /* Cap matches InputBar card width (800). Glow may paint past the sides. */
@@ -24,17 +23,15 @@
   overflow: visible;
 }
 
-/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt600; title block
-   keeps 36px below the headline before the flex gap. */
+/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt500. */
 .headline {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding-bottom: 36px;
   font-size: 26px;
   line-height: 32px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -88,7 +85,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: fit-content;
+  max-width: min(100%, 360px);
   min-height: 28px;
   padding: 0 8px;
   border: none;

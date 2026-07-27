@@ -15,7 +15,7 @@ function leadingFor(state: ToolRowState) {
     case 'running': return <StateDot state="ongoing" />
     case 'error': return <StateDot state="error" />
     case 'stopped': return <StateDot state="warning" />
-    default: return <IconApiOutline14 size={16} />
+    default: return <IconApiOutline14 size={14} />
   }
 }
 
