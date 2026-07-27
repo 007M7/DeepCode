@@ -90,6 +90,8 @@ describe.skipIf(!existsSync(builtScripts))('live-linked generated projects', () 
         XDG_DATA_HOME: join(cacheRoot, 'data'),
         npm_config_cache: join(cacheRoot, 'npm'),
         ...pnpmStore === undefined ? {} : { pnpm_config_store_dir: pnpmStore },
+        // A generated project has no lockfile yet; ambient CI must not make its first Yarn install immutable.
+        ...name === 'yarn' ? { YARN_ENABLE_IMMUTABLE_INSTALLS: 'false' } : {},
       }
       await execFileAsync(name, manager.installCommand(), {
         cwd: root,

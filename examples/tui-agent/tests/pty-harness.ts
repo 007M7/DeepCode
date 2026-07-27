@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { execa } from 'execa'
 import { resolveExampleLaunch, type ExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 const POSIX_PTY_DRIVER = String.raw`
@@ -94,35 +94,32 @@ async function runPosixPtySmoke(
   options: TuiPtySmokeOptions,
   timeoutMs: number,
 ): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn('python3', [
-      '-c',
-      POSIX_PTY_DRIVER,
-      launch.command,
-      JSON.stringify(launch.args),
-      JSON.stringify(launch.env),
-      cwd,
-      JSON.stringify(options.actions ?? []),
-      String(options.expectedExitCode ?? 0),
-      String(timeoutMs / 1_000),
-    ], { stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => { stdout += chunk })
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => { stderr += chunk })
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      reject(new Error(`${options.label} PTY driver did not exit. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, timeoutMs + 5_000)
-    child.once('error', (error) => { clearTimeout(timer); reject(error) })
-    child.once('exit', (code) => {
-      clearTimeout(timer)
-      if (code === 0) resolve(stdout)
-      else reject(new Error(`${options.label} PTY driver exited ${String(code)}. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    })
+  // The driver owns the PTY deadline (`timeoutMs`); the outer execa deadline
+  // only backstops a wedged python3 process itself.
+  const result = await execa('python3', [
+    '-c',
+    POSIX_PTY_DRIVER,
+    launch.command,
+    JSON.stringify(launch.args),
+    JSON.stringify(launch.env),
+    cwd,
+    JSON.stringify(options.actions ?? []),
+    String(options.expectedExitCode ?? 0),
+    String(timeoutMs / 1_000),
+  ], {
+    stdin: 'ignore',
+    timeout: timeoutMs + 5_000,
+    killSignal: 'SIGKILL',
+    reject: false,
+    stripFinalNewline: false,
   })
+  if (result.timedOut) {
+    throw new Error(`${options.label} PTY driver did not exit. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+  }
+  if (result.failed) {
+    throw new Error(`${options.label} PTY driver exited ${String(result.exitCode)}. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+  }
+  return result.stdout
 }
 
 async function runWindowsPtySmoke(
