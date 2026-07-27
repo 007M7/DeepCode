@@ -9,6 +9,7 @@
   height: 100%;
   min-width: 0;
   padding: 24px;
+  margin-bottom: -70px;
 }
 
 /* Cap matches InputBar card width (800). Glow may paint past the sides. */
@@ -87,7 +88,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 100%;
+  max-width: fit-content;
   min-height: 28px;
   padding: 0 8px;
   border: none;
