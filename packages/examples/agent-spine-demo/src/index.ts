@@ -22,7 +22,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import GoalService, { type Config as GoalDomainConfig } from '@deepseek-ai/dsh-goal'
 import * as goalSession from '@deepseek-ai/dsh-goal-session'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import InvariantService, { type Config as InvariantConfig } from '@deepseek-ai/dsh-invariants'
 import * as sessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
@@ -223,7 +223,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(toolGoal, config.goals.tool ?? {})
     ctx.plugin(goalSession)
   }
-  ctx.plugin(TaskService)
+  ctx.plugin(LocalTaskService)
   ctx.plugin(InvariantService, config.invariants ?? {})
   ctx.plugin(sessionInvariant)
   ctx.plugin(agentInvariant)

@@ -203,11 +203,91 @@ describe('loadReplayScript', () => {
     expect(() => loadReplayScript({ file: join(dir, 'absent.jsonl') })).toThrow(/fixture not found/)
   })
 
-  it('throws when the override is not a JSON array', () => {
+  it('rejects an override document that is neither supported form', () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
     writeFileSync(overrideFile, '{"not":"array"}', 'utf8')
-    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/not a JSON array/)
+    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/document must be a ReplayEntry\[\] or \{ patches/)
+  })
+
+  it('patches form: swaps the named call index and keeps derived siblings', () => {
+    const callB: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'two' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    let seq = 1
+    writeFileSync(file, sessionJsonl([
+      ...TEXT_CHUNKS.map(c => chunkEvent(seq++, 1, 1, c)),
+      ...callB.map(c => chunkEvent(seq++, 1, 2, c)),
+    ]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'transient', code: 'SERVER' } }],
+    }), 'utf8')
+    expect(loadReplayScript({ file, overrideFile })).toEqual([
+      { kind: 'throw', chunks: [], message: 'transient', code: 'SERVER' },
+      { kind: 'chunks', chunks: callB },
+    ])
+  })
+
+  it('patches form: at == derived length appends (the retry-attempt slot)', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [
+        { at: 0, entry: { kind: 'throw', chunks: [], message: '429', code: 'RATE_LIMIT' } },
+        { at: 1, entry: { kind: 'chunks', chunks: TEXT_CHUNKS } },
+      ],
+    }), 'utf8')
+    expect(loadReplayScript({ file, overrideFile })).toEqual([
+      { kind: 'throw', chunks: [], message: '429', code: 'RATE_LIMIT' },
+      { kind: 'chunks', chunks: TEXT_CHUNKS },
+    ])
+  })
+
+  it('patches form: an out-of-range index fails loud with the derived length', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({ patches: [{ at: 2, entry: { kind: 'hang' } }] }), 'utf8')
+    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/patch index 2 out of range.*1 call/s)
+  })
+
+  it('validates patch and entry shapes at the file boundary', () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    const invalid: Array<{ doc: unknown; message: RegExp }> = [
+      { doc: null, message: /document must be/ },
+      { doc: { patches: [null] }, message: /patch 0 must contain exactly at and entry/ },
+      { doc: { patches: [{ at: -1, entry: { kind: 'hang' } }] }, message: /at must be a non-negative safe integer/ },
+      { doc: { patches: [{ at: 1.5, entry: { kind: 'hang' } }] }, message: /at must be a non-negative safe integer/ },
+      { doc: [42], message: /entry 0 must be an object/ },
+      { doc: [{ kind: 'chunks', chunks: 'nope' }], message: /chunks must be an array/ },
+      { doc: [{ kind: 'chunks', chunks: [], extra: true }], message: /invalid chunks-entry fields/ },
+      { doc: [{ kind: 'chunks', chunks: [{ type: 'bogus' }] }], message: /known StreamChunk type/ },
+      { doc: [{ kind: 'throw', chunks: [], message: 'nope', code: 'AUTH', extra: true }], message: /invalid throw-entry fields/ },
+      { doc: [{ kind: 'throw', chunks: [], message: '', code: 'AUTH' }], message: /message must be a non-empty string/ },
+      { doc: [{ kind: 'throw', chunks: [], message: 'nope', code: '' }], message: /code must be a non-empty string/ },
+      { doc: [{ kind: 'hang', extra: true }], message: /invalid hang-entry fields/ },
+      { doc: [{ kind: 'hang', readyFile: 1 }], message: /readyFile must be a non-empty string/ },
+      { doc: [{ kind: 'bogus' }], message: /unknown kind/ },
+    ]
+    for (const { doc, message } of invalid) {
+      writeFileSync(overrideFile, JSON.stringify(doc), 'utf8')
+      expect(() => loadReplayScript({ file, overrideFile })).toThrow(message)
+    }
+  })
+
+  it('rejects duplicate patch indexes instead of silently taking the last one', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [
+        { at: 0, entry: { kind: 'hang' } },
+        { at: 0, entry: { kind: 'throw', chunks: [], message: 'busy', code: 'SERVER' } },
+      ],
+    }), 'utf8')
+    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/duplicate override patch index 0/)
   })
 })
 
@@ -364,16 +444,14 @@ describe('installLlmReplay (through the real LlmService)', () => {
       .toEqual([{ type: 'finish', reason: { kind: 'stop' } }])
   })
 
-  it('throws on a malformed sidecar entry kind (the assertNever guard)', async () => {
+  it('rejects a malformed sidecar entry kind before installing replay', async () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
     // A kind the union does not know — hand-edited/drifted sidecar data.
     writeFileSync(overrideFile, JSON.stringify([{ kind: 'bogus' }]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    installLlmReplay(ctx, { file, overrideFile })
-    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] })))
-      .rejects.toThrow(/llm-replay replay entry/)
+    expect(() => installLlmReplay(ctx, { file, overrideFile })).toThrow(/unknown kind/)
   })
 
   it('rejects a hang entry when the signal fires DURING the wait (abort listener path)', async () => {

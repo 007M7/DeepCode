@@ -15,6 +15,8 @@ description: Use when creating or updating the bilingual counterpart of a doc in
 - **New pair** (no counterpart yet): follow [the whole-document path](#the-whole-document-path-new-pairs).
 - **Deleted or renamed doc**: delete or rename the counterpart and the `.i18n.yaml` alongside it — the gate reports an incomplete pair otherwise.
 
+Frozen Agent Notes under `.agents/notes/archived/` are not translation work. Their complete triplets are sealed by the archive verifier; never update, re-record, or repair either side after archival.
+
 ## The update path (briefing-driven)
 
 Benchmarked on real pair updates from this repo's history, the briefing-driven path costs a fraction of a guidance-corpus-loading run at equal measured quality; the [briefed-updates Agent Note](../../notes/implemented/process/2026-07-26-briefed-minimal-translation-updates.md) holds the evidence.

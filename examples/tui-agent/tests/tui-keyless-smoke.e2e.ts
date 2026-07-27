@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
-import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { packChunkRuns, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 
@@ -66,7 +66,7 @@ async function seedResumeSession(cwd: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     JSON.stringify(toHeaderLine(meta)),
-    ...events.map(event => JSON.stringify(event)),
+    ...packChunkRuns(events).map(record => JSON.stringify(record)),
     '',
   ].join('\n'))
 }

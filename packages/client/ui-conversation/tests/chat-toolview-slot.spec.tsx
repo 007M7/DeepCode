@@ -40,15 +40,15 @@ const toolResult = (seq: number, callId: string, name: string, args = '{"command
 function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
   return {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   } as ConversationSnapshot
 }
 
-/** Test-owned AppFrame role: declares the layout-owned children and renders the conversation area under the framework session provider. */
-type AppRootProps = PropsRenderSlots<'conversation' | 'details' | 'conversation.empty'>
-function AppRoot({ renderSlot, SessionProvider }: AppRootProps) {
-  return <SessionProvider>{() => renderSlot('conversation', {})}</SessionProvider>
+/** Test-owned AppFrame role: declares and renders the resident conversation area. */
+type AppRootProps = PropsRenderSlots<'conversation' | 'details'>
+function AppRoot({ renderSlot }: AppRootProps) {
+  return <>{renderSlot('conversation', {})}</>
 }
 
 /**
@@ -65,28 +65,60 @@ async function bench(nodes: ToolResultNode[]) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshotWith(nodes))
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-    intent: undefined,
     phase: 'ready',
   })
-  // Identity-stable cell: the renderer caches hooks per source and inject
-  // results per cell, both by object identity.
-  const cell = { sessionId: SID, session }
+  // Identity-stable provide bundle: the renderer caches hooks per source and
+  // inject results per bundle, both by object identity. Registered providers
+  // (the package's input contribution) materialize into it lazily, once.
+  const providers: ((binding: object) => { hooks?: object; props?: object })[] = []
+  let info: { sessionId: SessionId; hooks: object; props: object } | undefined
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
+  const actxFake = { get: () => scoped, effect: () => {}, on: () => () => {} }
+  const bindingOf = (id: SessionId) => ({
+    sessionId: id,
+    ctx: actxFake,
+    session: {
+      sessionId: id,
+      loadOlder: vi.fn(),
+      prompt: vi.fn(async () => ({ ok: true, value: { accepted: true } })),
+      // Observable face for the input machine's queue read face.
+      getSnapshot: () => session.getSnapshot(),
+      subscribe: (fn: () => void) => session.subscribe(fn),
+    },
+  })
   ctx.provide('sessions', {
     list,
-    binding: (id: SessionId) => ({ sessionId: id, session: { loadOlder: vi.fn() } }),
-    scope: () => ({ get: () => scoped }),
-    cell: (id: string) => (id === SID ? cell : undefined),
+    binding: bindingOf,
+    scope: () => actxFake,
+    provideInfo: (id: string) => {
+      if (id !== SID) return undefined
+      if (info === undefined) {
+        const hooks: Record<string, unknown> = { session }
+        const props: Record<string, unknown> = {}
+        for (const provider of providers) {
+          const c = provider(bindingOf(SID))
+          Object.assign(hooks, c.hooks ?? {})
+          Object.assign(props, c.props ?? {})
+        }
+        info = { sessionId: SID, hooks, props }
+      }
+      return info
+    },
+    maybeProvideInfo(id: string | undefined) {
+      return (id === undefined ? undefined : this.provideInfo(id)) ?? { hooks: {}, props: {} }
+    },
+    provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
+    scopeOf: () => SID,
     create: vi.fn(),
     open: vi.fn(),
     updateIntent: vi.fn(),
   })
   ctx.provide('workspaces', {
     list: createSnapshotStore<WorkspaceListState>({
-      items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+      items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     }),
     startSession: vi.fn(),
@@ -99,9 +131,8 @@ async function bench(nodes: ToolResultNode[]) {
   slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session' },
+      'conversation': { kind: 'single', scope: 'session-maybe' },
       'details': { kind: 'single', scope: 'session' },
-      'conversation.empty': { kind: 'single', scope: 'root' },
     },
   }, AppRoot)
 
@@ -194,18 +225,20 @@ describe('registrant load-order seam', () => {
     const slots = ctx.get('slots') as SlotsService
     ctx.provide('sessions', {
       list: createSnapshotStore<SessionListState>({
-        ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready',
+        ids: [], byId: {}, current: undefined, phase: 'ready',
       }),
       binding: () => undefined,
       scope: () => undefined,
-      cell: () => undefined,
+      provideInfo: () => undefined,
+      maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+      provide: () => () => {},
       create: vi.fn(),
       open: vi.fn(),
       updateIntent: vi.fn(),
     })
     ctx.provide('workspaces', {
       list: createSnapshotStore<WorkspaceListState>({
-        items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+        items: [], state: 'idle', phase: 'ready', error: null,
         baselinesReady: true, recentWorkspaceId: undefined,
       }),
       startSession: vi.fn(),
@@ -216,10 +249,9 @@ describe('registrant load-order seam', () => {
     slots.register({
       name: 'root',
       children: {
-        'conversation': { kind: 'single', scope: 'session' },
+        'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
-        'conversation.empty': { kind: 'single', scope: 'root' },
-      },
+        },
     }, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject

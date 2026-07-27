@@ -106,22 +106,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, onRename }: {
 }
 
 /**
- * The selected "New session" row for a frontend Session Intent targeted to a
- * real Workspace. The row disappears when the Intent is replaced or connects.
- * One status-slot indent in both grouped and flat lists (session rows carry
- * no twist slot either, so titles align).
- * @returns the placeholder row element.
- */
-export function IntentRowItem() {
-  return (
-    <div className={clsx(css.sessionRow, css.selected)} role="treeitem" aria-selected style={{ paddingLeft: 8 }}>
-      <span className={css.slot} />
-      <span className={css.title}>New session</span>
-    </div>
-  )
-}
-
-/**
  * One session subtree: the node's own 34px row (indent by depth, expand
  * twist when it has children, running dot, relative time) plus its visible
  * children, recursively — the component tree mirrors the derived tree.

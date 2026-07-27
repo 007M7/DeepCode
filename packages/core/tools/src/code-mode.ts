@@ -13,7 +13,7 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from './schema.ts'
 import { TOOL_REGISTRY_SCHEDULER } from './index.ts'
-import type { ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
+import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -187,6 +187,20 @@ function renderValue(value: JsonValue): string {
 type RunCodeOutput = { logs: string[]; result?: JsonValue }
 
 /**
+ * Registry-private capabilities the bridge receives at construction — the
+ * `requireRuntime` idiom: operations only the owning registry can mint stay
+ * off its public service surface and flow here as closures instead.
+ */
+export interface RunCodeBridgeOptions {
+  /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
+  requireRuntime: () => CodeRuntime
+  /** The run's overlap cap for parallel-classified sub-calls (the registry passes its validated `maxParallelSubCalls`). */
+  maxParallel: number
+  /** Runs the contained `tools/code-dispatch-log` waterfall over one settled sub-dispatch (the registry's private invoker). */
+  shapeDispatchLog: (dispatch: CodeDispatchLog) => Promise<ContentBlock[]>
+}
+
+/**
  * Build the `run_code` {@link ToolDefinition}: required `code` and
  * `description` parameters, executed through the dispatch bridge described
  * above. The
@@ -194,13 +208,11 @@ type RunCodeOutput = { logs: string[]; result?: JsonValue }
  * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
  *   bindings cover its registered tools).
- * @param requireRuntime - resolves `ctx.codeRuntime` or throws the loud
- *   misconfiguration error (shared with the registry's assembly-time checks).
- * @param maxParallel - the run's overlap cap for parallel-classified
- *   sub-calls (the registry passes its validated `maxParallelSubCalls`).
+ * @param options - the registry-private capabilities described above.
  * @returns the registry-ready definition.
  */
-export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => CodeRuntime, maxParallel: number): ToolDefinition {
+export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridgeOptions): ToolDefinition {
+  const { requireRuntime, maxParallel, shapeDispatchLog } = options
   return defineTool({
     name: RUN_CODE_NAME,
     description:
@@ -279,6 +291,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       }
       const pendingQueue: PendingDispatch[] = []
       const inFlight = new Set<Promise<void>>()
+      /** Tracked settle-event side work (log shaping + append), drained at run settlement. */
+      const logWork = new Set<Promise<void>>()
       const commitQueue: PendingDispatch[] = []
       let exclusiveActive = false
       let driving = false
@@ -357,6 +371,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         // entries, awaits the live pool, and drains the ordered commit lane —
         // including a commit already in progress when the program returned.
         await drive()
+        // Every settle's shaped append lands inside the open run_code turn
+        // (tasks self-remove on settlement).
+        while (logWork.size > 0) await Promise.allSettled([...logWork])
       }
 
       // Read through a call, not a bare property: the abort state genuinely
@@ -387,22 +404,41 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             | { kind: 'post-result' | 'final-result'; exec: ToolRunContext; result: ToolExecutionResult }
             | undefined
           const settle = (result: ToolExecutionResult): void => {
-            exec.agent?.session.append('tool/code-dispatch', {
-              parentCallId: exec.callId,
-              subCallId,
-              name,
-              // The SIBLING parse of the dispatched value: byte-identical JSON,
-              // but a separate object — a tool mutating its args cannot desync
-              // this record from what it actually received.
-              arguments: normalized.logged,
-              isError: result.isError,
-              // The registry deep-froze this projection at result finalization;
-              // append snapshots it again, so the log copy stays detached.
-              content: result.content,
-            })
+            // The program gets its value NOW: log shaping (e.g. a spill
+            // backend) must never delay the binding or occupy a dispatch
+            // slot. The shaped append is tracked side work; the run's
+            // settlement drains logWork so every settle event still lands
+            // inside the open turn (shapeDispatchLog is contained, so this
+            // chain cannot reject).
             resolve(result.isError
               ? { isError: true, message: result.error.message }
               : { isError: false, value: result.value })
+            const agent = exec.agent
+            if (agent === undefined) return
+            const task: Promise<void> = (async () => {
+              // The durable copy may be reshaped (e.g. spilled to a preview +
+              // locator) by the log-shaping waterfall; the program's value
+              // and the model contract are untouched.
+              const logged = await shapeDispatchLog({
+                exec, agent, subCallId, name, isError: result.isError,
+                // The registry deep-froze this projection at result
+                // finalization; append snapshots the final copy again, so
+                // the log stays detached.
+                content: result.content,
+              })
+              agent.session.append('tool/code-dispatch', {
+                parentCallId: exec.callId,
+                subCallId,
+                name,
+                // The SIBLING parse of the dispatched value: byte-identical JSON,
+                // but a separate object — a tool mutating its args cannot desync
+                // this record from what it actually received.
+                arguments: normalized.logged,
+                isError: result.isError,
+                content: logged,
+              })
+            })().finally(() => { logWork.delete(task) })
+            logWork.add(task)
           }
           pendingQueue.push({
             flight: Promise.resolve(),
@@ -444,6 +480,12 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
                 exec.deferContext(context)
               }
               settle(result)
+              // Backpressure on the shaped-append side channel: pending log
+              // tasks (each retaining a full result while a slow backend
+              // stores it) are bounded by the pool cap — beyond it the
+              // ordered lane waits, so later sub-calls cannot start and
+              // pending I/O/memory cannot grow without bound.
+              while (logWork.size > maxParallel) await Promise.race(logWork)
             },
           })
           wakeup()

@@ -1,9 +1,10 @@
 /* Shell-owned global base: full-height mount plus the theme token sheets.
- * The three ui-theme sheets are the sole token source (--dsw-*); the shell
+ * The four ui-theme sheets are the sole token source (--dsw-*); the shell
  * links them here so tokens exist before any plugin CSS lands. */
 @import '@deepseek-ai/dsh-client-ui-theme/styles/base.css';
 @import '@deepseek-ai/dsh-client-ui-theme/styles/design-platform.css';
 @import '@deepseek-ai/dsh-client-ui-theme/styles/gradient-shadow-text.css';
+@import '@deepseek-ai/dsh-client-ui-theme/styles/shiki.css';
 
 html,
 body,

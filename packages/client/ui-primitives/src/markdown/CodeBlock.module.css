@@ -1,0 +1,27 @@
+/* One code-block geometry for highlighted and plain arms: the shiki <pre>
+   and the fallback <pre> draw identically except for token colors. */
+
+.block :where(pre) {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  background: var(--dsw-alias-markdown-code-block);
+  font: var(--dsw-font-markdown-code-block);
+}
+
+/* Shiki inlines its theme background var; route it to the repo token. */
+.block :where(pre.shiki) {
+  background: var(--dsw-alias-markdown-code-block) !important;
+}
+
+.block :where(pre) code {
+  font: inherit;
+  background: none;
+  padding: 0;
+}
+
+.plain {
+  color: var(--dsw-alias-label-primary);
+  white-space: pre;
+}

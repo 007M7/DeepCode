@@ -151,4 +151,4 @@ interface TaskRead {
 
 ## 服务行为
 
-[`TaskService`](../../packages/tasks/tasks/src/index.ts) 提供原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。包（package）契约见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，面向模型的接口见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam 定义原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部实现。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。seam 契约见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的接口见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。

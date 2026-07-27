@@ -35,9 +35,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     // register() call that contributes AppFrame. Session owners never pass
     // sessionId: the framework injects it as a standard prop.
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
-    'conversation': { kind: 'single'; scope: 'session'; owner: ConvOwnerProps }
+    // Current-session-optional: the occupant owns both the no-session hero
+    // and live conversation states without changing its React identity.
+    'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
-    'conversation.empty': { kind: 'single'; scope: 'root'; owner: EmptyOwnerProps }
   }
 }
 
@@ -61,9 +62,6 @@ export interface ConvOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
-/** Empty-state owner share: business state and actions belong to the registrant. */
-export interface EmptyOwnerProps { children?: never }
-
 /** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
 export const inject = ['slots', 'theme']
 
@@ -81,9 +79,8 @@ export function apply(ctx: ClientContext): void {
       name: 'root',
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
-        'conversation': { kind: 'single', scope: 'session' },
+        'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
-        'conversation.empty': { kind: 'single', scope: 'root' },
       },
       // Exclusive store: the factory itself — the framework instantiates per
       // entry and delivers useStore/actions to AppFrame as standard props.

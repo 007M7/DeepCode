@@ -26,15 +26,31 @@ export interface StoreInstanceLike {
   readonly actions: Record<string, (...params: never[]) => void>
 }
 
-/** Session standard kit resolved per session id (identity-stable per session scope; a recreated scope yields a new cell). */
-export interface SessionCell {
-  sessionId: string
+/**
+ * Per-session standard props resolved per session id (identity-stable per
+ * session scope; a recreated scope yields a new info). Plugins contribute
+ * members through the runtime `sessions.provide` seam; the render side binds
+ * every `hooks` source into a `use<Name>` selector hook (hooks never appear
+ * on the host contract) and spreads `props` verbatim. The runtime itself
+ * contributes the first entry (`'session'` → `useSession`).
+ */
+export interface SessionMaybeProvideInfo {
+  /** Current session id, absent while the application is in no-session mode. */
+  sessionId: string | undefined
   /**
-   * Bare conversation-snapshot source (wide here; runtime narrows at its
-   * export seam). The React side binds the `useSession` hook per cell —
-   * hooks never appear on the host contract.
+   * Static hook roster. Each value is absent with the session; keys remain so
+   * session-maybe entries always receive the same hook-shaped standard kit.
    */
-  session: HostObservable<unknown>
+  hooks: Record<string, HostObservable<unknown> | undefined>
+  /** Static plain-member roster; values are undefined with the session. */
+  props: Record<string, unknown>
+}
+
+/** Definite per-session standard props resolved for strict session slots. */
+export interface SessionProvideInfo extends SessionMaybeProvideInfo {
+  sessionId: string
+  /** Bare observable sources, keyed by hook base name ('session' → useSession). */
+  hooks: Record<string, HostObservable<unknown>>
 }
 
 /** renderSlot dispatch options at the machinery level: keyed dispatch key, list filtering, empty fallback. */
@@ -91,12 +107,16 @@ export interface SlotRendererHost {
     list: HostObservable<unknown>
     /** Current-session source used by SessionProvider. */
     current: HostObservable<string | undefined>
+    /** Resolve a definite session bundle, or undefined when the id is unknown. */
+    provideInfo(id: string): SessionProvideInfo | undefined
     /**
-     * Resolve the session standard kit.
-     * @param id - session id.
-     * @returns the cell, or undefined for an unknown session (provider falls to empty).
+     * Resolve the current-session-optional standard props bundle. The result
+     * always carries the static provider roster, even when `id` is absent or
+     * cannot resolve to a live session.
+     * @param id - current session id, when selected.
+     * @returns the optional provide info.
      */
-    cell(id: string): SessionCell | undefined
+    maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo
   }
   /** Workspace-side standard-kit sources. */
   workspaces: {
