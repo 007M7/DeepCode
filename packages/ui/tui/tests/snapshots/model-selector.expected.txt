@@ -20,23 +20,23 @@ buffer
   style 0-43 dim
   style 65-91 dim
 7-12| <blank>
-13| "          ╭ Select model ────────────────────────────────────────────────────────╮          "
-  style 10-81 fg=bright-blue
-14| "          │ → deepseek/deepseek-v4-flash      DeepSeek V4 Flash — current        │          "
-  style 10-10 fg=bright-blue
-  style 12-72 fg=bright-blue inverse
-  style 81-81 fg=bright-blue
-15| "          │   deepseek/deepseek-v4-pro        DeepSeek V4 Pro                    │          "
-  style 10-10 fg=bright-blue
-  style 38-60 fg=bright-black
-  style 81-81 fg=bright-blue
-16| "          │                                                                      │          "
-  style 10-10 fg=bright-blue
-  style 81-81 fg=bright-blue
-17| "          │ ↑/↓ navigate • Enter select • Esc cancel                             │          "
-  style 10-10 fg=bright-blue
-  style 12-51 dim
-  style 81-81 fg=bright-blue
-18| "          ╰──────────────────────────────────────────────────────────────────────╯          "
-  style 10-81 fg=bright-blue
+13| "        ╭ Select model ────────────────────────────────────────────────────────────╮        "
+  style 8-83 fg=bright-blue
+14| "        │ → deepseek/deepseek-v4-flash      DeepSeek V4 Flash — High — current     │        "
+  style 8-8 fg=bright-blue
+  style 10-77 fg=bright-blue inverse
+  style 83-83 fg=bright-blue
+15| "        │   deepseek/deepseek-v4-pro        DeepSeek V4 Pro — provider default     │        "
+  style 8-8 fg=bright-blue
+  style 36-77 fg=bright-black
+  style 83-83 fg=bright-blue
+16| "        │                                                                          │        "
+  style 8-8 fg=bright-blue
+  style 83-83 fg=bright-blue
+17| "        │ ↑/↓ navigate • Shift+Tab reasoning • Enter select • Esc cancel           │        "
+  style 8-8 fg=bright-blue
+  style 10-71 dim
+  style 83-83 fg=bright-blue
+18| "        ╰──────────────────────────────────────────────────────────────────────────╯        "
+  style 8-83 fg=bright-blue
 19-31| <blank>

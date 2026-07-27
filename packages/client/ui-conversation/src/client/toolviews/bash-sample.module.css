@@ -1,29 +1,32 @@
-/* Sample bash rows: deliberately distinct from ToolRow so the differential
-   registry hit is visible at a glance. */
+/* Bash toolview: same geometry/tokens as ToolRow (figma Bash · description). */
 
-.row {
+.root {
   display: flex;
   align-items: center;
-  gap: 8px;
   height: 24px;
   min-width: 0;
   cursor: pointer;
   border-radius: 6px;
-  font-family: var(--ds-font-family-code);
-  font-size: 13px;
 }
 
-.row:hover {
+.root:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.prompt {
+.leading {
   flex: none;
-  color: var(--dsw-alias-state-success-primary);
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .scopeBadge {
   flex: none;
+  margin-right: 8px;
   padding: 0 6px;
   border-radius: 6px;
   font-size: 11px;
@@ -32,17 +35,38 @@
   background: var(--dsw-alias-state-business-primary);
 }
 
-.command {
+.title {
+  flex: none;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-primary-dimmed);
+}
+
+.sep {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 1px;
+  margin: 0 8px;
+  background: var(--dsw-alias-label-caption);
+}
+
+.summary {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
-.err {
-  flex: none;
-  color: var(--dsw-alias-state-error-primary);
-  font-size: 11px;
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

@@ -64,7 +64,7 @@ const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/cordis.yml')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
-// catch-all would leave resolveModelContext unroutable and compact-basic's
+// catch-all would leave resolveModelInfo unroutable and compact-basic's
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
 const REPLAY_PROVIDERS = [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
