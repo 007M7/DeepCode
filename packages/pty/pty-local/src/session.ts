@@ -93,6 +93,13 @@ class LocalSendOperation implements PtySendOperation {
     return this.promise.promise
   }
 
+  /**
+   * Accumulate sanitized output into the operation's viewport. Output that arrives after
+   * the operation settles is dropped here and survives only in the session scrollback, so
+   * a caller waiting on this operation for a marker cannot observe one the child prints
+   * after any readiness tier ended the send.
+   * @param text Sanitized text to append while the operation is still active.
+   */
   append(text: string): void {
     if (!this.finished) this.output.append(text)
   }
