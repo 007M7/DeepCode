@@ -7,12 +7,15 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 const MINIMUM_GIT = [2, 26, 0]
 const HOOKS_DIRECTORY = 'dsh-hooks'
 const OWNERSHIP_MARKER = '.dsh-lefthook-owned'
-const OWNERSHIP_MARKER_CONTENT = 'deepseek-harness worktree-local lefthook hooks\n'
+const LEGACY_OWNERSHIP_MARKER_CONTENT = 'deepseek-harness worktree-local lefthook hooks\n'
+const OWNERSHIP_MARKER_VERSION = 1
+const OWNERSHIP_MARKER_OWNER = 'deepseek-harness worktree-local lefthook hooks'
 const INSTALL_LOCK = 'dsh-lefthook-install.lock'
 const INSTALL_LOCK_TIMEOUT_MS = 30_000
 const INSTALL_LOCK_POLL_MS = 50
 const ALLOW_HOOKS_PATH_OVERRIDE = 'DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE'
 const CONDITIONAL_INCLUDE_PATTERN = '^includeif\\..*\\.path$'
+const REPOSITORY_EXTENSION_PATTERN = '^extensions\\.'
 
 function errorCode(error) {
   return typeof error === 'object' && error !== null && 'code' in error
@@ -177,17 +180,37 @@ function registeredWorktreeConfigPaths(commonDirectory) {
   return paths
 }
 
-function assertDormantWorktreeConfigs(root, commonDirectory, commonConfigPath, currentConfigPath) {
-  if (worktreeConfigExtensionEnabled(root, commonConfigPath)) return
+function lstatIfPresent(path) {
+  try {
+    return lstatSync(path)
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+function assertCommonConfigFile(commonConfigPath) {
+  const configStat = lstatIfPresent(commonConfigPath)
+  if (configStat === undefined || !configStat.isFile() || configStat.isSymbolicLink()) {
+    throw new Error(
+      `refusing common repository config ${JSON.stringify(commonConfigPath)} because it is not a regular file`,
+    )
+  }
+}
+
+function assertWorktreeConfigFiles(root, commonDirectory, commonConfigPath, currentConfigPath) {
+  const extensionEnabled = worktreeConfigExtensionEnabled(root, commonConfigPath)
   for (const configPath of registeredWorktreeConfigPaths(commonDirectory)) {
-    if (!existsSync(configPath)) continue
-    const configStat = lstatSync(configPath)
+    const configStat = lstatIfPresent(configPath)
+    if (configStat === undefined) continue
     if (!configStat.isFile() || configStat.isSymbolicLink()) {
+      const state = extensionEnabled ? 'active' : 'dormant'
       throw new Error(
-        `cannot enable extensions.worktreeConfig while dormant worktree config ${JSON.stringify(configPath)} `
-        + 'is not a regular file; inspect it and enable the extension explicitly, or remove it, before retrying',
+        `refusing ${state} worktree config ${JSON.stringify(configPath)} because it is not a regular file; `
+        + 'replace it with a regular worktree config or remove it before retrying',
       )
     }
+    if (extensionEnabled) continue
     if (!hasDirectConfigEntries(root, configPath)) continue
     const isCurrent = normalizedPath(configPath) === normalizedPath(currentConfigPath)
     const owner = isCurrent ? 'current' : 'sibling'
@@ -259,7 +282,13 @@ function conditionalIncludeRisk(root, entry, inspect) {
   return inspectConditionalConfig(root, target, inspect)
 }
 
-function migrationConfigSubject(root, configPath) {
+function migrationConfigSubject(root, configPath, rejectRepositoryExtensions) {
+  if (rejectRepositoryExtensions) {
+    const extensionEntry = fileConfigMatchingEntries(root, configPath, REPOSITORY_EXTENSION_PATTERN)[0]
+    if (extensionEntry !== undefined) {
+      return `${extensionEntry.name} (${configSource(extensionEntry)})`
+    }
+  }
   const worktreeEntry = fileConfigEntries(root, configPath, 'core.worktree')[0]
   if (worktreeEntry !== undefined) return `core.worktree (${configSource(worktreeEntry)})`
   const trueBareEntry = fileConfigEntries(root, configPath, 'core.bare')
@@ -272,12 +301,27 @@ function hooksPathConfigSubject(root, configPath) {
   return entry === undefined ? undefined : `core.hooksPath (${configSource(entry)})`
 }
 
-function ensureWorktreeConfig(root, commonConfigPath) {
+function planWorktreeConfigMigration(root, commonConfigPath) {
   const versions = fileConfigValues(root, commonConfigPath, 'core.repositoryFormatVersion')
   const versionText = assertSingle(versions, 'core.repositoryFormatVersion')
   const version = Number(versionText)
   if (!Number.isInteger(version) || version < 0) {
     throw new Error(`unsupported core.repositoryFormatVersion: ${JSON.stringify(versionText)}`)
+  }
+
+  if (version === 0) {
+    const extensionEntry = fileConfigMatchingEntries(
+      root,
+      commonConfigPath,
+      REPOSITORY_EXTENSION_PATTERN,
+    )[0]
+    if (extensionEntry !== undefined) {
+      throw new Error(
+        `cannot upgrade core.repositoryFormatVersion from 0 while dormant repository extension `
+        + `${extensionEntry.name} is configured (${configSource(extensionEntry)}); `
+        + 'audit and migrate it, then set repository format 1 explicitly before retrying',
+      )
+    }
   }
 
   const extensionEnabled = worktreeConfigExtensionEnabled(root, commonConfigPath)
@@ -287,7 +331,7 @@ function ensureWorktreeConfig(root, commonConfigPath) {
       const risk = conditionalIncludeRisk(
         root,
         entry,
-        configPath => migrationConfigSubject(root, configPath),
+        configPath => migrationConfigSubject(root, configPath, version === 0),
       )
       if (risk !== undefined) {
         const reason = risk.subject ?? risk.detail
@@ -318,6 +362,11 @@ function ensureWorktreeConfig(root, commonConfigPath) {
   const directBareText = assertSingle(fileConfigValues(root, commonConfigPath, 'core.bare'), 'core.bare')
   const directBare = directBareText === undefined ? undefined : parseGitBoolean(directBareText, 'core.bare')
 
+  return { directBare, extensionEnabled, version }
+}
+
+function applyWorktreeConfigMigration(root, commonConfigPath, migration) {
+  const { directBare, extensionEnabled, version } = migration
   if (version === 0) {
     git(['config', '--file', commonConfigPath, 'core.repositoryFormatVersion', '1'], root)
   }
@@ -430,13 +479,38 @@ async function acquireInstallLock(commonDirectory) {
   }
 }
 
-function ensureOwnedHooksDirectory(hooksPath) {
-  const markerPath = join(hooksPath, OWNERSHIP_MARKER)
-  if (!existsSync(hooksPath)) {
-    mkdirSync(hooksPath, { mode: 0o700 })
-    writeFileSync(markerPath, OWNERSHIP_MARKER_CONTENT, { flag: 'wx', mode: 0o600 })
-    return
+function ownershipMarkerContent(hooksPath) {
+  return `${JSON.stringify({
+    version: OWNERSHIP_MARKER_VERSION,
+    owner: OWNERSHIP_MARKER_OWNER,
+    hooksPath,
+  })}\n`
+}
+
+function parseOwnershipMarker(content, hooksPath) {
+  if (content === LEGACY_OWNERSHIP_MARKER_CONTENT) return { hooksPath, legacy: true }
+  let parsed
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    return undefined
   }
+  if (
+    typeof parsed !== 'object'
+    || parsed === null
+    || parsed.version !== OWNERSHIP_MARKER_VERSION
+    || parsed.owner !== OWNERSHIP_MARKER_OWNER
+    || typeof parsed.hooksPath !== 'string'
+    || !isAbsolute(parsed.hooksPath)
+  ) {
+    return undefined
+  }
+  return { hooksPath: parsed.hooksPath, legacy: false }
+}
+
+function inspectOwnedHooksDirectory(hooksPath) {
+  const markerPath = join(hooksPath, OWNERSHIP_MARKER)
+  if (!existsSync(hooksPath)) return undefined
   const hooksStat = lstatSync(hooksPath)
   if (!hooksStat.isDirectory() || hooksStat.isSymbolicLink()) {
     throw new Error(`refusing to use non-directory or symlinked hooks path ${hooksPath}`)
@@ -445,9 +519,36 @@ function ensureOwnedHooksDirectory(hooksPath) {
     throw new Error(`refusing to overwrite unowned hooks directory ${hooksPath}`)
   }
   const markerStat = lstatSync(markerPath)
-  if (!markerStat.isFile() || markerStat.isSymbolicLink() || readFileSync(markerPath, 'utf8') !== OWNERSHIP_MARKER_CONTENT) {
+  const marker = markerStat.isFile() && !markerStat.isSymbolicLink() && markerStat.nlink === 1
+    ? parseOwnershipMarker(readFileSync(markerPath, 'utf8'), hooksPath)
+    : undefined
+  if (marker === undefined) {
     throw new Error(`refusing to overwrite hooks directory with an invalid ownership marker: ${hooksPath}`)
   }
+  for (const name of readdirSync(hooksPath)) {
+    if (name === OWNERSHIP_MARKER) continue
+    const entryPath = join(hooksPath, name)
+    const entryStat = lstatSync(entryPath)
+    if (!entryStat.isFile() || entryStat.isSymbolicLink() || entryStat.nlink !== 1) {
+      throw new Error(
+        `refusing to overwrite non-regular or multiply linked hook entry ${JSON.stringify(entryPath)}`,
+      )
+    }
+  }
+  return { markerPath, ...marker }
+}
+
+function ensureOwnedHooksDirectory(hooksPath) {
+  const inspected = inspectOwnedHooksDirectory(hooksPath)
+  if (inspected !== undefined) return inspected
+  mkdirSync(hooksPath, { mode: 0o700 })
+  const markerPath = join(hooksPath, OWNERSHIP_MARKER)
+  writeFileSync(markerPath, ownershipMarkerContent(hooksPath), { flag: 'wx', mode: 0o600 })
+  return { markerPath, hooksPath, legacy: false }
+}
+
+function updateOwnershipMarker(markerPath, hooksPath) {
+  writeFileSync(markerPath, ownershipMarkerContent(hooksPath), { mode: 0o600 })
 }
 
 function environmentWithoutCommandGitConfig() {
@@ -588,6 +689,13 @@ async function main() {
   let installationError
 
   try {
+    assertCommonConfigFile(commonConfigPath)
+    assertWorktreeConfigFiles(
+      root,
+      commonDirectory,
+      commonConfigPath,
+      worktreeConfigPath,
+    )
     const worktreeEntries = fileConfigEntries(root, worktreeConfigPath, 'core.hooksPath')
     const includedWorktreeEntry = worktreeEntries.find(
       entry => !originIsFile(entry.origin, root, worktreeConfigPath),
@@ -599,14 +707,20 @@ async function main() {
       worktreeEntries.map(entry => entry.value),
       'worktree core.hooksPath',
     )
+    let ownedHooksDirectory
     if (worktreePath !== undefined && worktreePath !== hooksPath) {
-      refuseScopedHooksPath({ origin: `file:${worktreeConfigPath}`, scope: 'worktree', value: worktreePath })
+      ownedHooksDirectory = inspectOwnedHooksDirectory(hooksPath)
+      if (ownedHooksDirectory === undefined || ownedHooksDirectory.hooksPath !== worktreePath) {
+        refuseScopedHooksPath({ origin: `file:${worktreeConfigPath}`, scope: 'worktree', value: worktreePath })
+      }
     }
+    const directWorktreePathIsOwned = worktreePath !== undefined
+      && (worktreePath === hooksPath || ownedHooksDirectory?.hooksPath === worktreePath)
     const effectiveEntry = effectiveConfigEntry(root, 'core.hooksPath')
     if (effectiveEntry !== undefined) {
       const effectivePathIsOwned = effectiveEntry.scope === 'worktree'
-        && effectiveEntry.value === hooksPath
-        && worktreePath === hooksPath
+        && effectiveEntry.value === worktreePath
+        && directWorktreePathIsOwned
         && originIsFile(effectiveEntry.origin, root, worktreeConfigPath)
       if (!effectivePathIsOwned) {
         if (effectiveEntry.scope === 'command' || effectiveEntry.scope === 'worktree') {
@@ -622,19 +736,21 @@ async function main() {
     }
     assertConditionalHooksPaths(root, worktreeConfigPath)
 
-    assertDormantWorktreeConfigs(
-      root,
-      commonDirectory,
-      commonConfigPath,
-      worktreeConfigPath,
-    )
-    ensureOwnedHooksDirectory(hooksPath)
-    ensureWorktreeConfig(root, commonConfigPath)
+    const migration = planWorktreeConfigMigration(root, commonConfigPath)
+    ownedHooksDirectory = ensureOwnedHooksDirectory(hooksPath)
+    if (
+      worktreePath !== undefined
+      && worktreePath !== hooksPath
+      && ownedHooksDirectory.hooksPath !== worktreePath
+    ) {
+      throw new Error(`hooks directory ownership changed while relocating ${JSON.stringify(worktreePath)}`)
+    }
+    applyWorktreeConfigMigration(root, commonConfigPath, migration)
 
     let pathChanged = false
     try {
       git(['config', '--worktree', 'core.hooksPath', hooksPath], root)
-      pathChanged = worktreePath === undefined
+      pathChanged = worktreePath !== hooksPath
       const installedEntry = effectiveConfigEntry(root, 'core.hooksPath')
       if (
         installedEntry === undefined
@@ -645,9 +761,22 @@ async function main() {
         throw new Error('new worktree-local core.hooksPath did not become the effective direct worktree value')
       }
       runLefthook(root, lefthook)
+      updateOwnershipMarker(ownedHooksDirectory.markerPath, hooksPath)
     } catch (error) {
       if (pathChanged) {
-        git(['config', '--worktree', '--unset-all', 'core.hooksPath'], root)
+        try {
+          if (worktreePath === undefined) {
+            git(['config', '--worktree', '--unset-all', 'core.hooksPath'], root)
+          } else {
+            git(['config', '--worktree', 'core.hooksPath', worktreePath], root)
+          }
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            `Lefthook installation failed: ${String(error)}; `
+            + `worktree hook rollback also failed: ${String(rollbackError)}`,
+          )
+        }
       }
       throw error
     }

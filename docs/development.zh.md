@@ -27,7 +27,7 @@ pnpm install
 node scripts/install-lefthook.mjs
 ```
 
-包装脚本拒绝替换现有且由用户自行管理的 `core.hooksPath`。若要让继承自系统、全局或共用仓库配置的路径在其他 worktree 中继续生效，同时让当前 worktree 显式启用 lefthook，请先检查该路径，再设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1` 重新运行；命令作用域和 worktree 作用域的自定义路径绝不会被覆盖，必须显式集成或移除。当前未生效的 `includeIf` 可能提供钩子路径时，同样适用这些规则；与钩子无关的 `includeIf` 仍然有效。worktree 配置扩展启用之前，可能包含 `core.worktree` 或 `core.bare=true` 的共用配置 `includeIf` 目标需要手动迁移。任一已注册 worktree 中尚未生效的 `config.worktree` 也必须先经过检查并显式迁移或移除，才能在不改变该 worktree 的前提下启用扩展。若安装程序报告陈旧锁或无效锁，请先确认没有安装程序正在运行，手动移除诊断中报告的锁，再重新运行命令。
+包装脚本拒绝替换现有且由用户自行管理的 `core.hooksPath`。若要让继承自系统、全局或共用仓库配置的路径在其他 worktree 中继续生效，同时让当前 worktree 显式启用 lefthook，请先检查该路径，再设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1` 重新运行；命令作用域和 worktree 作用域的自定义路径绝不会被覆盖，必须显式集成或移除。当前未生效的 `includeIf` 可能提供钩子路径时，同样适用这些规则；与钩子无关的 `includeIf` 仍然有效。升级格式版本为 0 的仓库之前，若共用配置或条件目标中已有 `extensions.*` 键，就需要手动审计和迁移，因为格式 1 会激活这些键。worktree 配置扩展启用之前，可能包含 `core.worktree` 或 `core.bare=true` 的共用配置 `includeIf` 目标需要手动迁移。任一已注册 worktree 中尚未生效的 `config.worktree` 也必须先经过检查并显式迁移或移除，才能在不改变该 worktree 的前提下启用扩展。共用仓库配置以及每个生效或尚未生效的 worktree 配置都必须是常规文件。自有钩子目录只能包含不带别名的常规文件；请先替换诊断中报告的符号链接、硬链接或非文件条目，再重试。检出目录移动后，请重新运行包装脚本，使其所有权标记可以替换之前写入的确切陈旧路径，并在新的 Git 目录中重新生成钩子。若安装程序报告陈旧锁或无效锁，请先确认没有安装程序正在运行，手动移除诊断中报告的锁，再重新运行命令。若 Lefthook 安装和钩子路径自动回滚都失败，诊断会保留两次失败；请检查 worktree 配置并手动移除新路径，再重试。
 
 新克隆后请先运行一次类型检查：
 

@@ -2,10 +2,14 @@ import { spawn, spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
+  lstatSync,
   readFileSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -91,6 +95,10 @@ if (!shouldFail) {
   for (const name of ['pre-commit', 'pre-push']) writeFileSync(join(hooksPath, name), hook, { mode: 0o755 })
 }
 if (existsSync(running)) unlinkSync(running)
+if (process.env.DSH_TEST_LEFTHOOK_BREAK_WORKTREE_CONFIG === '1') {
+  const configPath = execFileSync('git', ['rev-parse', '--git-path', 'config.worktree'], { encoding: 'utf8' }).trim()
+  writeFileSync(configPath, '[invalid\\n')
+}
 if (shouldFail) process.exit(77)
 `
 }
@@ -275,6 +283,125 @@ describe('worktree-local Lefthook installer', () => {
     expect(existsSync(join(hooksPath(fixture, fixture.main), '.fake-lefthook-running'))).toBe(false)
   })
 
+  it('repairs its owned absolute hook path after the checkout moves', async () => {
+    const fixture = createFixture()
+    const oldRoot = fixture.main
+    const first = await runInstaller(fixture, oldRoot)
+    expect(first.status, first.stderr).toBe(0)
+    const oldHooks = hooksPath(fixture, oldRoot)
+    const movedRoot = join(fixture.container, 'moved-main')
+    renameSync(oldRoot, movedRoot)
+
+    const moved = await runInstaller(fixture, movedRoot)
+
+    expect(moved.status, moved.stderr).toBe(0)
+    const movedHooks = hooksPath(fixture, movedRoot)
+    expect(movedHooks).not.toBe(oldHooks)
+    expect(git(fixture, movedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe(movedHooks)
+    const canonicalMoved = git(fixture, movedRoot, ['rev-parse', '--show-toplevel'])
+    expect(readFileSync(join(movedHooks, 'pre-commit'), 'utf8')).toContain(`# root=${canonicalMoved}`)
+    expect(readFileSync(join(movedHooks, '.dsh-lefthook-owned'), 'utf8')).toContain(
+      JSON.stringify(movedHooks),
+    )
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a multiply linked ownership marker before relocation rewrites it', async () => {
+    const fixture = createFixture()
+    const oldRoot = fixture.main
+    const first = await runInstaller(fixture, oldRoot)
+    expect(first.status, first.stderr).toBe(0)
+    const oldHooks = hooksPath(fixture, oldRoot)
+    const markerName = '.dsh-lefthook-owned'
+    const externalMarker = join(fixture.container, 'external-marker')
+    linkSync(join(oldHooks, markerName), externalMarker)
+    const externalContent = readFileSync(externalMarker, 'utf8')
+    const movedRoot = join(fixture.container, 'moved-main')
+    renameSync(oldRoot, movedRoot)
+
+    const result = await runInstaller(fixture, movedRoot)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('invalid ownership marker')
+    expect(readFileSync(externalMarker, 'utf8')).toBe(externalContent)
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses aliased generated hooks before Lefthook can overwrite their targets', async () => {
+    for (const kind of ['symlink', 'hardlink'] as const) {
+      const fixture = createFixture()
+      const first = await runInstaller(fixture, fixture.main)
+      expect(first.status, first.stderr).toBe(0)
+      const hook = join(hooksPath(fixture, fixture.main), 'pre-commit')
+      const externalHook = join(fixture.container, `${kind}-external-hook`)
+      rmSync(hook)
+      write(externalHook, `external ${kind} target\n`)
+      if (kind === 'symlink') symlinkSync(externalHook, hook)
+      else linkSync(externalHook, hook)
+      const externalContent = readFileSync(externalHook, 'utf8')
+
+      const result = await runInstaller(fixture, fixture.main)
+
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('non-regular or multiply linked hook entry')
+      expect(readFileSync(externalHook, 'utf8')).toBe(externalContent)
+    }
+  })
+
+  it('restores the marker-backed stale hook path when relocation reinstall fails', async () => {
+    const fixture = createFixture()
+    const oldRoot = fixture.main
+    const first = await runInstaller(fixture, oldRoot)
+    expect(first.status, first.stderr).toBe(0)
+    const oldHooks = hooksPath(fixture, oldRoot)
+    const markerName = '.dsh-lefthook-owned'
+    const previousMarker = readFileSync(join(oldHooks, markerName), 'utf8')
+    const movedRoot = join(fixture.container, 'moved-main')
+    renameSync(oldRoot, movedRoot)
+
+    const failed = await runInstaller(fixture, movedRoot, { DSH_TEST_LEFTHOOK_FAIL: '1' })
+
+    expect(failed.status).toBe(1)
+    expect(failed.stderr).toContain('exit status 77')
+    const movedHooks = hooksPath(fixture, movedRoot)
+    expect(git(fixture, movedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe(oldHooks)
+    expect(readFileSync(join(movedHooks, markerName), 'utf8')).toBe(previousMarker)
+  })
+
+  it('refuses dormant repository extensions before upgrading the repository format', async () => {
+    const fixture = createFixture()
+    const commonConfig = join(commonDirectory(fixture), 'config')
+    git(fixture, fixture.main, ['config', 'extensions.dshUnknown', 'true'])
+    expect(gitResult(fixture, fixture.main, ['status', '--porcelain']).status).toBe(0)
+
+    const result = await runInstaller(fixture, fixture.main)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('dormant repository extension extensions.dshunknown')
+    expect(git(fixture, fixture.main, [
+      'config', '--file', commonConfig, '--get', 'core.repositoryFormatVersion',
+    ])).toBe('0')
+    expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
+    expect(gitResult(fixture, fixture.main, ['status', '--porcelain']).status).toBe(0)
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a symlinked common repository config before writing through it', async () => {
+    const fixture = createFixture()
+    const commonConfig = join(commonDirectory(fixture), 'config')
+    const externalConfig = join(fixture.container, 'external-common.gitconfig')
+    renameSync(commonConfig, externalConfig)
+    symlinkSync(externalConfig, commonConfig)
+    const externalContent = readFileSync(externalConfig, 'utf8')
+
+    const result = await runInstaller(fixture, fixture.main)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('common repository config')
+    expect(result.stderr).toContain('not a regular file')
+    expect(lstatSync(commonConfig).isSymbolicLink()).toBe(true)
+    expect(readFileSync(externalConfig, 'utf8')).toBe(externalContent)
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
   it('leaves stale installer locks for explicit recovery', async () => {
     const fixture = createFixture()
     const lockPath = installLockPath(fixture)
@@ -387,9 +514,33 @@ describe('worktree-local Lefthook installer', () => {
     expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
   })
 
+  it.skipIf(process.platform === 'win32')('refuses an active symlinked worktree config before writing through it', async () => {
+    const fixture = createFixture()
+    const commonConfig = join(commonDirectory(fixture), 'config')
+    const worktreeConfig = join(gitDirectory(fixture, fixture.main), 'config.worktree')
+    const externalConfig = join(fixture.container, 'external.gitconfig')
+    const externalContent = '[user]\n\tname = External owner\n'
+    write(externalConfig, externalContent)
+    git(fixture, fixture.main, ['config', '--file', commonConfig, 'core.repositoryFormatVersion', '1'])
+    git(fixture, fixture.main, ['config', '--file', commonConfig, 'extensions.worktreeConfig', 'true'])
+    symlinkSync(externalConfig, worktreeConfig)
+
+    const result = await runInstaller(fixture, fixture.main)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('active worktree config')
+    expect(result.stderr).toContain('not a regular file')
+    expect(lstatSync(worktreeConfig).isSymbolicLink()).toBe(true)
+    expect(readFileSync(externalConfig, 'utf8')).toBe(externalContent)
+    expect(gitResult(fixture, fixture.main, [
+      'config', '--file', externalConfig, '--get', 'core.hooksPath',
+    ]).status).toBe(1)
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
   it('refuses migration keys loaded through active or conditional common-config includes', async () => {
     for (const includeKey of ['include.path', 'includeIf.onbranch:conditional.path']) {
-      for (const key of ['core.worktree', 'core.bare']) {
+      for (const key of ['core.worktree', 'core.bare', 'extensions.dshunknown']) {
         const fixture = createFixture()
         const commonConfig = join(commonDirectory(fixture), 'config')
         const includedConfig = join(fixture.container, `${includeKey.split('.')[0]}-${key.replace('.', '-')}.gitconfig`)
@@ -595,6 +746,21 @@ describe('worktree-local Lefthook installer', () => {
     expect(gitResult(fixture, fixture.main, ['config', '--worktree', '--get', 'core.hooksPath']).status).toBe(1)
     expect(gitResult(fixture, fixture.main, ['config', '--get', 'core.hooksPath']).status).toBe(1)
     expect(readFileSync(legacyHook, 'utf8')).toBe('#!/bin/sh\n# legacy pre-push\n')
+  })
+
+  it('reports installation and hook-path rollback failures together', async () => {
+    const fixture = createFixture()
+
+    const result = await runInstaller(fixture, fixture.main, {
+      DSH_TEST_LEFTHOOK_BREAK_WORKTREE_CONFIG: '1',
+      DSH_TEST_LEFTHOOK_FAIL: '1',
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Lefthook installation failed')
+    expect(result.stderr).toContain('exit status 77')
+    expect(result.stderr).toContain('worktree hook rollback also failed')
+    expect(result.stderr).toContain('git config --worktree --unset-all core.hooksPath failed')
   })
 
   it('refuses an unowned directory at the reserved worktree hook path', async () => {
