@@ -7,9 +7,13 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // Subpath export (package.json exports "./surface", alias added for this): all value imports
 // go through it — the package root points at lib/index.js (needs a build) which the vite
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
-import { SurfaceManager, isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
+import {
+  SurfaceManager, isSurfaceEligibleType, isSurfaceEvent,
+} from '@deepseek-ai/dsh-session/surface'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { AssistantTiming, ConversationNode } from './conversation.ts'
+import type {
+  AssistantTiming, ConversationContext, ConversationContextOriginKind, ConversationNode,
+} from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
@@ -107,6 +111,9 @@ export class FoldAdapter {
    *  reference-stability contract (§A.9.4) starts here. */
   private rev = 0
   private nodesResult: { rev: number; value: { nodes: ConversationNode[]; degraded: boolean } } | null = null
+  /** Revision of the model-visible surface only; log-only chunks do not rebuild context generations. */
+  private surfaceRev = 0
+  private contextsResult: { rev: number; value: readonly ConversationContext[] } | null = null
 
   /** In-window tool/call index (Session uses it for runningCalls and result-card backfill). */
   get callIndex(): ReadonlyMap<string, CallIndexEntry> {
@@ -122,6 +129,7 @@ export class FoldAdapter {
    */
   reset(events: readonly SessionEvent[], baseSeq: number, views?: readonly (ToolEventView | undefined)[]): void {
     this.rev++
+    this.surfaceRev++
     this.baseSeq = baseSeq
     this.padded = []
     for (let i = 0; i < baseSeq; i++) this.padded.push(paddingEvent(i))
@@ -146,6 +154,7 @@ export class FoldAdapter {
    */
   append(event: SessionEvent, view?: ToolEventView): void {
     this.rev++
+    if (isSurfaceEvent(event)) this.surfaceRev++
     this.padded.push(event)
     this.indexCall(event, view)
   }
@@ -193,6 +202,41 @@ export class FoldAdapter {
     return value
   }
 
+  /**
+   * Append-only context generations reconstructed from canonical surface replacements.
+   * @returns Frozen historical contexts followed by the current context.
+   */
+  contexts(): readonly ConversationContext[] {
+    if (this.contextsResult !== null && this.contextsResult.rev === this.surfaceRev) {
+      return this.contextsResult.value
+    }
+    const current = this.nodes()
+    if (current.degraded) {
+      const value: readonly ConversationContext[] = [{ id: 0, nodes: current.nodes }]
+      this.contextsResult = { rev: this.surfaceRev, value }
+      return value
+    }
+    const value = this.surface.contexts.map((context): ConversationContext => {
+      const nodes: ConversationNode[] = []
+      for (const seq of context.nodes) {
+        const node = this.materialize(seq)
+        if (node !== undefined) nodes.push(node)
+      }
+      if (context.origin === undefined) return { id: context.generation, nodes }
+      const originEvent = this.padded[context.origin.seq]
+      return {
+        id: context.generation,
+        parentId: context.generation - 1,
+        origin: contextOriginKind(originEvent),
+        originSeq: context.origin.seq,
+        ...(originEvent === undefined ? {} : { createdAt: originEvent.time }),
+        nodes,
+      }
+    })
+    this.contextsResult = { rev: this.surfaceRev, value }
+    return value
+  }
+
   /** Degradation branch: lenient linear scan ignoring surfaceOp/replace (all surface-eligible events in append order). */
   private degradedSeqs(): number[] {
     const seqs: number[] = []
@@ -201,6 +245,21 @@ export class FoldAdapter {
       if (event !== undefined && isSurfaceEligibleType(event.type)) seqs.push(event.seq)
     }
     return seqs
+  }
+
+  private materialize(seq: number): ConversationNode | undefined {
+    const cached = this.nodeCache.get(seq)
+    if (cached !== undefined) return cached
+    const event = this.padded[seq]
+    if (event === undefined) return
+    const node = materializeNode(
+      event,
+      this.callIdx,
+      this.resultViews.get(seq) ?? null,
+      event.type === 'assistant/message' ? this.assistantTiming(event) : undefined,
+    )
+    this.nodeCache.set(seq, node)
+    return node
   }
 
   private assistantTiming(event: SessionEvent<'assistant/message'>): AssistantTiming {
@@ -244,6 +303,22 @@ export class FoldAdapter {
     // No backfill into already-materialized tool-result nodes for this callId
     // (window order puts the call before its result; cannot happen on the normal path).
   }
+}
+
+function contextOriginKind(event: SessionEvent | undefined): ConversationContextOriginKind {
+  if (event?.type !== 'user/message') return 'rewrite'
+  const source = event.data.source
+  if (
+    typeof source === 'object'
+    && source !== null
+    && 'kind' in source
+    && 'plugin' in source
+    && source.kind === 'plugin'
+  ) {
+    if (source.plugin === 'compact') return 'compaction'
+    if (source.plugin === 'rewind') return 'rewind'
+  }
+  return 'rewrite'
 }
 
 function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): boolean {

@@ -132,7 +132,19 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (node.kind === 'context') {
-      // No trajectory cell, but the surface still advances the duration cursor.
+      const turn = enclosingUserTurn(nodes, i, partial, lastAssistantTurn)
+      pushMessage(turn, {
+        absTime: finiteTime(node.time),
+        cell: {
+          index: ++index,
+          kind: 'context',
+          text: summarizeContent(node.content),
+          inputDetail: detailContent(node.content),
+          sourceBlocks: node.content.map(block => sourceBlock(block)),
+          timeSeconds: 0,
+          startedAt: finiteTime(node.time),
+        },
+      })
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
       continue
     }

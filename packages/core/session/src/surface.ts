@@ -57,6 +57,16 @@ export interface SurfaceFoldResult {
   replacements: SurfaceFoldReplacement[]
 }
 
+/** One append-only surface generation separated from its successor by a replacement. */
+export interface SurfaceFoldContext {
+  /** Zero-based generation within this session log. */
+  generation: number
+  /** Surface sequences present when this generation froze, or at the current tail. */
+  nodes: number[]
+  /** Replacement operation that created this generation; absent for the initial context. */
+  origin?: SurfaceFoldReplacement
+}
+
 /** Readonly live projection of the message-producing session events. */
 export interface SessionSurface {
   /** Current surface event sequences in model-visible order. */
@@ -301,8 +311,12 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
 
 /** Incremental ordered surface view and append-boundary validator. */
 export class SurfaceManager implements SessionSurface {
-  /** Shared transition state; replacement history is not retained. */
+  /** Shared transition state for the live surface. */
   private _state = createFoldState()
+  /** Frozen generations completed by replacements. */
+  private _contexts: SurfaceFoldContext[] = []
+  /** Replacement that created the live generation. */
+  private _contextOrigin: SurfaceFoldReplacement | undefined
   /** Last processed seq; -1 folds a seeded log on first access. */
   private _lastProcessedSeq = -1
 
@@ -329,11 +343,35 @@ export class SurfaceManager implements SessionSurface {
     return this._state.nodes
   }
 
+  /** Frozen generations followed by a detached snapshot of the live generation. */
+  get contexts(): readonly SurfaceFoldContext[] {
+    if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
+    return [
+      ...this._contexts,
+      {
+        generation: this._state.replaceGeneration,
+        nodes: [...this._state.nodes],
+        ...(this._contextOrigin === undefined ? {} : { origin: this._contextOrigin }),
+      },
+    ]
+  }
+
   /** Fold events appended since the previous access. */
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
-      applySurfaceEvent(this._state, this.log[i]!, i, this.log)
+      const event = this.log[i]!
+      const op = surfaceOpOf(event)
+      const priorNodes = typeof op === 'object' ? [...this._state.nodes] : undefined
+      const replacement = applySurfaceEvent(this._state, event, i, this.log)
+      if (replacement !== undefined && priorNodes !== undefined) {
+        this._contexts.push({
+          generation: this._state.replaceGeneration - 1,
+          nodes: priorNodes,
+          ...(this._contextOrigin === undefined ? {} : { origin: this._contextOrigin }),
+        })
+        this._contextOrigin = replacement
+      }
       this._lastProcessedSeq = i
     }
   }

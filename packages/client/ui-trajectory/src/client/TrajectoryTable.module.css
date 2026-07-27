@@ -230,6 +230,12 @@
   background: var(--dsw-alias-state-business-tertiary);
 }
 
+.context {
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
 .message {
   border-color: var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);

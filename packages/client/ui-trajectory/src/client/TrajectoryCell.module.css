@@ -51,6 +51,11 @@
   background: var(--dsw-alias-state-success-tertiary);
 }
 
+.tagContext {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
 .tagMessage {
   color: var(--dsw-alias-brand-primary-new-colorprimary-new-color);
   background: var(--dsw-specific-bubble);

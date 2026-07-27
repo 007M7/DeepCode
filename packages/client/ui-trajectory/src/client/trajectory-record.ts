@@ -3,7 +3,7 @@
 import type { HTMLAttributes } from 'react'
 
 /** Closed set of trajectory record kinds. */
-export type TrajectoryCellKind = 'user' | 'message' | 'tool' | 'subtool'
+export type TrajectoryCellKind = 'user' | 'context' | 'message' | 'tool' | 'subtool'
 
 /** Recorded inputs needed to derive assistant TTFT and decode throughput. */
 export interface AssistantMetricDetail {

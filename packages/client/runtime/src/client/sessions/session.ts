@@ -772,6 +772,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   private buildSnapshot(): ConversationSnapshot {
     const { nodes: folded, degraded } = this.foldAdapter.nodes()
+    const contexts = this.foldAdapter.contexts()
     // Frozen interrupted nodes ride fractional seqs: a stable merge keeps them in flow order.
     // The merged array is cached on (folded reference, frozenRev) so an unchanged flow keeps its
     // reference across snapshot swaps (§A.9.4).
@@ -803,6 +804,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return {
       sessionId: this.sessionId,
       nodes,
+      contexts,
       foldDegraded: degraded,
       partial,
       runningCalls: this.callsCache.value,

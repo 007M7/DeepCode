@@ -23,6 +23,22 @@
   font: var(--dsw-font-xs-13);
 }
 
+.contextLayout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ledger {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
 /* Waterfall placeholder rows (shared module). */
 .row {
   display: flex;

@@ -14,6 +14,7 @@ import css from './TrajectoryTable.module.css'
 
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
   user: 'USER',
+  context: 'CONTEXT',
   message: 'ASSISTANT',
   tool: 'TOOL',
   subtool: 'SUBTOOL',
@@ -331,7 +332,9 @@ function tokenSummary(cell: TrajectoryCellProps): string {
 }
 
 function isMarkdownRecord(record: TableRecord): boolean {
-  return record.cell.kind === 'user' || record.cell.kind === 'message'
+  return record.cell.kind === 'user'
+    || record.cell.kind === 'context'
+    || record.cell.kind === 'message'
 }
 
 function parentRecords(
@@ -369,7 +372,9 @@ function parentRecords(
 }
 
 function markdownSource(record: TableRecord): string | undefined {
-  if (record.cell.kind === 'user') return record.cell.inputDetail
+  if (record.cell.kind === 'user' || record.cell.kind === 'context') {
+    return record.cell.inputDetail
+  }
   if (record.cell.kind === 'message') return record.cell.outputDetail
   return undefined
 }
@@ -394,7 +399,7 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
 
 function recordDisplayText(cell: TrajectoryCellProps): string {
   if (isToolCallOnly(cell)) return ''
-  const markdown = cell.kind === 'user'
+  const markdown = cell.kind === 'user' || cell.kind === 'context'
     ? cell.inputDetail
     : cell.kind === 'message'
       ? cell.outputDetail ?? cell.thinkingDetail
@@ -735,7 +740,8 @@ function RecordPayload({
   }
 
   const markdown = (
-    direction === 'input' && record.cell.kind === 'user'
+    direction === 'input'
+    && (record.cell.kind === 'user' || record.cell.kind === 'context')
   ) || (
     direction === 'output' && record.cell.kind === 'message'
   )
@@ -1015,7 +1021,9 @@ export function TrajectoryTable({
                     {!isCollapsedSummary && (
                       <span
                         className={
-                          record.cell.kind === 'user' || record.cell.kind === 'message'
+                          record.cell.kind === 'user'
+                            || record.cell.kind === 'context'
+                            || record.cell.kind === 'message'
                             ? `${css.kindSlot} ${css.kindSlotLeft}`
                             : `${css.kindSlot} ${css.kindSlotRight}`
                         }

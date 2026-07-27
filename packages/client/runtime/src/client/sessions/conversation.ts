@@ -206,6 +206,25 @@ export type OpenState = 'cold' | 'loading' | 'open' | 'error'
  */
 export type ComposerPhase = 'blank' | 'engaging' | 'active'
 
+/** Operation that started a new append-only model context. */
+export type ConversationContextOriginKind = 'compaction' | 'rewind' | 'rewrite'
+
+/** One immutable model-context generation reconstructed from surface replacements. */
+export interface ConversationContext {
+  /** Zero-based generation within the session; stable across later appends. */
+  id: number
+  /** Previous generation in this session; absent for the initial context. */
+  parentId?: number
+  /** Why this generation exists; absent for the initial context. */
+  origin?: ConversationContextOriginKind
+  /** Event seq of the replacement that created this generation. */
+  originSeq?: number
+  /** Unix epoch ms of the replacement that created this generation. */
+  createdAt?: number
+  /** Final frozen nodes for historical generations, or current folded nodes for the tail. */
+  nodes: readonly ConversationNode[]
+}
+
 /** Send/stop failure surfaced in the input error strip; op picks the user-facing copy (发送失败 vs 停止失败). */
 export interface PromptError {
   op: 'send' | 'stop'
@@ -217,6 +236,8 @@ export interface ConversationSnapshot {
   sessionId: SessionId
   /** Surface fold product (finalized conversation nodes in surface order). */
   nodes: readonly ConversationNode[]
+  /** Append-only context generations split at every model-surface replacement. */
+  contexts?: readonly ConversationContext[]
   /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
   foldDegraded: boolean
   partial: PartialAssistant | null

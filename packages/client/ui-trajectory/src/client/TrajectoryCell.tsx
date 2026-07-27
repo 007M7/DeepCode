@@ -17,6 +17,7 @@ export type {
 /** Display label per kind (matches the design tags). */
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
   user: 'User',
+  context: 'Context',
   message: 'Message',
   tool: 'Tool',
   subtool: 'Sub',
@@ -24,6 +25,7 @@ const KIND_LABEL: Record<TrajectoryCellKind, string> = {
 
 const TAG_CLASS: Record<TrajectoryCellKind, string> = {
   user: css.tagUser!,
+  context: css.tagContext!,
   message: css.tagMessage!,
   tool: css.tagTool!,
   subtool: css.tagSubtool!,
