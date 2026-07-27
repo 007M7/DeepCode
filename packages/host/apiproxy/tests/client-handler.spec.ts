@@ -20,6 +20,8 @@ function ok<T>(request: RpcRequest<unknown>, value: T): Promise<RpcResponse<T>> 
 function scriptedApi(overrides: {
   sessions?: Partial<ApiProxy['sessions']>
   host?: Partial<ApiProxy['host']>
+  commands?: Partial<ApiProxy['commands']>
+  skills?: Partial<ApiProxy['skills']>
   events?: Partial<ApiProxy['events']>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
@@ -40,6 +42,12 @@ function scriptedApi(overrides: {
       rename: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
       insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
     },
+    commands: {
+      list: r => ok(r, { commands: [] }),
+      execute: r => ok(r, { matched: false }),
+      ...overrides.commands,
+    },
+    skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
   }
@@ -56,7 +64,7 @@ describe('unary round trip', () => {
       sessions: {
         list: (r) => {
           seen = r
-          return ok(r, { items: [{ sessionId: sid('s1'), updatedAt: 7, running: false }] })
+          return ok(r, { items: [{ sessionId: sid('s1'), updatedAt: 7, running: false, blank: false }] })
         },
       },
     })
@@ -65,7 +73,7 @@ describe('unary round trip', () => {
     expect(seen?.payload).toEqual({ cursor: 'c1' })
     expect(seen?.rpcId).toBeTruthy()
     expect(response.rpcId).toBe(seen?.rpcId)
-    expect(response.result).toEqual({ ok: true, value: { items: [{ sessionId: 's1', updatedAt: 7, running: false }] } })
+    expect(response.result).toEqual({ ok: true, value: { items: [{ sessionId: 's1', updatedAt: 7, running: false, blank: false }] } })
   })
 
   it('routes workspace rename and insertSessionBefore through the wire', async () => {
@@ -277,7 +285,7 @@ describe('SSE stream path', () => {
     const api = scriptedApi({
       events: {
         async *host(request): AsyncGenerator<RpcRequest<HostFrame>> {
-          yield { rpcId: RpcId(`p-${request.rpcId}`), payload: { type: 'host/session-added', sessionId: sid('s1') } }
+          yield { rpcId: RpcId(`p-${request.rpcId}`), payload: { type: 'host/session-added', sessionId: sid('s1'), blank: true } }
           throw new Error('impl died mid-stream')
         },
       },

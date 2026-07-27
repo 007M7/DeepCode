@@ -1,0 +1,36 @@
+- button "Collapse sidebar":
+  - img
+- button "New session":
+  - img
+  - text: New Session
+- text: Workspaces
+- button "Group by":
+  - img
+- button "Create workspace":
+  - img
+- button "Search sessions":
+  - img
+- textbox "Search name, keywords..."
+- tree "Sessions":
+  - treeitem "workspace 1 session" [expanded]:
+    - img
+    - text: workspace 1 session
+  - treeitem "New Session now" [selected]
+- button "设置":
+  - img
+  - text: 设置
+- text: Let's start building
+- button "Choose workspace":
+  - img
+  - text: workspace
+  - img
+- textbox "Describe what you want to build"
+- button "Add attachment":
+  - img
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- button "Send message" [disabled]
+- text: 详情
+- button "关闭详情"
+- text: 点击消息流中的工具行查看详情

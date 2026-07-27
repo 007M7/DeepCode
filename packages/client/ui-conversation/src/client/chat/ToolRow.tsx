@@ -6,7 +6,7 @@
 
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import css from './ToolRow.module.css'
@@ -96,7 +96,9 @@ export function ToolRow({
           </>
         )}
       </div>
-      {open && <div className={css.body}>{body}</div>}
+      {open && (variant === 'code'
+        ? <CodeBlock code={body} lang="typescript" className={css.codeBody} />
+        : <div className={css.body}>{body}</div>)}
     </div>
   )
 }

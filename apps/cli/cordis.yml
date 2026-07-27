@@ -44,6 +44,18 @@
 
 - id: tools
   name: '@deepseek-ai/dsh-tools'
+  config:
+    # TEMPORARY workaround: DSH_TOOLS_MODE (native|code|both) opts a whole dsh
+    # process into Code Mode while per-session tool-mode selection is being
+    # designed; unset keeps the schema default (native). Remove the env seam
+    # once the web UI owns the choice per session.
+    mode: !!js process.env.DSH_TOOLS_MODE
+
+# Code Mode substrate for the row above. Mounted unconditionally because
+# Loader metadata is static (no conditional rows): a native-mode boot only
+# registers the service — a worker thread spawns per run_code execution.
+- id: code-runtime
+  name: '@deepseek-ai/dsh-code-runtime-worker'
 
 - id: user-interaction
   name: '@deepseek-ai/dsh-user-interaction'
@@ -52,7 +64,7 @@
   name: '@deepseek-ai/dsh-agent'
 
 - id: tasks
-  name: '@deepseek-ai/dsh-tasks'
+  name: '@deepseek-ai/dsh-tasks-local'
 
 - id: agent-loop
   name: '@deepseek-ai/dsh-agent-loop'
@@ -66,6 +78,11 @@
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
+
+# Transient-failure recovery around the loop's model calls (same policy as
+# the TUI's agent-spine composition; defaults: 2 retries, 500ms→10s backoff).
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
 
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -127,6 +144,30 @@
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
+
+# Host command registry: the single source of truth behind command.list /
+# command.execute; the web '/' menu is a pure projection of this registry.
+- id: commands
+  name: '@deepseek-ai/dsh-commands'
+
+# Plan mode registers /plan (the first real command on the web surface).
+# Section text mirrors examples/tui-agent/cordis.yml (the reference
+# deployment); plan-mode throws at load on an empty section.
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
+  config:
+    section: |
+          You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+          Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+          The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed only to keep the request shape stable. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+          Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+          Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+          When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
 
 # token-meter rejects unknown config keys — keep this row bare.
 - id: token-meter
@@ -244,6 +285,20 @@
 
 - id: ui-workspace
   name: '@deepseek-ai/dsh-client-ui-workspace'
+
+# Input triggers: the '/' | '@' pipeline (ui-slash), the command surface over
+# it (ui-command), and the two reference sources (ui-skill / ui-subagent).
+- id: ui-slash
+  name: '@deepseek-ai/dsh-client-ui-slash'
+
+- id: ui-command
+  name: '@deepseek-ai/dsh-client-ui-command'
+
+- id: ui-skill
+  name: '@deepseek-ai/dsh-client-ui-skill'
+
+- id: ui-subagent
+  name: '@deepseek-ai/dsh-client-ui-subagent'
 
 - id: ui-question
   name: '@deepseek-ai/dsh-client-ui-question'

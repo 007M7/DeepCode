@@ -1,7 +1,7 @@
 terminal 96x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=13 bufferRow=13
+cursor hidden column=1 viewportRow=12 bufferRow=12
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
@@ -13,30 +13,27 @@ buffer
 3| <blank>
 4| "▌ "
   style 0-0 fg=yellow
-5| "▌ ◌ const first = await tools.bash({ command: 'echo CODE_ONE' })                                "
+5| "▌ ◌ Echo two markers and combine them                                                           "
   style 0-0 fg=yellow
   style 2-2 fg=yellow bold
-  style 3-95 bold
-6| "▌ const second = await tools.bas                                                                "
+  style 3-36 bold
+6| "▌ const first = await tools.bash({ command: 'echo CODE_ONE' })                                  "
   style 0-0 fg=yellow
-  style 2-31 bold
-7| "▌ const first = await tools.bash({ command: 'echo CODE_ONE' })                                  "
+7| "▌ const second = await tools.bash({ command: 'echo CODE_TWO' })                                 "
   style 0-0 fg=yellow
-8| "▌ const second = await tools.bash({ command: 'echo CODE_TWO' })                                 "
+8| "▌ console.log(first, second)                                                                    "
   style 0-0 fg=yellow
-9| "▌ console.log(first, second)                                                                    "
+9| "▌ return `${first}+${second}`                                                                   "
   style 0-0 fg=yellow
-10| "▌ return `${first}+${second}`                                                                   "
+10| "▌ "
   style 0-0 fg=yellow
-11| "▌ "
-  style 0-0 fg=yellow
-12| "────────────────────────────────────────────────────────────────────────────────────────────────"
+11| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
-13| "                                                                                                "
+12| "                                                                                                "
   style 1-1 inverse
-14| "────────────────────────────────────────────────────────────────────────────────────────────────"
+13| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
-15| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
+14| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
   style 0-43 dim
   style 69-95 dim
-16-35| <blank>
+15-35| <blank>
