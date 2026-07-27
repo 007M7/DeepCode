@@ -48,13 +48,15 @@ export async function runWeb(
     void Promise.resolve(ctx.fiber.dispose()).finally(() => { process.exit(code) })
   }
 
+  // Install shutdown handling before publishing readiness: supervisors may
+  // send a signal as soon as they observe the URL line.
+  process.on('SIGTERM', () => { shutdown(0) })
+  process.on('SIGINT', () => { shutdown(130) })
+
   const lanCandidate = host === ALL_INTERFACES_HOST
     ? Object.values(networkInterfaces()).flat()
       .find(iface => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
     : undefined
   const localUrl = `http://${LOOPBACK_HOST}:${boundPort}`
   console.log(`dsh web: ${localUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate.address}:${boundPort})`}`)
-
-  process.on('SIGTERM', () => { shutdown(0) })
-  process.on('SIGINT', () => { shutdown(130) })
 }
