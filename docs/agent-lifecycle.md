@@ -24,7 +24,7 @@ sequenceDiagram
   Driver->>Hooks: <code>agent/prompt-submit</code> waterfall
   Hooks-->>Driver: authoritative allow, block, or add context
   alt prompt blocked or admission failed
-    Driver-->>Driver: close window and keep caller-staged next-step input pending
+    Driver-->>Driver: append context-only batch or keep steering boundary pending
   else prompt allowed
   Driver->>Session: <code>turn/start</code>
   Driver->>Session: <code>user/message</code>

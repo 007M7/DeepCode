@@ -24,7 +24,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）都将各自的 `AgentMessage` 载荷类型限定为仅包含被接受消息所返回的 `id`、内容和来源。enqueue 还会单独携带生产方在接受消息时捕获的已解析 `queued | steering` 放置方式，因此观察方和重连镜像永远不必根据后续状态或会话历史重建路由。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括 `agent/turn-stopping` 监听器提交的 steering，因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
 
-**准入接受 next-step 输入，但不会因此成为一个轮次。** 循环会在 `agent/prompt-submit` 前打开一个私有的 next-step 接受窗口，使其贯穿整个轮次，并在 `turn/end` 前关闭。因此，在准入期间收到的 steering 和注入会一起留在 outbox 中并加入获准轮次；准入被阻止或失败时，调用方暂存的输入仍可重试，同时不会写入已准入提示词或钩子产生的上下文。在 `turn/end` 前关闭窗口，可以保留这样的规则：可重入的晚到 steering 会成为一个独立的排队轮次。`Agent.acceptsNextStep` 会公开一次 `next-step` 发送当前是否会加入该窗口；`status` 仍是更宽泛的活动信号，而非路由判据。
+**准入接受 next-step 输入，但不会因此成为一个轮次。** 循环会在 `agent/prompt-submit` 前打开一个私有的 next-step 接受窗口，使其贯穿整个轮次，并在 `turn/end` 前关闭。因此，在准入期间收到的 steering 和注入会一起留在 outbox 中并加入获准轮次。如果准入被阻止或失败，仅含调用方上下文的批次会采用空闲注入的立即追加行为，而 steering 及与其一同暂存的上下文仍可重试；两种路径都不会写入被拒绝的提示词或钩子产生的上下文。在 `turn/end` 前关闭窗口，可以保留这样的规则：可重入的晚到 steering 会成为一个独立的排队轮次。`Agent.acceptsNextStep` 会公开一次 `next-step` 发送当前是否会加入该窗口；`status` 仍是更宽泛的活动信号，而非路由判据。
 
 **一条已接受消息只保留一种表示。** 持久的用户角色输入和附加的模型可见上下文都直接使用 `UserMessageData { content, source }`；公开的 `AgentMessage` 在此基础上增加用于关联的 `id`，循环私有的 `PendingMessage` 再增加 `wakeup`。一条成为 steering 的排队消息会以同一个 `PendingMessage` 对象进入 outbox，而注入和工具产生的上下文则以普通 `UserMessageData` 进入。因此，outbox 直接存储这两种类型的联合，而不再把 steering 与一份重复的内容和来源副本包装在一起。提供方原生的助手消息仍是适配器拥有的输出类型，不参与这套输入层级。
 

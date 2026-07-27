@@ -528,7 +528,9 @@ interface Agent {
    * - `next-step` with `wakeup:false` injects durable model-facing context
    *   without running the model: admission or an open turn stages it for the
    *   next safe log position, while an injection outside that window appends
-   *   immediately without opening a turn.
+   *   immediately without opening a turn. If admission closes without a turn,
+   *   a context-only boundary appends immediately; context staged beside
+   *   steering remains pending with it.
    * @param input - model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
@@ -575,7 +577,9 @@ interface Agent {
    * Append model-facing context without running the model — the
    * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
    * stages it at the next safe log position; outside that window it appends
-   * immediately without opening a turn.
+   * immediately without opening a turn. If admission closes without a turn,
+   * a context-only boundary appends immediately; context staged beside
+   * steering remains pending with it.
    * @param input - injected context and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -255,6 +255,65 @@ describe('agent/prompt-submit', () => {
     expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('blocked prompt')
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged context')
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged steering')
+  })
+
+  it('commits context-only injection when admission closes without a turn', async () => {
+    const adapter = new MockAdapter([])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('blocked-admission-context'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<PromptDecision>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'blocked prompt')
+    await entered.promise
+    agent.inject({
+      content: [{ type: 'text', text: 'independent context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    decision.resolve({ kind: 'block', reason: 'policy' })
+    await idle
+
+    const log = events(agent)
+    expect(log.map(event => event.type)).toEqual(['user/message'])
+    expect(log[0]?.type === 'user/message' && log[0].data.content)
+      .toEqual([{ type: 'text', text: 'independent context' }])
+    expect(adapter.requests).toEqual([])
+  })
+
+  it('retains rejected-admission context when its idle append fails', async () => {
+    const adapter = new MockAdapter([textResponse('retried')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('blocked-admission-append-failure'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const warned = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(agent.session, 'append').mockImplementationOnce(() => {
+      throw new Error('append unavailable')
+    })
+    ctx.on('agent/prompt-submit', async () => ({ kind: 'block', reason: 'policy' }))
+
+    agent.followup({ content: [{ type: 'text', text: 'blocked prompt' }], source: { kind: 'user' } })
+    agent.inject({
+      content: [{ type: 'text', text: 'retained context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    await agent.whenIdle()
+
+    expect(events(agent)).toEqual([])
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining('append unavailable'))
+
+    const idle = waitForIdle(ctx, agent)
+    agent.retry()
+    await idle
+
+    expect(events(agent).some(event => event.type === 'user/message'
+      && JSON.stringify(event.data.content).includes('retained context'))).toBe(true)
   })
 
   it('adjacent blocked and allowed prompts keep independent turn outcomes', async () => {

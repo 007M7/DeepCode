@@ -293,8 +293,8 @@ describe('agent loop', () => {
     expect(flat).toContain('change of plans')
   })
 
-  it('same-tick idle steering inherits one-send-one-turn FIFO behavior', async () => {
-    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
+  it('same-tick steering joins the prompt already in admission', async () => {
+    const adapter = new MockAdapter([textResponse('combined')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -303,14 +303,21 @@ describe('agent loop', () => {
     agent.steer({ content: [{ type: 'text', text: 'second idle steer' }], source: { kind: 'user' } })
     await idle
 
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events
       .filter(event => event.type === 'user/message')
       .map(event => event.data.content)).toEqual([
       [{ type: 'text', text: 'first idle steer' }],
+    ])
+    expect(agent.session.events
+      .filter(event => event.type === 'steering/message')
+      .map(event => event.data.content)).toEqual([
       [{ type: 'text', text: 'second idle steer' }],
     ])
-    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests).toHaveLength(1)
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('first idle steer')
+    expect(request).toContain('second idle steer')
   })
 
   it('keeps steering staged after a failed step until retry', async () => {

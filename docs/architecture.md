@@ -80,7 +80,8 @@ forever:
   open the next-step acceptance window
   -> agent/prompt-submit
     blocked or failed prompt -> close the window without opening a turn
-      caller-staged context and steering remain pending for a later admitted turn
+      append a context-only caller batch immediately
+      keep steering and context staged beside it pending for a later admitted turn
     allowed prompt:
       'turn/start'
       append prompt + additional contexts as separate 'user/message' events

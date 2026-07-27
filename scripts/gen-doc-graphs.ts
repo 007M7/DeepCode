@@ -998,7 +998,7 @@ function renderLifecycle(): string {
     `  Driver->>Hooks: ${mermaidCode('agent/prompt-submit')} waterfall`,
     '  Hooks-->>Driver: authoritative allow, block, or add context',
     '  alt prompt blocked or admission failed',
-    '    Driver-->>Driver: close window and keep caller-staged next-step input pending',
+    '    Driver-->>Driver: append context-only batch or keep steering boundary pending',
     '  else prompt allowed',
     `  Driver->>Session: ${mermaidCode('turn/start')}`,
     `  Driver->>Session: ${mermaidCode('user/message')}`,

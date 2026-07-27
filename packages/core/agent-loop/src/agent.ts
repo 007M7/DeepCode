@@ -258,6 +258,15 @@ export class ReactLoopAgent implements Agent {
       this.abort = undefined
       if (admitted === undefined) {
         this.acceptsNextStep = false
+        try {
+          this.flushRejectedAdmissionContexts()
+        } catch (error: unknown) {
+          // No turn exists for agent/error coordinates. Preserve the
+          // uncommitted suffix for a later boundary and report locally.
+          this.loopCtx.logger.warn(
+            `agent "${this.id}": committing rejected-admission context failed: ${errorChain(error)}`,
+          )
+        }
         // A synchronously aborted admission would otherwise publish idle
         // inside send()'s own synchronous extent, before any post-send
         // subscriber could observe the transition.
@@ -618,6 +627,27 @@ export class ReactLoopAgent implements Agent {
       }
     }
     return steered
+  }
+
+  /**
+   * Give context-only input its ordinary idle placement when admission
+   * produces no turn. Steering keeps the whole boundary staged so context
+   * accepted beside it cannot split from the request it accompanies.
+   */
+  private flushRejectedAdmissionContexts(): void {
+    if (this.outbox.some(message => 'id' in message)) return
+    const contexts = this.outbox.splice(0)
+    for (let index = 0; index < contexts.length; index += 1) {
+      const context = contexts[index]
+      /* v8 ignore next 2 -- the steering precheck proves this batch is context-only */
+      if (context === undefined || 'id' in context) throw new Error('rejected-admission context batch changed')
+      try {
+        this.session.append('user/message', context, { surfaceOp: 'append' })
+      } catch (error: unknown) {
+        this.outbox.unshift(...contexts.slice(index))
+        throw error
+      }
+    }
   }
 
   /**

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-24-separate-context-injection-from-turn-execution.md
-2026-07-24-separate-context-injection-from-turn-execution.md: d3603a744301f8a1b7e4536c93dfe981c518d8a1
-2026-07-24-separate-context-injection-from-turn-execution.zh.md: 5bc655543e0d008b887e3c5fc1dac6b8cb103767
+2026-07-24-separate-context-injection-from-turn-execution.md: 37798795b706719ca46a4495ef3f82a7968c501f
+2026-07-24-separate-context-injection-from-turn-execution.zh.md: 560f97d00c491adad4deeeeee8c8ed7ea8b88028

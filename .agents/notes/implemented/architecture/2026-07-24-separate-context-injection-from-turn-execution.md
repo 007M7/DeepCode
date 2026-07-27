@@ -30,7 +30,7 @@ During prompt admission or an open turn, `inject()` stages context in the loop o
 
 Outside that window, `inject()` appends its `user/message` immediately. It does not increment turn numbering, emit `turn/start` or `turn/end`, change agent status, or run the model; persistence observes the append through `session/event`.
 
-If prompt admission blocks or fails, caller-staged next-step input remains in the outbox for `retry()` or a later admitted prompt; cancellation or disposal may discard it. Hook-produced `additionalContexts` never materialize because they belong to the rejected admission decision.
+If prompt admission blocks or fails, a caller-staged context-only batch appends immediately without a turn. Steering and context staged beside it remain in the outbox for `retry()` or a later admitted prompt; cancellation or disposal may discard them. Hook-produced `additionalContexts` never materialize because they belong to the rejected admission decision.
 
 The session invariant permits `user/message` between turns while continuing to require turn enclosure for execution events, steering, assistant output, tools, and package-added events by default. Persistence, recovery, resume, fork, and compaction treat a valid out-of-turn `user/message` as committed session history rather than an interrupted or discardable turn tail.
 
@@ -63,7 +63,7 @@ This decision preserves the caller-owned framing decision from [unwrapped inject
 - Prompt-prefix placement, prompt envelopes, and `context/message` are absent from public types, durable events, projection, and UI replay.
 - Idle `inject()` appends one sourced `user/message` without a turn or model call.
 - Admission-time and active-turn injection drain at safe boundaries after complete tool-result batches and before the request that consumes them.
-- Blocked prompt admission opens no turn and appends neither the prompt nor hook-produced additional contexts; caller-staged next-step input remains available to retry.
+- Blocked prompt admission opens no turn and appends neither the prompt nor hook-produced additional contexts; caller context alone falls back to an idle append, while a steering boundary remains available to retry.
 - Unit, persistence/resume, invariant, host/client queue, and TUI coverage pin event order, admission ownership, and reconnect classification.
 
 ## Consequences
