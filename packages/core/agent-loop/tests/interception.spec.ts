@@ -1,10 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, {
+  SessionId,
+  type SessionEvent,
+  type TurnEndReason,
+  type UserMessageData,
+} from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent, type InboxPlacement, type PromptDecision, type SessionStartSource } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {
+  type Agent,
+  type AgentMessage,
+  type InboxPlacement,
+  type PromptDecision,
+  type SessionStartSource,
+} from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -67,6 +78,57 @@ describe('agent/prompt-submit', () => {
     expect(seen).toEqual(['hello'])
     const userMsg = events(agent).find(e => e.type === 'user/message')
     expect(userMsg?.type === 'user/message' && userMsg.data.content).toEqual([{ type: 'text', text: 'hello' }])
+  })
+
+  it('snapshots and freezes input before publishing or awaiting admission', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('owned-input'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<PromptDecision>()
+    const observed: AgentMessage[] = []
+    ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject !== agent) return
+      expect(Object.isFrozen(message)).toBe(true)
+      expect(Object.isFrozen(message.content)).toBe(true)
+      expect(Object.isFrozen(message.content[0])).toBe(true)
+      expect(Object.isFrozen(message.source)).toBe(true)
+      expect(() => {
+        const block = message.content[0]
+        if (block?.type === 'text') block.text = 'listener mutation'
+      }).toThrow()
+    })
+    ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject === agent) observed.push(message)
+    })
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+    const input: UserMessageData = {
+      content: [{ type: 'text', text: 'accepted text' }],
+      source: { kind: 'plugin', plugin: 'accepted source' },
+    }
+
+    const idle = waitForIdle(ctx, agent)
+    agent.followup(input)
+    await entered.promise
+    const block = input.content[0]
+    if (block?.type === 'text') block.text = 'caller mutation'
+    if (input.source.kind === 'plugin') input.source.plugin = 'caller mutation'
+    decision.resolve({ kind: 'allow' })
+    await idle
+
+    expect(observed).toHaveLength(1)
+    expect(observed[0]).toMatchObject({
+      content: [{ type: 'text', text: 'accepted text' }],
+      source: { kind: 'plugin', plugin: 'accepted source' },
+    })
+    const userMsg = events(agent).find(event => event.type === 'user/message')
+    expect(userMsg?.type === 'user/message' && userMsg.data).toEqual({
+      content: [{ type: 'text', text: 'accepted text' }],
+      source: { kind: 'plugin', plugin: 'accepted source' },
+    })
   })
 
   it('allow with content REWRITES the prompt before it is recorded', async () => {
@@ -257,6 +319,54 @@ describe('agent/prompt-submit', () => {
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged steering')
   })
 
+  it('orders rejected-admission outbox input before a later admitted prompt', async () => {
+    const adapter = new MockAdapter([textResponse('continued')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('rejected-admission-order'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next) => {
+      const decision = await next()
+      return content.some(block => block.type === 'text' && block.text === 'blocked prompt')
+        ? { kind: 'block', reason: 'policy' }
+        : decision
+    })
+    ctx.on('agent/prompt-submit', async (subject, content, _source, _signal, next) => {
+      if (content.some(block => block.type === 'text' && block.text === 'blocked prompt')) {
+        subject.inject({
+          content: [{ type: 'text', text: 'earlier state change' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        })
+        subject.steer({
+          content: [{ type: 'text', text: 'earlier steering' }],
+          source: { kind: 'user' },
+        })
+      }
+      return next()
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'blocked prompt')
+    send(agent, 'later prompt')
+    await idle
+
+    const staged = events(agent).filter(event =>
+      event.type === 'turn/start' || event.type === 'user/message' || event.type === 'steering/message')
+    expect(staged.map(event => event.type)).toEqual([
+      'turn/start',
+      'user/message',
+      'steering/message',
+      'user/message',
+    ])
+    expect(staged[1]?.type === 'user/message' && staged[1].data.content)
+      .toEqual([{ type: 'text', text: 'earlier state change' }])
+    expect(staged[2]?.type === 'steering/message' && staged[2].data.content)
+      .toEqual([{ type: 'text', text: 'earlier steering' }])
+    expect(staged[3]?.type === 'user/message' && staged[3].data.content)
+      .toEqual([{ type: 'text', text: 'later prompt' }])
+  })
+
   it('commits context-only injection when admission closes without a turn', async () => {
     const adapter = new MockAdapter([])
     const ctx = await harness(adapter)
@@ -296,13 +406,20 @@ describe('agent/prompt-submit', () => {
     vi.spyOn(agent.session, 'append').mockImplementationOnce(() => {
       throw new Error('append unavailable')
     })
-    ctx.on('agent/prompt-submit', async () => ({ kind: 'block', reason: 'policy' }))
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<PromptDecision>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
 
     agent.followup({ content: [{ type: 'text', text: 'blocked prompt' }], source: { kind: 'user' } })
+    await entered.promise
     agent.inject({
       content: [{ type: 'text', text: 'retained context' }],
       source: { kind: 'plugin', plugin: 'test' },
     })
+    decision.resolve({ kind: 'block', reason: 'policy' })
     await agent.whenIdle()
 
     expect(events(agent)).toEqual([])

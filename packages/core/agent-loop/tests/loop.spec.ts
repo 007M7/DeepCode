@@ -293,8 +293,8 @@ describe('agent loop', () => {
     expect(flat).toContain('change of plans')
   })
 
-  it('same-tick steering joins the prompt already in admission', async () => {
-    const adapter = new MockAdapter([textResponse('combined')])
+  it('same-tick idle steering preserves one turn per send', async () => {
+    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -303,21 +303,18 @@ describe('agent loop', () => {
     agent.steer({ content: [{ type: 'text', text: 'second idle steer' }], source: { kind: 'user' } })
     await idle
 
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
     expect(agent.session.events
       .filter(event => event.type === 'user/message')
       .map(event => event.data.content)).toEqual([
       [{ type: 'text', text: 'first idle steer' }],
-    ])
-    expect(agent.session.events
-      .filter(event => event.type === 'steering/message')
-      .map(event => event.data.content)).toEqual([
       [{ type: 'text', text: 'second idle steer' }],
     ])
-    expect(adapter.requests).toHaveLength(1)
-    const request = JSON.stringify(adapter.requests[0]?.messages)
-    expect(request).toContain('first idle steer')
-    expect(request).toContain('second idle steer')
+    expect(agent.session.events.filter(event => event.type === 'steering/message')).toEqual([])
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('first idle steer')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('second idle steer')
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('second idle steer')
   })
 
   it('keeps steering staged after a failed step until retry', async () => {
@@ -428,7 +425,7 @@ describe('agent loop', () => {
     expect(result.seq).toBeLessThan(contexts[0]!.seq)
     expect(contexts.flatMap(event => event.type === 'user/message' ? event.data.content : []))
       .toEqual([
-        { type: 'text', text: 'mutated after inject' },
+        { type: 'text', text: 'mid-turn notice' },
         { type: 'text', text: 'second notice' },
       ])
 
@@ -441,7 +438,7 @@ describe('agent loop', () => {
         ? [index]
         : [])
     expect(resultIndex).toBeGreaterThanOrEqual(0)
-    expect(contextIndexes).toHaveLength(1)
+    expect(contextIndexes).toHaveLength(2)
     expect(contextIndexes.every(index => index > resultIndex)).toBe(true)
   })
 

@@ -928,7 +928,7 @@ describe('turn and step boundary recovery', () => {
     })
 
     send(agent, 'go')
-    await driverDone(agent)
+    await agent.whenIdle()
 
     const e = [...agent.session.events]
     // Balanced: one turn/start, one turn/end carrying disposed (NOT error).

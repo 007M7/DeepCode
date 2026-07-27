@@ -465,8 +465,8 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
 /**
  * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
  * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. Its content and source are
- * the exact input values accepted by the agent.
+ * message's enqueue, dequeue, and discard events. The agent snapshots and
+ * freezes the accepted content and source before enqueue observers receive it.
  */
 interface AgentMessage extends UserMessageData {
   /** The id `send` returned for this message. */
@@ -531,6 +531,7 @@ interface Agent {
    *   immediately without opening a turn. If admission closes without a turn,
    *   a context-only boundary appends immediately; context staged beside
    *   steering remains pending with it.
+   * The agent snapshots and freezes `input` before publishing or queueing it.
    * @param input - model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.

@@ -348,7 +348,7 @@ describe('stream failure edges', () => {
 })
 
 describe('post-turn continuation edges', () => {
-  it('an agent/settled listener that enqueues a waking prompt preempts continueOrIdle', async () => {
+  it('an agent/settled listener that starts a retry preempts continueOrIdle', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('settled-preempt'), { provider: 'mock', model: 'mock' })
@@ -357,9 +357,9 @@ describe('post-turn continuation edges', () => {
       if (subject !== agent || injected) return
       expect(subject.status).toBe('running')
       injected = true
-      // kick() installs the next admission synchronously, so the following
-      // continueOrIdle() sees an abort owner and yields to it.
-      send(agent, 'follow-up from settled listener')
+      // retry() installs the next run synchronously, so the following
+      // continueOrIdle() sees its abort owner and yields to it.
+      subject.retry()
     })
 
     send(agent, 'go')
@@ -524,6 +524,26 @@ describe('unrenderable failure settlement', () => {
 })
 
 describe('driver bookkeeping edges', () => {
+  it('a deferred wake settles when replacement activity rejects', async () => {
+    const adapter = new MockAdapter([])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('rejected-deferred-wake'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    ctx.on('agent/inbox/enqueue', (subject) => {
+      if (subject !== agent) return
+      subject.cancel({ kind: 'user' })
+      const mutable = subject as Agent & { done: Promise<void> }
+      mutable.done = Promise.reject(new Error('replacement rejected'))
+    })
+
+    send(agent, 'cancel before wake')
+
+    await expect(agent.whenIdle()).resolves.toBeUndefined()
+    expect(agent.session.events).toEqual([])
+  })
+
   it('a whenIdle waiter survives a rejected driver promise', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)

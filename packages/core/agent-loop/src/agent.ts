@@ -52,6 +52,8 @@ export class ReactLoopAgent implements Agent {
 
   /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
+  /** Whether an idle waking send has deferred driver admission. */
+  private wakeScheduled = false
   /** Whether next-step input belongs to the current admission or open turn. */
   acceptsNextStep = false
   /** Abort owner for the current admission or turn. */
@@ -95,7 +97,7 @@ export class ReactLoopAgent implements Agent {
     input: UserMessageData,
     options: SendOptions,
   ): AgentMessageId {
-    const { content, source } = input
+    const { content, source } = deepFreeze(structuredClone(input))
     const { target, wakeup } = options
     const id = AgentMessageId(randomUUID())
     if (target === 'next-step' && !wakeup) {
@@ -113,13 +115,17 @@ export class ReactLoopAgent implements Agent {
       content,
       source,
     }
+    deepFreeze(message)
     if (placement === 'steering') {
       this.outbox.push(message)
     } else {
       this.queued.push({ message, wakeup })
     }
+    // Preserve the routing decision for every send in this synchronous caller
+    // stack, while installing quiescence ownership before enqueue observers
+    // can cancel or dispose.
+    if (placement === 'queued' && wakeup) this.scheduleKick()
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message, placement)
-    if (placement === 'queued' && wakeup) this.kick()
     return id
   }
 
@@ -200,9 +206,31 @@ export class ReactLoopAgent implements Agent {
     // but the waiter must not gamble quiescence on that: a future escape
     // still counts as settled activity.
     /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
-    while (this.abort !== undefined || this.queued.some(item => item.wakeup)) {
+    while (this.wakeScheduled || this.abort !== undefined || this.queued.some(item => item.wakeup)) {
       await this.done.catch(() => undefined)
     }
+  }
+
+  /** Defer idle admission while keeping {@link done} as its quiescence owner. */
+  private scheduleKick(): void {
+    if (this.abort !== undefined || this.wakeScheduled) return
+    this.wakeScheduled = true
+    const pending = Promise.withResolvers<void>()
+    const scheduled = pending.promise
+    queueMicrotask(() => {
+      this.wakeScheduled = false
+      this.kick()
+      const activity = this.done
+      if (activity === scheduled) {
+        pending.resolve()
+      } else {
+        void activity.then(
+          () => { pending.resolve() },
+          () => { pending.resolve() },
+        )
+      }
+    })
+    this.done = scheduled
   }
 
   /** Claim and admit the next queued prompt, then start its turn. */
@@ -212,6 +240,7 @@ export class ReactLoopAgent implements Agent {
     // assertion expresses that invariant.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const { message } = this.queued.shift()!
+    const inheritedOutboxLength = this.outbox.length
 
     const admission = new AbortController()
     this.abort = admission
@@ -274,7 +303,7 @@ export class ReactLoopAgent implements Agent {
         this.continueOrIdle()
         return
       }
-      await this.run(trigger, admitted)
+      await this.run(trigger, admitted, inheritedOutboxLength)
     })
     // Published only after the abort owner and pending done are installed: a
     // dequeue listener that cancels or disposes must find live cancellation
@@ -286,7 +315,11 @@ export class ReactLoopAgent implements Agent {
    * Run one turn and any request-error retry. `admitted` input enters the log
    * only after `turn/start` commits; until then it has no owner state to unwind.
    */
-  private async run(trigger: TurnTrigger, admitted: UserMessageData[] = []): Promise<void> {
+  private async run(
+    trigger: TurnTrigger,
+    admitted: UserMessageData[] = [],
+    inheritedOutboxLength = 0,
+  ): Promise<void> {
     // Both entries hold the invariant: kick() clears the admission slot before
     // awaiting run(), and retry() returns early whenever a slot owner exists.
     /* v8 ignore next -- unreachable guard: every caller clears or checks the abort slot first */
@@ -316,6 +349,9 @@ export class ReactLoopAgent implements Agent {
       this.turnOpen = true
       opened = true
       this.lastTurn = turn
+      // Context or steering retained by an earlier rejected admission happened
+      // before this prompt and must occupy the same order in durable history.
+      this.drainOutbox(turn, inheritedOutboxLength)
       for (const input of admitted) {
         this.session.append('user/message', input, { surfaceOp: 'append' })
       }
@@ -611,9 +647,9 @@ export class ReactLoopAgent implements Agent {
   }
 
   /** Commit the outbox and report whether it contained steering. */
-  private drainOutbox(turn: number): boolean {
+  private drainOutbox(turn: number, limit = this.outbox.length): boolean {
     let steered = false
-    for (const message of this.outbox.splice(0)) {
+    for (const message of this.outbox.splice(0, limit)) {
       if ('id' in message) {
         steered = true
         emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
