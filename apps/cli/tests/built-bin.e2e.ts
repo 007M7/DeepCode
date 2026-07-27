@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -22,25 +22,18 @@ import { describe, expect, it } from 'vitest'
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const dshBin = join(repoRoot, 'apps/cli/lib/bin.js')
 
-/** Run the built bin with PIPED stdio; resolve with output + exit code. */
-function runBuiltBin(): Promise<{ stdout: string; code: number; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [dshBin], { stdio: ['pipe', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (c: string) => { stdout += c })
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (c: string) => { stderr += c })
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      reject(new Error(`dsh built bin did not exit within 25s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 25_000)
-    // Resolve on `close` (all stdio drained), not `exit`, so captured output is complete.
-    child.on('close', (code) => { clearTimeout(timer); resolve({ stdout, code: code ?? -1, stderr }) })
-    child.on('error', (err) => { clearTimeout(timer); reject(err) })
-    child.stdin.end()
+/** Run the built bin with PIPED stdio (stdin closed at EOF); resolve with output + exit code. */
+async function runBuiltBin(): Promise<{ stdout: string; code: number; stderr: string }> {
+  const result = await execa(process.execPath, [dshBin], {
+    input: '',
+    timeout: 25_000,
+    killSignal: 'SIGKILL',
+    reject: false,
   })
+  if (result.timedOut) {
+    throw new Error(`dsh built bin did not exit within 25s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+  }
+  return { stdout: result.stdout, code: result.exitCode ?? -1, stderr: result.stderr }
 }
 
 describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', () => {
