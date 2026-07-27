@@ -6,8 +6,24 @@
  */
 
 import type { Context } from 'cordis'
+import { z } from 'zod'
+import type { ZodType } from 'zod'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { TodoItem } from '@deepseek-ai/dsh-session'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.sessionProjections for the optional provider child.
+import type {} from '@deepseek-ai/dsh-session-projection'
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    /**
+     * The agent's current whole todo list (the latest `todo/write` snapshot),
+     * or `null` before the first write. Whole-value rule: every `todo/write`
+     * carries the complete replacement list, so the fold is last-wins.
+     */
+    todos: TodoItem[] | null
+  }
+}
 
 export const name = 'tool-todo'
 export const inject = ['tools']
@@ -57,8 +73,40 @@ function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   return todos
 }
 
-/** Register the `todo_write` tool on `ctx.tools`. */
+/** Wire payload schema of the `todos` projection (whole list or pre-first-write null). */
+const todosProjectionSchema: ZodType<TodoItem[] | null> = z.union([
+  z.array(z.object({
+    content: z.string(),
+    status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
+  })),
+  z.null(),
+])
+
+/**
+ * Current whole todo list: the latest `todo/write` snapshot, backscanned from
+ * the log tail (bounded: first hit terminates; the events live in memory).
+ * `null` = no write yet.
+ */
+function currentTodos(agent: Agent): TodoItem[] | null {
+  const events = agent.session.events
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i] as SessionEvent
+    if (event.type === 'todo/write') return event.data.todos
+  }
+  return null
+}
+
+/** Register the `todo_write` tool on `ctx.tools` and, when the session-projection seam is composed, the `todos` provider. */
 export function apply(ctx: Context): void {
+  // The provider child activates only when a projection registry is composed
+  // (headless assemblies without the seam stay unaffected).
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register({
+      key: 'todos',
+      schema: todosProjectionSchema,
+      get: currentTodos,
+    })
+  })
   ctx.tools.register(defineTool({
     name: 'todo_write',
     description: DESCRIPTION,
