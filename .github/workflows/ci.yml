@@ -780,16 +780,16 @@ jobs:
   # 'cancelled' and 'skipped'.
   all-checks-passed:
     name: all checks passed
-    # The required verdict must not add a separate standard-hosted billing
-    # dependency — and it must follow the failover selector like the worker
-    # jobs it aggregates: if it stayed pinned to the hosted pool, every
-    # failover-passed run would still leave the branch-protection verdict
-    # queued forever on the failed pool.
+    # This bookkeeping-only verdict must not depend on custom-pool
+    # provisioning (master's #734 moved it to ubuntu-latest) — and under
+    # failover it follows the same selector as the worker jobs it
+    # aggregates, so a standard-hosted outage cannot strand the
+    # branch-protection verdict either (observed 2026-07-27).
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
+          || 'ubuntu-latest' }}
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
