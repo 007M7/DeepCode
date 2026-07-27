@@ -1,6 +1,7 @@
 # Agent Note: trajectory 与 waterfall 视图中的 Code Mode 子调用
 
 Status: implemented
+Archived: 2026-07-28
 
 [English](2026-07-26-code-mode-trajectory-waterfall-spans.md) | 中文
 
