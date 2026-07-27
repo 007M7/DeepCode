@@ -11,7 +11,9 @@ host 侧唯一的持久化面是 session 事件日志（`packages/session-persis
 - **workspace 实体**。GUI 要把 workspace 做成真实对象：路径、标题、关联 session 清单。归属关系由 workspace 持有——"哪些 session 属于这个 workspace"不是任何单个 session 自己的事实，塞进 session log 语义不成立。此前 workspace 只是 sidebar 上按 cwd 分组的视觉概念，没有实体（该结论已被推翻）。
 - **session 动态元信息**（可预见的第二个消费者）。冷会话列表只读日志首行 header（创建时的不可变快照），title、结束状态这类随会话推进变化的信息拿不到；补齐方向是 sidecar 元数据表——正是一张按 key 高频点更新的 KV 表。
 
-另外，workspace 删除最终需要删除其关联 session，而 `SessionPersistence` 没有删除原语，host 也没有 `session.delete` 端点——该空白的设计随本 Note 定案，但实施标记为 future work：本期不动 session 侧任何代码。
+另外，Session 删除需要 `SessionPersistence` 删除原语和 `session.delete` 端点。该空白的设计随本 Note 定案，但实现仍属未来工作。
+
+后续的 [Workspace 注册记录删除决策](../../implemented/feature/2026-07-27-workspace-registration-deletion.md)取代的仅是上述耦合关系：删除 Workspace 注册记录会保留相关 Session 及其日志，Session 删除仍是独立的未来工作。因此，下文的级联设计并不是 Workspace GUI 的删除语义。
 
 ## Proposal
 
@@ -234,14 +236,14 @@ export class WorkspaceRegistry extends Service {
   get(id: WorkspaceId): Workspace | undefined
   list(): Workspace[]
   resolveByPath(path: string): Promise<Workspace | undefined> // 同 realpath 口径，故 async
-  // delete：future work（与 session 级联删一起做，见下）；本期不提供任何删除入口
+  delete(id: WorkspaceId): Promise<boolean>      // 只删注册记录；目录与 session 日志保留
 }
 ```
 
 - **path 规范**：落盘值 = `fs.realpath(输入)`（尾斜杠、`..`、符号链接全解析）；唯一性 = 规范化后字符串相等（符号链接指向同一目录算撞）。目录不存在时 create 直接 reject（realpath 失败——workspace 必须指向存在目录；"Create new = 建目录"是上层交互，先 mkdir 再 create）。attach 校验的 session cwd 同口径。cwd 单值 + path 唯一 ⇒ 一个 session 结构上最多归属一个 workspace，双重记账写侧不可能。
 - **title**：显示名，默认 `basename(path)`，可改，允许重复。归属不用 cwd 派生兜底——cwd 表达不了排序，归属是 workspace 侧事实；headless 直开的 session 不属于任何 workspace。
 - 消费者只见 `Workspace` 接口，`WorkspaceEntity` 不出包（单实现不预拆 seam）；实体按 id 唯一（registry 缓存），记录快照写后原地换新，外部只见 getter；所有写收敛到实体内 `mutate(fn)` → `table.update`，`updatedAt` 在 mutate 内统一刷。领域对象不过 RPC，下期 wire 层把记录投影成 zod wire schema。
-- **workspace 删除整体为 future work**（2026-07-24 拍板）：本期 registry 不提供 delete 方法——半截的"只删记录留 session"语义不对外暴露，删除与 session 级联（`recursive` 参数、运行中检查、自底向上、崩溃重跑收敛）作为一个完整语义随 session 删除原语一起落地；届时顺序为逐个删 session → 摘账 → 删记录。
+- **Session 删除仍属未来工作。** 后续的 [Workspace 注册记录删除决策](../../implemented/feature/2026-07-27-workspace-registration-deletion.md)已将 `ctx.workspace.delete(id)` 作为仅删除元数据、保留 Session 与日志的操作交付。递归删除 Session、运行中检查和崩溃重跑收敛属于独立的 `session.delete` 能力。
 
 一致性口径（账 = 归属唯一依据；实现与测试基准）：
 
@@ -285,7 +287,7 @@ export class WorkspaceRegistry extends Service {
 
 | 不做 | 触发条件 | 返工点 | 预埋 |
 | --- | --- | --- | --- |
-| 删除全套（`SessionPersistence.delete`、deleted 事件、`registry.delete` 级联、递归删、运行中检查） | future work 启动（GUI 需要删除交互前） | 按上文 future work 节实施：session 原语 + `registry.delete(id, { recursive? })` 一体落地 | 编排规则/拒绝清单已定案在本 Note；本期无任何删除入口，无半截语义要兼容 |
+| Session 删除（`SessionPersistence.delete`、deleted 事件、递归删除、运行中检查） | 破坏性的 Session 删除产品流启动 | 实现 Session 原语及 `session.delete`；与 Workspace 注册记录删除保持独立 | 上文编排规则和拒绝清单仍是基础；Workspace 删除会保留 Session 与日志 |
 | `log` facet 与 session 后端迁移 | 本期后任意期启动 | 介质操作下沉（复用审计表即施工清单） | facet 结构已留位；两后端介质代码本期即按可下沉形状组织 |
 | 多进程并发写保护 | 两 host 进程同写一介质 | JSON 后端文件锁；SQLite WAL 天然多进程 | 写全经 domain 单点串行，加锁只动后端 |
 | 跨进程变更观测 | GUI 断线重连感知 | revision 模式（抄 session-persistence） | 进程内已有 `domain/changed` |
@@ -296,7 +298,7 @@ export class WorkspaceRegistry extends Service {
 | 跨表原子事务 | 同域两表一次原子操作需求 | `domain.transact(fn)`；JSON 天然原子，SQLite 包事务 | — |
 | 二级索引/条件查询 | 内存过滤不动（万级记录） | SQLite JSON1 查 value 列，加只读 query 面 | JSON 后端不陪跑 |
 | session 跨 workspace 移动 | 产品需求出现 | attach 校验放宽为"先 detach 后 attach"编排 | — |
-| RPC/GUI/boot | 下期 | `workspace.*` + `session.delete` 端点、wire schema、boot 挂载、sidebar 接真数据 | 本期模型与语义即 wire 投影的直接来源 |
+| Session 删除 RPC／GUI | 破坏性的 Session 删除产品流启动 | `session.delete` 端点、wire schema 与明确的确认 UI | Workspace RPC／GUI 已独立交付，不再存在级联耦合 |
 
 ## Alternatives considered
 
@@ -317,7 +319,7 @@ export class WorkspaceRegistry extends Service {
 ## Acceptance criteria
 
 - 测试矩阵本期四套件全绿：backend 契约共享套件在 json/sqlite 双端、registry/mount disposer 语义、domain 层（含 open 六步与路由 fail-loud）、workspace 全语义（create/attach 校验/一致性口径）。
-- `ctx.workspace` 可在测试组装下完成 create → attach → list 生命周期（删除为 future work）。
+- `ctx.workspace` 可在测试组装下完成 create → attach → list → 仅删除元数据的 delete 生命周期。
 - session-persistence 包零 diff（本期不动 session 侧的验收线）。
 - 本期无新快照（无模型可见面与组装面）；下期 RPC 接线时补。
 
