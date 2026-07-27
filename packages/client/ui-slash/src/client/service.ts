@@ -38,7 +38,8 @@ export class SlashService extends Service implements SlashServiceContract {
   }
 
   /**
-   * Register one trigger source.
+   * Register one trigger source. Live session controllers are notified so a
+   * source arriving after scope birth still warms and joins the lexicon.
    * @param src - the source; (trigger, name) must be unique — duplicates throw.
    * @returns the disposer (callers wrap registration in ctx.effect). Disposal
    * while a controller shows the source's menu group drops that group.
@@ -49,6 +50,7 @@ export class SlashService extends Service implements SlashServiceContract {
       throw new Error(`slash source "${src.trigger}${src.name}" is already registered`)
     }
     live.sources.push(src)
+    for (const controller of live.controllers.values()) controller.sourceAdded(src)
     return () => {
       const at = live.sources.indexOf(src)
       if (at < 0) return

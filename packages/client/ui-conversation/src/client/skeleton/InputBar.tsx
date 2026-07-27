@@ -36,6 +36,11 @@ export function InputBar({
     (fn: () => void) => noticeStore.subscribe(fn),
     () => noticeStore.getSnapshot(),
   )
+  const lexiconStore = keyboard.lexicon
+  const lexicon = useSyncExternalStore(
+    (fn: () => void) => lexiconStore.subscribe(fn),
+    () => lexiconStore.getSnapshot(),
+  )
   const promptError = useSession(s => s.promptError)
   const running = useSession(s => s.running)
   const disabled = useSession(s => s.removed)
@@ -244,7 +249,7 @@ export function InputBar({
   // claim token highlights through behind the textarea glyphs; each U+FFFC
   // placeholder renders as a chip (the textarea's own glyph is invisible, the
   // backdrop chip supplies the visual); the claim hint is ghost text.
-  const deco = deriveDecorations(input, keyboard.lexicon())
+  const deco = deriveDecorations(input, lexicon)
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
