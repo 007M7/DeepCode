@@ -72,7 +72,14 @@ async function seedResumeSession(cwd: string): Promise<void> {
 }
 
 /** The rendered system prompt from the first `request/header` in the workspace's persisted session log. */
-async function readLoggedSystemPrompt(cwd: string): Promise<string> {
+interface LoggedRequestHeader {
+  /** The system prompt string the launcher sends. */
+  system: string
+  /** The baked session-prefix messages (skill catalog, workspace context) serialized to text. */
+  prefix: string
+}
+
+async function readLoggedRequestHeader(cwd: string): Promise<LoggedRequestHeader> {
   const sessionsDir = join(cwd, '.sessions')
   const entries = await readdir(sessionsDir, { recursive: true })
   // A single keyless run writes one session log; the source section is global, so any log carries it.
@@ -80,8 +87,16 @@ async function readLoggedSystemPrompt(cwd: string): Promise<string> {
   if (logRelPath === undefined) throw new Error(`no session log written under ${sessionsDir}`)
   const lines = (await readFile(join(sessionsDir, logRelPath), 'utf8')).split('\n').filter(Boolean)
   for (const line of lines) {
-    const event = JSON.parse(line) as { type: string; data: { header?: { system?: string } } }
-    if (event.type === 'request/header') return event.data.header?.system ?? ''
+    const event = JSON.parse(line) as {
+      type: string
+      data: { header?: { system?: string; messagePrefix?: unknown } }
+    }
+    if (event.type === 'request/header') {
+      return {
+        system: event.data.header?.system ?? '',
+        prefix: JSON.stringify(event.data.header?.messagePrefix ?? []),
+      }
+    }
   }
   throw new Error(`session log ${logRelPath} has no request/header event`)
 }
@@ -176,6 +191,10 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('KV cache')
     expect(output).toContain('Context')
     expect(output).toContain('128,000')
+    expect(output).toContain('System prompt')
+    expect(output).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
+    expect(output).toContain('Registered tools')
+    expect(output).toContain('ask_user_question')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
@@ -208,6 +227,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
         { waitFor: 'Scripted skill body received.', send: '/exit\r' },
       ],
     })
+    expect(output).not.toContain('[instructions]')
     expect(output).toContain('Scripted skill body received.')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
@@ -342,11 +362,13 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('ui-tui: session "missing-session" failed to start:')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('tells the model where its own source lives, in the system prompt it sends', async () => {
+  it('tells the model its source path and offers the bundled maintenance skills', async () => {
     // The launcher resolves the checkout root three hops up from apps/cli/{src,lib};
     // this test file sits an equal depth under the same root, so the same hop applies.
+    // The source-path line is a system-prompt section; the bundled skills reach the
+    // model through the session-prefix catalog, so each assertion targets its own field.
     const sourceRoot = fileURLToPath(new URL('../../..', import.meta.url))
-    let loggedSystem = ''
+    let header: LoggedRequestHeader = { system: '', prefix: '' }
     await smoke({
       label: 'dsh source-path prompt',
       tempDirPrefix: 'dsh-source-path-',
@@ -358,8 +380,11 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
         { waitFor: 'How should the scripted run proceed?', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],
-      inspect: async (cwd) => { loggedSystem = await readLoggedSystemPrompt(cwd) },
+      inspect: async (cwd) => { header = await readLoggedRequestHeader(cwd) },
     })
-    expect(loggedSystem).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
+    expect(header.system).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
+    expect(header.prefix).toContain('- `dsh-customize`: Customize a dsh installation. Use before any requested change that potentailly impacts the checkout that powers the current DSH process or installed `dsh` command, including code, docs, skills, configuration, tests, commit history, or PR-branch updates; do not edit the personal staging checkout directly.')
+    expect(header.prefix).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback checkout. Use when the user asks to update or upgrade DSH.')
+    expect(header.prefix).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })
