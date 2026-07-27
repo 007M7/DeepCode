@@ -414,7 +414,10 @@ function ciConsumerGates(): Gate[] {
   const publicArtifacts = ['publint']
   const restoredBuild = ['built-package-invariants']
   return [
-    pnpmScript('lint-and-duplication', 'check:ci:lint', { label: 'lint and duplication' }),
+    pnpmScript('lint-and-duplication', 'check:ci:lint', {
+      label: 'lint and duplication',
+      needs: restoredBuild,
+    }),
     pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
     snapshotGate(restoredBuild),
     pnpmScript('publint', 'publint'),

@@ -364,6 +364,7 @@ describe('Node 24 consumer plan', () => {
     ])
     expect(subject.gates.find(item => item.id === 'publint')?.needs).toBeUndefined()
     expect(subject.gates.find(item => item.id === 'built-package-invariants')?.needs).toEqual(['publint'])
+    expect(subject.gates.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
     for (const id of ['snapshot', 'node-next-types', 'built-bin-smoke']) {
       expect(subject.gates.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }

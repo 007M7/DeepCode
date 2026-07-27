@@ -20,7 +20,7 @@ Status: implemented
 
 调度器会宣告每项门禁开始运行，将子进程的 stdout 和 stderr 缓冲到该门禁结束，再在无关门禁仍继续运行时输出一项归属明确的结果。失败块包含显示命令、经过脱敏且由调度器掌管的环境操作、彼此独立的退出码和信号结果、完整的子进程输出，以及回放命令；成功运行的子进程输出默认仍不显示，只有设置 `DSH_GATE_VERBOSE=1` 时才会输出。子进程输出不会持久化。
 
-`check:ci:consumers` 模式管理 Node 24 消费方作业的 7 条顶层命令，以及计划中可见的 7 个工作进程默认值和上限。即使主机报告的 CPU 数量更少，该默认值仍会保留原有进程池；`DSH_GATE_CONCURRENCY` 可以请求更少的工作进程，但不能超过计划上限。publint 首先验证 manifest（元数据清单）所声明的公开产物视图，包括导出文件是否存在；`verify-built-package-invariants` 随后依赖 publint，验证每个已编译不变式、其声明的运行时闭包以及恢复后的 Loader bundle。快照、NodeNext 类型检查和已构建二进制文件的冒烟测试都通过 `verify-built-package-invariants` 依赖这两个阶段，而源码 lint 和源码兼容性冒烟测试可以与它们并行。
+`check:ci:consumers` 模式管理 Node 24 消费方作业的 7 条顶层命令，以及计划中可见的 7 个工作进程默认值和上限。即使主机报告的 CPU 数量更少，该默认值仍会保留原有进程池；`DSH_GATE_CONCURRENCY` 可以请求更少的工作进程，但不能超过计划上限。publint 首先验证 manifest（元数据清单）所声明的公开产物视图，包括导出文件是否存在；`verify-built-package-invariants` 随后依赖 publint，验证每个已编译不变式、其声明的运行时闭包以及恢复后的 Loader bundle。快照、NodeNext 类型检查和已构建二进制文件的冒烟测试都通过 `verify-built-package-invariants` 依赖这两个阶段。源码兼容性冒烟测试可以与验证阶段并行；lint 和 duplication 会等待已构建包不变式验证，以免 ESLint 遍历验证过程中临时暂存的包视图，之后可以与下游消费方并行。
 
 ## 验证
 
