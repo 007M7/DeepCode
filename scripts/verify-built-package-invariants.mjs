@@ -13,11 +13,15 @@ import {
 } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { parseArgs } from 'node:util'
 
 const repositoryRoot = resolve(import.meta.dirname, '..')
-const options = parseOptions(process.argv.slice(2))
-const packagesRoot = resolve(options.get('--packages-root') ?? repositoryRoot)
-const loaderUrl = options.get('--loader-url')
+const { values: options } = parseArgs({
+  args: process.argv.slice(2),
+  options: { 'packages-root': { type: 'string' }, 'loader-url': { type: 'string' } },
+})
+const packagesRoot = resolve(options['packages-root'] ?? repositoryRoot)
+const loaderUrl = options['loader-url']
   ?? pathToFileURL(resolve(repositoryRoot, 'vendor/loader/lib/index.js')).href
 const failures = []
 const manifests = globSync('packages/*/*/package.json', { cwd: packagesRoot }).sort()
@@ -76,21 +80,6 @@ if (failures.length > 0) {
 }
 
 console.log(`verify-built-package-invariants: ${manifests.length} compiled companion(s) passed plain-Node Loader checks.`)
-
-function parseOptions(args) {
-  const allowed = new Set(['--packages-root', '--loader-url'])
-  const parsed = new Map()
-  for (let index = 0; index < args.length; index += 2) {
-    const name = args[index]
-    const value = args[index + 1]
-    if (!allowed.has(name) || value === undefined || value.startsWith('--')) {
-      throw new Error(`verify-built-package-invariants: expected [--packages-root PATH] [--loader-url URL], got ${JSON.stringify(args)}.`)
-    }
-    if (parsed.has(name)) throw new Error(`verify-built-package-invariants: duplicate option ${name}.`)
-    parsed.set(name, value)
-  }
-  return parsed
-}
 
 function copyDeclaredLibFiles(packageDir, stagedPackageDir, files) {
   for (const pattern of files) {

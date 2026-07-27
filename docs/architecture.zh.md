@@ -91,7 +91,7 @@ forever:
       agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
+      agent/request -> prepare reasoning/default under turn signal -> log request/header -> checkpoint -> llm/stream (frozen, registration-bound)
       on final adapter-path or terminal in-band failure:
         'step/end'
         agent/request-error(original error, failure facts, immutable prior failures, signal)
@@ -125,7 +125,7 @@ forever:
 
 适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交任何内容。
 
-其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会发出原因、清空队列并中止；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`。取消和资源释放均优先于恢复；轮次信号还会在提交任何请求头之前取消异步模型能力准备，尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会发出原因、清空队列并中止；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
 会话事件均位于轮次边界内；重新加载会用合成的 `interrupted` 轮次结束事件闭合中断的日志尾部。关闭后的故障使用 `agent/error`。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
 

@@ -11,6 +11,7 @@
 import { globSync, readFileSync, existsSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import ts from 'typescript'
+import { markdownFences } from './markdown.ts'
 import { partitionPairedMarkdownDerivatives } from './paired-markdown-derivatives.ts'
 import { isArchivedAgentNotePath } from './repo-files.ts'
 
@@ -81,42 +82,27 @@ function blockSymbol(code: string): string | null {
 
 /** Extract every source-equivalence block from one Markdown file. */
 function extractEquivBlocks(docRel: string): EquivBlock[] {
-  const text = readFileSync(resolve(root, docRel), 'utf8')
-  const lines = text.split('\n')
   const blocks: EquivBlock[] = []
-  let open: { line: number; body: string[]; projection?: 'public-api' } | null = null
-
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i] ?? ''
-    const fence = /^```(\s*)(\S.*)?$/.exec(raw)
-    if (!fence) {
-      if (open) open.body.push(raw)
-      continue
+  for (const fence of markdownFences(readFileSync(resolve(root, docRel), 'utf8'))) {
+    if (fence.info === 'ts type-equiv public-api') {
+      throw new Error(`verify-type-equiv: ${docRel}:${fence.line} — use the concise \`ts public-api\` fence`)
     }
-    if (open) {
-      const code = open.body.join('\n')
-      const symbol = blockSymbol(code)
-      if (!symbol) {
-        throw new Error(`verify-type-equiv: ${docRel}:${open.line} — type-equiv block has no parseable interface/type/class declaration`)
-      }
-      blocks.push({
-        doc: docRel,
-        line: open.line,
-        symbol,
-        code,
-        ...(open.projection === undefined ? {} : { projection: open.projection }),
-      })
-      open = null
-      continue
+    if (fence.info !== 'ts type-equiv' && fence.info !== 'ts public-api') continue
+    if (!fence.closed) {
+      throw new Error(`verify-type-equiv: ${docRel}:${fence.line} — unterminated type-equivalence fence (missing closing \`\`\`)`)
     }
-    const info = (fence[2] ?? '').trim()
-    if (info === 'ts type-equiv public-api') {
-      throw new Error(`verify-type-equiv: ${docRel}:${i + 1} — use the concise \`ts public-api\` fence`)
+    const symbol = blockSymbol(fence.code)
+    if (symbol === null) {
+      throw new Error(`verify-type-equiv: ${docRel}:${fence.line} — type-equiv block has no parseable interface/type/class declaration`)
     }
-    if (info === 'ts type-equiv') open = { line: i + 1, body: [] }
-    if (info === 'ts public-api') open = { line: i + 1, body: [], projection: 'public-api' }
+    blocks.push({
+      doc: docRel,
+      line: fence.line,
+      symbol,
+      code: fence.code,
+      ...(fence.info === 'ts public-api' ? { projection: 'public-api' as const } : {}),
+    })
   }
-  if (open) throw new Error(`verify-type-equiv: ${docRel}:${open.line} — unterminated type-equiv block`)
   return blocks
 }
 

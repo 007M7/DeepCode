@@ -1,5 +1,5 @@
 /**
- * Required hand-rolled DeepSeek and custom pi-ai provider behavior.
+ * Required direct-fetch DeepSeek and custom pi-ai provider behavior.
  *
  * @module @deepseek-ai/dsh-helper/features/builtin/provider
  */
@@ -74,7 +74,7 @@ export class ProviderFeature extends ExclusiveOptionFeature {
   override readonly required = true
   override readonly options = [new DeepSeekOption(), new CustomOption()]
 
-  /** Prefer the hand-rolled adapter and its public endpoint defaults. */
+  /** Prefer the direct-fetch adapter and its public endpoint defaults. */
   override defaultOptions(): readonly string[] {
     return ['deepseek']
   }
