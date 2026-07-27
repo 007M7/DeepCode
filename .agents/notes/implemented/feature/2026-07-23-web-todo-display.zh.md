@@ -1,0 +1,36 @@
+# Agent Note: Web todo 展示——快照副作用通道 + 两个渲染面
+
+Status: implemented
+
+[English](2026-07-23-web-todo-display.md) | 中文
+
+## Problem
+
+`todo_write` 把 `todo/write` 的整份列表快照追加进会话日志；TUI 渲染一块常驻的 plan 面板（自动化专用的 ACP 桥接刻意不做 todo 呈现）。Web 客户端把这个事件整个丢弃了：host mux 流本已转发每一个会话事件，但 `todo/write` 不是 surface 类型（它从不 fold 进 `ConversationSnapshot.nodes`），也没有任何副作用分支累积它——浏览器既无消费点，也无展示面。
+
+## Decision
+
+把 `todo/write` 当作 Session 副作用消费，而非 surface 节点，并在两个面上渲染它，这两个面正对应 TUI 已经绘制的那套划分。
+
+### 副作用通道，与窗口回放收敛
+
+`applyEventSideEffects` 新增一个 `todo/write` 分支（整份列表，后写覆盖先写）。与 partial/openCalls 不同，`rebuildDerivedFromWindow` 刻意不重置它：该值是会话级的——取自尾页 history 携带的全量 log 投影——而任意窗口未必包含最近一次写入，因此往前翻页保留它，只有窗口内或实时的写入才会覆盖。`installWindow` 的每个调用方都是尾页请求（`doOpen`、其补洞重拉、`repairGap`；`loadOlder` 只往前拼接、不走它），而 host 对尾页请求要么带上投影、要么仅在全量 log 没有任何 `todo/write` 时省略——因此字段缺失就是权威的空列表，直接照此赋值。这个区分在回滚场景上要紧：实时写入若在 host 持久化前崩溃，log 里就是空的，此时保留旧值会让已回滚的计划永远留在屏幕上。`ConversationSnapshot.todos` 是读取面。这遵循事件自身的契约（「仅日志 UI 状态，绝非派生历史」）：把每次写入作为对话节点呈现，会让已被取代的列表看起来仍然有效。
+
+### TodoPanel：长驻列表作为一条常驻横条
+
+面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry`，QueueDock 同款姿势：`inject: ['slots', 'conversation']` 载序 seam，`order: -1` 排在队列条上方），空列表时隐藏，可折叠——折叠态以进行中项作为单行提示；✓/●/○ 字形与 TUI plan 面板一致。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
+
+### TodoRow：经 keyed toolview slot 的逐调用行
+
+专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.register` 注册进 keyed 的 `conversation.chat.toolview` slot——与 bash 样例同一接缝、同一载序姿态（`inject: ['slots', 'conversation']`），但属产品级注册。摘要由调用 args 推导（`N/M done · active item`）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
+
+## Alternatives considered
+
+- **把 todo 写入作为 surface 条目折叠进 `nodes`**——回放的窗口会渲染每一份已被取代的列表；该事件被刻意设计成非 surface 类型。
+- **面板硬编码进 `ConversationRoot`**——input-dock slot 出现之前的原始落点；dock 是本架构给"composer 上方常开横条"安排的家，硬编码绕开了 slot 注册表的 disposal 与定序。
+- **面板放进 details 列**——details slot 单占用且由选中驱动，生命周期不同于一条常开横条。
+- **host 计算的视图（一个 todo `ToolEventView`）**——呈现属于客户端；协议已在事件载荷里携带整份快照。
+
+## Consequences
+
+回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。TUI 面板未受改动（自动化专用的 ACP 桥接刻意不做 todo 呈现）；Web 各面渲染同一个事件，只新增一个协议字段，不新增事件类型。冷加载重建正是靠这个字段由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；该值跨往前翻页保留，之后的任何写入照常覆盖，而尾页响应不带投影时复位为空。
