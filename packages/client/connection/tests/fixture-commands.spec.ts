@@ -76,8 +76,8 @@ describe('createFixtureApi commands/skills', () => {
     for (const line of ['/nope', 'plain text', '/']) {
       const response = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line }), signal)
       if (!response.result.ok) throw new Error('execute failed')
-      expect(response.result.value.matched).toBe(false)
-      expect(response.result.value.result).toBeUndefined()
+      // Pure admission value: the matched bit is the whole response shape.
+      expect(response.result.value).toEqual({ matched: false })
     }
   })
 

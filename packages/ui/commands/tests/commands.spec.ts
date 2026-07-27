@@ -307,8 +307,9 @@ describe('CommandService', () => {
       { type: 'command/run', data: { name: 'deploy', line: '/deploy now', source: { kind: 'user' } } },
       { type: 'command/done', data: { kind: 'success', text: 'deployed' } },
     ])
-    const [run, done] = lifecycle as [{ data: { commandId: string } }, { data: { commandId: string } }]
-    expect(run.data.commandId).toBe(done.data.commandId)
+    const ids = lifecycle.map(event => (event.data as { commandId: string }).commandId)
+    expect(ids[0]).toBeTruthy()
+    expect(ids[0]).toBe(ids[1])
     // Zero-step wrap: the pair stays turn-enclosed on an idle log.
     expect(agent.session.events.map(event => event.type)).toEqual([
       'turn/start', 'command/run', 'turn/end',
