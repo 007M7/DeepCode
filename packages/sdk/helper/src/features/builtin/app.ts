@@ -18,6 +18,7 @@ import {
 } from '../feature.ts'
 import { ProjectContribution, type ProjectResource } from '../resources.ts'
 import {
+  cordisConfigEntry,
   npmCordisConfigEntry,
   optionalString,
   ownedTextFile,
@@ -85,6 +86,10 @@ class AppOption extends FeatureOption {
           ...npmCordisConfigEntry(ID, {
             id: 'user-interaction',
             name: '@deepseek-ai/dsh-user-interaction',
+          }),
+          cordisConfigEntry(ID, {
+            id: 'tui-prompt',
+            name: '@deepseek-ai/dsh-tui/prompt',
           }),
           ...npmCordisConfigEntry(ID, {
             id: 'tui',

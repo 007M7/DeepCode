@@ -1,106 +1,93 @@
-terminal 100x36 buffer=normal length=48 base=12 viewport=12
+terminal 100x36 buffer=normal length=57 base=21 viewport=21
 lifecycle started=1 stopped=0 progress=inactive
 title "Run this advanced flow exactly — DSH TUI snapshot"
-cursor hidden column=1 viewportRow=33 bufferRow=45
+cursor hidden column=7 viewportRow=35 bufferRow=56
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
 1| " Run this advanced flow exactly"
   style 1-30 fg=bright-black
-2| " deepseek-v4-flash  •  main-session"
-  style 1-34 dim
+2| " main-session"
+  style 1-12 dim
 3| <blank>
-4| "▌ "
-  style 0-0 fg=bright-blue
-5| "▌ You                                                                                               "
-  style 0-0 fg=bright-blue
-  style 2-4 fg=bright-blue bold
-6| "▌ Run this advanced flow exactly once: mount a no-op Cordis plugin named snapshot-marker; use       "
-  style 0-0 fg=bright-blue
-7| "▌ run_code to inspect the live dynamic mounts through tools.cordis_inspect; delegate once to a      "
-  style 0-0 fg=bright-blue
-8| "▌ direct spawn child; run one workflow that delegates to another spawn child; unmount dyn-1; then   "
-  style 0-0 fg=bright-blue
-9| "▌ reply with exactly ADVANCED_ACP_OK.                                                               "
-  style 0-0 fg=bright-blue
-10| "▌ "
-  style 0-0 fg=bright-blue
+4| "You                                                                                                 "
+  style 0-2 fg=bright-blue bold underline
+5| "Run this advanced flow exactly once: mount a no-op Cordis plugin named snapshot-marker; use run_code"
+6| "to inspect the live dynamic mounts through tools.cordis_inspect; delegate once to a direct spawn    "
+7| "child; run one workflow that delegates to another spawn child; unmount dyn-1; then reply with       "
+8| "exactly ADVANCED_ACP_OK.                                                                            "
+9| <blank>
+10| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
 11| <blank>
-12| "▌ "
-  style 0-0 fg=green
-13| "▌ ✓ Mount plugin into live cordis runtime                                                           "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-40 bold
-14| "▌ mounted dyn-1 (plugin \"snapshot-marker\", state: active)                                           "
-  style 0-0 fg=green
-15| "▌ "
-  style 0-0 fg=green
+12| "● Tool / cordis_mount"
+  style 0-20 fg=green
+13| "Mount plugin into live cordis runtime                                                               "
+14| "mounted dyn-1 (plugin \"snapshot-marker\", state: active)                                             "
+15| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
 16| <blank>
-17| "▌ "
-  style 0-0 fg=green
-18| "▌ ✓ Verify the dynamically mounted marker service                                                   "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-48 bold
-19| "▌ ## dynamic                                                                                        "
-  style 0-0 fg=green
-20| "▌ - dyn-1: snapshot-marker [active]                                                                 "
-  style 0-0 fg=green
-21| "▌ "
-  style 0-0 fg=green
-22| <blank>
-23| "▌ "
-  style 0-0 fg=green
-24| "▌ ✓ subagent                                                                                        "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-11 bold
-25| "▌ DIRECT_CHILD_OK                                                                                   "
-  style 0-0 fg=green
-26| "▌ "
-  style 0-0 fg=green
-27| <blank>
-28| "▌ "
-  style 0-0 fg=green
-29| "▌ ✓ workflow: advanced-acp-snapshot                                                                 "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-34 bold
-30| "▌ workflow \"advanced-acp-snapshot\" completed (1 agent).                                             "
-  style 0-0 fg=green
-31| "▌ Return value:                                                                                     "
-  style 0-0 fg=green
-32| "▌ {                                                                                                 "
-  style 0-0 fg=green
-33| "▌   \"reply\": \"WORKFLOW_CHILD_OK\"                                                                    "
-  style 0-0 fg=green
-34| "▌ }                                                                                                 "
-  style 0-0 fg=green
-35| "▌ "
-  style 0-0 fg=green
-36| <blank>
-37| "▌ "
-  style 0-0 fg=green
-38| "▌ ✓ Unmount dyn-1                                                                                   "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-16 bold
-39| "▌ unmounted dyn-1 (plugin \"snapshot-marker\")                                                        "
-  style 0-0 fg=green
-40| "▌ "
-  style 0-0 fg=green
-41| <blank>
-42| " Assistant                                                                                          "
-  style 1-9 fg=bright-magenta bold
-43| " ADVANCED_ACP_OK                                                                                    "
-44| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-45| "                                                                                                    "
-  style 1-1 inverse
-46| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-47| "deepseek-v4-flash  /workspace/project  ↑18 ↓18  cache 0%  8% cont"
-  style 0-90 dim
-  style 93-99 dim
+17| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+18| <blank>
+19| "● Tool / run_code"
+  style 0-16 fg=green
+20| "Verify the dynamically mounted marker service                                                       "
+21| "                                                                                                    "
+22| "dynamic                                                                                             "
+  style 0-6 fg=bright-blue bold
+23| "                                                                                                    "
+24| "- dyn-1: snapshot-marker [active]                                                                   "
+  style 0-1 fg=bright-blue
+25| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+26| <blank>
+27| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+28| <blank>
+29| "● Tool / subagent"
+  style 0-16 fg=green
+30| "DIRECT_CHILD_OK                                                                                     "
+31| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+32| <blank>
+33| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+34| <blank>
+35| "● Tool / workflow"
+  style 0-16 fg=green
+36| "workflow: advanced-acp-snapshot                                                                     "
+37| "workflow \"advanced-acp-snapshot\" completed (1 agent).                                               "
+38| "Return value:                                                                                       "
+39| "{                                                                                                   "
+40| "  \"reply\": \"WORKFLOW_CHILD_OK\"                                                                      "
+41| "}                                                                                                   "
+42| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+43| <blank>
+44| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+45| <blank>
+46| "● Tool / cordis_unmount"
+  style 0-22 fg=green
+47| "Unmount dyn-1                                                                                       "
+48| "unmounted dyn-1 (plugin \"snapshot-marker\")                                                          "
+49| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+50| <blank>
+51| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+52| "ADVANCED_ACP_OK                                                                                     "
+53| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+54| <blank>
+55| "/workspace/project  deepseek-v4-flash  ↑18 ↓18  cache 0%  8% cont"
+  style 0-52 fg=bright-blue bold
+  style 55-71 fg=bright-black
+  style 74-90 fg=bright-black
+  style 93-99 fg=bright-black
+56| " dsh ◍                                                                                              "
+  style 1-3 fg=bright-blue bold
+  style 5-6 fg=bright-black
+  style 7-7 inverse

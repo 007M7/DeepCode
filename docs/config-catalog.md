@@ -1195,10 +1195,12 @@ export interface Config {
   agentsHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
+  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR`, otherwise mounts none. */
+  bundledSkillDir?: string
 }
 ```
 
-Source: [`packages/skill/skill-local/src/index.ts:40`](../packages/skill/skill-local/src/index.ts)
+Source: [`packages/skill/skill-local/src/index.ts:41`](../packages/skill/skill-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-spill-local`
 
@@ -1754,7 +1756,7 @@ Source: [`packages/core/tools/src/index.ts:578`](../packages/core/tools/src/inde
 
 ## `@deepseek-ai/dsh-tui`
 
-Requires: `agents` · `sessions` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter`
+Requires: `agents` · `sessions` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter` · `tuiPrompt`
 
 ```ts config-catalog
 /** Serializable plugin configuration. */
@@ -1800,21 +1802,30 @@ export interface TuiConfig {
   fileSearchExcludedDirectories?: string[]
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
-  /** Apply the built-in ANSI color palette. */
-  color?: boolean
-  /**
-   * Paint the startup banner's product name in the DeepSeek brand gradient
-   * using 24-bit truecolor. Requires {@link TuiConfig.color}; falls back to the
-   * flat accent color when either is off. Unset auto-detects `COLORTERM` at the
-   * process boundary, so most deployments leave it unset.
-   */
-  truecolor?: boolean
+  /** Color and prompt-template settings. */
+  theme?: TuiThemeConfig
   /** Terminal window title while the UI is mounted; a logged session title prefixes it. */
   title?: string
 }
+
+/** Theme and prompt-template settings for the pi-tui terminal mode. */
+export interface TuiThemeConfig {
+  /** Apply the built-in ANSI color palette. */
+  color?: boolean
+  /** Paint the startup banner with the 24-bit DeepSeek brand gradient. */
+  truecolor?: boolean
+  /** Left-aligned template on the row above the editor. */
+  leftPrompt?: string
+  /** Right-aligned template on the row above the editor. */
+  rightPrompt?: string
+  /** Template used as the editor's first-line prefix. */
+  inputPrompt?: string
+  /** Static placeholder shown in an empty editor while the agent is running. */
+  inputPlaceholder?: string
+}
 ```
 
-Source: [`packages/ui/tui/src/index.ts:273`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/config.ts:117`](../packages/ui/tui/src/config.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
