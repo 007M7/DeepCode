@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -12,7 +12,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import CommandService from '@deepseek-ai/dsh-commands'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import SessionReferenceService, { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
-import { createTuiChat } from '../src/index.ts'
+import { createTuiChat, TuiPromptService } from '../src/index.ts'
 import { HeadlessTerminal } from './headless-terminal.ts'
 import { TestSessionQueryService } from './session-query.ts'
 
@@ -51,6 +51,7 @@ function nextIdle(ctx: Context, agent: Agent): Promise<void> {
 
 describe('TUI session-reference snapshot', () => {
   it('snapshots compacted current-surface context on send and displays only its reference card', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 12, 30, 0).getTime())
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -59,6 +60,7 @@ describe('TUI session-reference snapshot', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
+    await ctx.plugin(TuiPromptService)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(TestSessionQueryService)
     await ctx.plugin(SessionReferenceService)
@@ -97,7 +99,7 @@ describe('TUI session-reference snapshot', () => {
     const controller = createTuiChat(ctx, {
       sessionId: target.id,
       welcome: 'Session reference snapshot.',
-      color: true,
+      theme: { color: true },
       title: 'DSH session reference',
     }, { terminal, exit: () => {} })
     await terminal.waitForFrame(0)
@@ -138,5 +140,6 @@ describe('TUI session-reference snapshot', () => {
     await controller.dispose()
     await ctx.fiber.dispose()
     await terminal.dispose()
+    clock.mockRestore()
   })
 })

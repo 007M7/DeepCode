@@ -285,7 +285,9 @@ describe('request-error action edges', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('retry-raced'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, signal, next) => {
+    ctx.on('agent/request-error', async (
+      subject, _turn, _step, _error, _failure, _priorFailures, _retryPolicy, signal, next,
+    ) => {
       await next()
       subject.cancel({ kind: 'user' })
       expect(signal.aborted).toBe(true)

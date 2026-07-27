@@ -684,7 +684,7 @@ function sandboxContext(ctx: Context): Context {
     if (ctx.get(prop) !== undefined) {
       throw new Error(
         `service "${prop}" is not injected. Declare it: inject: ['${prop}', …] on your plugin, `
-        + 'so cordis parks this mount if the provider is later unmounted.',
+        + 'so cordis parks this temporary Plugin if the provider is later unmounted.',
       )
     }
     throw new Error(

@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as ToolCordis from '../src/index.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { REVERSE_TOOL_CODE } from './helpers.ts'
+import { call, REVERSE_TOOL_CODE, setup, text } from './helpers.ts'
 
 /**
  * Full-loop integration: a scripted mock model mounts a plugin that registers
@@ -64,5 +65,37 @@ describe('cordis tools through the agent loop', () => {
 
     // After the unmount the self-made tool is gone from the registry.
     expect(ctx.tools.get('reverse_text')).toBeUndefined()
+  })
+
+  it('keeps a temporary Plugin across turns, unmounts it, and does not restore it in a new runtime', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('mount-1', 'cordis_mount', { code: 'return { name: \'turn-marker\', apply() {} }' }),
+      toolCallResponse('inspect-1', 'cordis_inspect', { what: 'temporary' }),
+      textResponse('Turn one complete.'),
+      toolCallResponse('inspect-2', 'cordis_inspect', { what: 'temporary' }),
+      toolCallResponse('unmount-1', 'cordis_unmount', { id: 'dyn-1' }),
+      toolCallResponse('inspect-3', 'cordis_inspect', { what: 'temporary' }),
+      textResponse('Turn two complete.'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('it-cordis-turn-lifetime'), { provider: 'mock', model: 'mock' })
+
+    agent.followup({ content: [{ type: 'text', text: 'Mount the marker and inspect it.' }], source: { kind: 'user' } })
+    await waitForIdle(ctx, agent)
+    agent.followup({ content: [{ type: 'text', text: 'On this later turn, inspect the marker, unmount it, then inspect again.' }], source: { kind: 'user' } })
+    await waitForIdle(ctx, agent)
+
+    const resultText = new Map(
+      agent.session.events
+        .filter(event => event.type === 'tool/result')
+        .map(event => [event.data.callId, event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')]),
+    )
+    expect(resultText.get(CallId('inspect-1'))).toContain('Temporary Plugin dyn-1: turn-marker [running]')
+    expect(resultText.get(CallId('inspect-2'))).toContain('Temporary Plugin dyn-1: turn-marker [running]')
+    expect(resultText.get(CallId('unmount-1'))).toBe('Temporary Plugin dyn-1 was unmounted and removed.')
+    expect(resultText.get(CallId('inspect-3'))).toContain('No temporary Plugins are running.')
+
+    const restarted = await setup()
+    expect(text(await call(restarted, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
   })
 })

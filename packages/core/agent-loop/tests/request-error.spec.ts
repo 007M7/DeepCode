@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmService, { LlmError } from '@deepseek-ai/dsh-llm'
-import type { LlmFailure } from '@deepseek-ai/dsh-llm'
+import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -55,7 +55,13 @@ describe('agent/request-error', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('request-error-retry'), { provider: 'mock', model: 'mock' })
-    const seen: { turn: number; step: number; failure: LlmFailure }[] = []
+    const seen: {
+      turn: number
+      step: number
+      failure: LlmFailure
+      priorFailures: readonly LlmFailure[]
+      retryPolicy: ResolvedRetryPolicy | undefined
+    }[] = []
     const statuses: string[] = []
     const settledTurns: number[] = []
     ctx.on('agent/status', (subject, status) => {
@@ -64,13 +70,15 @@ describe('agent/request-error', () => {
     ctx.on('agent/settled', (subject, turn) => {
       if (subject === agent) settledTurns.push(turn)
     })
-    ctx.on('agent/request-error', async (subject, turn, step, _error, failure) => {
+    ctx.on('agent/request-error', async (
+      subject, turn, step, _error, failure, priorFailures, retryPolicy,
+    ) => {
       expect(subject).toBe(agent)
       expect(agent.session.events.at(-1)).toMatchObject({
         type: 'step/end',
         data: { turn, step },
       })
-      seen.push({ turn, step, failure })
+      seen.push({ turn, step, failure, priorFailures, retryPolicy })
       return { kind: 'retry' }
     })
 
@@ -99,6 +107,12 @@ describe('agent/request-error', () => {
         { kind: 'retry' },
         { kind: 'retry' },
       ])
+    expect(seen.map(item => item.priorFailures.map(failure => failure.code)))
+      .toEqual([[], ['RATE_LIMIT']])
+    expect(seen.map(item => item.retryPolicy)).toEqual([
+      expect.objectContaining({ mode: 'normal' }),
+      expect.objectContaining({ mode: 'normal' }),
+    ])
     expect(statuses).toEqual(['running', 'idle'])
     expect(settledTurns).toEqual([3])
   })

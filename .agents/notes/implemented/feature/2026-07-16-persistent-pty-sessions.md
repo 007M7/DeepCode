@@ -72,13 +72,13 @@ With `run_in_background: true`, `dsh-tool-pty` registers the in-flight send on `
 
 ### Local readiness detection
 
-The local backend first recognizes a private OSC prompt marker emitted by its controlled bash startup, then requires printable prompt text after that marker before declaring prompt readiness and runs three bounded fallback tiers. Carrying that state across data callbacks covers macOS delivery where the OSC marker and `PS1` arrive separately; the marker alone can no longer publish an empty MOTD. The marker is removed before output reaches the model and avoids a fixed silence delay for ordinary shell commands on both platforms. Unpublished startup does not accept zero-output silence as readiness; timeout rejects the spawn. If caller cancellation wins during startup, the backend closes the private session and propagates the exact `AbortSignal.reason`; a foreground PGID that is not observable yet cannot replace cancellation with a lookup error. All timings are validated config fields: `pollIntervalMs`, `exactProbeAfterMs`, `idleSilenceMs`, and `timeoutMs`.
+The local backend first recognizes a private OSC prompt marker emitted by its controlled bash startup, then requires printable prompt text after that marker before declaring prompt readiness and runs three bounded fallback tiers. Carrying that state across data callbacks covers macOS delivery where the OSC marker and `PS1` arrive separately; the marker alone can no longer publish an empty MOTD. The marker is removed before output reaches the model and avoids a fixed silence delay for ordinary shell commands on both platforms. Unpublished startup does not accept zero-output silence as readiness; timeout rejects the spawn. If caller cancellation wins during startup, the backend closes the private session and propagates the exact `AbortSignal.reason`; a foreground PGID that is not observable yet cannot replace cancellation with a lookup error. All timings are validated config fields: `pollIntervalMs`, `exactProbeAfterMs`, `idleSilenceMs`, `handoffGraceMs`, and `timeoutMs`.
 
 On Linux, the inspector reads the shell's terminal foreground PGID from `/proc/<shellPid>/stat`, enumerates every process and thread in that process group, and probes their current syscalls. A positive Tier 1 result requires an observed stdin wait: direct `read(0)`, a permitted read of a `select`/`pselect6` or `poll`/`ppoll` argument containing fd 0, or an epoll interest list containing fd 0. Unreadable process memory and unrecognized syscalls are misses, never positive guesses. Architecture tables contain only syscall numbers defined by the corresponding Linux UAPI; unsupported architectures skip Tier 1.
 
 On macOS there is no exact syscall tier. Output silence returns `inferred_idle` for any foreground process group, including Python and `gdb`; `ps`-derived terminal PGID is used for signaling, not as proof that only the shell can be idle. Pure process-inspector logic is injectable and unit-tested on Linux, while a macOS CI job exercises the real PTY and process-table path.
 
-Tier 2 returns `inferred_idle` after `idleSilenceMs` without output. A sleeping or network-blocked command can therefore look ready. Tier 3 returns `timeout` after `timeoutMs` so a foreground tool call cannot hold the agent indefinitely. The result preserves the distinction; callers may wait through `ctx.tasks`, signal the foreground group, or inspect from another session.
+Tier 2 returns `inferred_idle` after `idleSilenceMs` without output. A sleeping or network-blocked command can therefore look ready. When a prompt marker was already seen, Tier 2 waits a further `handoffGraceMs` so a bash foreground handoff that lands on the silence boundary still settles as the exact `stdin_read` attribution instead of the weaker inference; the grace is a deployment-owned config field validated to cover at least one `pollIntervalMs`, because a grace shorter than the poll period cannot contain a single readiness poll and so cannot change any outcome. It bounds only sends that saw a marker, so its cost is the interactive return latency of that one case rather than every send. Tier 3 returns `timeout` after `timeoutMs` so a foreground tool call cannot hold the agent indefinitely. The result preserves the distinction; callers may wait through `ctx.tasks`, signal the foreground group, or inspect from another session.
 
 Once a send settles under any tier, `PtySendOperation.append` stops accepting output, so later child output no longer reaches that settled operation; it still reaches the scrollback, and any send that is active when it arrives. A test that waits for a marker on the operation it started must therefore set `idleSilenceMs` and `timeoutMs` above the child's own startup latency; interpreter startup on a loaded macOS runner otherwise ends the send before the marker is printed.
 
@@ -116,6 +116,7 @@ plugins:
       pollIntervalMs: 50
       exactProbeAfterMs: 150
       idleSilenceMs: 3000
+      handoffGraceMs: 500
       timeoutMs: 30000
       disposeGraceMs: 3000
   '@deepseek-ai/dsh-tool-pty':
@@ -154,7 +155,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 ## Verification
 
-- Per-file coverage pins owner fencing, concurrent reservations, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
+- Per-file coverage pins owner fencing, concurrent reservations, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, the configured handoff grace holding the idle fallback past one poll and its rejection below `pollIntervalMs`, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
 - Linux process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
 - Real `node-pty` tests exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT` after deliberately delayed child readiness under scenario-owned timing bounds, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
@@ -166,6 +167,8 @@ The package ships concise tool guidance explaining persistent state, owner isola
 **Persistent terminal state is available without weakening one-shot tools.** Shell and REPL state can survive tool calls, while `bash`, `read`, `write`, and `edit` retain their narrower validation, approval, and replay contracts.
 
 **Idle below Linux Tier 1 is heuristic.** Output silence cannot distinguish a prompt from sleep or network I/O. The typed result preserves uncertainty, and bounded timeout plus task waiting and signaling keep control with the model.
+
+**The exact-versus-inferred boundary is a latency trade, not a solvable race.** Attribution depends on whether the kernel publishes the foreground handoff before or after the silence bound elapses, so any fixed grace is a scheduling bet. `handoffGraceMs` puts that bet in deployment configuration: raising it buys exact `stdin_read` attribution on a slow or loaded host at the cost of interactive return latency after a prompt marker, and lowering it does the reverse. Tests that must not depend on the winner assert the observable behavior — the next send runs — rather than the attribution.
 
 **Persistent state can drift from the model's belief.** The model may forget its cwd or active REPL. Session summaries and retained output help recovery, but no prompt can make state persistence deterministic.
 

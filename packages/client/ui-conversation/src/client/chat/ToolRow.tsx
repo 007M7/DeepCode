@@ -13,6 +13,8 @@ import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
   variant: ToolRowVariant
+  /** Wire tool name for tool-owned styling layered over the generic variant. */
+  toolName?: string | undefined
   /** Leading 16px tool icon, shown while collapsed and not running/failed. */
   icon: ReactNode
   title: string
@@ -39,6 +41,7 @@ function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
 
 export function ToolRow({
   variant,
+  toolName,
   icon,
   title,
   summary,
@@ -64,7 +67,7 @@ export function ToolRow({
     toggleExpand()
   }
   return (
-    <div className={css.root} data-variant={variant} data-state={state}>
+    <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
       <div
         className={css.row}
         data-clickable={rowExpands || onOpenDetails !== undefined || undefined}

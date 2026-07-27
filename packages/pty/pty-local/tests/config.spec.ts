@@ -6,7 +6,7 @@ function config(overrides: Partial<Config> = {}): Config {
   return {
     backendType: 'shell', shellPath: '/bin/bash', shellArgs: [], rows: 40, cols: 160,
     scrollbackLines: 100, scrollbackMaxBytes: 1024, maxReadBytes: 512,
-    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 100, timeoutMs: 1000,
+    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 100, handoffGraceMs: 50, timeoutMs: 1000,
     disposeGraceMs: 100,
     ...overrides,
   }
@@ -23,5 +23,10 @@ describe('pty-local config', () => {
     expect(() => { validateConfig(config({ rows: 0 })) }).toThrow('rows')
     expect(() => { validateConfig(config({ rows: 1.5 })) }).toThrow('rows')
     expect(() => { validateConfig(config({ maxReadBytes: 2048 })) }).toThrow('must not exceed')
+  })
+
+  it('rejects a handoff grace shorter than one readiness poll', () => {
+    expect(() => { validateConfig(config({ handoffGraceMs: 9, pollIntervalMs: 10 })) }).toThrow('handoffGraceMs must be at least pollIntervalMs')
+    expect(() => { validateConfig(config({ handoffGraceMs: 10, pollIntervalMs: 10 })) }).not.toThrow()
   })
 })
