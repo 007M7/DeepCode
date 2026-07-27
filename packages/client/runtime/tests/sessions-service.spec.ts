@@ -23,7 +23,7 @@ interface Bench {
 function bench(): Bench {
   const ctx = new Context()
   const api = new FakeApiClient()
-  const svc = new SessionsService(ctx, api)
+  const svc = new SessionsService(ctx, api, 20)
   return { ctx, api, svc }
 }
 

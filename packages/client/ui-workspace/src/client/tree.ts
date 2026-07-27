@@ -278,9 +278,6 @@ export function deriveFlat(list: SessionListState): SessionNode[] {
   return rows.map(s => sessionNode(s, [], false, false))
 }
 
-/** Maximum rows rendered by the basic search surface. */
-const SEARCH_RESULT_LIMIT = 20
-
 /**
  * Merge immediate title/Workspace substring matches with ranked Host content
  * matches. Local rows lead newest-first, content-only rows retain backend
@@ -289,13 +286,15 @@ const SEARCH_RESULT_LIMIT = 20
  * @param workspaces - Workspace membership and display labels.
  * @param query - caller text; surrounding whitespace is ignored.
  * @param content - ranked Host content-search page.
- * @returns at most 20 deduplicated flat rows and a refine-query hint bit.
+ * @param limit - protocol-owned maximum merged row count.
+ * @returns bounded deduplicated flat rows and a refine-query hint bit.
  */
 export function deriveSearchResults(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   query: string,
   content: { items: readonly SessionSearchResultItem[]; hasMore: boolean },
+  limit: number,
 ): SearchResultSet {
   const q = query.trim().toLowerCase()
   if (q === '') return { items: [], hasMore: false }
@@ -340,7 +339,7 @@ export function deriveSearchResults(
   }
 
   return {
-    items: ordered.slice(0, SEARCH_RESULT_LIMIT).map((summary) => {
+    items: ordered.slice(0, limit).map((summary) => {
       const match = contentBySession.get(summary.id)
       return {
         id: summary.id,
@@ -350,7 +349,7 @@ export function deriveSearchResults(
         ...match === undefined ? {} : { snippet: match.snippet },
       }
     }),
-    hasMore: content.hasMore || ordered.length > SEARCH_RESULT_LIMIT,
+    hasMore: content.hasMore || ordered.length > limit,
   }
 }
 

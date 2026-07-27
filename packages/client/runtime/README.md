@@ -12,7 +12,7 @@ Workspace and Session lists have independent monotone `pending` → `ready` base
 
 SlotsService gives the renderer separate bare observables for `useSessions` and `useWorkspaces`; web-react creates the hooks. Workspace business state does not enter `SessionListState` or an entry store.
 
-`SessionsService.search(query, signal)` is a stateless one-shot action over the `session.search` RPC. It returns ranked session/snippet pairs without putting query, loading, or error state into the shared Session list, so each UI owner controls debounce, cancellation, stale-response suppression, and fallback presentation.
+`SessionsService.search(query, signal)` is a stateless one-shot action over the `session.search` RPC. It returns ranked session/snippet pairs without putting query, loading, or error state into the shared Session list, so each UI owner controls debounce, cancellation, stale-response suppression, and fallback presentation. `searchResultLimit` exposes the protocol-owned page bound as injected presentation data, so client plugins do not duplicate it.
 
 ## New Session and the blank mirror
 

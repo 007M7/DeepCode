@@ -89,6 +89,11 @@ describe('createFixtureApi', () => {
       ok: true,
       value: { items: [], hasMore: false },
     })
+    const reasoningOnly = await api.sessions.search(req({ query: '思考过程' }), signal)
+    expect(reasoningOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
 
     const aborted = new AbortController()
     aborted.abort()

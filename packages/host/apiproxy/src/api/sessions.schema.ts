@@ -12,6 +12,11 @@ import type { Wire } from './rpc.schema.ts'
 import type { HistoryEntry, SessionSearchItem, SessionSummary } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  truncateUnicodeCodePoints,
+} from './session-search.ts'
 
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
@@ -56,28 +61,6 @@ export const sessionListValueSchema = z.object({
 
 /** Fixed wire bound for one interactive sidebar query. */
 const SESSION_SEARCH_QUERY_MAX_CHARS = 500
-/** Product response bound validated independently by every client carrier. */
-const SESSION_SEARCH_RESULT_LIMIT = 20
-/** Maximum response snippet length in Unicode code points. */
-const SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS = 240
-
-/** Early-exit Unicode code-point bound without materializing an iterator result. */
-function hasAtMostCodePoints(value: string, maximum: number): boolean {
-  let count = 0
-  let offset = 0
-  while (offset < value.length) {
-    if (count === maximum) return false
-    const first = value.charCodeAt(offset)
-    const paired = first >= 0xD800
-      && first <= 0xDBFF
-      && offset + 1 < value.length
-      && value.charCodeAt(offset + 1) >= 0xDC00
-      && value.charCodeAt(offset + 1) <= 0xDFFF
-    offset += paired ? 2 : 1
-    count++
-  }
-  return true
-}
 
 /** session.search request payload. */
 export const sessionSearchRequestSchema = z.object({
@@ -89,7 +72,10 @@ export const sessionSearchRequestSchema = z.object({
 export const sessionSearchItemSchema = z.object({
   sessionId: sessionIdSchema,
   snippet: z.string().refine(
-    snippet => hasAtMostCodePoints(snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
+    snippet => truncateUnicodeCodePoints(
+      snippet,
+      SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+    ) === snippet,
     { message: `search snippet must contain at most ${SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS} Unicode code points` },
   ),
 }) satisfies z.ZodType<Wire<SessionSearchItem>>

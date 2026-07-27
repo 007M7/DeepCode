@@ -5,6 +5,7 @@
  */
 import type { Context } from 'cordis'
 import type { IApiClient } from './api.ts'
+import { SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
@@ -19,7 +20,12 @@ export type {
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
 } from './api.ts'
-export { RpcId, AbstractApiClient, transportError } from './api.ts'
+export {
+  RpcId,
+  SESSION_SEARCH_RESULT_LIMIT,
+  AbstractApiClient,
+  transportError,
+} from './api.ts'
 
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.
@@ -37,6 +43,8 @@ export const inject: string[] = []
 export interface ConnectionHandle {
   /** Shared api client (fixture or real, decided at boot from the page URL). */
   readonly api: IApiClient
+  /** Protocol-owned maximum rows for one session-search response. */
+  readonly sessionSearchResultLimit: number
   /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
    * One consumer owns the streams (the runtime object layer); a second call
@@ -58,6 +66,7 @@ export function apply(ctx: Context): void {
   let started = false
   const handle: ConnectionHandle = {
     api,
+    sessionSearchResultLimit: SESSION_SEARCH_RESULT_LIMIT,
     start(sinks, config) {
       if (started) throw new Error('connection: the stream loop is already owned by another consumer')
       started = true

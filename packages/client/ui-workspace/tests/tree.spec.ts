@@ -167,6 +167,7 @@ describe('deriveSearchResults', () => {
         ],
         hasMore: false,
       },
+      10,
     )
 
     expect(result).toEqual({
@@ -214,6 +215,7 @@ describe('deriveSearchResults', () => {
         ],
         hasMore: false,
       },
+      10,
     )
     expect(result.items).toEqual([{
       id: currentBlank.id,
@@ -224,14 +226,20 @@ describe('deriveSearchResults', () => {
     }])
   })
 
-  it('caps merged rows at 20 and preserves either local overflow or backend hasMore', () => {
-    const rows = Array.from({ length: 22 }, (_, index) => {
+  it('uses the supplied cap and preserves either local overflow or backend hasMore', () => {
+    const rows = Array.from({ length: 5 }, (_, index) => {
       const item = summary(`s-${String(index).padStart(2, '0')}`, index)
       item.displayTitle = `Needle ${String(index)}`
       return item
     })
-    const overflow = deriveSearchResults(list(...rows), [], 'needle', { items: [], hasMore: false })
-    expect(overflow.items).toHaveLength(20)
+    const overflow = deriveSearchResults(
+      list(...rows),
+      [],
+      'needle',
+      { items: [], hasMore: false },
+      3,
+    )
+    expect(overflow.items).toHaveLength(3)
     expect(overflow.hasMore).toBe(true)
 
     const backendMore = deriveSearchResults(
@@ -239,10 +247,11 @@ describe('deriveSearchResults', () => {
       [],
       'needle',
       { items: [{ sessionId: sid('body'), snippet: 'needle' }], hasMore: true },
+      3,
     )
     expect(backendMore.items).toHaveLength(1)
     expect(backendMore.hasMore).toBe(true)
-    expect(deriveSearchResults(list(), [], '  ', { items: [], hasMore: true }))
+    expect(deriveSearchResults(list(), [], '  ', { items: [], hasMore: true }, 3))
       .toEqual({ items: [], hasMore: false })
   })
 })

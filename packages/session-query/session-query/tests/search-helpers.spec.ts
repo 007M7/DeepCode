@@ -54,8 +54,20 @@ describe('session-query semantic extraction', () => {
     ]
 
     for (const event of events.slice(0, 4)) {
-      expect(extractSessionEventText(event)).toBe('visible\nthought\nread\n{"path":"a"}\nnested')
+      expect(extractSessionEventText(event)).toBe('visible\nread\n{"path":"a"}\nnested')
     }
+    expect(extractSessionEventText({
+      type: 'assistant/message',
+      seq: 9,
+      time: 10,
+      data: {
+        turn: 1,
+        step: 1,
+        content: [{ type: 'reasoning', text: 'private thought' }],
+        provenance: { provider: 'mock', model: 'mock' },
+      },
+      surfaceOp: 'append',
+    })).toBe('')
     expect(extractSessionEventText(events[4]!)).toBe('unsafe\npolicy')
     expect(extractSessionEventText(events[5]!)).toBe('bash\n{"cmd":"pwd"}')
     expect(extractSessionEventText(events[6]!)).toBe('failed\nOops\nE_OOPS')

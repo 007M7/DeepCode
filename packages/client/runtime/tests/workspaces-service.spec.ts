@@ -124,7 +124,7 @@ describe('WorkspacesService', () => {
   it('feeds readiness and recent-Workspace targeting without changing Host order', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api)
+    const sessions = new SessionsService(ctx, api, 20)
     const workspaces = new WorkspacesService(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [
@@ -152,7 +152,7 @@ describe('WorkspacesService', () => {
   it('connectWorkspace reuses the workspace-matched blank session and creates otherwise', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api)
+    const sessions = new SessionsService(ctx, api, 20)
     const workspaces = new WorkspacesService(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('alpha'), workspace('beta')] as never[],
@@ -188,7 +188,7 @@ describe('WorkspacesService', () => {
   it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api)
+    const sessions = new SessionsService(ctx, api, 20)
     const workspaces = new WorkspacesService(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
     api.onList = () => Promise.resolve(ok({
@@ -208,7 +208,7 @@ describe('WorkspacesService', () => {
   it('returns created Workspaces and preserves Host business errors', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api)
+    const sessions = new SessionsService(ctx, api, 20)
     const workspaces = new WorkspacesService(ctx, api, sessions)
     await expect(workspaces.create({ path: '/w/existing' })).resolves.toMatchObject({ workspaceId: 'fk-ws' })
     expect(api.callsOf('workspace.create')).toEqual([{ path: '/w/existing' }])
@@ -221,7 +221,7 @@ describe('WorkspacesService', () => {
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api)
+    const sessions = new SessionsService(ctx, api, 20)
     const workspaces = new WorkspacesService(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
     await workspaces.refresh()

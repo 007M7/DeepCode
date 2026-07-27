@@ -25,6 +25,7 @@ async function mount(): Promise<Bench> {
   const bench: Bench = { ctx, api, sinks: undefined, stopped: 0 }
   const handle: ConnectionHandle = {
     api,
+    sessionSearchResultLimit: 7,
     start: (sinks) => {
       bench.sinks = sinks
       return { stop: () => { bench.stopped += 1 } }
@@ -50,6 +51,7 @@ describe('runtime client apply', () => {
     const workspaces = bench.ctx.get('workspaces')
     expect(sessions !== undefined).toBe(true)
     expect(workspaces !== undefined).toBe(true)
+    expect((sessions as SessionsService).searchResultLimit).toBe(7)
     if (workspaces === undefined) throw new Error('WorkspacesService missing after runtime apply')
     expect(bench.sinks).toBeDefined()
 

@@ -1,2 +1,2 @@
 - tree "Search results":
-  - 'treeitem "{{workspace}} {{workspace}} The user wants me to reply with a specific format. Let me do that. ## Navigation Summary - alpha nav - beta nav ``` echo WATERFALL ```"'
+  - 'treeitem "{{workspace}} {{workspace}} ## Navigation Summary - alpha nav - beta nav ``` echo WATERFALL ```"'

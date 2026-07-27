@@ -628,6 +628,8 @@ export class SessionQuerySqlite extends SessionQueryService {
       offset,
     ]
     assertPortableBindingCount(bindings.length)
+    // The browser fixture mirrors these rank keys in
+    // `packages/client/connection/src/client/fixture.ts`; update both together.
     return this._requireDb().prepare(`
       ${selected.sql},
       filtered AS (

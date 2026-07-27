@@ -24,6 +24,11 @@ import type {
   ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSearchItem,
   SessionSummary, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  truncateUnicodeCodePoints,
+} from './api/session-search.ts'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -38,14 +43,8 @@ import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
-/** Product contract: sidebar search returns one bounded page and no cursor. */
-const SESSION_SEARCH_LIMIT = 20
-
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
-
-/** Product contract: snippets contain at most 240 Unicode code points. */
-const SESSION_SEARCH_SNIPPET_CODE_POINT_LIMIT = 240
 
 /** Bound cold-log stat fan-out so an aborted search stops launching new work. */
 const COLD_SUMMARY_BATCH_SIZE = 16
@@ -56,28 +55,6 @@ const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/me
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
-}
-
-/** Copy at most the product-visible code-point prefix without splitting a surrogate pair. */
-function boundedSessionSearchSnippet(value: unknown): string {
-  if (typeof value !== 'string') {
-    throw new Error('session search provider returned a non-string snippet')
-  }
-  let end = 0
-  for (
-    let count = 0;
-    count < SESSION_SEARCH_SNIPPET_CODE_POINT_LIMIT && end < value.length;
-    count++
-  ) {
-    const first = value.charCodeAt(end)
-    const hasSurrogatePair = first >= 0xD800
-      && first <= 0xDBFF
-      && end + 1 < value.length
-      && value.charCodeAt(end + 1) >= 0xDC00
-      && value.charCodeAt(end + 1) <= 0xDFFF
-    end += hasSurrogatePair ? 2 : 1
-  }
-  return end === value.length ? value : value.slice(0, end)
 }
 
 /**
@@ -683,8 +660,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const seenCursors = new Set<SessionSearchCursor>()
           let cursor: SessionSearchCursor | undefined
           let providerCallCount = 0
-          let providerPageLimit = SESSION_SEARCH_LIMIT
-          while (authorized.length <= SESSION_SEARCH_LIMIT) {
+          let providerPageLimit = SESSION_SEARCH_RESULT_LIMIT
+          while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
             if (isAborted(signal)) return cancelled()
             if (providerCallCount >= SESSION_SEARCH_PROVIDER_CALL_LIMIT) {
               throw new Error(
@@ -739,14 +716,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // Host visibility is the authorization boundary. Consume the
             // provider's globally ranked stream rather than binding every
             // visible id into one SQLite statement, then re-check complete
-            // provenance before emitting any snippet. Inspect exactly the
-            // declared array entries so a custom iterator cannot overproduce.
-            for (let itemIndex = 0; itemIndex < providerItemCount; itemIndex++) {
-              const hit = page.items[itemIndex]
-              if (hit === undefined) {
-                throw new Error(`session search provider omitted item at index ${itemIndex}`)
-              }
-              if (authorized.length > SESSION_SEARCH_LIMIT) continue
+            // provenance before emitting any snippet.
+            for (const hit of page.items) {
+              if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
               if (
                 !visibleIds.has(hit.header.id)
                 || hit.bestMatch.sessionId !== hit.header.id
@@ -754,7 +726,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 || !MESSAGE_TYPES.has(hit.bestMatch.type)
                 || acceptedIds.has(hit.header.id)
               ) continue
-              const snippet = boundedSessionSearchSnippet(hit.bestMatch.snippet)
+              const snippet = truncateUnicodeCodePoints(
+                hit.bestMatch.snippet,
+                SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+              )
               acceptedIds.add(hit.header.id)
               authorized.push({
                 sessionId: hit.header.id,
@@ -768,18 +743,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }
               seenCursors.add(nextCursor)
             }
-            if (authorized.length > SESSION_SEARCH_LIMIT || nextCursor === undefined) break
+            if (authorized.length > SESSION_SEARCH_RESULT_LIMIT || nextCursor === undefined) break
             cursor = nextCursor
           }
           return ok(request, {
-            items: authorized.slice(0, SESSION_SEARCH_LIMIT),
-            hasMore: authorized.length > SESSION_SEARCH_LIMIT,
+            items: authorized.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+            hasMore: authorized.length > SESSION_SEARCH_RESULT_LIMIT,
           })
         } catch (error: unknown) {
           if (
             isAborted(signal)
             || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')
           ) return cancelled()
+          // XXX: Redact provider details before exposing this gateway beyond
+          // its current single-user local deployment.
           return err(request, {
             code: 'internal',
             message: `session search failed: ${String(error)}`,

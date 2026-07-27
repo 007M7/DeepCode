@@ -14,7 +14,7 @@ import type {
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { AbstractApiClient, RpcId } from './api.ts'
+import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
@@ -302,8 +302,9 @@ function pageOf(
 function searchBlockText(block: ContentBlock): string[] {
   switch (block.type) {
     case 'text':
-    case 'reasoning':
       return [block.text]
+    case 'reasoning':
+      return []
     case 'tool-call':
       return [block.name, block.arguments]
     case 'tool-result':
@@ -425,7 +426,7 @@ interface FixtureSearchCandidate {
   documentLength: number
 }
 
-/** Same rank keys as session-query-sqlite's cross-session result order. */
+/** Mirrors `packages/session-query/session-query-sqlite/src/index.ts`; update both together. */
 function compareSearchCandidates(a: FixtureSearchCandidate, b: FixtureSearchCandidate): number {
   if (a.matchCount !== b.matchCount) return b.matchCount - a.matchCount
   if (a.documentLength !== b.documentLength) return a.documentLength - b.documentLength
@@ -741,11 +742,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           return best === undefined ? [] : [best]
         }).sort(compareSearchCandidates)
         return ok(request, {
-          items: matches.slice(0, 20).map(match => ({
+          items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT).map(match => ({
             sessionId: match.sessionId,
             snippet: searchSnippet(match.text, match.matchStart, match.matchEnd),
           })),
-          hasMore: matches.length > 20,
+          hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT,
         })
       },
       create: async (request) => {

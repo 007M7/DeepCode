@@ -289,6 +289,34 @@ describe('SQLite session search', () => {
       .resolves.toMatchObject({ items: [{ header: { ...session.header, seedLength: 1 }, live: true, persisted: false }] })
   })
 
+  it('excludes assistant reasoning while indexing visible answer text', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('reasoning'))
+    session.append(
+      'assistant/message',
+      {
+        turn: 1,
+        step: 1,
+        content: [
+          { type: 'reasoning', text: 'private-chain-marker' },
+          { type: 'text', text: 'visible-answer-marker' },
+        ],
+        provenance: { provider: 'mock', model: 'mock' },
+      },
+      { surfaceOp: 'append' },
+    )
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'private-chain-marker' }))
+      .resolves.toEqual({ items: [] })
+    await expect(ctx.sessionQuery.searchSessions({ query: 'visible-answer-marker' }))
+      .resolves.toMatchObject({
+        items: [{
+          header: { id: session.id },
+          bestMatch: { snippet: 'visible-answer-marker' },
+        }],
+      })
+  })
+
   it('searches all surfaces by default and applies metadata before ranking', async () => {
     const ctx = await liveContext({ path: ':memory:', defaultLimit: 10, maxLimit: 20 })
     const parent = SessionId('parent')
@@ -1190,7 +1218,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const staleOwner = await liveContext({ path: stalePath })
     await (staleOwner.sessionQuery as SessionQuerySqlite).close()
     const stale = new DatabaseSync(stalePath)
-    stale.exec('PRAGMA user_version = 999')
+    stale.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION - 1}`)
     stale.close()
     const staleCtx = await liveContext({ path: stalePath })
     staleCtx.sessions.create(SessionId('live'), { seed: messageEvents('needle') })

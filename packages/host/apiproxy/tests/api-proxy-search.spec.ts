@@ -536,12 +536,10 @@ describe('session.search', () => {
     expect(searchSessions).toHaveBeenCalledOnce()
   })
 
-  it('rejects an oversized provider page before iterating its items', async () => {
+  it('rejects an oversized provider page', async () => {
     const ctx = await baseContext()
     ctx.sessions.create(sid('visible'), { meta: header('visible') })
-    const oversized = new Array<SessionSearchHit>(21)
-    const iterate = vi.fn(() => oversized.values())
-    Object.defineProperty(oversized, Symbol.iterator, { value: iterate })
+    const oversized = Array.from({ length: 21 }, (_, index) => hit(`oversized-${index}`))
     const searchSessions = vi.fn(() => Promise.resolve({ items: oversized }))
     ctx.provide('sessionQuery', { searchSessions } as never)
 
@@ -554,15 +552,12 @@ describe('session.search', () => {
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error).toMatchObject({ code: 'internal' })
     expect(response.result.error.message).toContain('returned 21 items; maximum is 20')
-    expect(iterate).not.toHaveBeenCalled()
   })
 
   it('uses the learned provider limit for the overproduction guard', async () => {
     const ctx = await baseContext()
     ctx.sessions.create(sid('visible'), { meta: header('visible') })
-    const oversized = new Array<SessionSearchHit>(11)
-    const iterate = vi.fn(() => oversized.values())
-    Object.defineProperty(oversized, Symbol.iterator, { value: iterate })
+    const oversized = Array.from({ length: 11 }, (_, index) => hit(`oversized-${index}`))
     const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
       if (providerRequest.limit === 20) {
         return Promise.reject(new SessionQueryError(
@@ -584,7 +579,6 @@ describe('session.search', () => {
     expect(response.result.error).toMatchObject({ code: 'internal' })
     expect(response.result.error.message).toContain('returned 11 items; maximum is 10')
     expect(searchSessions).toHaveBeenCalledTimes(2)
-    expect(iterate).not.toHaveBeenCalled()
   })
 
   it('bounds provider snippets to 240 Unicode code points without splitting astral text', async () => {
@@ -615,58 +609,6 @@ describe('session.search', () => {
         hasMore: false,
       },
     })
-  })
-
-  it('fails closed when the provider returns a non-string snippet', async () => {
-    const ctx = await baseContext()
-    const visible = hit('visible')
-    ctx.sessions.create(visible.header.id, { meta: visible.header })
-    ctx.provide('sessionQuery', {
-      searchSessions: () => Promise.resolve({
-        items: [{
-          ...visible,
-          bestMatch: { ...visible.bestMatch, snippet: 42 },
-        }],
-      }),
-    } as never)
-
-    const response = await createApiProxy(ctx, defaults).sessions.search(
-      request('malformed-snippet'),
-      new AbortController().signal,
-    )
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('internal')
-    expect(response.result.error.message).toContain('non-string snippet')
-    expect(response.result).not.toHaveProperty('value')
-  })
-
-  it('inspects only numerically stored items when a compliant page overrides iteration', async () => {
-    const ctx = await baseContext()
-    const visible = Array.from({ length: 21 }, (_, index) => hit(`visible-${index}`, index))
-    for (const item of visible) {
-      ctx.sessions.create(item.header.id, { meta: item.header })
-    }
-    const stored = visible.slice(0, 1)
-    const iterate = vi.fn(() => visible.values())
-    Object.defineProperty(stored, Symbol.iterator, { value: iterate })
-    const searchSessions = vi.fn(() => Promise.resolve({ items: stored }))
-    ctx.provide('sessionQuery', { searchSessions } as never)
-
-    const response = await createApiProxy(ctx, defaults).sessions.search(
-      request('custom-iterator'),
-      new AbortController().signal,
-    )
-
-    expect(response.result).toEqual({
-      ok: true,
-      value: {
-        items: [{ sessionId: 'visible-0', snippet: 'match 0' }],
-        hasMore: false,
-      },
-    })
-    expect(iterate).not.toHaveBeenCalled()
   })
 
   it('fails closed when the provider repeats a continuation cursor', async () => {

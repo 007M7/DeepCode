@@ -40,6 +40,8 @@ export type WorkspaceBrowserInjected = {
     query: string,
     signal: AbortSignal,
   ) => Promise<{ items: readonly SessionSearchResultItem[]; hasMore: boolean }>
+  /** Maximum number of merged rows rendered for one search. */
+  searchResultLimit: number
   /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
   renameWorkspace: (workspaceId: WorkspaceId, title: string) => Promise<void>
   /** Delete only a Host Workspace registration; directory and Session logs remain. */

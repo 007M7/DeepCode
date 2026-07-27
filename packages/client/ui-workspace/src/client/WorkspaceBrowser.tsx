@@ -261,33 +261,37 @@ function SearchResults({
   workspaces,
   query,
   remote,
+  resultLimit,
 }: Pick<SessionTreeProps, 'useSessions' | 'open'> & {
   workspaces: readonly WorkspaceView[]
   query: string
   remote: RemoteSearchState
+  resultLimit: number
 }) {
   const list = useSessions((s) => s)
   const currentRemote = remote.query === query
     ? remote
     : { query, status: 'loading' as const, items: [], hasMore: false }
   const results = useMemo(
-    () => deriveSearchResults(list, workspaces, query, currentRemote),
-    [list, workspaces, query, currentRemote],
+    () => deriveSearchResults(list, workspaces, query, currentRemote, resultLimit),
+    [list, workspaces, query, currentRemote, resultLimit],
   )
   const pending = currentRemote.status === 'loading'
   const failed = currentRemote.status === 'error'
 
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list} role="tree" aria-label="Search results">
-        {results.items.map(result => (
-          <SearchResultItem
-            key={result.id}
-            result={result}
-            currentId={list.current}
-            onOpen={open}
-          />
-        ))}
+      <div className={css.list}>
+        <div className={css.searchTree} role="tree" aria-label="Search results">
+          {results.items.map(result => (
+            <SearchResultItem
+              key={result.id}
+              result={result}
+              currentId={list.current}
+              onOpen={open}
+            />
+          ))}
+        </div>
         {pending && (
           <div className={css.searchStatus} role="status">Searching session history…</div>
         )}
@@ -300,7 +304,9 @@ function SearchResults({
           <div className={css.empty}>No matching sessions</div>
         )}
         {results.hasMore && (
-          <div className={css.searchStatus}>Showing the first 20 results. Narrow your search.</div>
+          <div className={css.searchStatus}>
+            Showing the first {resultLimit} results. Narrow your search.
+          </div>
         )}
       </div>
       <span className={css.fade} />
@@ -327,6 +333,7 @@ export function WorkspaceBrowser({
   insertSessionBefore,
   createWorkspace,
   searchSessions,
+  searchResultLimit,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const groupBy = useStore(s => s.groupBy)
@@ -544,6 +551,7 @@ export function WorkspaceBrowser({
                 workspaces={workspaces}
                 query={normalizedQuery}
                 remote={remoteSearch}
+                resultLimit={searchResultLimit}
               />
             )
           : groupBy === 'flat'

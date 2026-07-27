@@ -54,6 +54,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     startSession: vi.fn(),
     open: vi.fn(),
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
+    searchResultLimit: 20,
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
@@ -217,10 +218,12 @@ describe('WorkspaceBrowser', () => {
       })
       const input = screen.getByPlaceholderText<HTMLInputElement>('Search names or content…')
       fireEvent.change(input, { target: { value: 'needle' } })
-      expect(screen.getByRole('tree', { name: 'Search results' })).toBeTruthy()
+      const resultTree = screen.getByRole('tree', { name: 'Search results' })
       expect(screen.getByText('Needle row')).toBeTruthy()
       expect(screen.queryByText('Other row')).toBeNull()
-      expect(screen.getByText('Searching session history…')).toBeTruthy()
+      const status = screen.getByRole('status')
+      expect(status.textContent).toBe('Searching session history…')
+      expect(resultTree.contains(status)).toBe(false)
 
       fireEvent.change(input, { target: { value: 'zzz' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })

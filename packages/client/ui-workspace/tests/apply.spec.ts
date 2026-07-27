@@ -26,7 +26,7 @@ async function bench() {
   ctx.provide('workspaces', {
     create, startSession, rename, insertSessionBefore,
   } as never)
-  ctx.provide('sessions', { open, clear, search } as never)
+  ctx.provide('sessions', { open, clear, search, searchResultLimit: 20 } as never)
   return {
     ctx,
     slots: ctx.get('slots') as SlotsService,
@@ -86,6 +86,7 @@ describe('ui-workspace apply', () => {
       hasMore: false,
     })
     expect(b.search).toHaveBeenCalledWith('match', signal)
+    expect(browser.searchResultLimit).toBe(20)
     await browser.renameWorkspace('ws' as never, 'renamed')
     expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
     await browser.insertSessionBefore('ws' as never, 's1' as never, 's2' as never)
