@@ -14,16 +14,17 @@ async function bench() {
     path: 'name' in input ? `/projects/${input.name}` : input.path,
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
+  const pickDirectory = vi.fn(async () => '/tmp/picked')
   const startSession = vi.fn()
   const rename = vi.fn(async () => ({}))
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
   ctx.provide('workspaces', {
-    create, startSession, rename, insertSessionBefore,
+    create, pickDirectory, startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename, insertSessionBefore, open, clear }
+  return { ctx, slots: ctx.get('slots') as SlotsService, create, pickDirectory, startSession, rename, insertSessionBefore, open, clear }
 }
 
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
@@ -72,10 +73,14 @@ describe('ui-workspace apply', () => {
     expect(b.insertSessionBefore).toHaveBeenCalledWith('ws', 's1', 's2')
     await browser.createWorkspace({ name: 'project' })
     expect(b.create).toHaveBeenCalledWith({ name: 'project' })
+    await browser.pickDirectory()
+    expect(b.pickDirectory).toHaveBeenCalledOnce()
 
     const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
     await picker.createWorkspace({ path: '/tmp/project' })
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
+    await picker.pickDirectory()
+    expect(b.pickDirectory).toHaveBeenCalledTimes(2)
   })
 
   it('unregisters every entry on teardown', async () => {

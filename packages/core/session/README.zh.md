@@ -64,9 +64,9 @@
 
 ### 请求头重建（`request-header.ts`）
 
-`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。`messagePrefix` 与派生历史保持分离。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`user/message` 会将其 `content` 原样呈现为 user-role 消息，无论它是直接人类提示词（来源为 `user`）、合成注入（来源为 `plugin`／`goal`），还是已准入的 Goal Round；`source` 是区分三者的唯一通道。它可以附带 JSON `meta`，用于可回放的插件状态；元数据保持持久，但不包含在 `deriveMessages()` 中。带提示词前缀上下文的 `user/message` 或 `steering/message` 会在 `content` 中保留送给模型的精确合并字节，并存储一个模型不可见的 `envelope`，其中包含直接展示用的 `displayContent` 和前缀上下文的来源／元数据描述符。`displayPromptContent()` 选择面向人的提示词，而不改变派生历史。
+`user/message` 会将其 `content` 原样呈现为 user-role 消息，无论它是直接人类提示词、合成注入，还是已准入的 Goal Round；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
 
 `tool/result` 持久保存面向模型的内容、可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。这样会保留现有事件形态，且不改变 `SESSION_FORMAT_VERSION`。
 

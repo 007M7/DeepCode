@@ -378,7 +378,6 @@ export class TokenMeterService extends Service {
   private _estimateHeader(header: EpochHeader | undefined): number {
     if (header === undefined) return 0
     let tokens = 0
-    for (const message of header.messagePrefix ?? []) tokens += this.estimateMessage(message)
     if (header.system !== undefined) {
       tokens += Math.ceil(header.system.length / CHARS_PER_TOKEN) + ROLE_OVERHEAD
     }

@@ -110,7 +110,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:147`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -331,7 +331,7 @@ Requires: `llm` · `tokenMeter`
 export interface BasicCompactConfig extends CompactPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
-  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
+  /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
 }
 
@@ -424,7 +424,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/goal/src/index.ts:56`](../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:55`](../packages/goal/goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -460,7 +460,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:44`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:45`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -485,7 +485,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
@@ -920,7 +920,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/guard/repeat-tool-guard/src/index.ts:26`](../packages/guard/repeat-tool-guard/src/index.ts)
+Source: [`packages/guard/repeat-tool-guard/src/index.ts:27`](../packages/guard/repeat-tool-guard/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -1098,6 +1098,40 @@ export interface Config {
 
 Source: [`packages/context/session-reference/src/config.ts:11`](../packages/context/session-reference/src/config.ts)
 
+## `@deepseek-ai/dsh-session-telemetry-otel`
+
+Requires: `sessions`
+
+```ts config-catalog
+/**
+ * Plugin configuration: two verbatim SDK option shapes plus nothing else.
+ * `exporter.url` is the one field this package validates itself — required,
+ * no default, must parse as an `http(s)` URL — because a missing endpoint
+ * must fail at plugin load, not at first export.
+ */
+export interface Config {
+  /**
+   * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
+   * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
+   * `compression`, `keepAlive`, …), owned and documented by the SDK. `url`
+   * is the one field this package requires and validates itself.
+   */
+  exporter?: OTLPExporterNodeConfigBase & {
+    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required; validated at plugin load. */
+    url?: string
+  }
+  /**
+   * Passed verbatim to `BatchLogRecordProcessor` (minus the exporter slot,
+   * which this plugin fills); the SDK owns and documents these knobs.
+   */
+  processor?: Omit<BatchLogRecordProcessorOptions, 'exporter'>
+}
+```
+
+Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
+
+Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:40`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-title`
 
 Requires: `sessions`
@@ -1114,7 +1148,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-title/session-title/src/index.ts:70`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:69`](../packages/session-title/session-title/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 
@@ -1496,7 +1530,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/tool-goal/src/index.ts:27`](../packages/goal/tool-goal/src/index.ts)
+Source: [`packages/goal/tool-goal/src/index.ts:25`](../packages/goal/tool-goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-lsp`
 
@@ -1580,7 +1614,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:19`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:20`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
@@ -1722,7 +1756,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:566`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:578`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 
@@ -2123,6 +2157,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-retention` ([`packages/util/retention/src/index.ts`](../packages/util/retention/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
 - `@deepseek-ai/dsh-scripts` ([`packages/sdk/scripts/src/index.ts`](../packages/sdk/scripts/src/index.ts))
+- `@deepseek-ai/dsh-session-telemetry` ([`packages/telemetry/session-telemetry/src/index.ts`](../packages/telemetry/session-telemetry/src/index.ts))
 - `@deepseek-ai/dsh-session-title-llm` ([`packages/session-title/session-title-llm/src/index.ts`](../packages/session-title/session-title-llm/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-telemetry` ([`packages/sdk/telemetry/src/index.ts`](../packages/sdk/telemetry/src/index.ts))

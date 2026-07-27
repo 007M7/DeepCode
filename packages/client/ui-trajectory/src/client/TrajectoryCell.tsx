@@ -16,11 +16,11 @@ const KIND_LABEL: Record<TrajectoryCellKind, string> = {
   subtool: 'Sub',
 }
 
-const TAG_CLASS: Record<TrajectoryCellKind, string> = {
-  user: css.tagUser!,
-  message: css.tagMessage!,
-  tool: css.tagTool!,
-  subtool: css.tagSubtool!,
+const TAG_CLASS: Record<TrajectoryCellKind, string | undefined> = {
+  user: css.tagUser,
+  message: css.tagMessage,
+  tool: css.tagTool,
+  subtool: css.tagSubtool,
 }
 
 export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
@@ -84,7 +84,7 @@ export function TrajectoryCell({
     <div className={rootClass} data-kind={kind} data-selected={selected || undefined} {...rest}>
       <span className={css.index}>#{index}</span>
       <span className={css.tagSlot}>
-        <span className={`${css.tag} ${TAG_CLASS[kind]}`}>{KIND_LABEL[kind]}</span>
+        <span className={[css.tag, TAG_CLASS[kind]].filter((c): c is string => c !== undefined).join(' ')}>{KIND_LABEL[kind]}</span>
       </span>
       <span className={css.text}>{text}</span>
       <span className={css.trailing}>

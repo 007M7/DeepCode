@@ -27,7 +27,7 @@ create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd
 
 /**
  * Create an owned agent on a caller-supplied session id.
- * @param ownerCtx - caller context that structurally owns the transaction.
+ * @param ownerCtx - caller context that structurally owns the lifecycle.
  * @param options - identities, session seed/metadata, loop options, setup, and cancellation.
  * @returns the published handle.
  */
@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:398`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:188`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:225`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:220`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -656,7 +656,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:134`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -1210,7 +1210,7 @@ async listCandidates( agent: Agent, query = '', limit = this.config.candidateLim
  * @param content - already host-normalized readable message content.
  * @param references - structured source sessions in mention order.
  * @param signal - optional cancellation boundary for host request teardown.
- * @returns detached content and zero or one prepared contexts.
+ * @returns detached content and optional referenced-session context.
  */
 async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
 ```
@@ -1366,7 +1366,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:611`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1400,7 +1400,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:284`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:283`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1751,6 +1751,29 @@ Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-da
 
 Source: [`packages/tasks/tasks/src/index.ts:50`](../../packages/tasks/tasks/src/index.ts)
 
+## `ctx.telemetry` — `Telemetry` (abstract seam)
+
+The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+
+```ts cordis-catalog
+/**
+ * See {@link TelemetryBackend.emit} — the seam declaration is the contract's one home.
+ * @param record - the logical record to report; owned by the backend after the call.
+ */
+abstract emit(record: TelemetryRecord): void
+
+/** See {@link TelemetryBackend.flush}. */
+flush?(): void
+
+/**
+ * See {@link TelemetryBackend.shutdown}.
+ * @returns resolves when the backend's pipeline has quiesced.
+ */
+abstract shutdown(): Promise<void>
+```
+
+Source: [`packages/telemetry/session-telemetry/src/index.ts:135`](../../packages/telemetry/session-telemetry/src/index.ts)
+
 ## `ctx.tokenMeter` — `TokenMeterService`
 
 Replay owner for one service-wide estimator and isolated per-session folds.
@@ -1904,7 +1927,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:688`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:700`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 

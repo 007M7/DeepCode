@@ -41,8 +41,8 @@ export function ConversationSession({
     if (inputState.draft === '' && storedDraft !== '') inputActions.setDraft(storedDraft)
     const unmirror = bindDraftMirror(actions.setDraft)
     return () => { unmirror() }
-    // Mount-only: later store writes come from the machine mirror.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Mount-only (deps pinned to inputActions): later store writes come from
+    // the machine mirror, not this seed effect.
   }, [inputActions])
 
   if (blank && composerPhase === 'blank') return null

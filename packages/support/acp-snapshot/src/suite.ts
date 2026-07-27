@@ -23,6 +23,7 @@ import { type AgentUnderTest, type HarvestedLog, type InputScript, runScenario }
 import {
   type CwdPathMode,
   type NormalizeContext,
+  extractSnapshotSpillPaths,
   normalizeSessionLog,
   normalizeStdout,
   scrubRequestHeaders,
@@ -55,9 +56,7 @@ export interface Scenario {
    * Whether the run persists a comparable session log to diff against the
    * `session.jsonl` fixture. Defaults to {@link hasModelTurn} (a model turn
    * always produces a log worth comparing). Set it independently for a scenario
-   * that produces a non-trivial log WITHOUT a model turn — e.g. a prompt blocked
-   * by a `UserPromptSubmit` hook, which opens a `rejected` turn carrying `hook/*`
-   * events but never calls the model.
+   * that produces a non-trivial durable log without calling the model.
    */
   comparesLog?: boolean
   /**
@@ -448,7 +447,7 @@ export function unknownToolCallIds(rawLog: string): string[] {
 }
 
 /**
- * Build the cross-log id/cwd replacements used by refresh write-back.
+ * Build the cross-log id/cwd/spill-path replacements used by refresh write-back.
  *
  * @param logs The freshly harvested logs, in fixture order.
  * @param fixtures The existing fixture contents, in matching order.
@@ -464,6 +463,16 @@ export function refreshFixtureReplacements(logs: HarvestedLog[], fixtures: strin
       const to = existing?.[field]
       if (typeof from === 'string' && typeof to === 'string' && from.length > 0 && from !== to) {
         replacements.push({ from, to })
+      }
+    }
+    // Stabilize snapshot spill paths: match by filename suffix so the raw
+    // fixture does not churn on every refresh from a different session run.
+    const freshSpills = extractSnapshotSpillPaths((logs[i] as HarvestedLog).content)
+    const existingSpills = extractSnapshotSpillPaths(fixtures[i] ?? '')
+    for (const [name, existingPath] of existingSpills) {
+      const freshPath = freshSpills.get(name)
+      if (freshPath !== undefined && freshPath !== existingPath) {
+        replacements.push({ from: freshPath, to: existingPath })
       }
     }
   }
@@ -706,8 +715,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           await expect(stdout, `${expected.file} mismatch`).toMatchFileSnapshot(join(dir, expected.file))
         }
 
-        // A model turn always produces a log worth comparing; a hook scenario can
-        // produce one without a model turn (a `rejected` turn carrying `hook/*`).
+        // A model turn always produces a log worth comparing; an explicitly
+        // authored non-model scenario may opt in independently.
         if (comparesLog) {
           // The harvested logs (primary-first) must match their committed fixtures 1:1.
           expect(result.sessionLogs.length, 'this scenario must persist one log per session fixture').toBe(fixtureFiles.length)

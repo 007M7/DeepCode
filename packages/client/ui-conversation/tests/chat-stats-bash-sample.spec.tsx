@@ -36,7 +36,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
   let snap: ConversationSnapshot = { ...snapshotBase(), ...init }
   const subs = new Set<() => void>()
   return {
-    set(next: Partial<ConversationSnapshot>) {
+    set: (next: Partial<ConversationSnapshot>) => {
       snap = { ...snap, ...next }
       for (const fn of [...subs]) fn()
     },
@@ -100,9 +100,9 @@ describe('StatsLine', () => {
     render(<Counting {...props(source)} />)
     const before = renders
     // Chunk frames swap partial only; nodes keeps its reference (object-layer contract).
-    act(() => set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'a' }] } }))
-    act(() => set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'ab' }] } }))
-    act(() => set({ running: true }))
+    act(() => { set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'a' }] } }) })
+    act(() => { set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'ab' }] } }) })
+    act(() => { set({ running: true }) })
     expect(renders).toBe(before)
   })
 })
@@ -128,7 +128,7 @@ describe('bash sample row', () => {
       },
       current: undefined,
       phase: 'ready',
-    } as SessionListState)
+    })
   }
 
   const rowProps = (sessionId: SessionId, over?: {

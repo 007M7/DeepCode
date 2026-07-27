@@ -21,6 +21,14 @@ export interface WorkspaceListState {
   recentWorkspaceId: WorkspaceId | undefined
 }
 
+/** Structured create failure for UI flows that distinguish Host business errors. */
+export class WorkspaceCreateError extends Error {
+  constructor(readonly rpcError: RpcError) {
+    super(`workspace create failed: ${rpcError.code}: ${rpcError.message}`)
+    this.name = 'WorkspaceCreateError'
+  }
+}
+
 /** Real Workspace object layer and Host actions. */
 export class WorkspacesService {
   /** UI-facing immutable projection; the manager remains wire truth. */
@@ -37,7 +45,7 @@ export class WorkspacesService {
    * @param api - shared wire client.
    * @param sessions - lower-level Session service used for recency and blank-session reuse.
    */
-  constructor(ctx: Context, api: IApiClient, private readonly sessions: SessionsService) {
+  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsService) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
       items: [], state: 'idle', phase: 'pending', error: null,
@@ -158,8 +166,20 @@ export class WorkspacesService {
    */
   async create(input: { name: string } | { path: string }): Promise<WorkspaceView> {
     const result = await this.manager.create(input)
-    if (!result.ok) throw new Error(`workspace create failed: ${result.error.code}: ${result.error.message}`)
+    if (!result.ok) throw new WorkspaceCreateError(result.error)
     return result.value.workspace
+  }
+
+  /**
+   * Open the Host's native directory picker.
+   * @returns the selected path, or null when the user cancelled.
+   */
+  async pickDirectory(): Promise<string | null> {
+    const response = await this.api.host.pickDirectory({})
+    if (!response.result.ok) {
+      throw new Error(`directory picker failed: ${response.result.error.message}`)
+    }
+    return response.result.value.path
   }
 
   /**

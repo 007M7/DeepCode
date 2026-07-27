@@ -15,7 +15,7 @@ import type {
   LlmResolvedModelInfo,
 } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionHeader, type UserMessageData } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -27,12 +27,17 @@ interface FakeAgent extends Agent {
   sent: ContentBlock[][]
   sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
-  steeredOptions: (SendOptions | undefined)[]
+  steeredIds: AgentMessageId[]
+  steeredOptions: UserMessageData[]
+  injected: ContentBlock[][]
+  injectedOptions: UserMessageData[]
   cancelled: AgentCancelCause[]
 }
 
 export interface TuiHarnessOptions {
   status?: AgentStatus
+  /** Override the fake agent's next-step capability independently of status. */
+  acceptsNextStep?: boolean
   config?: Config
   /** Leave the session event log empty instead of seeding one turn and step. */
   omitInitialLifecycle?: boolean
@@ -177,38 +182,52 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
+  const steeredIds: AgentMessageId[] = []
   const sentOptions: (SendOptions | undefined)[] = []
-  const steeredOptions: (SendOptions | undefined)[] = []
+  const steeredOptions: UserMessageData[] = []
+  const injected: ContentBlock[][] = []
+  const injectedOptions: UserMessageData[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
     options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
+    get acceptsNextStep() {
+      return options.acceptsNextStep ?? this.status === 'running'
+    },
     ctx,
     sent,
     sentOptions,
     steered,
+    steeredIds,
     steeredOptions,
+    injected,
+    injectedOptions,
     cancelled,
-    followup(content, options) {
-      sent.push(content)
+    send(input, options) {
+      sent.push(input.content)
       sentOptions.push(options)
       return AgentMessageId('stub')
     },
-    queue(content, options) {
-      sent.push(content)
-      sentOptions.push(options)
+    followup(input) {
+      sent.push(input.content)
+      sentOptions.push(undefined)
       return AgentMessageId('stub')
     },
-    steer(content, options) {
-      steered.push(content)
-      steeredOptions.push(options)
+    steer(input) {
+      steered.push(input.content)
+      steeredOptions.push(input)
+      const id = AgentMessageId(`steering-${steeredIds.length + 1}`)
+      steeredIds.push(id)
+      return id
+    },
+    inject(input) {
+      injected.push(input.content)
+      injectedOptions.push(input)
       return AgentMessageId('stub')
     },
-    inject: () => AgentMessageId('stub'),
-    send: () => AgentMessageId('stub'),
-    cancel(cause = { kind: 'user' }) {
+    cancel(cause) {
       cancelled.push(cause)
     },
     whenIdle() {

@@ -1,8 +1,9 @@
 /**
  * Cold-session and degenerate-composition paths of the host ApiProxy:
  * sessions.list merging persisted-but-unattached summaries (mtime source,
- * createdAt fallbacks, lineage projection) and the resume error split when
- * the composition has no persistence gate and no agent factory.
+ * createdAt fallbacks, lineage projection), the resume error split when
+ * the composition has no persistence gate and no agent factory, and the
+ * agent-busy mapping of a synchronous prompt rejection.
  */
 
 import { mkdtempSync, writeFileSync, utimesSync } from 'node:fs'
@@ -12,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -95,6 +97,41 @@ describe('degenerate composition (no persistence, no factory)', () => {
     if (!response.result.ok) {
       expect(response.result.error.code).toBe('internal')
       expect(response.result.error.message).toMatch(/resume failed for session "session-ghost"/)
+    }
+  })
+})
+
+describe('sessions.prompt synchronous rejection', () => {
+  it('maps a synchronous send throw (disposed/invalid input) to agent-busy with the reason attached', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const session = ctx.sessions.create(sid('session-throwing'))
+    // A live structural stub whose delivery verbs throw synchronously, the
+    // shape a disposed loop presents at this seam.
+    ctx.agents.register({
+      id: session.id,
+      session,
+      status: 'idle',
+      ctx,
+      followup: () => { throw new Error('agent "session-throwing" lifecycle disposed') },
+      steer: () => { throw new Error('agent "session-throwing" lifecycle disposed') },
+    } as unknown as Agent)
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    for (const mode of ['queue', 'steer'] as const) {
+      const response = await api.sessions.prompt(request({
+        sessionId: session.id, mode, content: [{ type: 'text' as const, text: 'x' }],
+      }))
+      expect(response.result.ok).toBe(false)
+      if (!response.result.ok) {
+        expect(response.result.error.code).toBe('agent-busy')
+        expect(response.result.error.message).toBe('prompt rejected')
+        expect(response.result.error.details).toEqual({
+          reason: 'Error: agent "session-throwing" lifecycle disposed',
+        })
+      }
     }
   })
 })
