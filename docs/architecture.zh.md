@@ -90,7 +90,7 @@ forever:
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> prepare reasoning/default under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -120,7 +120,7 @@ idle inject:
 
 适配器故障会先关闭步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和轮次信号。负责处理的监听器调用 `agent.retry()`；循环关闭失败轮次，并从持久历史开启另一个轮次，中间不发出空闲通知。重试耗尽后，失败的 `turn/end` 即为终态记录。失败分片不会提交消息或工具调用。
 
-其他故障使用 `agent/error`。取消和资源释放优先于恢复；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决，空闲调用不发事件。用户或父级取消持久记录为 `aborted`，等待停稳的资源释放记录为 `disposed`。原因只改变报告方式，不改变延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`。取消和资源释放优先于恢复；轮次信号还会在提交任何请求头之前取消异步模型能力准备，尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决，空闲调用不发事件。用户或父级取消持久记录为 `aborted`，等待停稳的资源释放记录为 `disposed`。原因只改变报告方式，不改变延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
 轮次和步骤事件均位于轮次边界内；空闲时注入的 `user/message` 可以位于两个轮次之间。重新加载会用合成的轮次结束事件闭合中断尾部。关闭后的故障只使用 `agent/error`。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
 

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   findLastMessageTurnEnd,
   SESSION_FORMAT_VERSION,
@@ -190,6 +190,35 @@ describe('Session', () => {
     } as unknown as SessionEvent
     expect(new Session(SessionId('primitive-plugin-data'), [unrelatedPrimitiveData]).events)
       .toEqual([unrelatedPrimitiveData])
+  })
+
+  it('round-trips a non-empty reasoning effort and rejects invalid durable values', () => {
+    const valid = {
+      type: 'request/header',
+      seq: 0,
+      time: 1,
+      data: {
+        header: {
+          config: {
+            provider: 'mock',
+            model: 'model',
+            reasoningEffort: ReasoningEffortId('adapter-owned'),
+          },
+        },
+        reason: 'initial',
+      },
+    } as const
+    expect(new Session(SessionId('reasoning-effort'), [valid]).events[0])
+      .toEqual(valid)
+
+    for (const reasoningEffort of ['', 1]) {
+      const invalid = structuredClone(valid) as unknown as SessionEvent
+      if (invalid.type !== 'request/header') throw new Error('test fixture must be a request header')
+      const config = invalid.data.header.config as unknown as Record<string, unknown>
+      config.reasoningEffort = reasoningEffort
+      expect(() => new Session(SessionId('invalid-reasoning-effort'), [invalid]))
+        .toThrow('seed request/header at index 0 has an invalid reasoningEffort')
+    }
   })
 
   it('isolates the log from mutation through a derived message (append-only contract)', () => {

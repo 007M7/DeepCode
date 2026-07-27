@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -41,8 +41,13 @@ class StepwiseToolAdapter extends LlmAdapter {
     super()
   }
 
-  override resolveModelContext(): Promise<{ contextWindow: number }> {
-    return Promise.resolve({ contextWindow: 400 })
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      context: { contextWindow: 400 },
+    })
   }
 
   async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -76,8 +81,13 @@ class OverflowRecoveryAdapter extends LlmAdapter {
     super()
   }
 
-  override resolveModelContext(): Promise<{ contextWindow: number }> {
-    return Promise.resolve({ contextWindow: 128 })
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      context: { contextWindow: 128 },
+    })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

@@ -90,7 +90,7 @@ forever:
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> prepare reasoning/default under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -120,7 +120,7 @@ Pruning precedes summaries; overflow retries require durable progress. Recovery 
 
 Adapter failures close the step before `agent/request-error` receives the exact `Error`, normalized `LlmFailure`, and turn signal. A handling listener calls `agent.retry()`; the loop closes the failed turn and opens another from durable history without an idle notification. Exhaustion leaves the failed `turn/end` terminal. Failed chunks commit no message or tool call.
 
-Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before clearing queues and aborting; observers cannot veto and idle calls emit nothing. Durability records `aborted` for user or parent cancellation and `disposed` for teardown, which awaits quiescence. The cause changes reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Other failures use `agent/error`. Cancellation and disposal beat recovery; the turn signal also cancels asynchronous model-capability preparation before any request header is committed, and undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before clearing queues and aborting; observers cannot veto and idle calls emit nothing. Durability records `aborted` for user or parent cancellation and `disposed` for teardown, which awaits quiescence. The cause changes reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Turn and step events are turn-enclosed; idle injected `user/message` events may sit between turns. Reload closes an interrupted tail with a synthetic turn end. Post-close failures use only `agent/error`. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 

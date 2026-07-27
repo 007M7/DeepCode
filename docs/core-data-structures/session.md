@@ -155,7 +155,7 @@ The request envelope — the `EpochHeader` (call config + rendered system prompt
  * empty optional fields are absent.
  */
 interface EpochHeader {
-  /** The conversation's call configuration (provider, model, and sampling scalars). */
+  /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
