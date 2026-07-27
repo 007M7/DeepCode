@@ -33,6 +33,7 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
+import { pickNativeDirectory } from './native-directory-picker.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -194,6 +195,8 @@ export interface ApiProxyDefaults {
   cwd: string
   /** Parent directory for name-created workspaces. */
   workspaceRoot: string
+  /** Native single-directory picker; injectable for carrier tests. */
+  pickDirectory?: (signal: AbortSignal) => Promise<string | null>
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -777,6 +780,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return ok(request, { workspace: workspaceView(workspace) })
       },
 
+      async delete(request) {
+        const { workspaceId } = request.payload
+        const operation = workspaceCreationChain.then(() =>
+          ctx.workspace.delete(brandWorkspaceId(workspaceId)))
+        workspaceCreationChain = operation.then(() => undefined, () => undefined)
+        if (!await operation) return workspaceNotFound(request, workspaceId)
+        return ok(request, { deleted: true as const })
+      },
+
       async insertSessionBefore(request) {
         const { payload } = request
         const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
@@ -813,6 +825,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           model: defaults.model,
           attachedSessions: ctx.agents.list().length,
         }))
+      },
+
+      async pickDirectory(request, signal) {
+        try {
+          const path = await (defaults.pickDirectory ?? pickNativeDirectory)(signal)
+          return ok(request, { path })
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'directory picker was aborted',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
       },
     },
 
@@ -990,8 +1022,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: String(error) }))
           }),
           ctx.on('domain/changed', (change) => {
-            if (change.domain !== 'workspace' || change.operation !== 'put') return
+            if (change.domain !== 'workspace') return
             if (change.table === '') {
+              if (change.operation !== 'put') return
               const state = workspaceDomainState.parse(change.value)
               for (const workspaceId of state.workspaceIds) {
                 if (committedWorkspaceIds.has(workspaceId)) continue
@@ -1004,7 +1037,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }
               return
             }
-            if (change.table !== 'workspaces' || !committedWorkspaceIds.has(change.key)) return
+            if (change.table !== 'workspaces') return
+            if (change.operation === 'deleted') {
+              if (!committedWorkspaceIds.delete(change.key)) return
+              queue.push(frame({
+                type: 'host/workspace-removed',
+                workspaceId: change.key as WorkspaceId,
+              }))
+              return
+            }
+            if (!committedWorkspaceIds.has(change.key)) return
             // Existing-entity table writes are complete attach/touch commits.
             // A new entity's first put waits for the global registry write above.
             queue.push(frame({

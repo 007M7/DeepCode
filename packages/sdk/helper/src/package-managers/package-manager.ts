@@ -5,6 +5,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { promisify } from 'node:util'
 import type { PackageJsonFile } from '../documents/package-json-file.ts'
 import { PnpmWorkspaceFile } from '../documents/pnpm-workspace-file.ts'
@@ -51,8 +52,14 @@ export async function probePackageManagerVersion(name: PackageManagerName, cwd: 
   }
 }
 
-/** Remove credential-shaped environment variables from spawned commands. */
-export function scrubEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+/**
+ * Remove credential-shaped environment variables from spawned commands.
+ * @param environment - source environment (injectable for tests); the default
+ *   path shares the subprocess seam's scrub so every harness spawner drops the
+ *   same names.
+ */
+export function scrubEnvironment(environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (environment === undefined) return scrubbedParentEnv()
   return Object.fromEntries(Object.entries(environment).filter(([name]) => !/(?:KEY|SECRET|TOKEN)/i.test(name)))
 }
 

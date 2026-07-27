@@ -32,6 +32,8 @@ export type WorkspaceBrowserInjected = {
   open: (sessionId: SessionId) => void
   /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
   renameWorkspace: (workspaceId: WorkspaceId, title: string) => Promise<void>
+  /** Delete only a Host Workspace registration; directory and Session logs remain. */
+  deleteWorkspace: (workspaceId: WorkspaceId) => Promise<void>
   /**
    * Reorder a session inside its Workspace account (DOM-insertBefore
    * semantics: omitted anchor appends to the end). The view refreshes from
@@ -40,6 +42,8 @@ export type WorkspaceBrowserInjected = {
   insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
   /** Explicitly create or adopt a real Workspace before targeting a Session. */
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
+  /** Ask the local Host to open its native single-directory picker. */
+  pickDirectory: () => Promise<string | null>
 }
 
 /** Full browser props: shell owner share + viewing store + injected actions. */
@@ -56,6 +60,8 @@ export type WorkspaceBrowserProps =
 export type WorkspacePickerInjected = {
   /** Explicitly create or adopt a real Workspace before targeting a Session. */
   createWorkspace(input: { name: string } | { path: string }): Promise<WorkspaceView>
+  /** Ask the local Host to open its native single-directory picker. */
+  pickDirectory(): Promise<string | null>
 }
 
 /**
