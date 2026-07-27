@@ -20,8 +20,8 @@
       "default": "./lib/types/types.js"
     },
     "./client/types": {
-      "types": "./lib/types/client/index.d.ts",
-      "default": "./lib/types/client/index.js"
+      "types": "./lib/types/client/types.d.ts",
+      "default": "./lib/types/client/types.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"

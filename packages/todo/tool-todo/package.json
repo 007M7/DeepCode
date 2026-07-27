@@ -15,13 +15,9 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
-    "./types": {
-      "types": "./lib/types/types.d.ts",
-      "default": "./lib/types/types.js"
-    },
-    "./client/types": {
-      "types": "./lib/types/client/index.d.ts",
-      "default": "./lib/types/client/index.js"
+    "./client": {
+      "types": "./lib/types/client.d.ts",
+      "default": "./lib/types/client.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
