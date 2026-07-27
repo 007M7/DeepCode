@@ -29,7 +29,10 @@ const DESCRIPTION =
 /**
  * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
  * TodoItem}[]: trimmed non-empty unique content and at most one in-progress item. The registry
- * has already enforced the status enum; the cast below records that guarantee.
+ * has already enforced the status enum and rejected unknown item keys (`additionalProperties:
+ * false` — the logged snapshot must equal what the model believes it wrote, so a nested/extended
+ * item shape fails loud at the schema boundary instead of silently flattening); the cast below
+ * records that guarantee.
  */
 function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   const todos: TodoItem[] = []
@@ -66,7 +69,7 @@ export function apply(ctx: Context): void {
         description: 'The COMPLETE task list, replacing any previous list.',
         items: {
           type: 'object',
-          additionalProperties: true,
+          additionalProperties: false,
           properties: {
             content: { type: 'string', required: true, description: 'What the task is — a short imperative line.' },
             status: {

@@ -71,6 +71,21 @@ describe('createFixtureApi', () => {
     expect(empty.result.value).toEqual({ events: [], hasMore: false })
   })
 
+  it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {
+    const api = createFixtureApi()
+    const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
+    if (!tail.result.ok) throw new Error('history failed')
+    const events = tail.result.value.events.map(e => e.event)
+    const todoAt = events.findIndex(e => e.type === 'todo/write')
+    expect(todoAt).toBeGreaterThan(0)
+    // Production ordering (the tool appends mid-execution): call → snapshot → result.
+    expect(events[todoAt - 1]?.type).toBe('tool/call')
+    expect(events[todoAt + 1]?.type).toBe('tool/result')
+    const times = events.slice(todoAt - 1, todoAt + 2).map(e => e.time)
+    expect(times[0]).toBeLessThanOrEqual(times[1] ?? 0)
+    expect(times[1]).toBeLessThanOrEqual(times[2] ?? 0)
+  })
+
   it('create adds a session and pushes host/session-added to open host streams', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
