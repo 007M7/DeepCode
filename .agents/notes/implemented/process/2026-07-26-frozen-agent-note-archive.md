@@ -20,11 +20,15 @@ After archival, the triplet is permanently frozen and is historical context rath
 
 The [`dsh-archive-agent-notes`](../../../skills/dsh-archive-agent-notes/SKILL.md) workflow owns classification. It requires a semantic note-by-note audit, uses code and current documentation to identify present authority, treats word count only as triage, carries calibrated keep/archive/delete examples, and reports genuinely borderline outcomes for review.
 
+Supersession is checked while a new Agent Note is being written, not deferred to a later corpus cleanup. The author compares the new note with active notes covering the same decision, mechanism, or rejected alternative and classifies every full or partial supersession. Qualifying implemented triplets are archived in the same pull request; partial supersessions and independently useful rationale remain active and cross-linked, while proposed and rejected matches follow their own lifecycle rules.
+
 ## Alternatives considered
 
 **Delete every note that leaves the active corpus.** Rejected because an implemented record can have low forward guidance while still providing useful historical evidence about a closed decision. A content-sealed archive preserves that evidence without pretending it remains current.
 
 **Keep every implemented and rejected note active.** Rejected because maintenance effort and search noise grow with records that no longer help a future decision. Rejected notes in particular earn retention only by preventing a plausible fallacy.
+
+**Defer supersession cleanup to periodic corpus audits.** Rejected because the author of a replacement note has the freshest evidence about ownership and overlap. Postponement leaves redundant active authorities and makes later classification more expensive.
 
 **Archive rejected or proposed notes too.** Rejected because archive status means “implemented historical decision.” An obsolete proposal needs an explicit rejection, while a rejection with no guardrail value needs deletion rather than a second low-value holding area.
 
@@ -34,4 +38,4 @@ The [`dsh-archive-agent-notes`](../../../skills/dsh-archive-agent-notes/SKILL.md
 
 ## Consequences
 
-The active corpus becomes a set of decisions expected to influence future work, while low-value implemented history remains searchable and linkable without consuming maintenance attention. Rejected clutter can disappear when it no longer protects a meaningful choice, and proposed work cannot quietly evade a verdict through archival. The archive adds a manifest, a dedicated verifier, and an explicit one-time metadata step. Archived facts and outbound links can become stale by design, so readers and agents must treat active code and documentation as authority and cite an archived note only as history.
+The active corpus becomes a set of decisions expected to influence future work, while low-value implemented history remains searchable and linkable without consuming maintenance attention. Writing a new note includes a scoped supersession check, so replacement decisions cannot silently leave redundant active records behind. Rejected clutter can disappear when it no longer protects a meaningful choice, and proposed work cannot quietly evade a verdict through archival. The archive adds a manifest, a dedicated verifier, and an explicit one-time metadata step. Archived facts and outbound links can become stale by design, so readers and agents must treat active code and documentation as authority and cite an archived note only as history.

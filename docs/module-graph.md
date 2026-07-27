@@ -258,6 +258,7 @@ flowchart TD
   pkg_subprocess --> pkg_invariants
   pkg_llm --> pkg_brand
   pkg_llm --> pkg_invariants
+  pkg_llm --> pkg_timeout
   pkg_client_connection --> pkg_host_webserver
   pkg_client_connection --> pkg_invariants
   pkg_client_hmr --> pkg_client_modules
@@ -897,7 +898,7 @@ flowchart TD
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/support/invariants) |
 | [`storage`](../packages/storage/storage) | `storage` | [`invariants`](../packages/support/invariants) |
 | [`subprocess`](../packages/subprocess/subprocess) | `subprocess` | [`invariants`](../packages/support/invariants) |
-| [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
+| [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`timeout`](../packages/util/timeout) |
 | [`client-connection`](../packages/client/connection) | `client` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`client-hmr`](../packages/client/hmr) | `client` | [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`client-locale`](../packages/client/locale) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |

@@ -28,6 +28,14 @@ export function mapUsage(usage: PiUsage): TokenUsage {
   }
 }
 
+// XXX(pi-ai upstream): pi-ai flattens the caught error to `error.message`
+// (api/anthropic-messages.js: `errorMessage = error instanceof Error ?
+// error.message : JSON.stringify(error)`), discarding the original Error and its
+// `cause` chain before it reaches us. undici carries the actionable transport
+// detail on `cause` (e.g. `SocketError: other side closed`) but hands the fetch
+// wrapper a bare `terminated`, so we are left pattern-matching terse words here.
+// If pi-ai ever forwards the original Error (or a fetch/dispatcher hook that lets
+// us capture the cause ourselves), classify on `code`/`cause` instead of text.
 function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
@@ -35,8 +43,19 @@ function classifyPiAiError(message: string): string {
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
   if (/\b5\d\d\b/.test(message)) return 'SERVER'
   if (/\btime(?:d)?\s*out\b|timeout/i.test(message)) return 'TIMEOUT'
+  // A stream truncated before the provider's terminal event: each pi-ai provider
+  // throws its own wording when the wire closes mid-response without a terminal
+  // event (`… stream ended before message_stop`, `… before a terminal response
+  // event`, `… ended without a terminal event`, `Stream ended without
+  // finish_reason`). The connection dropped mid-response, so this is a transport
+  // truncation, not a model-level error.
+  if (/stream ended (?:before|without)\b/i.test(message)) return 'TRANSPORT'
   if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b/i.test(message)
-    || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)) {
+    || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)
+    // undici renders a mid-stream socket drop as a bare `terminated` (its
+    // `cause` — the real SocketError — was flattened away upstream); Node's
+    // stream layer says `Premature close`.
+    || /\bterminated\b|premature close/i.test(message)) {
     return 'TRANSPORT'
   }
   return 'PI_AI_ERROR'
