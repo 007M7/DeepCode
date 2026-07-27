@@ -210,6 +210,7 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     expect(code).not.toBe(0)
     expect(stderr).toContain('config file not found')
   }, 30_000)
+
 })
 
 /** Spawn the built acp bin against `configArg` (stdin closed at EOF) and resolve with its exit code + stderr. */
