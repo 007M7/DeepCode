@@ -8,7 +8,7 @@ This onboarding guide helps project contributors get started with the local envi
 
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
-- Git.
+- Git 2.20 or newer; hook setup enables Git's worktree-specific configuration extension.
 - Optional: a DeepSeek API key for the TUI, headless, and ACP automation demos and real-API e2e tests.
 
 ## First-time setup
@@ -19,13 +19,15 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
-The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`; the wrapper script uses lefthook's reviewed `--force` mode so linked worktrees with an existing `core.hooksPath` do not fail normal `pnpm run …` commands.
+The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`. The wrapper gives the current worktree an explicit hook directory under its own Git directory; linked worktrees therefore use their own lefthook binary and configuration instead of rewriting common hooks. The first install enables Git's worktree-specific configuration extension and repository format 1; see the [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md).
 
 If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
 ```sh
-pnpm exec lefthook install --force
+node scripts/install-lefthook.mjs
 ```
+
+The wrapper refuses to replace an existing user-owned `core.hooksPath`. If an inherited global or repository path should remain active in other worktrees while this worktree opts into lefthook, inspect that path first and rerun with `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`; a worktree-specific custom path is never overwritten and must be integrated or removed explicitly.
 
 Run typecheck once after a fresh clone:
 
