@@ -510,13 +510,78 @@ function preservePackedMemberTimes(
   row.data.dt = gaps
 }
 
+/** Whether a parsed JSON value is a non-array object. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Reuse existing leaves whose normalized values equal the fresh values.
+ * Objects merge by key; arrays merge only when their positions still align.
+ */
+function preserveNormalizedVolatiles(
+  fresh: unknown,
+  existing: unknown,
+  normalizedFresh: unknown,
+  normalizedExisting: unknown,
+): unknown {
+  if (
+    Array.isArray(fresh)
+    && Array.isArray(existing)
+    && Array.isArray(normalizedFresh)
+    && Array.isArray(normalizedExisting)
+  ) {
+    if (
+      fresh.length !== existing.length
+      || fresh.length !== normalizedFresh.length
+      || fresh.length !== normalizedExisting.length
+    ) return fresh
+    return fresh.map((value, index) => preserveNormalizedVolatiles(
+      value,
+      existing[index],
+      normalizedFresh[index],
+      normalizedExisting[index],
+    ))
+  }
+  if (
+    isRecord(fresh)
+    && isRecord(existing)
+    && isRecord(normalizedFresh)
+    && isRecord(normalizedExisting)
+  ) {
+    return Object.fromEntries(Object.entries(fresh).map(([key, value]) => [
+      key,
+      Object.hasOwn(existing, key)
+        && Object.hasOwn(normalizedFresh, key)
+        && Object.hasOwn(normalizedExisting, key)
+        ? preserveNormalizedVolatiles(
+          value,
+          existing[key],
+          normalizedFresh[key],
+          normalizedExisting[key],
+        )
+        : value,
+    ]))
+  }
+  return Object.is(normalizedFresh, normalizedExisting) ? existing : fresh
+}
+
+/** Normalize one aligned record with the same contract used by fixture comparison. */
+function normalizedRefreshRecord(
+  record: Record<string, unknown>,
+  context: NormalizeContext,
+): Record<string, unknown> {
+  return JSON.parse(normalizeSessionLog(`${JSON.stringify(record)}\n`, context)) as Record<string, unknown>
+}
+
 /**
  * Rewrite a fresh replay-produced log so repeated refreshes do not churn
  * volatile fixture fields. Meaningful event payloads come from `fresh`; the
- * existing fixture lends session ids, cwd, creation times, logical event
- * times, and hook durations where the record shape still matches. Packed
- * timing envelopes expand for alignment, so packing does not shift later
- * records; fresh fragment arrays remain authoritative.
+ * existing fixture lends normalized-equivalent values, including ids, paths,
+ * creation/event times, spill locators, and hook durations, where records
+ * still align. Packed timing envelopes expand for alignment, so packing does
+ * not shift later records; fresh semantic values and fragment arrays remain
+ * authoritative.
  *
  * @param fresh The newly harvested session JSONL.
  * @param existing The committed fixture JSONL being refreshed.
@@ -528,10 +593,11 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
   for (const { from, to } of replacements) stable = stable.split(from).join(to)
   const existingRecords = logicalRecords(parseJsonlRecords(existing))
   const records = parseJsonlRecords(stable)
+  const context = fixtureContext(existing)
   let existingIndex = 0
   let previousEventTime: unknown
   for (let i = 0; i < records.length; i++) {
-    const record = records[i] as Record<string, unknown>
+    let record = records[i] as Record<string, unknown>
     const existingRecord = existingRecords[existingIndex]
     const memberCount = packedTimes(record)?.length ?? 1
     const insertedTitle = record.type === 'session/title' && existingRecord?.type !== 'session/title'
@@ -540,6 +606,15 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
       if (typeof previousEventTime !== 'number') throw new Error('acp-snapshot: inserted title has no preceding event time')
       record.time = previousEventTime
     } else {
+      if (memberCount === 1 && existingRecord !== undefined && existingRecord.type === record.type) {
+        record = preserveNormalizedVolatiles(
+          record,
+          existingRecord,
+          normalizedRefreshRecord(record, context),
+          normalizedRefreshRecord(existingRecord, context),
+        ) as Record<string, unknown>
+        records[i] = record
+      }
       preservePackedMemberTimes(record, existingRecords.slice(existingIndex, existingIndex + memberCount))
       preserveFixtureVolatiles(record, existingRecord)
       existingIndex += memberCount

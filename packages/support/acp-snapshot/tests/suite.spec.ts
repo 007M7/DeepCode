@@ -592,4 +592,107 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n'))
   })
+
+  it('preserves normalized volatile fields while accepting fresh semantic fields', () => {
+    const freshApprovalId = '11111111-1111-4111-8111-111111111111'
+    const existingApprovalId = '22222222-2222-4222-8222-222222222222'
+    const freshSpill = '/tmp/dsh-acp-snap-012345678/session-111111111111/222222222222-bash.txt'
+    const existingSpill = '/tmp/dsh-acp-snap-012345678/session-aaaaaaaaaaaa/bbbbbbbbbbbb-bash.txt'
+    const freshEventRead = [
+      'Session main — title',
+      'Target event seq 4:',
+      '```json',
+      '{',
+      '  "time": 1785000000000,',
+      '  "data": {}',
+      '}',
+      '```',
+      '',
+      `(Omitted 40000 bytes. Full formatted result stored at: ${freshSpill}. Use read with offset/limit, or grep this path to search within it.)`,
+    ].join('\n')
+    const existingEventRead = freshEventRead
+      .replace('1785000000000', '1784000000000')
+      .replace('40000 bytes', '30000 bytes')
+      .replace(freshSpill, existingSpill)
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({
+        type: 'approval/asked',
+        seq: 1,
+        time: 22,
+        data: {
+          id: freshApprovalId,
+          outcome: 'fresh',
+          aliases: [freshApprovalId, 'fresh'],
+          resized: [freshApprovalId, 'new'],
+          shape: { shared: freshApprovalId, added: true },
+        },
+      }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 2,
+        time: 23,
+        data: {
+          spill: `Full formatted result stored at: ${freshSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          path: '/private/old/result.txt',
+          eventRead: freshEventRead,
+        },
+      }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({
+        type: 'approval/asked',
+        seq: 1,
+        time: 11,
+        data: {
+          id: existingApprovalId,
+          outcome: 'stale',
+          aliases: [existingApprovalId, 'stale'],
+          resized: [existingApprovalId],
+          shape: { shared: existingApprovalId },
+        },
+      }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 2,
+        time: 12,
+        data: {
+          spill: `Full formatted result stored at: ${existingSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          path: '/old/result.txt',
+          eventRead: existingEventRead,
+        },
+      }),
+      '',
+    ].join('\n')
+
+    const output = stabilizeRefreshLog(fresh, existing, []).trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(output).toEqual([
+      { type: 'session', id: 'same', createdAt: 100, cwd: '/old' },
+      {
+        type: 'approval/asked',
+        seq: 1,
+        time: 11,
+        data: {
+          id: existingApprovalId,
+          outcome: 'fresh',
+          aliases: [existingApprovalId, 'fresh'],
+          resized: [freshApprovalId, 'new'],
+          shape: { shared: existingApprovalId, added: true },
+        },
+      },
+      {
+        type: 'tool/result',
+        seq: 2,
+        time: 12,
+        data: {
+          spill: `Full formatted result stored at: ${existingSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          path: '/old/result.txt',
+          eventRead: existingEventRead,
+        },
+      },
+    ])
+  })
 })
