@@ -45,4 +45,6 @@ Confirmed both directions against the built client: with `flex-shrink: 0` revert
 
 The assertion is replay-only: record mode must reach the fixture write rather than aborting on layout. Note that the composer ships as a client-module bundle, so `pnpm run build:web` alone does not pick up a change to `QuestionComposer.module.css` — the package build must run for the browser lane to see it.
 
+Reproducing the shortfall requires a short viewport, not a short container. The cap is `min(60vh, 520px)`, so shrinking the conversation column below the card's own height clips the card without under-allocating it — the rows keep their full height and nothing spills. Anything demonstrating or measuring this defect outside the e2e scenario has to change the viewport.
+
 A stale `lib/` makes the browser lane assert against an older client than the tree, and a `pnpm run build` that fails part-way leaves exactly that: the packages built before the failure are current, the rest are not. Refreshing a golden in that state records the older client's surface. Confirm the build exited zero before capturing, and note that untracked directories under `packages/` are compiled too — a leftover from another branch can fail the build for reasons the diff does not explain.
