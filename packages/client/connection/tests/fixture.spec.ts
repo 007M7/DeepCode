@@ -48,6 +48,37 @@ describe('createFixtureApi', () => {
     expect(response.result.value.items[1]?.parentSessionId).toBe('fx-alpha') // lineage material
   })
 
+  it('searches current message text with literal unicode61-style token phrases', async () => {
+    const api = createFixtureApi()
+    const signal = new AbortController().signal
+    const phrase = await api.sessions.search(req({ query: 'FIXTURE 历史消息' }), signal)
+    expect(phrase.result).toMatchObject({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'fx-alpha' }],
+        hasMore: false,
+      },
+    })
+    if (!phrase.result.ok) throw new Error('search failed')
+    expect(phrase.result.value.items[0]?.snippet).toContain('fixture 历史消息')
+
+    const substring = await api.sessions.search(req({ query: 'ixtur' }), signal)
+    expect(substring.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+    const punctuationOnly = await api.sessions.search(req({ query: '*' }), signal)
+    expect(punctuationOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(api.sessions.search(req({ query: 'fixture' }), aborted.signal))
+      .resolves.toMatchObject({ result: { ok: false, error: { code: 'cancelled' } } })
+  })
+
   it('pages history backwards on message-boundary cuts with seq-contiguous stitching', async () => {
     const api = createFixtureApi()
     const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
@@ -601,6 +632,10 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
 
   it('covers the whole unary dispatch table', async () => {
     const client = new FixtureApiClient()
+    expect((await client.sessions.search(
+      { query: 'fixture' },
+      new AbortController().signal,
+    )).result.ok).toBe(true)
     const created = await client.sessions.create({})
     if (!created.result.ok) throw new Error('create failed')
     const id = created.result.value.sessionId

@@ -9,7 +9,7 @@ import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { HistoryEntry, SessionSummary } from './sessions.ts'
+import type { HistoryEntry, SessionSearchItem, SessionSummary } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
 
@@ -53,6 +53,29 @@ export const sessionListRequestSchema = z.object({
 export const sessionListValueSchema = z.object({
   items: z.array(sessionSummarySchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.list'>>>
+
+/** Fixed wire bound for one interactive sidebar query. */
+const SESSION_SEARCH_QUERY_MAX_CHARS = 500
+/** Product response bound validated independently by every client carrier. */
+const SESSION_SEARCH_RESULT_LIMIT = 20
+
+/** session.search request payload. */
+export const sessionSearchRequestSchema = z.object({
+  query: z.string().trim().min(1).max(SESSION_SEARCH_QUERY_MAX_CHARS)
+    .refine(query => !query.includes('\0'), { message: 'search query must not contain NUL' }),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.search'>>>
+
+/** One session.search result. */
+export const sessionSearchItemSchema = z.object({
+  sessionId: sessionIdSchema,
+  snippet: z.string(),
+}) satisfies z.ZodType<Wire<SessionSearchItem>>
+
+/** session.search response value. */
+export const sessionSearchValueSchema = z.object({
+  items: z.array(sessionSearchItemSchema).max(SESSION_SEARCH_RESULT_LIMIT),
+  hasMore: z.boolean(),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.search'>>>
 
 /** session.create request payload (at most one of workspaceId / cwd). */
 export const sessionCreateRequestSchema = z.object({

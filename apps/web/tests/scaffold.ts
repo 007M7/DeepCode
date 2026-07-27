@@ -163,6 +163,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // stops matching a row fails the boot sweep loudly instead of drifting).
   const patches: PatchOptions[] = [
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
+    { id: 'session-query-sqlite', config: { path: join(persistenceRoot, 'session-query.db') } },
     // storage-json's './.storages' yml default is cwd-relative and resolves
     // per write; the scaffold restores the original cwd after boot, so the
     // row gets an absolute temp root (removed with the workspace at close).

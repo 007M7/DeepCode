@@ -24,6 +24,64 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
+.searchResultRow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-height: 62px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--dsw-alias-label-primary);
+}
+
+.searchResultRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.searchResultRow.selected {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.searchResultHeading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.searchResultTitle {
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.searchResultWorkspace,
+.searchResultSnippet {
+  margin-left: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.searchResultWorkspace {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.searchResultSnippet {
+  color: var(--dsw-alias-label-secondary);
+}
+
 /* Two-line row: the leading slot (folder/chevron), title, and trailing
    actions all top-align on the 20px first text line (figma cell) — content
    is 42px (20 + 2 + 20), so 6px vertical padding centers the block. */

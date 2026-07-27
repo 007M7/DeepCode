@@ -53,6 +53,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     actions: store.actions,
     startSession: vi.fn(),
     open: vi.fn(),
+    searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     renameWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -198,42 +199,168 @@ describe('WorkspaceBrowser', () => {
     b.store.actions.setGroupBy('flat')
     rerender(b, {})
     expect(screen.getAllByText('New Session')).toHaveLength(1)
-    fireEvent.change(screen.getByPlaceholderText('Search name, keywords...'), { target: { value: 'new session' } })
+    fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), { target: { value: 'new session' } })
     expect(screen.getAllByText('New Session')).toHaveLength(1)
   })
 
-  it('searches across groups, clears via the clear button, and shows the empty states', () => {
-    const sessions = sessionState([
-      summary('needle-row', 2, { displayTitle: 'Needle row' }),
-      summary('other-row', 1, { displayTitle: 'Other row' }),
-    ])
-    mount({
-      useSessions: hook(sessions),
-      useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row', 'other-row'])])),
-    })
-    const input = screen.getByPlaceholderText<HTMLInputElement>('Search name, keywords...')
-    fireEvent.change(input, { target: { value: 'needle' } })
-    // Search forces matches visible without expansion state.
-    expect(screen.getByText('Needle row')).toBeTruthy()
-    expect(screen.queryByText('Other row')).toBeNull()
-    fireEvent.change(input, { target: { value: 'zzz' } })
-    expect(screen.getByText('No matches')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
-    expect(input.value).toBe('')
-    // Clicking the field row focuses the input (wide mode).
-    fireEvent.click(input.parentElement as HTMLElement)
-    expect(document.activeElement).toBe(input)
+  it('shows local metadata matches immediately, then clears back to the grouped tree', async () => {
+    vi.useFakeTimers()
+    try {
+      const sessions = sessionState([
+        summary('needle-row', 2, { displayTitle: 'Needle row' }),
+        summary('other-row', 1, { displayTitle: 'Other row' }),
+      ])
+      mount({
+        useSessions: hook(sessions),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row', 'other-row'])])),
+      })
+      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称或关键词…')
+      fireEvent.change(input, { target: { value: 'needle' } })
+      expect(screen.getByRole('tree', { name: '搜索结果' })).toBeTruthy()
+      expect(screen.getByText('Needle row')).toBeTruthy()
+      expect(screen.queryByText('Other row')).toBeNull()
+      expect(screen.getByText('正在搜索历史…')).toBeTruthy()
+
+      fireEvent.change(input, { target: { value: 'zzz' } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(screen.getByText('没有匹配结果')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: '清除搜索' }))
+      expect(input.value).toBe('')
+      expect(screen.getByRole('tree', { name: 'Sessions' })).toBeTruthy()
+      // Clicking the field row focuses the input (wide mode).
+      fireEvent.click(input.parentElement as HTMLElement)
+      expect(document.activeElement).toBe(input)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('shows the no-sessions empty state in both modes', () => {
-    const b = mount()
-    expect(screen.getByText('No sessions yet')).toBeTruthy()
-    b.store.actions.setGroupBy('flat')
-    rerender(b, {})
-    expect(screen.getByText('No sessions yet')).toBeTruthy()
-    // Flat search misses show No matches.
-    fireEvent.change(screen.getByPlaceholderText('Search name, keywords...'), { target: { value: 'x' } })
-    expect(screen.getByText('No matches')).toBeTruthy()
+  it('adds Host content hits with context, shows the result bound, and opens without clearing the query', async () => {
+    vi.useFakeTimers()
+    try {
+      const open = vi.fn()
+      const searchSessions = vi.fn(async () => ({
+        items: [{ sessionId: sid('body-hit'), snippet: '…the waterfall token appears here…' }],
+        hasMore: true,
+      }))
+      mount({
+        useSessions: hook(sessionState([
+          summary('body-hit', 1, { displayTitle: 'Research notes' }),
+        ])),
+        useWorkspaces: hook(workspaceState([
+          workspace('research', ['body-hit'], 'Research Workspace'),
+        ])),
+        open,
+        searchSessions,
+      })
+      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称或关键词…')
+      fireEvent.change(input, { target: { value: 'waterfall token' } })
+      expect(screen.getByText('正在搜索历史…')).toBeTruthy()
+      expect(screen.queryByText('Research notes')).toBeNull()
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+
+      expect(searchSessions).toHaveBeenCalledWith('waterfall token', expect.any(AbortSignal))
+      expect(screen.getByText('Research notes')).toBeTruthy()
+      expect(screen.getByText('Research Workspace')).toBeTruthy()
+      expect(screen.getByText('…the waterfall token appears here…')).toBeTruthy()
+      expect(screen.getByText('仅显示前 20 项，请缩小搜索范围。')).toBeTruthy()
+      fireEvent.click(screen.getByRole('treeitem'))
+      expect(open).toHaveBeenCalledWith(sid('body-hit'))
+      expect(input.value).toBe('waterfall token')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps local matches and shows a lightweight warning when Host search fails', async () => {
+    vi.useFakeTimers()
+    try {
+      const searchSessions = vi.fn(async () => { throw new Error('index unavailable') })
+      mount({
+        useSessions: hook(sessionState([
+          summary('local-hit', 1, { displayTitle: 'Needle title' }),
+        ])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['local-hit'])])),
+        searchSessions,
+      })
+      fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), {
+        target: { value: 'needle' },
+      })
+      expect(screen.getByText('Needle title')).toBeTruthy()
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(screen.getByText('Needle title')).toBeTruthy()
+      expect(screen.getByText('历史内容搜索暂时不可用，仍显示名称匹配。')).toBeTruthy()
+      expect(screen.queryByText('没有匹配结果')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('aborts a superseded request and ignores its stale result', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveFirst!: (value: {
+        items: { sessionId: SessionId; snippet: string }[]
+        hasMore: boolean
+      }) => void
+      const first = new Promise<{
+        items: { sessionId: SessionId; snippet: string }[]
+        hasMore: boolean
+      }>((resolve) => { resolveFirst = resolve })
+      const searchSessions = vi.fn((query: string, _signal: AbortSignal) => query === 'first'
+        ? first
+        : Promise.resolve({
+            items: [{ sessionId: sid('second-hit'), snippet: 'second excerpt' }],
+            hasMore: false,
+          }))
+      mount({
+        useSessions: hook(sessionState([
+          summary('first-hit', 2, { displayTitle: 'Old result' }),
+          summary('second-hit', 1, { displayTitle: 'Fresh result' }),
+        ])),
+        searchSessions,
+      })
+      const input = screen.getByPlaceholderText('搜索名称或关键词…')
+      fireEvent.change(input, { target: { value: 'first' } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      const firstSignal = searchSessions.mock.calls[0]?.[1] as AbortSignal
+      expect(firstSignal.aborted).toBe(false)
+
+      fireEvent.change(input, { target: { value: 'second' } })
+      expect(firstSignal.aborted).toBe(true)
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(screen.getByText('Fresh result')).toBeTruthy()
+
+      await act(async () => {
+        resolveFirst({
+          items: [{ sessionId: sid('first-hit'), snippet: 'stale excerpt' }],
+          hasMore: false,
+        })
+        await Promise.resolve()
+      })
+      expect(screen.queryByText('Old result')).toBeNull()
+      expect(screen.getByText('Fresh result')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the no-sessions empty state in both modes and resolves an empty search', async () => {
+    vi.useFakeTimers()
+    try {
+      const b = mount()
+      expect(screen.getByText('No sessions yet')).toBeTruthy()
+      b.store.actions.setGroupBy('flat')
+      rerender(b, {})
+      expect(screen.getByText('No sessions yet')).toBeTruthy()
+      fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), { target: { value: 'x' } })
+      expect(screen.getByText('正在搜索历史…')).toBeTruthy()
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(screen.getByText('没有匹配结果')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rail state renders icon controls that request expansion', () => {
@@ -243,16 +370,16 @@ describe('WorkspaceBrowser', () => {
       const b = mount({ wide: false, expandSidebar })
       // No wide chrome in rail state.
       expect(screen.queryByText('Workspaces')).toBeNull()
-      expect(screen.queryByPlaceholderText('Search name, keywords...')).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+      expect(screen.queryByPlaceholderText('搜索名称或关键词…')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
       expect(expandSidebar).toHaveBeenCalledTimes(1)
       // The wide flip mounts the input and focuses it after the slide.
       rerender(b, { wide: true })
-      const input = screen.getByPlaceholderText('Search name, keywords...')
+      const input = screen.getByPlaceholderText('搜索名称或关键词…')
       act(() => { vi.advanceTimersByTime(300) })
       expect(document.activeElement).toBe(input)
       // Wide search button is decorative (tabIndex -1, no expand call).
-      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
       expect(expandSidebar).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
@@ -463,8 +590,8 @@ describe('WorkspaceBrowser', () => {
       useSessions: hook(sessions),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-a'])])),
     })
-    fireEvent.change(screen.getByPlaceholderText('Search name, keywords...'), { target: { value: 'needle' } })
+    fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), { target: { value: 'needle' } })
     const row = screen.getByText('Needle A').closest('[role="treeitem"]') as HTMLElement
-    expect(row.getAttribute('draggable')).toBe('false')
+    expect(row.hasAttribute('draggable')).toBe(false)
   })
 })

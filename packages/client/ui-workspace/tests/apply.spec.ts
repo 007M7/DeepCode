@@ -19,11 +19,25 @@ async function bench() {
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
+  const search = vi.fn(async () => ({
+    ok: true as const,
+    value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
+  }))
   ctx.provide('workspaces', {
     create, startSession, rename, insertSessionBefore,
   } as never)
-  ctx.provide('sessions', { open, clear } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename, insertSessionBefore, open, clear }
+  ctx.provide('sessions', { open, clear, search } as never)
+  return {
+    ctx,
+    slots: ctx.get('slots') as SlotsService,
+    create,
+    startSession,
+    rename,
+    insertSessionBefore,
+    open,
+    clear,
+    search,
+  }
 }
 
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
@@ -66,6 +80,12 @@ describe('ui-workspace apply', () => {
     expect(b.startSession).toHaveBeenLastCalledWith(undefined)
     browser.open('session' as never)
     expect(b.open).toHaveBeenCalledWith('session')
+    const signal = new AbortController().signal
+    await expect(browser.searchSessions('match', signal)).resolves.toEqual({
+      items: [{ sessionId: 'session', snippet: 'match' }],
+      hasMore: false,
+    })
+    expect(b.search).toHaveBeenCalledWith('match', signal)
     await browser.renameWorkspace('ws' as never, 'renamed')
     expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
     await browser.insertSessionBefore('ws' as never, 's1' as never, 's2' as never)
@@ -76,6 +96,19 @@ describe('ui-workspace apply', () => {
     const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
     await picker.createWorkspace({ path: '/tmp/project' })
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
+  })
+
+  it('rejects the browser search callback on a runtime business error', async () => {
+    const b = await bench()
+    b.search.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: 'internal', message: 'index unavailable', details: {} },
+    }) as never)
+    declare(b.slots, 'sidebar.workspaces')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
+    await expect(browser.searchSessions('needle', new AbortController().signal))
+      .rejects.toThrow('index unavailable')
   })
 
   it('unregisters every entry on teardown', async () => {

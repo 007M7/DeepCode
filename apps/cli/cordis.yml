@@ -89,6 +89,13 @@
   config:
     root: './.sessions'
 
+# Lazy content index for session.search. Opening the database at boot does
+# not scan logs; the first search reconciles changed live/persisted sessions.
+- id: session-query-sqlite
+  name: '@deepseek-ai/dsh-session-query-sqlite'
+  config:
+    path: './.sessions/session-query.db'
+
 - id: storage
   name: '@deepseek-ai/dsh-storage'
 

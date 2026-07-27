@@ -69,6 +69,29 @@ describe('list store projection', () => {
   })
 })
 
+describe('search', () => {
+  it('delegates transient content search without changing the list snapshot', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    const before = b.svc.list.getSnapshot()
+    b.api.onSearch = () => Promise.resolve(ok({
+      items: [{ sessionId: sid('s1'), snippet: 'matching excerpt' }],
+      hasMore: false,
+    }))
+    const signal = new AbortController().signal
+
+    await expect(b.svc.search('needle', signal)).resolves.toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: 's1', snippet: 'matching excerpt' }],
+        hasMore: false,
+      },
+    })
+    expect(b.api.lastSearchSignal).toBe(signal)
+    expect(b.svc.list.getSnapshot()).toBe(before)
+  })
+})
+
 describe('scope tree', () => {
   it('mints lazily on first resolution, tags the ctx, and keeps binding identity stable', async () => {
     const b = bench()

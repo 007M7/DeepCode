@@ -20,6 +20,7 @@ import {
   sessionHistoryValueSchema,
   sessionListValueSchema,
   sessionPromptValueSchema,
+  sessionSearchValueSchema,
 } from '../api/sessions.schema.ts'
 import {
   workspaceCreateValueSchema,
@@ -48,6 +49,7 @@ import { skillListValueSchema } from '../api/skills.schema.ts'
 export interface IApiClient {
   sessions: {
     list(payload: RequestPayload<'session.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.list'>>>
+    search(payload: RequestPayload<'session.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.search'>>>
     create(payload: RequestPayload<'session.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.create'>>>
     history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
@@ -83,6 +85,7 @@ export interface IApiClient {
  */
 const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseValue<K>>> } = {
   'session.list': sessionListValueSchema,
+  'session.search': sessionSearchValueSchema,
   'session.create': sessionCreateValueSchema,
   'session.history': sessionHistoryValueSchema,
   'session.prompt': sessionPromptValueSchema,
@@ -271,6 +274,7 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly sessions: IApiClient['sessions'] = {
     list: (payload, signal) => this.callUnary('session.list', payload, signal),
+    search: (payload, signal) => this.callUnary('session.search', payload, signal),
     create: (payload, signal) => this.callUnary('session.create', payload, signal),
     history: (payload, signal) => this.callUnary('session.history', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),

@@ -33,11 +33,17 @@ export const inject = ['slots', 'sessions', 'workspaces']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  const searchSessions: WorkspaceBrowserInjected['searchSessions'] = async (query, signal) => {
+    const result = await ctx.sessions.search(query, signal)
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session rides
     // the runtime's shared action (recent-Workspace projection inside).
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
+    searchSessions,
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)

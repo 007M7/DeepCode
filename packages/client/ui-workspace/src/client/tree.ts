@@ -3,7 +3,9 @@
  * Unassigned Sessions trail under Ungrouped; only the selected blank Session
  * remains visible.
  */
-import type { SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  SessionId, SessionListState, SessionSearchResultItem, SessionSummary, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
@@ -15,7 +17,7 @@ export const UNGROUPED_LABEL = 'Ungrouped'
 export interface SessionNode {
   id: SessionId
   title: string
-  /** Visible children, already expansion/search-filtered (empty when folded). */
+  /** Visible children, already expansion-filtered (empty when folded). */
   children: readonly SessionNode[]
   /** The session HAS children in the data (the twist renders even while folded). */
   hasChildren: boolean
@@ -41,11 +43,25 @@ export interface GroupNode {
   sessions: readonly SessionNode[]
 }
 
+/** One flat search row combining list metadata with an optional content match. */
+export interface SearchResultNode {
+  id: SessionId
+  title: string
+  workspace: string
+  running: boolean
+  snippet?: string
+}
+
+/** Bounded merged search projection plus the refine-query hint bit. */
+export interface SearchResultSet {
+  items: readonly SearchResultNode[]
+  hasMore: boolean
+}
+
 /** Viewing state consumed by the derivation — the component's local useState arrays, taken as-is. */
 export interface TreeView {
   expandedProjects: readonly string[]
   expandedSessions: readonly string[]
-  query: string
 }
 
 interface Group {
@@ -204,47 +220,15 @@ function buildVisible(g: Group, expandedSessions: ReadonlySet<string>): SessionN
   return g.roots.map(walk).filter((n): n is SessionNode => n !== null)
 }
 
-/** Matched sessions plus their ancestor chains (forced visible under search). */
-function searchVisible(g: Group, q: string): Set<SessionId> {
-  const visible = new Set<SessionId>()
-  for (const m of g.summaries.values()) {
-    if (!sessionTitle(m).toLowerCase().includes(q)) continue
-    let cur: SessionSummary | undefined = m
-    while (cur !== undefined && !visible.has(cur.id)) {
-      visible.add(cur.id)
-      cur = cur.parentId !== undefined && cur.parentId !== cur.id ? g.summaries.get(cur.parentId) : undefined
-    }
-  }
-  return visible
-}
-
-function buildSearch(g: Group, visible: ReadonlySet<SessionId>): SessionNode[] {
-  const visited = new Set<SessionId>()
-  const walk = (id: SessionId): SessionNode | null => {
-    if (visited.has(id) || !visible.has(id)) return null
-    visited.add(id)
-    const s = g.summaries.get(id)
-    /* v8 ignore next -- unreachable: walked ids come from the grouped summaries. */
-    if (s === undefined) return null
-    const kids = (g.children.get(id) ?? []).filter(kid => visible.has(kid))
-    const children = kids.map(walk).filter((n): n is SessionNode => n !== null)
-    return sessionNode(s, children, kids.length > 0, kids.length > 0)
-  }
-  return g.roots.map(walk).filter((n): n is SessionNode => n !== null)
-}
-
 /**
  * Derive the nested workspace browser group structure.
  *
- * Normal mode: every group shows; sessions populate under expanded groups,
- * descending only into expanded sessions. Search mode (non-blank query,
- * case-insensitive display-title substring): expansion state is ignored —
- * matched sessions and their ancestor chains are forced visible, groups
- * without a display-title or label hit are dropped, and a label-only hit
- * keeps the bare group header. Blank sessions are excluded everywhere.
+ * Every group shows; sessions populate under expanded groups, descending
+ * only into expanded sessions. Blank sessions are excluded except for the
+ * selected provisional New Session row.
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
- * @param view - local expansion arrays and search query.
+ * @param view - local expansion arrays.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -252,7 +236,6 @@ export function deriveGroups(
   workspaces: readonly WorkspaceView[],
   view: TreeView,
 ): GroupNode[] {
-  const q = view.query.trim().toLowerCase()
   const expandedProjects = new Set(view.expandedProjects)
   const expandedSessions = new Set(view.expandedSessions)
   const currentGroup = list.current === undefined
@@ -261,32 +244,17 @@ export function deriveGroups(
         ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces)) {
-    if (q === '') {
-      const expanded = expandedProjects.has(g.key)
-      groups.push({
-        key: g.key,
-        workspaceId: g.workspaceId,
-        cwd: g.cwd,
-        label: g.label,
-        sessionCount: g.summaries.size,
-        expanded,
-        containsCurrent: g.key === currentGroup,
-        sessions: expanded ? buildVisible(g, expandedSessions) : [],
-      })
-    } else {
-      const visible = searchVisible(g, q)
-      if (visible.size === 0 && !g.label.toLowerCase().includes(q)) continue
-      groups.push({
-        key: g.key,
-        workspaceId: g.workspaceId,
-        cwd: g.cwd,
-        label: g.label,
-        sessionCount: g.summaries.size,
-        expanded: visible.size > 0,
-        containsCurrent: g.key === currentGroup,
-        sessions: buildSearch(g, visible),
-      })
-    }
+    const expanded = expandedProjects.has(g.key)
+    groups.push({
+      key: g.key,
+      workspaceId: g.workspaceId,
+      cwd: g.cwd,
+      label: g.label,
+      sessionCount: g.summaries.size,
+      expanded,
+      containsCurrent: g.key === currentGroup,
+      sessions: expanded ? buildVisible(g, expandedSessions) : [],
+    })
   }
   return groups
 }
@@ -295,23 +263,95 @@ export function deriveGroups(
  * Derive the flat session list ("In one list" mode): every session — fork
  * children included — as a top-level row, strictly newest-first. No grouping,
  * no parent/child adjacency; rows reuse SessionNode with children always
- * empty so the renderer stays branch-free. Search mode filters by
- * case-insensitive display-title substring.
+ * empty so the renderer stays branch-free.
  * @param list - sessions list snapshot.
- * @param view - the search query (expansion state does not apply).
  * @returns flat rows in render order.
  */
-export function deriveFlat(list: SessionListState, view: Pick<TreeView, 'query'>): SessionNode[] {
-  const q = view.query.trim().toLowerCase()
+export function deriveFlat(list: SessionListState): SessionNode[] {
   const rows: SessionSummary[] = []
   for (const id of list.ids) {
     const s = list.byId[id]
     if (s === undefined || !sessionVisible(s, list.current)) continue
-    if (q !== '' && !sessionTitle(s).toLowerCase().includes(q)) continue
     rows.push(s)
   }
   rows.sort(byRecency)
   return rows.map(s => sessionNode(s, [], false, false))
+}
+
+/** Maximum rows rendered by the basic search surface. */
+const SEARCH_RESULT_LIMIT = 20
+
+/**
+ * Merge immediate title/Workspace substring matches with ranked Host content
+ * matches. Local rows lead newest-first, content-only rows retain backend
+ * order, and duplicate sessions receive the backend snippet in place.
+ * @param list - session metadata authority.
+ * @param workspaces - Workspace membership and display labels.
+ * @param query - caller text; surrounding whitespace is ignored.
+ * @param content - ranked Host content-search page.
+ * @returns at most 20 deduplicated flat rows and a refine-query hint bit.
+ */
+export function deriveSearchResults(
+  list: SessionListState,
+  workspaces: readonly WorkspaceView[],
+  query: string,
+  content: { items: readonly SessionSearchResultItem[]; hasMore: boolean },
+): SearchResultSet {
+  const q = query.trim().toLowerCase()
+  if (q === '') return { items: [], hasMore: false }
+
+  const workspaceBySession = new Map<SessionId, string>()
+  for (const workspace of workspaces) {
+    for (const sessionId of workspace.sessionIds) {
+      if (!workspaceBySession.has(sessionId)) workspaceBySession.set(sessionId, workspace.title)
+    }
+  }
+  const labelOf = (summary: SessionSummary): string =>
+    workspaceBySession.get(summary.id) ?? projectLabel(summary.cwd)
+  const contentBySession = new Map<SessionId, SessionSearchResultItem>()
+  for (const item of content.items) {
+    if (!contentBySession.has(item.sessionId)) contentBySession.set(item.sessionId, item)
+  }
+
+  const local: SessionSummary[] = []
+  for (const id of list.ids) {
+    const summary = list.byId[id]
+    if (summary === undefined || !sessionVisible(summary, list.current)) continue
+    if (
+      sessionTitle(summary).toLowerCase().includes(q)
+      || labelOf(summary).toLowerCase().includes(q)
+    ) {
+      local.push(summary)
+    }
+  }
+  local.sort(byRecency)
+
+  const ordered: SessionSummary[] = []
+  const included = new Set<SessionId>()
+  const include = (summary: SessionSummary): void => {
+    if (included.has(summary.id)) return
+    included.add(summary.id)
+    ordered.push(summary)
+  }
+  for (const summary of local) include(summary)
+  for (const item of content.items) {
+    const summary = list.byId[item.sessionId]
+    if (summary !== undefined && sessionVisible(summary, list.current)) include(summary)
+  }
+
+  return {
+    items: ordered.slice(0, SEARCH_RESULT_LIMIT).map((summary) => {
+      const match = contentBySession.get(summary.id)
+      return {
+        id: summary.id,
+        title: sessionTitle(summary),
+        workspace: labelOf(summary),
+        running: summary.running,
+        ...match === undefined ? {} : { snippet: match.snippet },
+      }
+    }),
+    hasMore: content.hasMore || ordered.length > SEARCH_RESULT_LIMIT,
+  }
 }
 
 /**

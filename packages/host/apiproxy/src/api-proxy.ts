@@ -11,6 +11,7 @@ import type { Agent, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
@@ -20,8 +21,8 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSearchItem,
+  SessionSummary, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
@@ -37,8 +38,16 @@ import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/** Product contract: sidebar search returns one bounded page and no cursor. */
+const SESSION_SEARCH_LIMIT = 20
+
 /** Surface message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+
+/** Read live abort state across awaits without treating it as synchronously immutable. */
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
 
 /**
  * Message-boundary pagination: count maxMessages surface messages backwards from
@@ -561,6 +570,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return operation
   }
 
+  /**
+   * Build the session.list baseline shared by listing and search visibility.
+   * Attached sessions come from memory; servable cold sessions merge from
+   * persistence, and the final order is newest-first.
+   */
+  async function listVisibleSessionSummaries(): Promise<SessionSummary[]> {
+    const items = ctx.sessions.list().map((session) => {
+      const agent = ctx.agents.get(session.id)
+      return summarize(session, agent?.status === 'running')
+    })
+    const attached = new Set(items.map(item => item.sessionId))
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence !== undefined) {
+      const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+      items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt)
+    return items
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -568,18 +597,61 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // Legacy logs without a cwd (pre-project stance) are not served — every
       // session now records its project at create time.
       async list(request) {
-        const items = ctx.sessions.list().map((session) => {
-          const agent = ctx.agents.get(session.id)
-          return summarize(session, agent?.status === 'running')
+        return ok(request, { items: await listVisibleSessionSummaries() })
+      },
+
+      async search(request, signal) {
+        const cancelled = () => err<{ items: SessionSearchItem[]; hasMore: boolean }>(request, {
+          code: 'cancelled',
+          message: 'session search was aborted',
+          details: {},
         })
-        const attached = new Set(items.map(item => item.sessionId))
-        const persistence = ctx.get('sessionPersistence')
-        if (persistence !== undefined) {
-          const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+        if (isAborted(signal)) return cancelled()
+        const sessionQuery = ctx.get('sessionQuery')
+        if (sessionQuery === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'session search is unavailable: this deployment does not mount @deepseek-ai/dsh-session-query',
+            details: {},
+          })
         }
-        items.sort((a, b) => b.updatedAt - a.updatedAt)
-        return ok(request, { items })
+        try {
+          const visible = await listVisibleSessionSummaries()
+          if (isAborted(signal)) return cancelled()
+          if (visible.length === 0) return ok(request, { items: [], hasMore: false })
+          const visibleIds = new Set(visible.map(item => item.sessionId))
+          const page = await sessionQuery.searchSessions({
+            query: request.payload.query,
+            sessionFilters: [{ kind: 'id', values: [...visibleIds] }],
+            eventFilters: [
+              { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+              { kind: 'surface', values: ['current'] },
+            ],
+            limit: SESSION_SEARCH_LIMIT,
+          }, { signal })
+          if (isAborted(signal)) return cancelled()
+          // The id filter is the authorization boundary. Re-check the provider
+          // projection before emitting it so a backend regression cannot leak
+          // a session that `session.list` withheld.
+          const authorized = page.items.filter(hit => visibleIds.has(hit.header.id))
+          return ok(request, {
+            items: authorized.slice(0, SESSION_SEARCH_LIMIT).map(hit => ({
+              sessionId: hit.header.id,
+              snippet: hit.bestMatch.snippet,
+            })),
+            hasMore: page.nextCursor !== undefined || authorized.length > SESSION_SEARCH_LIMIT,
+          })
+        } catch (error: unknown) {
+          if (
+            isAborted(signal)
+            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')
+          ) return cancelled()
+          return err(request, {
+            code: 'internal',
+            message: `session search failed: ${String(error)}`,
+            details: {},
+          })
+        }
       },
 
       async create(request) {
