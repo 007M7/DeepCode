@@ -35,10 +35,13 @@
     "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "@joplin/turndown-plugin-gfm": "^1.0.67",
+    "schemastery": "^3.18.0",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@types/turndown": "^5.0.6",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

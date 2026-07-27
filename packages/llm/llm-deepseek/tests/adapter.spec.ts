@@ -8,6 +8,7 @@ import LlmService, {
   LlmError,
   ProviderRequestId,
   QUOTA_EXCEEDED_CODE,
+  ReasoningEffortId,
   userAgent,
 } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -120,6 +121,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     // The wire request carried the auth header contents we configured.
     expect(server.requests[0]).toMatchObject({
       model: 'deepseek-v4-flash',
+      reasoning_effort: 'high',
       stream: true,
       stream_options: { include_usage: true },
     })
@@ -173,9 +175,45 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(server.headers[0]?.['x-deepseek-harness-compact']).toBe('1')
   })
 
-  it('forwards thinking config onto the wire', async () => {
+  it('switches dynamically from the configured high default through off to max', async () => {
+    const server = await mockServer([
+      { kind: 'sse', events: textEvents },
+      { kind: 'sse', events: textEvents },
+      { kind: 'sse', events: textEvents },
+    ])
+    const ctx = await harness(server.url, { thinking: 'enabled', reasoningEffort: 'high' })
+
+    await assemble(ctx,{
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })
+    await assemble(ctx,{
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('off'),
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi again' }] }],
+    })
+    await assemble(ctx,{
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('max'),
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'one more time' }] }],
+    })
+    expect(server.requests[0]).toMatchObject({
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'high',
+    })
+    expect(server.requests[1]).toMatchObject({
+      thinking: { type: 'disabled' },
+    })
+    expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
+    expect(server.requests[2]).toMatchObject({
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'max',
+    })
+  })
+
+  it('publishes only off and omits the wire effort when thinking is disabled', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
-    const ctx = await harness(server.url, { thinking: 'disabled', reasoningEffort: 'high' })
+    const ctx = await harness(server.url, { thinking: 'disabled' })
 
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
@@ -183,9 +221,51 @@ describe('DeepSeekAdapter against a mock server', () => {
     })
     expect(server.requests[0]).toMatchObject({
       thinking: { type: 'disabled' },
-      reasoning_effort: 'high',
     })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({
+        reasoning: {
+          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
+          defaultEffort: ReasoningEffortId('off'),
+        },
+      })
   })
+
+  it('rejects a per-request effort before I/O when thinking is disabled', async () => {
+    const server = await mockServer([])
+    const ctx = await harness(server.url, { thinking: 'disabled' })
+
+    await expect(assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    expect(server.requests).toHaveLength(0)
+  })
+
+  it.each(['high', 'max'])(
+    'rejects direct adapter effort %s before I/O when thinking is disabled',
+    async (effort) => {
+      const server = await mockServer([])
+      const adapter = new DeepSeekAdapter({
+        apiKey: 'test-key',
+        baseURL: server.url,
+        defaults: { thinking: 'disabled' },
+      })
+
+      const stream = adapter.stream({
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        reasoningEffort: ReasoningEffortId(effort),
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      })
+      await expect(async () => {
+        for await (const _chunk of stream) { /* drain */ }
+      }).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+      expect(server.requests).toHaveLength(0)
+    },
+  )
 
   it.each([
     [401, 'AUTH'],
@@ -531,8 +611,100 @@ describe('plugin registration and config', () => {
       { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
       { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
     ])
-    await expect(ctx.llm.resolveModelContext('deepseek', 'deepseek-v4-flash'))
-      .resolves.toEqual({ contextWindow: 128_000 })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({
+        provider: 'deepseek',
+        id: 'deepseek-v4-flash',
+        name: 'deepseek-v4-flash',
+        context: { contextWindow: 128_000 },
+        reasoning: {
+          efforts: [
+            { id: ReasoningEffortId('off'), name: 'Off' },
+            { id: ReasoningEffortId('high'), name: 'High' },
+            { id: ReasoningEffortId('max'), name: 'Max' },
+          ],
+          defaultEffort: ReasoningEffortId('high'),
+        },
+      })
+  })
+
+  it.each(['off', 'max'] as const)('uses the configured %s reasoning default', async (effort) => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      reasoningEffort: effort,
+    })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted-pass-through'))
+      .resolves.toMatchObject({
+        reasoning: {
+          efforts: [
+            { id: ReasoningEffortId('off'), name: 'Off' },
+            { id: ReasoningEffortId('high'), name: 'High' },
+            { id: ReasoningEffortId('max'), name: 'Max' },
+          ],
+          defaultEffort: ReasoningEffortId(effort),
+        },
+      })
+  })
+
+  it('accepts off as the default when thinking is deployment-disabled', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      thinking: 'disabled',
+      reasoningEffort: 'off',
+    })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted-pass-through'))
+      .resolves.toMatchObject({
+        reasoning: {
+          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
+          defaultEffort: ReasoningEffortId('off'),
+        },
+      })
+  })
+
+  it.each(['high', 'max'] as const)(
+    'rejects configured reasoning effort %s when thinking is disabled',
+    async (reasoningEffort) => {
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      await expect(ctx.plugin(LlmDeepSeek, {
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        thinking: 'disabled',
+        reasoningEffort,
+      })).rejects.toThrow(/only reasoningEffort "off"/)
+      expect(ctx.llm.listProviders()).toEqual([])
+    },
+  )
+
+  it.each(['high', 'max'] as const)(
+    'rejects disabled-thinking effort %s at the direct constructor boundary',
+    (reasoningEffort) => {
+      expect(() => new DeepSeekAdapter({
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        defaults: { thinking: 'disabled', reasoningEffort },
+      })).toThrow(/only reasoningEffort "off"/)
+    },
+  )
+
+  it('accepts disabled thinking with off at the direct constructor boundary', async () => {
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      defaults: { thinking: 'disabled', reasoningEffort: 'off' },
+    })
+    await expect(adapter.resolveModel('deepseek', 'pass-through')).resolves.toMatchObject({
+      reasoning: {
+        efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
+        defaultEffort: ReasoningEffortId('off'),
+      },
+    })
   })
 
   it('uses the default model catalog when apply is called directly', async () => {
@@ -565,10 +737,15 @@ describe('plugin registration and config', () => {
       { provider: 'deepseek', id: 'private-fast', name: 'private-fast' },
       { provider: 'deepseek', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
     ])
-    await expect(ctx.llm.resolveModelContext('deepseek', 'private-fast'))
-      .resolves.toEqual({ contextWindow: 32_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'arbitrary-unlisted'))
-      .resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'private-fast'))
+      .resolves.toMatchObject({ context: { contextWindow: 32_000 } })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'private-reasoner'))
+      .resolves.toMatchObject({
+        name: 'Private Reasoner',
+        description: 'Higher reasoning budget',
+      })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'arbitrary-unlisted'))
+      .resolves.not.toHaveProperty('context')
   })
 
   it('uses exact model capacity before the adapter-wide default', async () => {
@@ -584,12 +761,12 @@ describe('plugin registration and config', () => {
       ],
     })
 
-    await expect(ctx.llm.resolveModelContext('deepseek', 'inherits-default'))
-      .resolves.toEqual({ contextWindow: 256_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'exact-override'))
-      .resolves.toEqual({ contextWindow: 64_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted-pass-through'))
-      .resolves.toEqual({ contextWindow: 256_000 })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'inherits-default'))
+      .resolves.toMatchObject({ context: { contextWindow: 256_000 } })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'exact-override'))
+      .resolves.toMatchObject({ context: { contextWindow: 64_000 } })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted-pass-through'))
+      .resolves.toMatchObject({ context: { contextWindow: 256_000 } })
   })
 
   it('allows an explicit empty model catalog', async () => {
