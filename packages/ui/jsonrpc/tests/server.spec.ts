@@ -12,17 +12,18 @@ import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentService, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
-import { HarnessSdkServer, type JsonRpcTransportPeer } from '../src/index.ts'
+import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
+import { HarnessSdkServer } from '../src/index.ts'
 
 class FakeTransport implements JsonRpcTransportPeer {
   notifications: { method: string; params?: Record<string, unknown> }[] = []
 
-  async request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async request(method: string, params: object): Promise<unknown> {
     throw new Error(`the SDK server should not call host JSON-RPC method ${method} with ${JSON.stringify(params)}`)
   }
 
-  notify(method: string, params?: Record<string, unknown>): void {
-    this.notifications.push(params === undefined ? { method } : { method, params })
+  notify(method: string, params?: object): void {
+    this.notifications.push(params === undefined ? { method } : { method, params: params as Record<string, unknown> })
   }
 }
 

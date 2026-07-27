@@ -46,6 +46,7 @@ import type {
 } from './types.ts'
 import { SubagentRunId } from './types.ts'
 
+export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
 export type {
   SubagentCapabilities,
