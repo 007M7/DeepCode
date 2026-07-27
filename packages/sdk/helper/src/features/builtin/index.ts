@@ -212,7 +212,7 @@ config:
       // In-process options select continuable background delegation; the
       // follow-up adapter remains an independently loadable global tool.
       baseResources: [
-        { kind: 'npm-cordis-config-entry', id: 'tasks', package: '@deepseek-ai/dsh-tasks' },
+        { kind: 'npm-cordis-config-entry', id: 'tasks', package: '@deepseek-ai/dsh-tasks-local' },
         { kind: 'npm-cordis-config-entry', id: 'tool-tasks', package: '@deepseek-ai/dsh-tool-tasks' },
         { kind: 'npm-cordis-config-entry', id: 'subagent', package: '@deepseek-ai/dsh-subagent' },
         { kind: 'npm-cordis-config-entry', id: 'tool-subagent-control', package: '@deepseek-ai/dsh-tool-subagent-control' },
