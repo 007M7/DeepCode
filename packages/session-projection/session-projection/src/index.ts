@@ -233,9 +233,11 @@ export class SessionProjectionRegistry extends Service {
    * log). This is the write side of the persisted projection cache: the
    * returned rows are the `(key → {stateVersion, observedSeq, state})` part
    * of the durable `(sessionId, key, stateVersion, observedSeq, state)`
-   * rows. States are the units' live references — plain JSON by the unit
-   * contract, treated as immutable; a durable writer snapshots them at its
-   * own boundary.
+   * rows. Every `state` is a DETACHED structured clone — never the live
+   * cell reference: the watermark cache is this registry's authoritative
+   * mutable state, and a caller reaching the live reference could corrupt
+   * every subsequent snapshot and frame through it (plain JSON by the unit
+   * contract, so the clone is total).
    * @param session - the session whose unit states are checkpointed.
    * @returns one row per registered key; empty when no unit is registered.
    */
@@ -246,7 +248,7 @@ export class SessionProjectionRegistry extends Service {
       rows[registration.def.key] = {
         stateVersion: registration.def.stateVersion,
         observedSeq: cell.observedSeq,
-        state: cell.state,
+        state: structuredClone(cell.state),
       }
     }
     return rows

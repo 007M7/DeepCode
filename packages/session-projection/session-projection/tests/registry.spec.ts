@@ -182,6 +182,19 @@ describe('SessionProjectionRegistry drive', () => {
     expect(ctx.sessionProjections.checkpoint(fresh)['test/marks']).toEqual({ stateVersion: 1, observedSeq: -1, state: null })
   })
 
+  it('checkpoint states are detached clones — mutating them cannot corrupt the watermark cache', async () => {
+    const { ctx, session } = await harness()
+    ctx.sessionProjections.register(marksUnit())
+    mark(session, ['a'])
+    const rows = ctx.sessionProjections.checkpoint(session)
+    // Hostile (or merely careless) consumer mutates the handed-out state.
+    ;(rows['test/marks']?.state as { marks: string[] }).marks.push('INJECTED')
+    // The registry's authoritative cell is untouched: snapshot and a fresh
+    // checkpoint both still serve the committed value.
+    expect(ctx.sessionProjections.snapshot(session).values['test/marks']).toEqual({ marks: ['a'] })
+    expect(ctx.sessionProjections.checkpoint(session)['test/marks']?.state).toEqual({ marks: ['a'] })
+  })
+
   it('restoreFloor anchors one below the lowest usable watermark and at 0 for missing or mismatched rows', async () => {
     const { ctx } = await harness()
     expect(ctx.sessionProjections.restoreFloor({})).toBeUndefined() // no unit registered
