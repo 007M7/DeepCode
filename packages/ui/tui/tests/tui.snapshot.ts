@@ -437,7 +437,7 @@ describe('TUI terminal-state snapshots', () => {
     await disposeSnapshot(harness)
   })
 
-  it('pins cordis inspect, dynamic mount, and unmount cards with production presenters', async () => {
+  it('pins cordis inspect, try, and stop cards with production presenters', async () => {
     const harness = await setupSnapshot({ configureContext: configureAdvancedTools })
     const calls = [
       { id: 'cordis-1', name: 'cordis_inspect', arguments: { what: 'tools' } },

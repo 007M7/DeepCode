@@ -392,7 +392,6 @@ describe('provider profile lifecycle', () => {
     const extended = await ctx.llm.resolveModelInfo('openai', 'gpt-5.6-sol')
     expect(extended.reasoning?.efforts.map(effort => effort.id)).toEqual([
       ReasoningEffortId('off'),
-      ReasoningEffortId('minimal'),
       ReasoningEffortId('low'),
       ReasoningEffortId('medium'),
       ReasoningEffortId('high'),

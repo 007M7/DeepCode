@@ -40,6 +40,7 @@ import SessionStore, {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -112,6 +113,12 @@ export interface LaunchOptions {
    * insertion is needed.
    */
   toolsMode?: 'native' | 'code' | 'both'
+  /**
+   * Insert the opt-in self-referential Cordis tools into the shipped tree.
+   * Record and replay use the same tool surface, so captured request headers
+   * remain reconstructable without making the tools a product default.
+   */
+  cordisTools?: boolean
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -165,6 +172,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
+    ...options.cordisTools === true
+      ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
+      : [],
     ...mode === 'record' ? [] : [{ id: 'llm-deepseek', disabled: true }],
   ]
 
@@ -179,6 +189,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    // The shipped CLI deliberately has no dependency on this opt-in package.
+    // Keep the Loader row real without broadening the product installation.
+    if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(resolve(CONFIG_PATH)).href, patches },

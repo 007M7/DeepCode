@@ -56,7 +56,7 @@ type ToolExecutionResult =
 | `todo_write` | `{ todos, counts }` |
 | `ask_user_question` | `{ answers: [{ id, selected, custom? }] }` |
 | `exit_plan_mode` | `{ approved: true }` |
-| `cordis_inspect` ／ `cordis_mount` ／ `cordis_unmount` | 检查文本或类型化的动态挂载句柄 |
+| `cordis_inspect` ／ `cordis_mount` ／ `cordis_unmount` | 检查文本或类型化的临时 Plugin 句柄 |
 | `structured_output` | `{ recorded: true }` |
 | `run_code` | `{ logs: string[], result?: JsonValue }` |
 
