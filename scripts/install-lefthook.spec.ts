@@ -342,6 +342,24 @@ describe('worktree-local Lefthook installer', () => {
     expect(git(fixture, fixture.linked, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe('linked-custom-hooks')
   })
 
+  it('refuses to activate a sibling worktree dormant hook path', async () => {
+    const fixture = createFixture()
+    const linkedConfig = join(gitDirectory(fixture, fixture.linked), 'config.worktree')
+    const linkedHooks = join(fixture.linked, 'custom-hooks')
+    git(fixture, fixture.main, ['config', '--file', linkedConfig, 'core.hooksPath', linkedHooks])
+    expect(gitResult(fixture, fixture.linked, ['config', '--get', 'core.hooksPath']).status).toBe(1)
+
+    const result = await runInstaller(fixture, fixture.main)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('sibling dormant worktree config')
+    expect(result.stderr).toContain(linkedConfig)
+    expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
+    expect(gitResult(fixture, fixture.linked, ['config', '--get', 'core.hooksPath']).status).toBe(1)
+    expect(git(fixture, fixture.main, ['config', '--file', linkedConfig, '--get', 'core.hooksPath'])).toBe(linkedHooks)
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
   it('refuses migration keys loaded through active or conditional common-config includes', async () => {
     for (const includeKey of ['include.path', 'includeIf.onbranch:conditional.path']) {
       for (const key of ['core.worktree', 'core.bare']) {

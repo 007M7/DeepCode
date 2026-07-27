@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -148,6 +148,57 @@ function assertSingle(values, key) {
   return values[0]
 }
 
+function worktreeConfigExtensionEnabled(root, commonConfigPath) {
+  const extensionText = assertSingle(
+    fileConfigValues(root, commonConfigPath, 'extensions.worktreeConfig'),
+    'extensions.worktreeConfig',
+  )
+  return extensionText === undefined
+    ? false
+    : parseGitBoolean(extensionText, 'extensions.worktreeConfig')
+}
+
+function hasDirectConfigEntries(root, configPath) {
+  return git(['config', '--file', configPath, '--null', '--list'], root).stdout !== ''
+}
+
+function registeredWorktreeConfigPaths(commonDirectory) {
+  const paths = [join(commonDirectory, 'config.worktree')]
+  const linkedDirectory = join(commonDirectory, 'worktrees')
+  try {
+    const entries = readdirSync(linkedDirectory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))
+    for (const entry of entries) {
+      paths.push(join(linkedDirectory, entry.name, 'config.worktree'))
+    }
+  } catch (error) {
+    if (errorCode(error) !== 'ENOENT') throw error
+  }
+  return paths
+}
+
+function assertDormantWorktreeConfigs(root, commonDirectory, commonConfigPath, currentConfigPath) {
+  if (worktreeConfigExtensionEnabled(root, commonConfigPath)) return
+  for (const configPath of registeredWorktreeConfigPaths(commonDirectory)) {
+    if (!existsSync(configPath)) continue
+    const configStat = lstatSync(configPath)
+    if (!configStat.isFile() || configStat.isSymbolicLink()) {
+      throw new Error(
+        `cannot enable extensions.worktreeConfig while dormant worktree config ${JSON.stringify(configPath)} `
+        + 'is not a regular file; inspect it and enable the extension explicitly, or remove it, before retrying',
+      )
+    }
+    if (!hasDirectConfigEntries(root, configPath)) continue
+    const isCurrent = normalizedPath(configPath) === normalizedPath(currentConfigPath)
+    const owner = isCurrent ? 'current' : 'sibling'
+    throw new Error(
+      `cannot enable extensions.worktreeConfig while ${owner} dormant worktree config `
+      + `${JSON.stringify(configPath)} contains user-owned settings that enabling the extension would activate; `
+      + 'inspect and migrate those settings, then enable the extension explicitly or remove them before retrying',
+    )
+  }
+}
+
 function assertSupportedGit(root) {
   const version = git(['--version'], root).stdout.trim()
   const match = /git version (\d+)\.(\d+)(?:\.(\d+))?/.exec(version)
@@ -229,13 +280,7 @@ function ensureWorktreeConfig(root, commonConfigPath) {
     throw new Error(`unsupported core.repositoryFormatVersion: ${JSON.stringify(versionText)}`)
   }
 
-  const extensionText = assertSingle(
-    fileConfigValues(root, commonConfigPath, 'extensions.worktreeConfig'),
-    'extensions.worktreeConfig',
-  )
-  const extensionEnabled = extensionText === undefined
-    ? false
-    : parseGitBoolean(extensionText, 'extensions.worktreeConfig')
+  const extensionEnabled = worktreeConfigExtensionEnabled(root, commonConfigPath)
 
   if (!extensionEnabled) {
     for (const entry of fileConfigMatchingEntries(root, commonConfigPath, CONDITIONAL_INCLUDE_PATTERN)) {
@@ -576,6 +621,12 @@ async function main() {
     }
     assertConditionalHooksPaths(root, worktreeConfigPath)
 
+    assertDormantWorktreeConfigs(
+      root,
+      commonDirectory,
+      commonConfigPath,
+      worktreeConfigPath,
+    )
     ensureOwnedHooksDirectory(hooksPath)
     ensureWorktreeConfig(root, commonConfigPath)
 
