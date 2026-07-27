@@ -7,20 +7,18 @@
 import { useId } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import {
-  FishLogo, IconChevronDownOutline14, IconFolderOpen16,
+  FishLogo, IconChevronDownOutline14, IconFolderClose16, IconFolderOpen16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-client-runtime/client'
 import css from './HeroShell.module.css'
 
 /**
- * Basename label for the workspace chip / menu rows (the shared derivation);
- * empty → the design's "New Workspace" placeholder copy; separator-only
- * paths echo the raw cwd.
- * @param cwd - workspace directory path ('' for none).
+ * Basename label for the workspace chip (the shared derivation);
+ * separator-only paths echo the raw cwd.
+ * @param cwd - workspace directory path (non-empty).
  * @returns chip label.
  */
 export function workspaceLabel(cwd: string): string {
-  if (cwd === '') return 'New Workspace'
   const base = workspaceTitleOf(cwd)
   return base !== '' ? base : cwd
 }
@@ -28,15 +26,17 @@ export function workspaceLabel(cwd: string): string {
 /**
  * The workspace chip (folder + label + chevron), always interactive: before
  * the first message the workspace stays switchable — picking another one
- * moves the New Session flow to that workspace's blank session.
- * @param props.label - chip label (see {@link workspaceLabel}).
+ * moves the New Session flow to that workspace's blank session. Without a
+ * label the chip renders its placeholder state: closed folder + the
+ * "Choose workspace" call to action.
+ * @param props.label - chip label (see {@link workspaceLabel}); omitted → placeholder.
  * @param props.menuOpen - menu expansion echo.
  * @param props.onClick - menu toggle.
  * @returns the chip button element.
  */
 export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick }: {
   buttonRef?: RefObject<HTMLButtonElement>
-  label: string
+  label?: string | undefined
   menuOpen?: boolean
   onClick?: () => void
 }) {
@@ -50,8 +50,10 @@ export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick }: {
       aria-expanded={menuOpen}
       onClick={onClick}
     >
-      <IconFolderOpen16 className={css.folder} size={16} />
-      <span className={css.workspaceLabel}>{label}</span>
+      {label === undefined
+        ? <IconFolderClose16 className={css.folder} size={16} />
+        : <IconFolderOpen16 className={css.folder} size={16} />}
+      <span className={css.workspaceLabel}>{label ?? 'Choose workspace'}</span>
       <IconChevronDownOutline14 className={css.chevron} size={12} />
     </button>
   )

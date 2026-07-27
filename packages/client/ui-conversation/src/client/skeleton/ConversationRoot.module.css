@@ -142,6 +142,8 @@
   align-self: center;
   /* figma 75:8208: 12 between hero chrome / workspace row / card. */
   gap: 12px;
+  /* Foot inside the centered box floats the stack a bit above true center. */
+  padding-bottom: 32px;
   width: min(776px, calc(100% - 48px));
   z-index: 1;
 }

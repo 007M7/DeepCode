@@ -36,27 +36,42 @@ export function ConversationRoot({
     workspace => workspace.workspaceId === pendingWorkspaceId,
   )
 
+  // Clear the pending pick once the session lands in it, or when the picked
+  // workspace disappears from a ready list (deleted from the sidebar).
   useEffect(() => {
-    if (pendingWorkspaceId !== undefined
-      && sessionWorkspace?.workspaceId === pendingWorkspaceId) {
+    if (pendingWorkspaceId === undefined) return
+    if (sessionWorkspace?.workspaceId === pendingWorkspaceId
+      || (workspaces.phase === 'ready' && pendingWorkspace === undefined)) {
       setPendingWorkspaceId(undefined)
     }
-  }, [pendingWorkspaceId, sessionWorkspace?.workspaceId])
+  }, [pendingWorkspaceId, sessionWorkspace?.workspaceId, workspaces.phase, pendingWorkspace])
 
   const hero = sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
+  // Flow optimization — worth a close PR review for code/boundary issues.
+  // The chip is a selector; label resolution walks the flow top-down:
+  //   1. a just-picked workspace (pending) → its title;
+  //   2. cold start, no session yet → placeholder ("Choose workspace");
+  //   3. the blank session's workspace is in the list → its title;
+  //   4. list still loading → cwd folder name bridges so the title does not
+  //      flash on refresh (empty cwd → placeholder);
+  //   5. list ready but no owning workspace (deleted from the sidebar) →
+  //      placeholder, never the deleted folder's name via cwd.
+  const chipTitle = pendingWorkspace?.title
+    ?? (sessionId === undefined
+      ? undefined
+      : sessionWorkspace?.title
+        ?? (workspaces.phase === 'ready' || cwd === undefined || cwd === ''
+          ? undefined
+          : workspaceLabel(cwd)))
+
   const heroWorkspaceRow = (
     <div className={css.heroWorkspaceRow}>
       <WorkspaceChip
         buttonRef={pickerAnchor}
-        label={
-          pendingWorkspace?.title
-          ?? (sessionId === undefined
-            ? workspaceLabel('')
-            : sessionWorkspace?.title ?? workspaceLabel(cwd ?? ''))
-        }
+        label={chipTitle}
         menuOpen={pickerOpen}
         onClick={() => { setPickerOpen(open => !open) }}
       />
