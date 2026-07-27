@@ -14,7 +14,7 @@ Reviewers also need a direct answer to a simpler question: what happens when the
 
 ## Decision
 
-[CI](../../../../.github/workflows/ci.yml) gives pull-request and master-push events complementary responsibilities. Pull requests run consolidated Linux and Windows jobs plus the Node compatibility and Python contracts on standard GitHub-hosted capacity. A push to `master` skips those jobs and runs three explicit references named `serial / linux`, `serial / macos`, and `serial / windows`. They intentionally duplicate their short checkout, runtime setup, and immutable install sequences instead of hiding the operating systems behind a matrix or reusable workflow. `workflow_dispatch` is reserved for runner benchmarks.
+[CI](../../../../.github/workflows/ci.yml) gives pull-request and master-push events complementary responsibilities. Pull requests run three primary Linux jobs, one complete Windows job, and the Node compatibility and Python contracts on standard GitHub-hosted capacity. A push to `master` skips those jobs and runs three explicit references named `serial / linux`, `serial / macos`, and `serial / windows`. They intentionally duplicate their short checkout, runtime setup, and immutable install sequences instead of hiding the operating systems behind a matrix or reusable workflow. `workflow_dispatch` is reserved for runner benchmarks.
 
 Each reference job runs `pnpm run check:ci` without any shard selector. `DSH_GATE_CONCURRENCY=1` makes the top-level aggregate execute one ready gate at a time; coverage, snapshot replay, built-bin smoke, and publication validation also receive worker counts of one. The three operating-system jobs may run beside one another, but each host's repository gates are serial and complete. Linux installs bubblewrap before replaying snapshots, and Windows enables Developer Mode before installing the symlinked workspace.
 
@@ -24,7 +24,7 @@ The macOS reference runs the ordinary Vitest project in forked processes. Node 2
 
 Master reference jobs are diagnostic and do not participate in the pull request's required `all checks passed` result. A pull request runs only its required jobs; a master push runs only the three serial references. Performance is evaluated from completed hosted-job timestamps and reported as a measurement; it is not encoded as a `timeout-minutes` value.
 
-The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, and `windows-2025` labels. Required pull-request jobs use the same portable Linux and Windows capacity under the [required-CI decision](2026-07-23-portable-required-pull-request-ci.md). Higher-core hosted runners remain manual benchmarks because a correctness path must remain runnable without repository-external runner configuration.
+The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, and `windows-2025` labels. Substantive required pull-request jobs use the same portable Linux and Windows capacity under the [required-CI decision](2026-07-23-portable-required-pull-request-ci.md). Higher-core hosted runners remain manual benchmarks because a correctness path must remain runnable without repository-external runner configuration.
 
 ## Alternatives considered
 
@@ -32,7 +32,7 @@ The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, a
 - **Trust only the concurrent primary inventory** - rejected because scheduling and validation share implementation assumptions; a serial aggregate is an independent completeness check.
 - **Run the serial references on every pull request** - rejected because they duplicate complete cross-platform aggregates and add macOS work to every change; the required jobs already execute the blocking Linux and Windows contracts.
 - **Use one operating-system matrix** - rejected because three named jobs make the reference surface visible without another selection mechanism.
-- **Run the serial reference on larger runners** - rejected because both required CI and its independent reference must remain runnable when organization-owned pools cannot allocate jobs.
+- **Run the serial reference on larger runners** - rejected because substantive required CI and its independent reference must remain runnable when organization-owned pools cannot allocate jobs.
 
 ## Consequences
 
