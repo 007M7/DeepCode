@@ -83,6 +83,30 @@ function temporaryRoot(prefix = 'dsh-gate-logs-'): string {
   return root
 }
 
+function invokeGateLogOperation(
+  operation: 'write' | 'prune' | 'clean',
+  subjectGate: Gate,
+  directory: string,
+  root: string,
+  beforeHelper: () => void,
+): Promise<unknown> {
+  switch (operation) {
+    case 'write':
+      return writeGateFailureLog(plan([subjectGate]), resultFor(subjectGate, 'failed'), {
+        directory,
+        repositoryRoot: root,
+        retention: 1,
+        unique: operation,
+        platform: 'linux',
+        beforeHelper,
+      })
+    case 'prune':
+      return pruneGateLogs(directory, 0, root, beforeHelper)
+    case 'clean':
+      return cleanGateFailureLogs(directory, root, beforeHelper)
+  }
+}
+
 function withPnpmEntrypoint<T>(action: () => T): T {
   const previous = process.env.npm_execpath
   process.env.npm_execpath = '/private/pnpm.cjs'
@@ -426,7 +450,6 @@ describe('gate failure logs', () => {
 
   it.skipIf(process.platform === 'win32')('pins write, prune, and cleanup before a concurrent ancestor swap', async () => {
     const subjectGate = gate('subject')
-    const subject = plan([subjectGate])
 
     for (const operation of ['write', 'prune', 'clean'] as const) {
       const auditRoot = temporaryRoot(`dsh-gate-${operation}-swap-`)
@@ -448,21 +471,13 @@ describe('gate failure logs', () => {
         symlinkSync(external, cache, 'dir')
       }
 
-      let invocation: Promise<unknown>
-      if (operation === 'write') {
-        invocation = writeGateFailureLog(subject, resultFor(subjectGate, 'failed'), {
-          directory,
-          repositoryRoot,
-          retention: 1,
-          unique: operation,
-          platform: 'linux',
-          beforeHelper: swapAncestor,
-        })
-      } else if (operation === 'prune') {
-        invocation = pruneGateLogs(directory, 0, repositoryRoot, swapAncestor)
-      } else {
-        invocation = cleanGateFailureLogs(directory, repositoryRoot, swapAncestor)
-      }
+      const invocation = invokeGateLogOperation(
+        operation,
+        subjectGate,
+        directory,
+        repositoryRoot,
+        swapAncestor,
+      )
 
       await expect(invocation).rejects.toThrow('gate-log helper')
       if (victim === undefined) {
@@ -477,7 +492,6 @@ describe('gate failure logs', () => {
 
   it.skipIf(process.platform === 'win32')('rejects a real-directory ancestor moved into place after validation', async () => {
     const subjectGate = gate('subject')
-    const subject = plan([subjectGate])
 
     for (const operation of ['write', 'prune', 'clean'] as const) {
       const auditRoot = temporaryRoot(`dsh-gate-${operation}-real-swap-`)
@@ -497,21 +511,13 @@ describe('gate failure logs', () => {
         renameSync(externalCache, cache)
       }
 
-      let invocation: Promise<unknown>
-      if (operation === 'write') {
-        invocation = writeGateFailureLog(subject, resultFor(subjectGate, 'failed'), {
-          directory,
-          repositoryRoot,
-          retention: 1,
-          unique: operation,
-          platform: 'linux',
-          beforeHelper: swapAncestor,
-        })
-      } else if (operation === 'prune') {
-        invocation = pruneGateLogs(directory, 0, repositoryRoot, swapAncestor)
-      } else {
-        invocation = cleanGateFailureLogs(directory, repositoryRoot, swapAncestor)
-      }
+      const invocation = invokeGateLogOperation(
+        operation,
+        subjectGate,
+        directory,
+        repositoryRoot,
+        swapAncestor,
+      )
 
       await expect(invocation).rejects.toThrow('gate-log helper')
       if (victim === undefined) {
