@@ -1,6 +1,8 @@
 /**
  * Node 22 startup-output smoke for the shipped Web CLI composition.
  *
+ * Only the dedicated Node compatibility gate opts this test in after building
+ * both artifacts; ordinary Vitest inventory deterministically skips it.
  * The child runs built artifacts under plain Node with the real cordis.yml.
  * Its URL line follows AppCLIEntry's settled boot; SIGTERM then exercises the
  * shipped quiescent disposer.
@@ -20,7 +22,6 @@ const builtBin = join(repoRoot, 'apps/cli/lib/bin.js')
 const webDist = join(repoRoot, 'apps/web/dist/index.html')
 const configPath = join(repoRoot, 'apps/cli/cordis.yml')
 const requireBuiltArtifacts = process.env.DSH_REQUIRE_BUILT_CLI_SMOKE === '1'
-const builtArtifactsPresent = existsSync(builtBin) && existsSync(webDist)
 
 interface ConfigRow {
   id?: string
@@ -88,7 +89,7 @@ function runBuiltWeb(cwd: string): Promise<{ stdout: string; stderr: string; cod
   })
 }
 
-describe.skipIf(!requireBuiltArtifacts && !builtArtifactsPresent)('built CLI lazy-search startup', () => {
+describe.skipIf(!requireBuiltArtifacts)('built CLI lazy-search startup', () => {
   it('boots and disposes the shipped composition without a SQLite startup warning', async () => {
     expect(existsSync(builtBin), `missing built CLI ${resolve(builtBin)}; run pnpm build`).toBe(true)
     expect(existsSync(webDist), `missing Web dist ${resolve(webDist)}; run pnpm run build:web`).toBe(true)
