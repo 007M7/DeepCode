@@ -12,6 +12,7 @@ import type { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeBindingNamespace, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
@@ -35,7 +36,9 @@ export interface Config {
   /**
    * Wall-clock ceiling in milliseconds; never pauses for anything. The
    * backstop for what busy-time cannot see (a program awaiting a promise
-   * nobody will resolve).
+   * nobody will resolve). At most `2_147_483_647` (Node's maximum
+   * `setTimeout` delay, about 24.9 days): a longer value is rejected at load
+   * because `setTimeout` would clamp it to 1 ms.
    */
   maxWallMs?: number
   /**
@@ -265,6 +268,12 @@ export class WorkerCodeRuntime extends CodeRuntime {
     }
     if (!Number.isSafeInteger(this.config.maxOutputBytes) || this.config.maxOutputBytes < MIN_OUTPUT_BYTES) {
       throw new Error(`dsh-code-runtime-worker: config.maxOutputBytes must be a safe integer of at least ${MIN_OUTPUT_BYTES}, got ${String(this.config.maxOutputBytes)}`)
+    }
+    // maxWallMs reaches setTimeout, which clamps any delay above
+    // MAX_TIMER_DELAY_MS to 1 ms; the positivity check above accepts such a
+    // value, so a 25-day ceiling would time the run out immediately.
+    if (this.config.maxWallMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(`dsh-code-runtime-worker: config.maxWallMs must be at most ${MAX_TIMER_DELAY_MS} (Node clamps a longer setTimeout delay to 1ms), got ${String(this.config.maxWallMs)}`)
     }
     ctx.effect(() => () => this.teardown(), 'worker code-runtime teardown')
   }

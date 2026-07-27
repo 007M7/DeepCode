@@ -302,7 +302,9 @@ export interface Config {
   /**
    * Wall-clock ceiling in milliseconds; never pauses for anything. The
    * backstop for what busy-time cannot see (a program awaiting a promise
-   * nobody will resolve).
+   * nobody will resolve). At most `2_147_483_647` (Node's maximum
+   * `setTimeout` delay, about 24.9 days): a longer value is rejected at load
+   * because `setTimeout` would clamp it to 1 ms.
    */
   maxWallMs?: number
   /**
@@ -315,7 +317,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:24`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:25`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
