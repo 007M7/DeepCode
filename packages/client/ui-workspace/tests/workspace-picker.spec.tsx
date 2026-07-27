@@ -35,18 +35,25 @@ function anchor(): { current: HTMLElement } {
 function mount(items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')], createWorkspace = vi.fn()) {
   const onPick = vi.fn()
   const onClose = vi.fn()
-  const view = render(
+  const anchorRef = anchor()
+  const renderPicker = (nextItems: readonly WorkspaceView[]) => (
     <WorkspacePicker
       open
-      anchorRef={anchor()}
+      anchorRef={anchorRef}
       useSessions={hook(sessions)}
-      useWorkspaces={hook(workspaceState(items))}
+      useWorkspaces={hook(workspaceState(nextItems))}
       onPick={onPick}
       onClose={onClose}
       createWorkspace={createWorkspace}
-    />,
+    />
   )
-  return { view, onPick, onClose, createWorkspace }
+  const view = render(
+    renderPicker(items),
+  )
+  return {
+    view, onPick, onClose, createWorkspace,
+    rerenderItems: (nextItems: readonly WorkspaceView[]) => { view.rerender(renderPicker(nextItems)) },
+  }
 }
 
 function chooseCreateItem(name: 'Use an existing folder' | 'Create a new workspace'): void {
@@ -104,6 +111,22 @@ describe('WorkspacePicker', () => {
     expect((screen.getByRole('button', { name: 'Create workspace' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.keyDown(screen.getByLabelText('New workspace name'), { key: 'Enter' })
     expect(b.createWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('does not flash a duplicate alert when the successful create frame arrives before its unary response', async () => {
+    let resolve!: (workspace: WorkspaceView) => void
+    const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
+    const created = workspace('fresh', 'same-name')
+    const b = mount([], vi.fn(() => pending))
+    chooseCreateItem('Create a new workspace')
+    fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: 'same-name' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
+
+    b.rerenderItems([created])
+    expect(screen.getByRole('status').textContent).toBe('Creating workspace…')
+    expect(screen.queryByRole('alert')).toBeNull()
+    await act(async () => { resolve(created); await pending })
+    expect(b.onPick).toHaveBeenCalledWith(created.workspaceId)
   })
 
   it('exposes creation phase and error text while retaining the modal for retry', async () => {
