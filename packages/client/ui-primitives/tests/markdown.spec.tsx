@@ -153,7 +153,7 @@ describe('JsonBlock', () => {
   it('truncates beyond the size cap with a suffix note', () => {
     const big = 'x'.repeat(30_000)
     const { container } = render(<JsonBlock label="x" payload={big} defaultOpen />)
-    const body = container.querySelector('pre')!.textContent!
+    const body = container.querySelector('pre')!.textContent
     expect(body.length).toBeLessThan(30_000)
     expect(body).toContain('截断')
   })

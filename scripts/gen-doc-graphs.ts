@@ -78,6 +78,7 @@ const GROUP_ORDER = [
   'session-persistence',
   'session-query',
   'session-title',
+  'telemetry',
   'storage',
   'workspace',
   'support',
@@ -135,6 +136,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
     consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'session-query', 'session-query-sqlite'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'telemetry',
+    pkg: 'session-telemetry',
+    title: 'Session telemetry seam',
+    mode: 'seam',
+    implementations: ['session-telemetry-otel'],
+    consumers: [],
+    note: 'The seam captures, redacts, and hands session records to one backend; nothing else consumes the service — its output leaves the process.',
   },
   {
     key: 'storage',

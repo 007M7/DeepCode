@@ -31,7 +31,11 @@ export function InputBar({
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
-  const notice = useSyncExternalStore(keyboard.notices.subscribe, keyboard.notices.getSnapshot)
+  const noticeStore = keyboard.notices
+  const notice = useSyncExternalStore(
+    (fn: () => void) => noticeStore.subscribe(fn),
+    () => noticeStore.getSnapshot(),
+  )
   const promptError = useSession(s => s.promptError)
   const running = useSession(s => s.running)
   const disabled = useSession(s => s.removed)
@@ -75,6 +79,8 @@ export function InputBar({
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.
     if (e.key === 'Enter' && e.shiftKey) return
+    // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const composing = composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       if (keyboard.arbitrate(e.key === 'ArrowUp' ? 'up' : 'down', composing) === 'consumed') e.preventDefault()
@@ -92,7 +98,7 @@ export function InputBar({
       // the browser stack cannot represent); never let the native stack run.
       e.preventDefault()
       if (machineBusy || locked) return
-      const redo = e.key === 'y' || (e.shiftKey && (e.key === 'z' || e.key === 'Z'))
+      const redo = e.key === 'y' || e.shiftKey
       if (redo) keyboard.redo()
       else keyboard.undo()
       return
@@ -134,6 +140,8 @@ export function InputBar({
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
+    // selectionStart is number|null in lib.dom; the eslint program narrows it.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     keyboard.track(next, e.target.selectionStart ?? next.length)
   }
 
@@ -145,10 +153,13 @@ export function InputBar({
   // too (one char = one step). Mouse selection of a chip is handled in the
   // backdrop click handler below. Undo/redo must NOT reach the browser: the
   // machine owns the transaction log.
+  // selectionStart/End are number|null in lib.dom; the eslint program narrows them.
+  /* eslint-disable @typescript-eslint/no-unnecessary-condition */
   const selectionOf = (el: HTMLTextAreaElement) => ({
     start: el.selectionStart ?? 0,
     end: el.selectionEnd ?? el.selectionStart ?? 0,
   })
+  /* eslint-enable @typescript-eslint/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
     const el = e.currentTarget
@@ -330,8 +341,8 @@ export function InputBar({
             onChange={onChange}
             onKeyDown={onKeyDown}
             onSelect={onSelect}
-            onCopy={e => { onCopyOrCut(e, false) }}
-            onCut={e => { onCopyOrCut(e, true) }}
+            onCopy={(e) => { onCopyOrCut(e, false) }}
+            onCut={(e) => { onCopyOrCut(e, true) }}
             onPaste={onPaste}
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
