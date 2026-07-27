@@ -194,7 +194,8 @@ export class TelemetryCoordinator {
   }
 
   /** Relay one `agent/error` bus emission as an `agent-error` operational record. */
-  private relayAgentError(agent: Agent, turn: number, step: number, error: Error): void {
+  private relayAgentError(agent: Agent, turn: number, step: number, error: unknown): void {
+    const detail = errorDetail(error)
     this.handOff({
       channel: 'ops',
       time: Date.now(),
@@ -203,11 +204,11 @@ export class TelemetryCoordinator {
         'telemetry.op': 'agent-error',
         'session.id': String(agent.session.id),
         'agent.id': agent.id,
-        'error.name': error.name,
+        'error.name': detail.name,
         turn,
         step,
       },
-      body: { name: error.name, message: error.message },
+      body: detail,
     })
   }
 
@@ -253,14 +254,18 @@ function severityOf(event: SessionEvent): TelemetrySeverity {
       return event.data.isError ? 'error' : 'info'
     case 'turn/end':
       return event.data.reason.kind === 'error' ? 'error' : 'info'
-    case 'prompt/blocked':
-      return 'warn'
     default:
       // Merge-extensible fall-through (no assertNever): event types this seam
       // does not depend on — including plugin-merged ones it never heard of —
       // pass through as info; their owners' outcome semantics stay theirs.
       return 'info'
   }
+}
+
+/** Normalize the live bus's arbitrary thrown value into the stable operational-record shape. */
+function errorDetail(error: unknown): { name: string; message: string } {
+  const normalized = error instanceof Error ? error : new Error(String(error))
+  return { name: normalized.name, message: normalized.message }
 }
 
 /** Build the minimal identity attributes: envelope plus self-contained header facts. */

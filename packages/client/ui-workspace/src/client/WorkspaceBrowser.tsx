@@ -21,7 +21,10 @@ import { ProjectRowItem, SessionNodeItem } from './rows/Rows.tsx'
 import { WorkspaceCreateFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
-/** Column slide length (--ds-transition-duration-slow): rail-search focus waits it out — focus() forces a synchronous layout and would jank the slide. */
+/**
+ * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
+ * focus() forces a synchronous layout and would jank the slide.
+ */
 const EXPAND_SLIDE_MS = 300
 
 const GROUP_BY_ITEMS = [
@@ -32,7 +35,7 @@ const GROUP_BY_ITEMS = [
 
 /** Immutable membership toggle for the local expansion arrays. */
 function toggled(list: readonly string[], key: string): string[] {
-  return list.includes(key) ? list.filter((k) => k !== key) : [...list, key]
+  return list.includes(key) ? list.filter(k => k !== key) : [...list, key]
 }
 
 /** Group-by strategy menu; own open state so it resets with the wide chrome. */
@@ -61,7 +64,7 @@ function GroupByMenu({ groupBy, onPick }: {
           type="button"
           className={clsx(css.iconButton, css.wide)}
           aria-label="Group by"
-          onClick={() => { setOpen((v) => !v) }}
+          onClick={() => { setOpen(v => !v) }}
         >
           <IconPersonalizationOutline16 />
         </button>
@@ -96,7 +99,7 @@ function SessionTree({
   useSessions, startSession, open, workspaces, query,
   onRenameRequest, onDeleteRequest, insertSessionBefore,
 }: SessionTreeProps) {
-  const list = useSessions((s) => s)
+  const list = useSessions(s => s)
   const current = list.current
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const [expandedSessions, setExpandedSessions] = useState<string[]>([])
@@ -108,7 +111,7 @@ function SessionTree({
       ?? UNGROUPED_KEY
   useEffect(() => {
     if (current === undefined || currentGroup === undefined) return
-    setExpandedProjects((l) => (l.includes(currentGroup) ? l : [...l, currentGroup]))
+    setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
   const groups = useMemo(
     () => deriveGroups(list, workspaces, { expandedProjects, expandedSessions, query }),
@@ -129,22 +132,22 @@ function SessionTree({
           <div key={group.key} className={css.groupSection}>
             <ProjectRowItem
               group={group}
-              onToggle={() => { setExpandedProjects((l) => toggled(l, group.key)) }}
+              onToggle={() => { setExpandedProjects(l => toggled(l, group.key)) }}
               onCreate={() => {
                 if (group.workspaceId !== undefined) startSession(group.workspaceId)
               }}
               actions={group.workspaceId === undefined
                 ? undefined
                 : {
-                    rename: () => {
-                      /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
-                      if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
-                    },
-                    delete: () => {
-                      /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
-                      if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
-                    },
-                  }}
+                  rename: () => {
+                    /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                    if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+                  },
+                  delete: () => {
+                    /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                    if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
+                  },
+                }}
             />
             {group.sessions.map((node, index) => {
               // Draggable: real-workspace group roots outside search. The drag
@@ -189,7 +192,7 @@ function SessionTree({
                   currentId={current}
                   now={now}
                   onOpen={open}
-                  onToggle={(id) => { setExpandedSessions((l) => toggled(l, id)) }}
+                  onToggle={(id) => { setExpandedSessions(l => toggled(l, id)) }}
                   drag={dragProps}
                 />
               )
@@ -204,7 +207,7 @@ function SessionTree({
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
 function FlatList({ useSessions, open, query }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'query'>) {
-  const list = useSessions((s) => s)
+  const list = useSessions(s => s)
   const rows = useMemo(() => deriveFlat(list, { query }), [list, query])
   const now = Date.now()
   return (
@@ -292,7 +295,7 @@ export function WorkspaceBrowser({
     setRenameError(null)
   }
   const confirmRename = () => {
-    if (renameBlocked || renameTarget === null) return
+    if (renameBlocked) return
     setRenaming(true)
     setRenameError(null)
     renameWorkspace(renameTarget.workspaceId, renameTrimmed).then(() => {
@@ -419,24 +422,24 @@ export function WorkspaceBrowser({
         {wide && (groupBy === 'flat'
           ? <FlatList useSessions={useSessions} open={open} query={query} />
           : (
-              <SessionTree
-                useSessions={useSessions}
-                workspaces={workspaces}
-                startSession={startSession}
-                open={open}
-                query={query}
-                insertSessionBefore={insertSessionBefore}
-                onRenameRequest={(workspaceId, currentTitle) => {
-                  setRenameTarget({ workspaceId, currentTitle })
-                  setRenameDraft(currentTitle)
-                  setRenameError(null)
-                }}
-                onDeleteRequest={(workspaceId, title) => {
-                  setDeleteTarget({ workspaceId, title })
-                  setDeleteError(null)
-                }}
-              />
-            ))}
+            <SessionTree
+              useSessions={useSessions}
+              workspaces={workspaces}
+              startSession={startSession}
+              open={open}
+              query={query}
+              insertSessionBefore={insertSessionBefore}
+              onRenameRequest={(workspaceId, currentTitle) => {
+                setRenameTarget({ workspaceId, currentTitle })
+                setRenameDraft(currentTitle)
+                setRenameError(null)
+              }}
+              onDeleteRequest={(workspaceId, title) => {
+                setDeleteTarget({ workspaceId, title })
+                setDeleteError(null)
+              }}
+            />
+          ))}
       </div>
 
       <Modal
@@ -481,7 +484,7 @@ export function WorkspaceBrowser({
             <Button variant="outline" disabled={deleting} onClick={closeDelete}>Cancel</Button>
             <Button
               variant="outline"
-              className={css.deleteAction!}
+              className={css.deleteAction}
               disabled={deleting}
               onClick={confirmDelete}
             >

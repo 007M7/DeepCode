@@ -108,7 +108,6 @@ describe('TelemetryCoordinator capture', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('tool/result', { turn: 1, step: 1, callId: 'c1' as never, content: [], isError: true }, { surfaceOp: 'append' })
     session.append('tool/result', { turn: 1, step: 1, callId: 'c2' as never, content: [], isError: false }, { surfaceOp: 'append' })
-    session.append('prompt/blocked', { content: [], source: { kind: 'user' }, reason: 'vetoed' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
     session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
@@ -116,7 +115,6 @@ describe('TelemetryCoordinator capture', () => {
       ['turn/start', 'info'],
       ['tool/result', 'error'],
       ['tool/result', 'info'],
-      ['prompt/blocked', 'warn'],
       ['telemetry-test/opaque', 'info'],
       ['turn/end', 'error'],
     ])
@@ -403,22 +401,25 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     expect(backend.ledger().map(r => r.attributes['event.type'])).toEqual(['turn/end'])
   })
 
-  it('relays agent/error as an ops record with identity and structured name', async () => {
+  it.each([
+    ['Error values', new TypeError('adapter exploded'), 'TypeError', 'adapter exploded'],
+    ['non-Error values', 'plain failure', 'Error', 'plain failure'],
+  ])('relays agent/error %s as an ops record with normalized identity', async (_label, error, name, message) => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx, 'erring')
     // Only the members the relay reads; the full Agent surface is irrelevant here.
     const agent = { id: 'agent-1', session } as Agent
-    ctx.emit('agent/error', agent, 3, 2, new TypeError('adapter exploded'))
+    ctx.emit('agent/error', agent, 3, 2, error)
     const record = backend.records.find(r => r.channel === 'ops')!
     expect(record.severity).toBe('error')
     expect(record.attributes).toMatchObject({
       'telemetry.op': 'agent-error',
       'session.id': 'erring',
       'agent.id': 'agent-1',
-      'error.name': 'TypeError',
+      'error.name': name,
       turn: 3,
       step: 2,
     })
-    expect(record.body).toEqual({ name: 'TypeError', message: 'adapter exploded' })
+    expect(record.body).toEqual({ name, message })
   })
 })

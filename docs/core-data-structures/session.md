@@ -12,28 +12,17 @@ The append-only event types. Merge-extensible: a plugin declares extra event typ
 
 ```ts type-equiv
 /**
- * Shared payload for user, injected-context, and steering prompt messages. A
+ * Shared payload for user, injected-context, and steering messages. A
  * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
  * steering all project into the model transcript as verbatim user-role content;
  * they are told apart by `source` (a non-`user` kind marks injected context),
- * not by event type. `meta` carries durable model-hidden producer state.
+ * not by event type.
  */
-interface PromptMessageData {
-  /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
+interface UserMessageData {
+  /** Exact model-facing blocks. */
   content: ContentBlock[]
-  /** Producer provenance for the direct prompt. */
+  /** Producer provenance. */
   source: MessageSource
-  /** Present only when prompt-prefix contexts were baked into `content`. */
-  envelope?: PromptMessageEnvelope
-  /**
-   * Opaque durable JSON state retained on the event but hidden from the model
-   * projection. It is the intended channel for a future framing directive (a
-   * producer declares the frame, a dedicated renderer applies it — see the
-   * deferred note in
-   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
-   * so the surface keeps projecting `content` verbatim rather than wrapping it.
-   */
-  meta?: JsonValue
 }
 ```
 
@@ -46,10 +35,7 @@ interface PromptMessageData {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — one claimed queued
-   * message or an idle-time injection. The turn is the durability/replay
-   * boundary: every event sits between a `turn/start` and its matching
-   * `turn/end` (the turn-enclosure invariant).
+   * Opens turn `turn`. `trigger` records what started the model loop.
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
@@ -68,16 +54,10 @@ interface SessionEventMap {
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
    * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` (with a non-`user` kind marking
-   * injected context) is the only channel that tells them apart. An idle
-   * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+   * project their `content` verbatim; `source` tells them apart. An idle
+   * injection may append this event between turns without running the model.
    */
-  'user/message': PromptMessageData
-  /**
-   * Durable record of a prompt veto and its reason. It is log-only: the blocked
-   * prompt never enters the model-visible surface, and its turn runs zero steps.
-   */
-  'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
+  'user/message': UserMessageData
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -114,7 +94,7 @@ interface SessionEventMap {
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': PromptMessageData & { turn: number }
+  'steering/message': UserMessageData & { turn: number }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -125,7 +105,7 @@ interface SessionEventMap {
 }
 ```
 
-`PromptMessageData.content` is always the exact model-facing content. When attached context declares `prompt-prefix` placement, AgentLoop concatenates its blocks, a `## My request:` delimiter, and the effective direct prompt into that array. The optional model-hidden `envelope` retains `displayContent` plus ordered prefix-context source/metadata descriptors, so transcript, title, and re-reference consumers can present the human prompt without changing reconstructable history. `displayPromptContent()` performs that selection and falls back to `content` for ordinary and older events.
+`UserMessageData` is the durable `content` and `source` base shared by ordinary prompts, injected context, and steering. Live inbox events extend the same shape with an `AgentMessageId`; the loop adds only driver-owned routing state while an item remains pending.
 
 ### `OutOfBandSessionEventMap` — narrow late-append opt-in
 
@@ -166,13 +146,13 @@ interface TodoItem {
 
 ### The request header event: `request/header`
 
-The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability Agent Note). A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a later changed request records another full snapshot with reason `'change'`. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
+The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability Agent Note). A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a later changed request records another full snapshot with reason `'change'`. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
 
 ```ts type-equiv
 /**
- * Logged request state outside derived history: call config, system prompt,
- * tools, and prefix. The latest full `request/header` snapshot reconstructs it;
- * canonical empty optional fields are absent.
+ * Logged request state outside derived history: call config, system prompt, and
+ * tools. The latest full `request/header` snapshot reconstructs it; canonical
+ * empty optional fields are absent.
  */
 interface EpochHeader {
   /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
@@ -181,18 +161,10 @@ interface EpochHeader {
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
-  /**
-   * The session prefix: request-only messages sent BEFORE the entire derived
-   * history (the `agent/session-prefix` waterfall's product, composed once
-   * per loop instance and reused for every request it sends). Not session
-   * history — `deriveMessages()` never returns it — so the header is its
-   * only durable record; absent when the instance composed none.
-   */
-  messagePrefix?: Message[]
 }
 ```
 
-Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are absent fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); it is composed once per loop instance and included in every full snapshot that instance records. Legacy v0 logs containing the removed `request/header-delta` event or its full-snapshot `fallback` reason are rejected at seed, append, and persistence-load boundaries rather than replayed incompletely.
+Canonical form represents an empty system prompt or tool list as an absent field, matching how requests are built. Legacy v0 logs containing the removed `request/header-delta` event or its full-snapshot `fallback` reason are rejected at seed, append, and persistence-load boundaries rather than replayed incompletely.
 
 ## `SessionEvent<T>` — one log entry
 
@@ -484,7 +456,7 @@ declare class Session {
 - `user/message` → a user message carrying exact `content`; an optional envelope remains log-only display metadata.
 - `assistant/message` → an assistant message with the event's provider/model provenance and optional adapter-private replay state. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its usage/provenance, but a content-less assistant turn must not enter the provider transcript.
 - `tool/result` → a user message carrying a `tool-result` block.
-- `user/message` (injected context, i.e. non-`user` source) → a user-role message carrying its `content` verbatim at its chronological position. Optional JSON `meta` remains in the event log and is never rendered.
+- `user/message` (injected context, i.e. non-`user` source) → a user-role message carrying its `content` verbatim at its chronological position; provenance and domain data live in its typed source.
 - `steering/message` → a user-role message carrying exact `content` at its chronological position; an optional envelope remains log-only display metadata.
 
 Everything else (`turn/*`, `step/*`, plugin-owned `llm/retry`) is structural and does not project into a message. Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message, so their usage chunk is the durable accounting record. An operational error's step number is on `turn/end.reason` for `kind: 'error'`, with normalized `LlmFailure` facts for a final model-request failure and message/code for other live errors. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
@@ -506,14 +478,12 @@ An explicit `boundary` lets callers fork from a previous completed turn even if 
  */
 interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
+  /** Recovery turn reopened over the repaired current session log. */
+  retry: { kind: 'retry' }
   /**
-   * An out-of-band context injection (`agent.inject()`) made while the agent
-   * was idle. The loop wraps the injected `user/message` (a non-`user` source,
-   * plugin by default) in a one-shot turn (`turn/start` → `user/message` →
-   * `turn/end`) so every event in the log stays turn-enclosed — the
-   * durability/replay boundary is the turn, and a bare event between turns would
-   * otherwise be indistinguishable from a crash tail on reload. The trigger's
-   * `source` mirrors that message's producer.
+   * An out-of-band producer explicitly enclosed injected context in a one-shot
+   * turn. `Agent.inject()` appends idle context directly and does not use this
+   * trigger; the source mirrors the producer of the enclosed `user/message`.
    */
   injection: { kind: 'injection'; source: MessageSource }
 }
@@ -536,7 +506,8 @@ interface TurnEndReasonMap {
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
    * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other turn failures retain their live Error message/code.
+   * as one `failure`; other thrown values retain their rendered message and a
+   * real `HarnessError` code when present.
    */
   error: { kind: 'error'; step: number } & (
     | { failure: LlmFailure; message?: never; code?: never }
@@ -546,11 +517,6 @@ interface TurnEndReasonMap {
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * Policy blocked the turn's claimed prompt before the first step. The
-   * zero-step turn still records a balanced durable boundary and veto reason.
-   */
-  rejected: { kind: 'rejected'; reason: string }
-  /**
    * A persistence backend closed a crash-orphaned turn on reload. The loop never
    * emits this marker, and the events recorded before the crash remain intact.
    */
@@ -558,7 +524,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `rejected` is a zero-step turn whose claimed prompt an `agent/prompt-submit` hook blocked (the ACP bridge maps it to `cancelled`). `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
+`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
 
 ## The turn-enclosure invariant
 
@@ -568,7 +534,7 @@ Every session event lives **inside** a turn (between a `turn/start` and its `tur
 
 A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history), but, like every event, they must sit inside an open turn. The full per-event enumeration — core and plugin-contributed alike, with payloads and provenance — is the generated [persistence log event catalog](../persistence-catalog.md); the compaction seam's `compact/*` semantics are discussed on [compaction.md](compaction.md).
 
-The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `user/message` is the durable evidence — because it has no open turn to enclose one (see [the hook-bridges Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)).
+The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` and the pre-turn `UserPromptSubmit` admission seam get no `hook/*` record because neither has an open turn to enclose one; allowed context is instead evidenced by its sourced `user/message` (see [the hook-bridges Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)).
 
 ## Durability contract
 

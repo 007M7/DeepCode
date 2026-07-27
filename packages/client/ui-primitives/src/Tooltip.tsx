@@ -27,7 +27,8 @@ interface AnchorProps {
  * Attach a hover/focus tooltip to an anchor element.
  * @param props.label - bubble text.
  * @param props.side - placement relative to the anchor (default 'right').
- * @param props.disabled - suppress the bubble while true; the anchor renders identically so toggling never remounts it (which would cut its CSS transitions).
+ * @param props.disabled - suppress the bubble while true; the anchor renders identically so
+ * toggling never remounts it (which would cut its CSS transitions).
  * @param props.children - a single anchor element; its own ref (callback or object) is forwarded alongside the tooltip's.
  * @returns the cloned anchor plus a fixed-position bubble while hovered/focused.
  */

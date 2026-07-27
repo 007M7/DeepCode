@@ -46,7 +46,6 @@ function materializeNode(
         return {
           kind: 'context', seq: event.seq, time: event.time,
           content: event.data.content, source: event.data.source,
-          meta: event.data.meta,
         }
       }
       return {

@@ -553,6 +553,56 @@ describe('ToolRegistry', () => {
     expect(nested.isError ? undefined : nested.value).toBe('')
   })
 
+  it('carries a nested conclusion on the nested result for its composite to forward', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'terminal-nested',
+      async execute(_args, exec) {
+        exec.concludeTurn()
+        return 'terminal'
+      },
+    })
+    // A composite that forwards the marker from the nested result — the Code
+    // Mode dispatch shape. A recovering composite (nested failure swallowed)
+    // has no marker to forward: ToolExecutionFailure types concludesTurn as
+    // never, so only an authoritative nested success can conclude the run.
+    let call = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'composite',
+      async execute(_args, exec) {
+        call += 1
+        const nested = await ctx.tools.execute({
+          signal: exec.signal, callId: CallId(`nested-${call}`), name: 'terminal-nested', arguments: {}, parent: exec.token,
+        })
+        if (nested.concludesTurn) exec.concludeTurn()
+        return nested.isError ? 'nested failed, composite recovered' : 'nested succeeded'
+      },
+    })
+
+    // A policy converts the nested success into an error: the failed result
+    // carries no marker, so the recovering composite does not conclude.
+    const veto = ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name !== 'terminal-nested') return next()
+      return { kind: 'block', feedback: [{ type: 'text', text: 'nested success rejected' }] }
+    })
+    const recovered = await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('composite-vetoed'), name: 'composite', arguments: {},
+    })
+    expect(recovered.isError).toBe(false)
+    expect(recovered.concludesTurn).toBeUndefined()
+    veto()
+
+    // The same nested call succeeding carries the marker; the composite
+    // forwards it onto its own successful result.
+    const concluded = await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('composite-ok'), name: 'composite', arguments: {},
+    })
+    expect(concluded.isError).toBe(false)
+    expect(concluded.concludesTurn).toBe(true)
+  })
+
   it('returns isError results for unknown tools and throwing tools', async () => {
     const ctx = await setup()
     ctx.tools.register({
@@ -878,7 +928,7 @@ describe('ToolRegistry', () => {
       description: 'composite',
       parameters: {},
       async execute(_args, exec) {
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' }, meta: { n: 1 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' } })
         exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' } })
         return [{ type: 'text', text: 'done' }]
       },
@@ -912,7 +962,6 @@ describe('ToolRegistry', () => {
       { kind: 'plugin', plugin: 'wrapper' },
       { kind: 'plugin', plugin: 'post' },
     ])
-    expect(result.additionalContexts?.[0]?.meta).toEqual({ n: 1 })
   })
 
   it('keeps deferred contexts when a composite tool throws, but drops them when the outer call is blocked', async () => {

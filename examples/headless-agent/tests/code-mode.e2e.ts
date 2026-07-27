@@ -314,12 +314,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     ctx = await codeModeHarness(workdir)
     const agent = ctx.agentLoop.create(SessionId('e2e-code-mode'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{
+    agent.followup({ content: [{
       type: 'text',
       text: 'Using one run_code program: run `echo alpha-7` with the bash tool, run `echo beta-9` with the bash tool, '
         + 'then write both outputs joined by a plus sign into combined.txt (bash heredoc or redirect), '
         + 'and return only the joined string.',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     const events: SessionEvent[] = [...agent.session.events]
 
@@ -366,21 +366,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
 
-    handle.agent.followup([{
+    handle.agent.followup({ content: [{
       type: 'text',
       text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, handle.agent)
 
     const events: SessionEvent[] = [...handle.agent.session.events]
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')
     const outerResult = events.find(event => event.type === 'tool/result')
     const workspaceContext = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && typeof event.data.meta === 'object'
-      && event.data.meta !== null
-      && !Array.isArray(event.data.meta)
-      && event.data.meta.kind === 'workspace-instructions')
+      && event.data.source.kind === 'workspace-instructions')
     expect(dispatch).toBeDefined()
     expect(outerResult).toBeDefined()
     expect(workspaceContext).toBeDefined()

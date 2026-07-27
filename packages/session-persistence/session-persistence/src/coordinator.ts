@@ -159,6 +159,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private states = new Map<SessionId, SessionState>()
   /** Lifecycle and write-behind state keyed by the exact live Session. */
   private live = new Map<Session, LiveSessionState>()
+  /** Exact disposed lifecycles whose eager tail is still draining. */
+  private retirements = new Map<SessionId, Promise<void>>()
   /** Cold loads currently reserving an id across backend reads and repair writes. */
   private coldLoads = new Set<SessionId>()
   /**
@@ -258,6 +260,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @returns the header plus the event log, ending on a balanced `turn/end`.
    */
   async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    await this.retirements.get(id)
     const selected = await this.serialize(id, async () => {
       const live = this.ctx.sessions.get(id)
       if (live !== undefined) return { live }
@@ -279,7 +282,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @returns stored header and events before any synthetic recovery closers.
    */
   inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.serialize(id, () => this.inspectCore(id, signal), signal)
+    // Waiting for an in-flight retirement drain must honor cancellation too: a
+    // slow drain would otherwise pin a cancelled inspect until it finishes,
+    // past the documented boundary. serialize() already races the signal for
+    // the queued read; do the same for the retirement wait.
+    const retired = Promise.resolve(this.retirements.get(id))
+    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
+    return waited.then(() => this.serialize(id, () => this.inspectCore(id, signal), signal))
   }
 
   private async inspectCore(
@@ -462,7 +471,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /** Start and observe one disposed session's final drain. */
   private retire(session: Session): void {
     if (!this.live.has(session)) return
-    void this.retireCore(session).catch((error: unknown) => {
+    const retirement = this.retireCore(session)
+    this.retirements.set(session.id, retirement)
+    const forget = (): void => {
+      if (this.retirements.get(session.id) === retirement) this.retirements.delete(session.id)
+    }
+    void retirement.then(forget, forget)
+    void retirement.catch((error: unknown) => {
       this.ctx.logger.warn(`${this.backend.name}: session "${session.id}" retirement failed: ${String(error)}`)
     })
   }
