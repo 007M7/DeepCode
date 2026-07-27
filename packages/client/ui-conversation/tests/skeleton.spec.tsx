@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+// ConversationRoot skeleton behavior: the ONE resident composer across the
+// hero (blank session) and active phases — same textarea DOM node, machine-
+// owned draft, and the hero workspace picker (switching = retargetWorkspace).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -6,11 +9,22 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, SessionId, SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { EmptyStateProps } from '../src/client/skeleton/EmptyState.tsx'
 import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { createChatStore } from '../src/client/stores.ts'
+import { SessionInputShell } from '../src/client/input/facade.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
-import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
+import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
+import { InputBar } from '../src/client/skeleton/InputBar.tsx'
+import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
+import type { ComposerBarOwnerProps } from '../src/client/contract/slots.ts'
+
+/** Machine-backed wiring over a sink spy. */
+function fakeWiring() {
+  const sink = vi.fn()
+  const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+  return { wiring: shell, sink, shell }
+}
 
 afterEach(cleanup)
 beforeEach(() => { localStorage.clear() })
@@ -26,180 +40,169 @@ function workspace(id = 'w1'): WorkspaceView {
   }
 }
 
-type SessionIntent = NonNullable<SessionListState['intent']>
-type WorkspaceIntent = NonNullable<WorkspaceListState['intent']>
-
-const workspaceState = (
-  items: readonly WorkspaceView[], workspaceIntent?: WorkspaceIntent,
-): WorkspaceListState => ({
-  items, intent: workspaceIntent, state: 'idle', phase: 'ready', error: null,
+const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
+  items, state: 'idle', phase: 'ready', error: null,
   baselinesReady: true, recentWorkspaceId: undefined,
 })
-const hook = <T,>(snapshot: T) => <S,>(selector: (state: T) => S): S => selector(snapshot)
 
-function mountEmpty(
-  intent: SessionIntent,
-  items: readonly WorkspaceView[] = [],
-  localWorkspace?: WorkspaceIntent,
-) {
-  const updateSessionPrompt = vi.fn()
-  const sendSession = vi.fn()
-  const startSession = vi.fn()
-  let pickerOwner: unknown
-  const sessionState: SessionListState = {
-    ids: [], byId: {}, current: intent.sessionId, intent, phase: 'ready',
-  }
-  const workspaceIntent = intent.target.kind === 'workspace-intent'
-    ? localWorkspace ?? { name: 'workspace', phase: 'ready' as const }
-    : undefined
-  const view = render(
-    <EmptyState
-      useSessions={hook(sessionState)}
-      useWorkspaces={hook(workspaceState(items, workspaceIntent))}
-      updateSessionPrompt={updateSessionPrompt}
-      sendSession={sendSession}
-      startSession={startSession}
-      renderSlot={((_key: string, owner: unknown) => { pickerOwner = owner; return null }) as EmptyStateProps['renderSlot']}
-    />,
-  )
-  return { view, updateSessionPrompt, sendSession, startSession, pickerOwner: () => pickerOwner }
-}
-
-describe('EmptyState', () => {
-  it('reads the Workspace and Session intents from runtime projections', () => {
-    const b = mountEmpty({
-      sessionId: sid('local-1'), target: { kind: 'workspace-intent' },
-      prompt: 'draft', phase: 'ready',
-    })
-    expect(b.view.getByRole('button', { name: 'Choose workspace' }).textContent).toContain('workspace')
-    fireEvent.click(b.view.getByRole('button', { name: 'Add attachment' }))
-    expect((b.pickerOwner() as { open: boolean }).open).toBe(false)
-    fireEvent.change(b.view.getByPlaceholderText('Describe what you want to build'), { target: { value: 'build it' } })
-    expect(b.updateSessionPrompt).toHaveBeenCalledWith('build it')
-    fireEvent.click(b.view.getByRole('button', { name: 'Send message' }))
-    expect(b.sendSession).toHaveBeenCalledOnce()
-  })
-
-  it('uses useWorkspaces for the selected label and preserves the prompt when retargeting', () => {
-    const first = workspace('first')
-    const b = mountEmpty({
-      sessionId: sid('local-2'), target: { kind: 'workspace', workspaceId: first.workspaceId },
-      prompt: 'keep me', phase: 'ready',
-    }, [first])
-    expect(b.view.getByRole('button', { name: 'Choose workspace' }).textContent).toContain('first')
-    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
-    const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
-    owner.onPick(wid('second'))
-    expect(b.startSession).toHaveBeenCalledWith(wid('second'), 'keep me')
-  })
-
-  it('exposes materialization phase and failure text', () => {
-    const creating = mountEmpty({
-      sessionId: sid('local-3'), target: { kind: 'workspace-intent' },
-      prompt: 'x', phase: 'ready',
-    }, [], { name: 'workspace', phase: 'creating' })
-    expect(creating.view.getByRole('status').textContent).toBe('Creating workspace…')
-    cleanup()
-    const workspaceFailed = mountEmpty({
-      sessionId: sid('local-3'), target: { kind: 'workspace-intent' },
-      prompt: 'x', phase: 'ready',
-    }, [], { name: 'workspace', phase: 'ready', error: 'offline' })
-    expect(workspaceFailed.view.getByRole('alert').textContent).toBe('Workspace creation failed: offline')
-    cleanup()
-    const failed = mountEmpty({
-      sessionId: sid('local-3'), target: { kind: 'workspace', workspaceId: wid('w1') },
-      prompt: 'x', phase: 'ready', error: { step: 'session', message: 'offline' },
-    }, [workspace()])
-    expect(failed.view.getByRole('alert').textContent).toBe('Session creation failed: offline')
-  })
-})
-
-function conversationSnapshot(
-  composerPhase: ConversationSnapshot['composerPhase'],
-  pendingPrompt: ConversationSnapshot['pendingPrompt'] = null,
-): ConversationSnapshot {
+function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], running: false, composerPhase, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt, lastAgentError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
+    openState: 'open', openError: null, hasMore: false, loadingOlder: false,
+    promptError: null, blank: false, lastAgentError: null,
+    ...overrides,
   }
 }
 
-function mountConversation(pendingPrompt: ConversationSnapshot['pendingPrompt'] = null) {
+function mount(snapshot: ConversationSnapshot, workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }]) {
   const root = sid('root')
   const sessions = createSnapshotStore<SessionListState>({
     ids: [root, SID],
     byId: {
-      [root]: { id: root, displayTitle: 'Root', running: false, updatedAt: 1 },
-      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, updatedAt: 2 },
+      [root]: { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 },
+      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, blank: false, updatedAt: 2 },
     },
     current: SID,
-    intent: undefined,
     phase: 'ready',
   })
-  const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState([{ ...workspace('one'), sessionIds: [SID] }]))
-  const session = createSnapshotStore<ConversationSnapshot>(conversationSnapshot(
-    pendingPrompt === null ? 'active' : 'blank', pendingPrompt,
-  ))
+  const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState(workspaceRows))
+  const session = createSnapshotStore<ConversationSnapshot>(snapshot)
+  const useSession = bindSnapshotSelector(session)
   const chat = createChatStore().create()
   chat.actions.setDraft('ordinary draft')
-  const send = vi.fn()
+  const { wiring, sink } = fakeWiring()
+  const useInput = bindSnapshotSelector(wiring.state)
+  const inputActions = wiring.actions
   const stop = vi.fn()
   const open = vi.fn()
-  const updateSessionPrompt = vi.fn()
-  const retrySessionPrompt = vi.fn()
-  const renderSlot = ((_key: string, _owner: object, opts?: { only?: string }) => (
-    <div data-testid={`view-${opts?.only ?? 'all'}`} />
-  )) as ConversationRootProps['renderSlot']
+  const retargetWorkspace = vi.fn()
+  const slotCalls: string[] = []
+  let pickerOwner: unknown
+  const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
+    slotCalls.push(key)
+    if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
+    if (key === 'conversation.session') {
+      return (
+        <ConversationSession
+          sessionId={SID}
+          SessionProvider={({ children }) => children(SID)}
+          useSession={useSession}
+          useSessions={props.useSessions}
+          useWorkspaces={props.useWorkspaces}
+          useInput={useInput}
+          inputActions={inputActions}
+          useStore={bindSnapshotSelector(chat)}
+          actions={chat.actions}
+          renderSlot={renderSlot as never}
+          views={{ list: () => [{ id: 'chat', label: 'Chat' }], subscribe: () => () => {}, version: () => 1 }}
+          bindDraftMirror={write => wiring.bindMirror(write)}
+          open={open}
+        />
+      )
+    }
+    if (key === 'conversation.composer.bar') {
+      // The real entry, mounted the way the outlet composes it: standard kit
+      // (shared with the root's props below) + this entry's inject + owner.
+      const bar = owner as ComposerBarOwnerProps
+      return (
+        <InputBar
+          sessionId={SID}
+          SessionProvider={({ children }) => children(SID)}
+          useSession={useSession}
+          useSessions={props.useSessions}
+          useWorkspaces={props.useWorkspaces}
+          useInput={useInput}
+          inputActions={inputActions}
+          keyboard={wiring}
+          stop={stop}
+          renderSlot={(() => null) as InputBarProps['renderSlot']}
+          {...bar}
+        />
+      )
+    }
+    return <div data-testid={`view-${opts?.only ?? key}`} />
+  }) as ConversationRootProps['renderSlot']
   const renderSlotChain = ((_key, _owner, opts) => opts?.fallback ?? null) as ConversationRootProps['renderSlotChain']
-  const SessionProvider: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
   const props: ConversationRootProps = {
     sessionId: SID,
-    useSession: bindSnapshotSelector(session),
+    SessionProvider: ({ children }) => children(SID),
+    useSession,
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
-    useStore: bindSnapshotSelector(chat),
-    actions: chat.actions,
+    useInput,
+    inputActions,
     renderSlot,
     renderSlotChain,
-    SessionProvider,
-    views: { list: () => [{ id: 'chat', label: 'Chat' }], subscribe: () => () => {}, version: () => 1 },
-    send,
-    stop,
-    open,
-    updateSessionPrompt,
-    retrySessionPrompt,
+    selectWorkspace: retargetWorkspace,
   }
   const view = render(<ConversationRoot {...props} />)
-  return { view, chat, send, open, updateSessionPrompt, retrySessionPrompt }
+  return {
+    view, chat, sink, open, retargetWorkspace, session, slotCalls,
+    pickerOwner: () => pickerOwner,
+    rerender: () => { view.rerender(<ConversationRoot {...props} />) },
+  }
 }
 
-describe('ConversationRoot draft ownership', () => {
-  it('keeps ordinary per-Session composer text in the chat store and selects through runtime actions', () => {
-    const b = mountConversation()
+describe('ConversationRoot resident composer', () => {
+  it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
+    const b = mount(conversationSnapshot())
     const box = b.view.getByRole('textbox')
     expect((box as HTMLTextAreaElement).value).toBe('ordinary draft')
     fireEvent.change(box, { target: { value: 'ordinary revised' } })
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(b.send).toHaveBeenCalledWith('ordinary revised', 'queue')
+    expect(b.sink).toHaveBeenCalledWith('ordinary revised', 'queue')
     fireEvent.click(b.view.getByRole('button', { name: 'Root' }))
     expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
-  it('reads a retained prompt from useSession and edits/retries it through the scoped Session', () => {
-    const b = mountConversation({
-      workspaceId: wid('one'), text: 'retry me', phase: 'failed',
-      retry: 'send', error: 'offline',
-    })
+  it('hero phase: same textarea, hero chrome, no header, picker switches the workspace', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
+    // Hero chrome present, view ring absent.
+    expect(b.view.getByText("Let's start building")).toBeTruthy()
+    expect(b.view.queryByTestId('view-chat')).toBeNull()
+    // The same machine-backed textarea is live in the hero, and the
+    // persistence mirror stays bound (ConversationSession mounts chrome-less
+    // for blank sessions): hero typing reaches the chat store.
     const box = b.view.getByRole('textbox')
-    expect((box as HTMLTextAreaElement).value).toBe('retry me')
-    expect(b.view.getByRole('alert').textContent).toBe('Message send failed: offline')
-    fireEvent.change(box, { target: { value: 'revised prompt' } })
-    expect(b.updateSessionPrompt).toHaveBeenCalledWith('revised prompt')
-    expect(b.chat.store.getSnapshot().draft).toBe('ordinary draft')
-    fireEvent.keyDown(box, { key: 'Enter' })
-    expect(b.retrySessionPrompt).toHaveBeenCalledOnce()
-    expect(b.send).not.toHaveBeenCalled()
+    fireEvent.change(box, { target: { value: 'draft in hero' } })
+    expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
+    // Picker: open through the chip; a pick switches to the other
+    // workspace's blank session (draft carry is apply-layer wiring).
+    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    const owner = b.pickerOwner() as { open: boolean; onPick(id: WorkspaceId): void }
+    expect(owner.open).toBe(true)
+    owner.onPick(wid('second'))
+    expect(b.retargetWorkspace).toHaveBeenCalledWith(wid('second'))
+  })
+
+  it('textarea DOM identity survives the hero → active flip', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
+    const before = b.view.getByRole('textbox')
+    fireEvent.change(before, { target: { value: 'kept across flip' } })
+    // First message landed: content exists, phase leaves blank.
+    b.session.set(conversationSnapshot({ composerPhase: 'active', blank: false }))
+    b.rerender()
+    const after = b.view.getByRole('textbox')
+    expect(after).toBe(before)
+    expect((after as HTMLTextAreaElement).value).toBe('kept across flip')
+    expect(b.view.queryByText("Let's start building")).toBeNull()
+    expect(b.view.getByTestId('view-chat')).toBeTruthy()
+  })
+
+  it('blank session keeps the interactive picker chip (workspace switchable until the first message)', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
+    const chip = b.view.getByRole('button', { name: 'Choose workspace' })
+    expect((chip as HTMLButtonElement).disabled).toBe(false)
+    expect(b.slotCalls).toContain('conversation.hero.workspace')
+  })
+
+  it('prompt failure renders the promptError strip (ordinary failure, no transaction UI)', () => {
+    const b = mount(conversationSnapshot({
+      promptError: { op: 'send', error: { code: 'offline', message: 'Message send failed' } as never },
+    }))
+    expect(b.view.getByRole('alert').textContent).toContain('Message send failed (offline)')
+    expect(b.view.queryByRole('button', { name: 'Retry' })).toBeNull()
   })
 })

@@ -11,7 +11,6 @@ import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
 import { Notifier } from './notifier.ts'
 import { Session } from './session.ts'
-import type { SessionIntentSnapshot, SessionIntentTarget } from './conversation.ts'
 
 /**
  * List arrival lifecycle, orthogonal to the pull-activity `state` axis:
@@ -23,19 +22,11 @@ import type { SessionIntentSnapshot, SessionIntentTarget } from './conversation.
  */
 export type SessionListPhase = 'pending' | 'ready'
 
-/** Session-owned frontend Intent projected into the global list snapshot. */
-export interface SessionIntentListSnapshot extends SessionIntentSnapshot {
-  sessionId: SessionId
-  prompt: string
-}
-
 /** Immutable session-list snapshot for useSessionList. */
 export interface SessionListSnapshot {
   items: readonly SessionListEntry[]
-  /** Selected real or frontend-only Session id. */
+  /** Selected Session id (validated against items; masked to undefined while its session is off the list). */
   current: SessionId | undefined
-  /** Sole page-local frontend Session projection; its state remains owned by Session. */
-  intent: SessionIntentListSnapshot | undefined
   state: 'idle' | 'loading' | 'error'
   /** Arrival lifecycle (see {@link SessionListPhase}); `state` stays the pull-activity axis. */
   phase: SessionListPhase
@@ -46,6 +37,8 @@ type SessionListMutation =
   | { kind: 'upsert'; summary: SessionSummary }
   | { kind: 'remove'; sessionId: SessionId }
   | { kind: 'status'; sessionId: SessionId; running: boolean }
+  /** Local first-send flip: the sender clears blank without waiting for a host frame. */
+  | { kind: 'engaged'; sessionId: SessionId }
 
 /** Per-session cap for pre-instantiation approval/question buffering (low-frequency frames; a few dozen covers any real backlog). */
 const PENDING_BUFFER_CAP = 32
@@ -76,8 +69,6 @@ export class SessionManager {
   private listMutations: SessionListMutation[] | null = null
 
   private selected: SessionId | undefined
-  private intentSessionId: SessionId | undefined
-  private stopIntentWatch: (() => void) | undefined
 
   private listSnapshotCache: SessionListSnapshot
   /** Entry-identity cache (§C.2 reference stability): list rebuilds reuse the previous entry
@@ -101,86 +92,37 @@ export class SessionManager {
     this.listSnapshotCache = this.buildListSnapshot()
   }
 
-  // ---- Selection and client-local intents ----
+  // ---- Selection ----
 
   /**
-   * Select a real Session and discard the unmaterialized intent.
-   * @param sessionId - listed real Session id.
+   * Select a listed Session.
+   * @param sessionId - listed Session id.
    */
   select(sessionId: SessionId): void {
     if (!this.summaries.some(summary => summary.sessionId === sessionId)) {
       throw new Error(`sessions.select: unknown session ${sessionId}`)
     }
-    this.discardIntent()
     this.selected = sessionId
     this.notifier.notifyNow()
   }
 
-  /** Clear selection and abandon any frontend-only Session. */
+  /** Clear the selection (the layout falls to the no-session view state). */
   clearSelection(): void {
-    this.discardIntent()
     this.selected = undefined
     this.notifier.notifyNow()
   }
 
-  /**
-   * Start a frontend Session against a real or still-local Workspace target.
-   * @param target - real Workspace or the WorkspacesService-owned local target.
-   * @param prompt - optional prompt retained when retargeting from a picker.
-   * @returns the frontend Session object that owns the Intent.
-   */
-  startIntent(target: SessionIntentTarget, prompt = ''): Session {
-    this.discardIntent()
-    const sessionId = `client-session-${crypto.randomUUID()}` as SessionId
-    const session = this.createSession(sessionId, { target, prompt })
-    this.sessions.set(sessionId, session)
-    this.intentSessionId = sessionId
-    this.selected = sessionId
-    this.stopIntentWatch = session.subscribe(() => {
-      if (this.intentSessionId !== sessionId) return
-      if (session.getSnapshot().intent === null) {
-        this.intentSessionId = undefined
-        this.stopIntentWatch?.()
-        this.stopIntentWatch = undefined
-      }
-      this.notifier.markDirty()
-    })
-    this.notifier.notifyNow()
-    return session
-  }
-
-  /**
-   * Resolve the active frontend Session Intent.
-   * @returns the active frontend Session, if one remains selected.
-   */
-  getIntent(): Session | undefined {
-    return this.intentSessionId === undefined ? undefined : this.sessions.get(this.intentSessionId)
-  }
-
-  /**
-   * Update the retained prompt of the active frontend Session.
-   * @param text - exact controlled-input value for the active frontend Session.
-   */
-  updateIntent(text: string): void {
-    const session = this.getIntent()
-    if (session === undefined) return
-    session.updatePendingPrompt(text)
-    // The intent watch defers via markDirty, but the hero composer reads this
-    // prompt from the LIST snapshot as a controlled value: it must flush in
-    // the same tick as onChange (see Notifier.notifyNow) or React rolls the
-    // textarea back and IME composition breaks.
-    this.notifier.notifyNow()
-  }
-
-  private discardIntent(): void {
-    const session = this.getIntent()
-    this.intentSessionId = undefined
-    this.stopIntentWatch?.()
-    this.stopIntentWatch = undefined
-    session?.abandonIntent()
-  }
-
   // ---- Instance management ----
+
+  /**
+   * Drop a session instance (scope-prune companion, decision 12: instance
+   * and scope share one lifecycle). The host session log is the durable
+   * truth — a later get() lazily rebuilds and open() backfills history.
+   * @param sessionId - the session to drop.
+   */
+  drop(sessionId: SessionId): void {
+    this.sessions.delete(sessionId)
+  }
 
   /**
    * Lazy build: return the existing instance or construct one (no auto-open —
@@ -193,31 +135,33 @@ export class SessionManager {
     if (session === undefined) {
       session = this.createSession(sessionId)
       this.sessions.set(sessionId, session)
-      // Sync the running bit from the list snapshot into the new instance (consistency when the list precedes open).
-      const summary = this.summaries.find(s => s.sessionId === sessionId)
-      if (summary !== undefined) session.handleRunning(summary.running)
-      // Replay approval/question frames buffered before instantiation (rpcId verbatim, same semantics as the subscribed baseline replay).
+      // Replay approval/question/queued frames buffered before instantiation (rpcId
+      // verbatim, same semantics as the subscribed baseline replay). Replay happens
+      // BEFORE the running-bit sync: a not-running summary must sweep replayed queue
+      // rows the same way a live status flip would (their retirement events dropped
+      // while the session was uninstantiated).
       const buffered = this.pendingBuffers.get(sessionId)
       if (buffered !== undefined) {
         this.pendingBuffers.delete(sessionId)
         for (const envelope of buffered) session.handleMuxEnvelope(envelope.rpcId, envelope.payload)
       }
+      // Sync the running and blank bits from the list snapshot into the new
+      // instance (consistency when the list precedes open).
+      const summary = this.summaries.find(s => s.sessionId === sessionId)
+      if (summary !== undefined) {
+        session.handleBlank(summary.blank)
+        session.handleRunning(summary.running)
+      }
     }
     return session
   }
 
-  private createSession(
-    sessionId: SessionId,
-    intent?: { target: SessionIntentTarget; prompt: string },
-  ): Session {
+  private createSession(sessionId: SessionId): Session {
     return new Session(sessionId, this.api, {
-      ...(intent === undefined ? {} : { intent }),
-      onPublished: (published) => {
-        this.sessions.set(published.sessionId, published)
-        this.recordMutation({
-          kind: 'upsert',
-          summary: { sessionId: published.sessionId, updatedAt: Date.now(), running: false },
-        })
+      // The sender's local first-send flip mirrors into the list row so the
+      // session surfaces (lists filter on blank) before any host frame lands.
+      onEngaged: (engaged) => {
+        this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
     })
   }
@@ -244,8 +188,13 @@ export class SessionManager {
           this.summaries = summaries
           this.listState = 'idle'
           this.listPhase = 'ready'
-          // Push running bits down to instantiated Sessions (the list is the authoritative summary source).
-          for (const s of this.summaries) this.sessions.get(s.sessionId)?.handleRunning(s.running)
+          // Push running/blank bits down to instantiated Sessions (the list is the authoritative summary source).
+          for (const s of this.summaries) {
+            const session = this.sessions.get(s.sessionId)
+            if (session === undefined) continue
+            session.handleBlank(s.blank)
+            session.handleRunning(s.running)
+          }
         } else {
           this.listState = 'error'
           this.listError = result.error
@@ -266,7 +215,8 @@ export class SessionManager {
 
   /**
    * Contract session.create; on success merge into summaries immediately (no
-   * wait for the next refresh).
+   * wait for the next refresh). A created session is blank by definition
+   * (entity birth precedes the first message).
    * @param opts - target workspace or working directory, plus an optional caller-owned id.
    * @returns the create result.
    */
@@ -274,16 +224,14 @@ export class SessionManager {
     opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {},
   ): Promise<RpcResult<{ sessionId: SessionId }>> {
     try {
+      const shared = opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }
       const payload = opts.workspaceId !== undefined
-        ? { workspaceId: opts.workspaceId, ...(opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }) }
-        : {
-          ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
-          ...(opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }),
-        }
+        ? { workspaceId: opts.workspaceId, ...shared }
+        : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }
       const { result } = await this.api.sessions.create(payload)
       if (result.ok) {
         this.recordMutation({ kind: 'upsert', summary: {
-          sessionId: result.value.sessionId, updatedAt: Date.now(), running: false,
+          sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
           ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
         } })
       } else {
@@ -296,6 +244,7 @@ export class SessionManager {
             sessionId: publishedSessionId,
             updatedAt: Date.now(),
             running: false,
+            blank: true,
           } })
         }
       }
@@ -370,16 +319,31 @@ export class SessionManager {
         this.titleSnapshots.delete(frame.sessionId)
         this.notifier.markDirty()
       }
+      // New mux-generation baseline: buffered session/queued frames belong to
+      // the previous generation and the host is about to resend the live
+      // snapshot — drop them, or every reconnect appends a duplicate batch
+      // (and enough reconnects push real approval/question frames past the
+      // cap). Same re-baseline signal Session uses for its own mirror.
+      const buffered = this.pendingBuffers.get(frame.sessionId)
+      if (buffered !== undefined) {
+        const kept = buffered.filter(item => item.payload.type !== 'session/queued')
+        if (kept.length !== buffered.length) {
+          if (kept.length === 0) this.pendingBuffers.delete(frame.sessionId)
+          else this.pendingBuffers.set(frame.sessionId, kept)
+        }
+      }
     }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
-      // Approval/question frames never hit history: buffer for replay on instantiation;
-      // everything else drops (not instantiated — history fully backfills on open).
+      // Approval/question/queued frames never hit history: buffer for replay on
+      // instantiation; everything else drops (not instantiated — history fully
+      // backfills on open).
       switch (frame.type) {
         case 'approval/requested':
         case 'approval/resolved':
         case 'question/requested':
-        case 'question/resolved': {
+        case 'question/resolved':
+        case 'session/queued': {
           const buffer = this.pendingBuffers.get(frame.sessionId) ?? []
           buffer.push(envelope)
           if (buffer.length > PENDING_BUFFER_CAP) buffer.splice(0, buffer.length - PENDING_BUFFER_CAP)
@@ -402,11 +366,11 @@ export class SessionManager {
     switch (frame.type) {
       case 'host/session-added': {
         this.mergeSummary({
-          sessionId: frame.sessionId, updatedAt: Date.now(), running: false,
+          sessionId: frame.sessionId, updatedAt: Date.now(), running: false, blank: frame.blank,
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
         })
-        this.sessions.get(frame.sessionId)?.handlePublished()
+        this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
         return
       }
       case 'host/session-removed': {
@@ -448,6 +412,7 @@ export class SessionManager {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
+        && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.title === entry.title && prev.depth === entry.depth
       ) return prev
@@ -459,24 +424,13 @@ export class SessionManager {
     }
     const sameOrder = items.length === this.itemsCache.length && items.every((e, i) => e === this.itemsCache[i])
     if (!sameOrder) this.itemsCache = items
-    const intentSession = this.getIntent()
-    const intentState = intentSession?.getSnapshot()
-    const intent = intentSession !== undefined
-      && intentState !== undefined && intentState.intent !== null && intentState.pendingPrompt !== null
-      ? {
-        sessionId: intentSession.sessionId,
-        ...intentState.intent,
-        prompt: intentState.pendingPrompt.text,
-      }
-      : undefined
     const selected = this.selected
-    const current = selected !== undefined && (
-      intent?.sessionId === selected || items.some(item => item.sessionId === selected)
-    ) ? selected : undefined
+    const current = selected !== undefined && items.some(item => item.sessionId === selected)
+      ? selected
+      : undefined
     return {
       items: this.itemsCache,
       current,
-      intent,
       state: this.listState,
       phase: this.listPhase,
       error: this.listError,
@@ -492,18 +446,29 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
       if (existing === undefined) return [mutation.summary, ...summaries]
       const filled: SessionSummary = {
         ...existing,
+        // Blank only lowers: a stale true (session-added racing the local
+        // first send) never re-hides an already-surfaced session.
+        blank: existing.blank && mutation.summary.blank,
         ...(existing.cwd === undefined && mutation.summary.cwd !== undefined ? { cwd: mutation.summary.cwd } : {}),
         ...(existing.parentSessionId === undefined && mutation.summary.parentSessionId !== undefined
           ? { parentSessionId: mutation.summary.parentSessionId } : {}),
       }
-      if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId) return [...summaries]
+      if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId
+        && filled.blank === existing.blank) return [...summaries]
       return summaries.map(summary => summary.sessionId === mutation.summary.sessionId ? filled : summary)
     }
     case 'remove':
       return summaries.filter(summary => summary.sessionId !== mutation.sessionId)
     case 'status':
-      return summaries.map(summary => summary.sessionId === mutation.sessionId && summary.running !== mutation.running
-        ? { ...summary, running: mutation.running }
+      // running:true doubles as the cross-端 blank flip (a blank session
+      // never runs, so the first running frame proves a message landed).
+      return summaries.map(summary => summary.sessionId === mutation.sessionId
+        && (summary.running !== mutation.running || (mutation.running && summary.blank))
+        ? { ...summary, running: mutation.running, blank: summary.blank && !mutation.running }
+        : summary)
+    case 'engaged':
+      return summaries.map(summary => summary.sessionId === mutation.sessionId && summary.blank
+        ? { ...summary, blank: false }
         : summary)
   }
 }

@@ -1,0 +1,30 @@
+/* Neutral stacked strip above the input (queue rows are informational, not a warn state). */
+
+.dock {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-separator-primary);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

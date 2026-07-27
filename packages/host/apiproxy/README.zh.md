@@ -12,7 +12,9 @@
 
 mux 流会在每个已附加会话的订阅基线之后，以及对应的实时原始标题事件之后，立即把基于日志的最新标题投影为经过校验的 `session/title` 控制帧。该投影不会把标题加入 `session.list`；冷会话在其中仍只有元数据，直到打开或恢复操作附加其日志。
 
-Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。前端 Workspace Intent 与 Session Intent 只存在于客户端，没有协议方法。
+Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白——惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
+
+`command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`command.execute` 在宿主侧运行一条斜杠命令行并返回脱耦结果；载体的请求信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
 
 ## 载体层（`/client` + 根路径）
 
