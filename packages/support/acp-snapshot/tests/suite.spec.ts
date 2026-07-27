@@ -458,6 +458,29 @@ describe('refreshFixtureReplacements', () => {
       { from: '/new', to: '/old' },
     ])
   })
+
+  it('stabilizes moved snapshot spill paths by filename while skipping unchanged or unmatched names', () => {
+    const spill = (session: string, hash: string, name: string): string =>
+      `/tmp/dsh-acp-snapshot-spill/session-${session}/${hash}-${name}`
+    const record = (text: string): string =>
+      `${JSON.stringify({ type: 'session', id: 'same', cwd: '/same' })}\n`
+      + `${JSON.stringify({ type: 'tool/result', data: { content: [{ type: 'text', text: `stored at: ${text} ` }] } })}\n`
+    const freshBash = spill('aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'bash.txt')
+    const oldBash = spill('cccccccccccc', 'dddddddddddd', 'bash.txt')
+    const shared = spill('eeeeeeeeeeee', 'ffffffffffff', 'grep.txt')
+    const orphan = spill('111111111111', '222222222222', 'orphan.txt')
+    const logs: HarvestedLog[] = [{
+      id: 'diagnostic',
+      createdAt: 1,
+      content: record(`${freshBash} and ${shared}`),
+    }]
+    const fixtures = [record(`${oldBash} and ${shared} and ${orphan}`)]
+    // bash.txt moved → replaced; grep.txt is identical and orphan.txt has no
+    // fresh counterpart → both skipped.
+    expect(refreshFixtureReplacements(logs, fixtures)).toEqual([
+      { from: freshBash, to: oldBash },
+    ])
+  })
 })
 
 describe('stabilizeRefreshLog', () => {

@@ -22,7 +22,7 @@ AgentLoop 为每个待启动轮次私有地持有一个 `TurnCancellation`。它
 
 显式事件签名保留位置参数形式，并把 `signal` 放在 waterfall（瀑布式事件）的最后一个参数 `next` 之前。提示词提交、请求配置、步骤结果处理、继续决策和终止停止加入已有的步骤前处理、会话前缀、模型生成、工具执行、审批以及 subagent 或工作流请求的显式 signal seam。钩子桥接器也必须提供 `RunHookOptions.signal`，使轮次取消能够到达 Bash 执行器终止进程组并等待其退出的边界。`SystemPrompt.assemble()` 在 `AssembleContext` 中携带 `signal?: AbortSignal`，因为该对象是显式请求值，也可表示轮次之外不携带 signal 的组装。监听器可以配合该 signal 取消，但不得保留它来控制其他轮次。
 
-`ctx.agents` 仍只携带发起 Agent。环境中的 Agent 并不代表存活、当前轮次或取消权限，`agentInterruptReasonOf(signal)` 也只读取其显式参数。并发 Agent 会同时隔离各自的发起方身份和轮次 signal；子驱动会遮蔽父发起方，而父请求 signal 仍通过 subagent seam 传递。
+`ctx.agents` 仍只携带发起 Agent。环境中的 Agent 并不代表存活、当前轮次或取消权限。cause 读取器是 loop 私有的，它直接陈述机器私有的 slot 不变量（只有 `cancel()` 会中止轮次控制器，且总是携带规范的冻结 cause），而不是对 reason 做结构化再校验；不存在从任意 signal 读取 cause 的公开辅助函数。并发 Agent 会同时隔离各自的发起方身份和轮次 signal；子驱动会遮蔽父发起方，而父请求 signal 仍通过 subagent seam 传递。
 
 Agent dispose（资源释放）会在活跃持有者上请求仅用于运行时的 `{ kind: 'disposed' }` 中断。若取消已经先占用控制器的中断原因，该原因便无法改写，因此终态分类会先检查生命周期状态：资源释放结果优先，之后受支持的 `user` 或 `parent` 取消原因形成粗粒度的中止结果，其他异常保留现有错误路径。ACP（Agent Client Protocol）取消映射为 `user`；进程内 spawn 和 fork 的传播映射为 `parent`。远程 ACP subagent 保持现有协议。
 

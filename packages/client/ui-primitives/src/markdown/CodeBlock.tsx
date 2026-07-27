@@ -20,6 +20,9 @@ export interface CodeBlockProps {
 
 /** @returns true only when the host accepted the write. */
 async function writeClipboard(text: string): Promise<boolean> {
+  // lib.dom types clipboard non-optional, but insecure contexts omit it —
+  // that runtime gap is exactly what this guard detects.
+  /* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text)
@@ -30,6 +33,9 @@ async function writeClipboard(text: string): Promise<boolean> {
     }
   }
   // jsdom and older hosts: best-effort execCommand path when present.
+  // execCommand('copy') is the only clipboard fallback where the async API
+  // is missing; deprecated but deliberately retained.
+  /* eslint-disable @typescript-eslint/no-deprecated */
   const exec = typeof document.execCommand === 'function'
     ? document.execCommand.bind(document)
     : undefined
@@ -48,6 +54,7 @@ async function writeClipboard(text: string): Promise<boolean> {
   } finally {
     el.remove()
   }
+  /* eslint-enable @typescript-eslint/no-deprecated */
 }
 
 export function CodeBlock({ code, lang, className }: CodeBlockProps) {
@@ -64,20 +71,20 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
     void writeClipboard(text).then((ok) => {
       if (!ok) return
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1000)
+      window.setTimeout(() => { setCopied(false) }, 1000)
     })
   }, [copied, trimmed])
 
   const body = html === undefined
     ? (
-        <pre className={css.plain}><code>{trimmed}</code></pre>
-      )
+      <pre className={css.plain}><code>{trimmed}</code></pre>
+    )
     : (
-        // eslint-disable-next-line react/no-danger -- shiki's output is a static
-        // span tree it generated from `code` (no user HTML passes through), the
-        // sanctioned innerHTML consumption path per shiki's own docs.
-        <div dangerouslySetInnerHTML={{ __html: html }} />
-      )
+  // shiki's output is a static span tree it generated from `code` (no user
+  // HTML passes through), the sanctioned innerHTML consumption path per
+  // shiki's own docs.
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    )
 
   return (
     <div ref={rootRef} className={clsx(css.block, 'md-code-block', className)}>

@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:337`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:366`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:398`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:269`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:282`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:311`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -150,7 +150,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -166,7 +166,7 @@ Source: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/types.ts)
 
 ### `compact/*`
 
@@ -315,22 +315,6 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 
 Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
 
-### `prompt/*`
-
-#### `prompt/blocked` — log-only
-
-```ts persistence-catalog
-/**
- * Durable record of a prompt veto and its reason. It is log-only: the blocked
- * prompt never enters the model-visible surface, and its turn runs zero steps.
- */
-'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
-```
-
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts)
-
 ### `request/*`
 
 #### `request/header` — log-only
@@ -343,7 +327,7 @@ Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:312`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -377,7 +361,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:96`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:95`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -396,10 +380,10 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:44`](../packages
 
 ```ts persistence-catalog
 /** Steering content injected between steps of a running turn. */
-'steering/message': PromptMessageData & { turn: number }
+'steering/message': UserMessageData & { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:305`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -410,7 +394,7 @@ Source: [`packages/core/session/src/types.ts:305`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -419,7 +403,7 @@ Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -432,7 +416,7 @@ Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:307`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -449,7 +433,7 @@ Source: [`packages/core/session/src/types.ts:307`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -526,7 +510,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:295`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -544,23 +528,20 @@ Source: [`packages/core/session/src/types.ts:295`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:249`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
 ```ts persistence-catalog
 /**
- * Opens turn `turn`. `trigger` records what started it — one claimed queued
- * message or an idle-time injection. The turn is the durability/replay
- * boundary: every event sits between a `turn/start` and its matching
- * `turn/end` (the turn-enclosure invariant).
+ * Opens turn `turn`. `trigger` records what started the model loop.
  */
 'turn/start': { turn: number; trigger: TurnTrigger }
 ```
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -572,11 +553,10 @@ Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/
  * (the queued message claimed for this turn), a synthetic `agent.inject()`
  * context (file-change notices, subdir AGENTS.md, skill content, cron
  * notifications, …), or an admitted goal continuation round. All three
- * project their `content` verbatim; `source` (with a non-`user` kind marking
- * injected context) is the only channel that tells them apart. An idle
- * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+ * project their `content` verbatim; `source` tells them apart. An idle
+ * injection may append this event between turns without running the model.
  */
-'user/message': PromptMessageData
+'user/message': UserMessageData
 ```
 
-Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)

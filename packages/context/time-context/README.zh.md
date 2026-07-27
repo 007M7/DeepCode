@@ -20,7 +20,7 @@
 
 ## 时序语义
 
-该插件会前置一个 `agent/pre-step` listener。需要注入时，它会追加一条注入的 `user/message`，通过 `agent.inject()` 完成，时机位于 `step/start` 和普通自动压缩之前，其源为 `{ kind: 'plugin', plugin: 'time-context' }`。被抑制的尝试不追加任何内容。
+该插件会前置一个 `agent/step` listener。需要注入时，它会追加一条注入的 `user/message`，通过 `agent.inject()` 完成，时机位于 `step/start` 和普通自动压缩之前，其源为 `{ kind: 'plugin', plugin: 'time-context' }`。被抑制的尝试不追加任何内容。
 
 正间隔调度会扫描原始持久会话事件，查找最新的上述源 `user/message`，包括已被压缩遮蔽的 reading。因此，调度可以跨轮次和已恢复进程应用，不需要进程本地 cache 状态。它会降低追加频率与历史增长，但绝不移除现有 reading，且每个会话独立调度。
 

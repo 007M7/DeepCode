@@ -7,7 +7,6 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmService, { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -30,17 +29,6 @@ class TransientOnceAdapter extends LlmAdapter {
     yield { type: 'block-end', index: 0, block: { type: 'text', text: 'recovered' } }
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
-}
-
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
-      if (subject === agent && status === 'idle') {
-        dispose()
-        resolve()
-      }
-    })
-  })
 }
 
 afterEach(async () => {
@@ -113,9 +101,8 @@ describe('real Loader composition', () => {
     const adapter = new TransientOnceAdapter()
     loaded.llm.registerAdapter(['mock'], adapter)
     const agent = loaded.agentLoop.create(SessionId('loader-retry'), { provider: 'mock', model: 'mock' })
-    const idle = waitForIdle(loaded, agent)
-    agent.followup([{ type: 'text', text: 'recover' }])
-    await idle
+    agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
+    await agent.whenIdle()
 
     expect(adapter.requests).toBe(2)
     expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(1)

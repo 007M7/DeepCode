@@ -217,15 +217,13 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     expect(flushes).toBe(0)
   })
 
-  it('checkpoints the complete recorded step at agent/post-step', async () => {
+  it('checkpoints before the next agent step', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('post-step'))
     const agent = { session } as Agent
     const flushed: string[] = []
     ctx.on('session/flush', (current) => { flushed.push(current.id) })
-    await agentEvents(ctx, agent).serial(
-      'agent/post-step', 1, 1, new AbortController().signal,
-    )
+    await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
     expect(flushed).toEqual([session.id])
   })
 })

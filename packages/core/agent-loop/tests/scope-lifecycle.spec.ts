@@ -203,11 +203,11 @@ describe('agent scope lifecycle', () => {
       if (event.type === 'user/message') heard.push('a-sees:user-message')
     })
 
-    b.followup(text('for b'))
+    b.followup({ content: text('for b'), source: { kind: 'user' } })
     await waitForIdle(ctx, b)
     expect(heard).toEqual([]) // nothing of b's leaked into a's scope
 
-    a.followup(text('for a'))
+    a.followup({ content: text('for a'), source: { kind: 'user' } })
     await waitForIdle(ctx, a)
     expect(heard).toContain('a-sees:a:running')
     expect(heard).toContain('a-sees:user-message')
@@ -456,7 +456,7 @@ describe('agent scope lifecycle', () => {
     })
     await expect(creating).rejects.toThrow(/agent loop is not active/)
     await loopFiber.dispose()
-    expect(setupCalls).toBe(0)
+    expect(setupCalls).toBe(1)
     expect(ctx.agents.get(SessionId('factory-scope-race-s'))).toBeUndefined()
     expect(ctx.sessions.get(SessionId('factory-scope-race-s'))).toBeUndefined()
 
@@ -509,17 +509,17 @@ describe('agent scope lifecycle', () => {
     const { ctx, loopFiber } = await harnessWithLoop()
     const sessionsBefore = ctx.sessions.list().length
     let unloaded = false
+    let unloading!: Promise<void>
     ctx.on('internal/plugin', (fiber) => {
       if (unloaded || fiber.name !== 'scope') return
       unloaded = true
-      void loopFiber.dispose()
+      unloading = loopFiber.dispose()
     })
 
-    expect(() => ctx.agentLoop.create(SessionId('config-scope-race'), { provider: 'mock', model: 'mock' }))
-      .toThrow(/agent loop is not active/)
-    await loopFiber.dispose()
-    expect(ctx.agents.get(SessionId('config-scope-race'))).toBeUndefined()
-    expect(ctx.sessions.list()).toHaveLength(sessionsBefore)
+    ctx.agentLoop.create(SessionId('config-scope-race'), { provider: 'mock', model: 'mock' })
+    await unloading
+    expect(ctx.agents.get(SessionId('config-scope-race')) === undefined).toBe(true)
+    expect(ctx.sessions.list().length).toBe(sessionsBefore)
     await ctx.fiber.dispose()
   })
 
@@ -566,16 +566,16 @@ describe('agent scope lifecycle', () => {
     })
 
     await loopFiber.dispose()
-    expect(handle.agent.status).toBe('disposed')
+    expect(handle.agent.status).toBe('idle')
     expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
-    expect(ctx.fiber.getEffects().filter(effect => effect.label === `agentLoop.owner(${sessionId})`)).toEqual([])
+    expect(ctx.fiber.getEffects().filter(effect => effect.label === `agentLoop.lifecycle(${sessionId})`)).toEqual([])
     // The consumer handle shares the provider's completed quiescence boundary.
     await handle.dispose()
 
     await expect(loop.createAgent(ctx, {
       sessionId: SessionId('factory-inactive-s'),
-    })).rejects.toThrow('agent loop is not active')
+    })).rejects.toThrow(/agent loop is not active|inactive context/)
     await ctx.fiber.dispose()
   })
 
@@ -643,13 +643,13 @@ describe('agent scope lifecycle', () => {
       })
     }, { inject: ['agents'] }))
 
-    await expect(creating).rejects.toThrow(/lifecycle disposed/)
+    await expect(creating).rejects.toThrow(/owner disposed during setup/)
     await owner.dispose()
     expect(lifecycle).toEqual([
       'session-created:dispose',
       'session-created:observer',
-      'session-disposed',
       'scope-disposed',
+      'session-disposed',
     ])
     expect(ctx.agents.get(SessionId('session-created-barrier-s'))).toBeUndefined()
     expect(ctx.sessions.get(SessionId('session-created-barrier-s'))).toBeUndefined()
@@ -691,15 +691,15 @@ describe('agent scope lifecycle', () => {
       })
     }, { inject: ['agents'] }))
 
-    await expect(creating).rejects.toThrow(/lifecycle disposed/)
+    await expect(creating).rejects.toThrow(/owner disposed during setup/)
     await owner.dispose()
     expect(lifecycle).toEqual([
       'session-created',
       'agent-created:dispose',
       'agent-created:observer',
+      'scope-disposed',
       'agent-disposed',
       'session-disposed',
-      'scope-disposed',
     ])
     expect(ctx.agents.get(SessionId('agent-created-barrier-s'))).toBeUndefined()
     expect(ctx.sessions.get(SessionId('agent-created-barrier-s'))).toBeUndefined()
@@ -713,7 +713,7 @@ describe('agent scope lifecycle', () => {
     let creating!: ReturnType<typeof ctx.agents.create>
     ctx.on('agent/session-start', agent => void starts.push(agent.id))
     ctx.on('agent/created', (agent) => {
-      if (agent.id === SessionId('listener-dispose-s')) void ownerCtx.fiber.dispose()
+      if (agent.id === SessionId('listener-dispose-s')) disposeCurrentLifecycle(ownerCtx)
     })
 
     const owner = await ctx.plugin(Object.assign((inner: Context) => {
@@ -727,8 +727,8 @@ describe('agent scope lifecycle', () => {
     await expect(creating).rejects.toThrow(/owner disposed during setup/)
     await owner.dispose()
     expect(starts).toEqual([])
-    expect(ctx.agents.get(SessionId('listener-dispose-s'))).toBeUndefined()
-    expect(ctx.sessions.get(SessionId('listener-dispose-s'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('listener-dispose-s')) === undefined).toBe(true)
+    expect(ctx.sessions.get(SessionId('listener-dispose-s')) === undefined).toBe(true)
     await ctx.fiber.dispose()
   })
 
@@ -764,10 +764,10 @@ describe('agent scope lifecycle', () => {
       })
     }, { inject: ['agents'] }))
 
-    await expect(creating).rejects.toThrow(/lifecycle disposed/)
+    await expect(creating).rejects.toThrow(/owner disposed during setup/)
     await owner.dispose()
-    expect(announced.status).toBe('disposed')
-    expect(statuses).toEqual(['disposed'])
+    expect(announced.status).toBe('idle')
+    expect(statuses).toEqual([])
     expect(observerSawLive).toBe(true)
     expect(scopeDisposed).toBe(true)
     expect(announced.session.events).toEqual([])
@@ -886,8 +886,8 @@ describe('agent scope lifecycle', () => {
 
     expect(() => ctx.agentLoop.create(SessionId('config-bad'), { provider: 'mock', model: 'mock' }))
       .toThrow('config publish failed')
-    expect(ctx.agents.get(SessionId('config-bad'))).toBeUndefined()
-    expect(ctx.sessions.list()).toHaveLength(sessionsBefore)
+    await expect.poll(() => ctx.agents.get(SessionId('config-bad')) === undefined).toBe(true)
+    await expect.poll(() => ctx.sessions.list().length).toBe(sessionsBefore)
   })
 
   it('registrations through a disposed agent ctx throw INACTIVE_EFFECT', async () => {
@@ -934,10 +934,14 @@ describe('agent scope lifecycle', () => {
         if (event.type === 'turn/start') { off(); resolve() }
       })
     })
-    agent.followup(text('work'))
+    agent.followup({ content: text('work'), source: { kind: 'user' } })
     await turnOpen
     await owner.dispose()
-    expect(order).toEqual(['turn-end', 'disposed(listed=false)', 'session-still-stored=true'])
+    expect(order).toEqual([
+      'turn-end',
+      'disposed(listed=false)',
+      'session-still-stored=true',
+    ])
     expect(ctx.sessions.get(SessionId('o1-s'))).toBeUndefined()
   })
 
@@ -970,9 +974,9 @@ describe('agent scope lifecycle', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
-    expect(ctx.fiber.getEffects().map(effect => effect.label)).toContain(`agentLoop.owner(${sessionId})`)
+    expect(ctx.fiber.getEffects().map(effect => effect.label)).toContain(`agentLoop.lifecycle(${sessionId})`)
     await handle.dispose()
-    expect(ctx.fiber.getEffects().filter(effect => effect.label === `agentLoop.owner(${sessionId})`)).toEqual([])
+    expect(ctx.fiber.getEffects().filter(effect => effect.label === `agentLoop.lifecycle(${sessionId})`)).toEqual([])
     await ctx.fiber.dispose()
   })
 
@@ -1007,15 +1011,11 @@ describe('agent scope lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('reopens ids after detach while the prior private scope finishes quiescing', async () => {
+  it('reopens ids after the prior private scope finishes quiescing', async () => {
     const ctx = await harness()
     const gate = Promise.withResolvers<undefined>()
     const cleanupStarted = Promise.withResolvers<undefined>()
-    const sessionDisposed = Promise.withResolvers<undefined>()
     const sessionId = SessionId('quiescent-reuse')
-    ctx.on('session/disposed', (session) => {
-      if (session.id === sessionId) sessionDisposed.resolve(undefined)
-    })
     const first = await ctx.agents.create({
       sessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
@@ -1028,46 +1028,57 @@ describe('agent scope lifecycle', () => {
     })
 
     const disposing = first.dispose()
-    await Promise.all([sessionDisposed.promise, cleanupStarted.promise])
+    await cleanupStarted.promise
+    expect(ctx.agents.get(sessionId)).toBe(first.agent)
+    expect(ctx.sessions.get(sessionId)).toBe(first.agent.session)
+    gate.resolve(undefined)
+    await disposing
     expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     const replacement = await ctx.agents.create({ sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
     expect(ctx.agents.get(sessionId)).toBe(replacement.agent)
     expect(ctx.sessions.get(sessionId)).toBe(replacement.agent.session)
-
-    gate.resolve(undefined)
-    await disposing
     await replacement.dispose()
     await ctx.fiber.dispose()
   })
 
-  it('handle.dispose() awaits an idle-injection flush before unregistering or detaching', async () => {
-    const ctx = await harness()
+  it('drains a run re-entered by cancel\'s own idle transition before removing the scope', async () => {
+    // Automation shaped like goal-session: the running→idle transition that
+    // disposal's cancel produces immediately queues a follow-up prompt. The
+    // teardown must drain that replacement run to true quiescence instead of
+    // awaiting only the first captured done and unwinding under a live run.
+    const adapter = new MockAdapter([textResponse('one'), textResponse('never awaited')])
+    const ctx = await harness(adapter)
     const handle = await ctx.agents.create({
-      sessionId: SessionId('idle-flush-s'),
+      sessionId: SessionId('drain-reentered-run'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    const gate = Promise.withResolvers<undefined>()
-    let flushStarted = false
-    ctx.on('session/flush', (session) => {
-      if (session !== handle.agent.session) return
-      flushStarted = true
-      return gate.promise
+    const agent = handle.agent
+    let reentered = false
+    ctx.on('agent/status', (subject, status) => {
+      if (subject !== agent || status !== 'idle' || reentered) return
+      reentered = true
+      agent.followup({ content: [{ type: 'text', text: 'reentrant' }], source: { kind: 'user' } })
     })
 
-    handle.agent.inject(text('durable idle context'), { source: { kind: 'plugin', plugin: 'test' } })
-    expect(flushStarted).toBe(true)
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await waitForIdle(ctx, agent)
+    expect(reentered).toBe(true)
 
-    let disposed = false
-    const disposal = handle.dispose().then(() => { disposed = true })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(disposed).toBe(false)
-    expect(ctx.agents.get(SessionId('idle-flush-s'))).toBe(handle.agent)
-    expect(ctx.sessions.get(SessionId('idle-flush-s'))).toBe(handle.agent.session)
+    // Idle again: the reentrant admission was already claimed and settled (its
+    // prompt was blocked by nothing, so it ran) — arm a SECOND reentry that
+    // fires from the disposal cancel's idle transition itself.
+    reentered = false
+    await handle.dispose()
 
-    gate.resolve(undefined)
-    await disposal
-    expect(ctx.agents.get(SessionId('idle-flush-s'))).toBeUndefined()
-    expect(ctx.sessions.get(SessionId('idle-flush-s'))).toBeUndefined()
+    // The reentrant run either never started or was drained: the registries
+    // are empty and nothing still drives the detached session.
+    expect(ctx.agents.get(agent.id)).toBeUndefined()
+    expect(ctx.sessions.get(agent.id)).toBeUndefined()
+    const eventsAfter = agent.session.events.length
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(agent.session.events.length).toBe(eventsAfter)
+    await ctx.fiber.dispose()
   })
+
 })

@@ -32,6 +32,7 @@ const changeSource = {
   goalId: change.goal.id,
   revision: change.goal.revision,
   round: 0,
+  change,
 } as const
 
 function view(roundsStarted: number): GoalView {
@@ -43,7 +44,6 @@ function appendChange(session: Session): void {
   session.append('user/message', {
     content: renderGoalChange(change),
     source: changeSource,
-    meta: change as never,
   }, { surfaceOp: 'append' })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
@@ -129,7 +129,6 @@ describe('goal-session prompt invariants', () => {
     session.append('user/message', {
       content: [{ type: 'text', text: 'counterfeit goal state' }],
       source: changeSource,
-      meta: change as never,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     appendRound(session, 2)

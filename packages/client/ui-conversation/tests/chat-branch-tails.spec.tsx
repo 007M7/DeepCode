@@ -103,7 +103,7 @@ describe('MessageItem arms', () => {
 
   it('context and unknown nodes render their JSON rows', () => {
     const ctxView = render(
-      <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null, meta: { k: 1 } } as never} />,
+      <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null } as never} />,
     )
     expect(ctxView.getByText(/上下文注入/)).toBeTruthy()
     const unknownView = render(

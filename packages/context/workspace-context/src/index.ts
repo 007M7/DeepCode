@@ -1,7 +1,7 @@
 /**
  * Workspace instruction loader for AGENTS.md-compatible files.
  *
- * Baseline instructions are frozen into `agent/session-prefix`; successful fs
+ * Baseline instructions enter durable context before the first request; successful fs
  * tool touches reconcile nested, changed, and removed instructions through
  * `tools/post-execute` for the next model request. Plugin lifecycle reads use
  * the optional `ctx.fs` provider, so providerless products mount it as a no-op.
@@ -11,7 +11,6 @@
 
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { Message } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
 import { loadBaselineInstructionSet } from './files.ts'
@@ -44,27 +43,53 @@ export type {
 export { renderWorkspaceContext } from './render.ts'
 export type { RenderedWorkspaceContext, TruncatedInstruction } from './render.ts'
 
+function hasVisibleBaseline(agent: Agent): boolean {
+  return agent.session.surface.nodes.some((seq) => {
+    const event = agent.session.events[seq]
+    return event?.type === 'user/message'
+      && event.data.source.kind === 'workspace-instructions'
+      && event.data.source.baseline === true
+  })
+}
+
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
   const pendingNestedChanges = new WeakMap<object, Map<string, PendingInstructionChange>>()
-  const baselineInstructionStates = new WeakMap<object, Map<string, WorkspaceInstructionChange>>()
+  const baselineSessions = new WeakSet<object>()
   const instructionVersions: InstructionVersionCache = new WeakMap()
   const pendingVersionUpdates = new Map<ToolExecutionToken, InstructionVersionUpdate[]>()
+  const baselineLoaded = new WeakSet<object>()
+  // Sessions whose lifecycle start this mount witnessed. A startup or resume
+  // emits agent/session-start before the first step; a hot remount attaches to
+  // an already-live session and never sees it. Resumes always re-compose the
+  // baseline from current files. Hot remounts retain a baseline only while its
+  // typed event remains model-visible.
+  const lifecycleWitnessed = new WeakSet<object>()
   const pendingByParent = new Map<ToolExecutionToken, {
     agent: Agent
     changes: WorkspaceInstructionChange[]
     versionUpdates: InstructionVersionUpdate[]
   }>()
 
+  ctx.on('agent/session-start', (agent: Agent) => {
+    lifecycleWitnessed.add(agent.session)
+  })
+
   ctx.on('session/event', (session, event) => {
     observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
   })
 
-  ctx.on('agent/session-prefix', async (agent: Agent, _prefix, signal, next): Promise<Message[]> => {
-    const rest = await next()
-    if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) return rest
+  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
+    if (baselineLoaded.has(agent.session)) return
+    if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
+      baselineLoaded.add(agent.session)
+      return
+    }
     const fileSystem = ctx.get('fs')
-    if (fileSystem === undefined) return rest
+    if (fileSystem === undefined) {
+      baselineLoaded.add(agent.session)
+      return
+    }
     /* v8 ignore next -- normal agents carry an absolute session cwd. */
     const cwd = agent.session.header.cwd ?? process.cwd()
     const instructions = await loadBaselineInstructionSet({
@@ -78,27 +103,34 @@ export function apply(ctx: Context, config: Config): void {
       signal,
     }, fileSystem)
     const baseline = baselineInstructionState(instructions?.included ?? [])
-    baselineInstructionStates.set(agent.session, baseline.changes)
+    baselineSessions.add(agent.session)
     instructionVersions.set(agent.session, baseline.versions)
 
     const update = await reconcileInstructionContext(
       agent,
       resolved,
       pendingNestedChanges,
-      baselineInstructionStates,
       instructionVersions,
       fileSystem,
       { includeBaselineScopes: false, signal },
     )
     if (update !== undefined) {
-      agent.inject(update.context.content, {
-        source: update.context.source,
-        meta: update.context.meta,
-      })
+      agent.inject({ content: update.context.content, source: update.context.source })
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
-    if (instructions === undefined || instructions.rendered.text.length === 0) return rest
-    return [workspaceContextMessage(instructions.rendered.text), ...rest]
+    const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent)
+    if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
+      const baselineMessage = workspaceContextMessage(instructions.rendered.text)
+      agent.inject({
+        content: baselineMessage.content,
+        source: {
+          kind: 'workspace-instructions',
+          baseline: true,
+          changes: [...baseline.changes.values()],
+        },
+      })
+    }
+    baselineLoaded.add(agent.session)
   })
 
   ctx.on('tools/post-execute', async (
@@ -122,7 +154,7 @@ export function apply(ctx: Context, config: Config): void {
       result,
       resolved,
       pendingNestedChanges,
-      baselineInstructionStates,
+      baselineSessions,
       instructionVersions,
       fileSystem,
     )

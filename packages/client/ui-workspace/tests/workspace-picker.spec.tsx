@@ -16,7 +16,9 @@ function workspace(id: string, title = id): WorkspaceView {
     createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
   }
 }
-const hook = <T,>(snapshot: T) => <S,>(selector: (state: T) => S): S => selector(snapshot)
+function hook<T>(snapshot: T) {
+  return function select<S>(selector: (state: T) => S): S { return selector(snapshot) }
+}
 const sessions: SessionListState = {
   ids: [], byId: {}, current: undefined, phase: 'ready',
 }
@@ -131,8 +133,8 @@ describe('WorkspacePicker', () => {
     const pending = new Promise<string | null>((settle) => { resolve = settle })
     const b = mount([], vi.fn(), vi.fn(() => pending))
     chooseItem('Open local folder…')
-    expect((screen.getByRole('menuitem', { name: 'Open local folder…' }) as HTMLButtonElement).disabled).toBe(true)
-    expect((screen.getByRole('menuitem', { name: 'Create a new workspace' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Open local folder…' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(true)
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open local folder…' }))
     expect(b.pickDirectory).toHaveBeenCalledTimes(1)
     await act(async () => { resolve(null); await pending })
@@ -159,7 +161,7 @@ describe('WorkspacePicker', () => {
     chooseItem('Create a new workspace')
     fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: ' Alpha ' } })
     expect(screen.getByRole('alert').textContent).toBe('A workspace named “Alpha” already exists.')
-    expect((screen.getByRole('button', { name: 'Create workspace' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Create workspace' }).disabled).toBe(true)
     fireEvent.keyDown(screen.getByLabelText('New workspace name'), { key: 'Enter' })
     expect(b.createWorkspace).not.toHaveBeenCalled()
   })

@@ -38,7 +38,7 @@ Depth enforcement is internal to `startInProcessRun`: it reads the parent depth 
 - An order-190 system-prompt section tells the child that the tool call is the terminal answer.
 - Both contributions are ordinary child-scoped registrations. An expert `system-prompt/assemble` listener may replace them and therefore owns preserving the structured-output protocol for that child.
 - A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
-- A monotonic tool guard blocks later calls after capture, and `agent/turn-stop` ends the turn after the structured result commits.
+- A monotonic tool guard blocks later calls after capture, and the structured-output execution's `concludeTurn()` marker ends the turn after the result commits.
 
 A clean turn that never commits the required structured value reports `error`; the driver does not re-prompt. All registrations ride the child fiber and disappear with it.
 

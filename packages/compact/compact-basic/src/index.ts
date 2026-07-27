@@ -111,6 +111,8 @@ export class BasicCompactService extends CompactService {
   readonly config: ResolvedConfig
 
   private readonly warnedPressureConfigTargets = new Set<string>()
+  private readonly overflowRetries = new WeakMap<Agent, number>()
+  private readonly overflowAgents = new WeakMap<Session, Agent>()
 
   constructor(ctx: Context, config: BasicCompactConfig = {}) {
     super(ctx)
@@ -119,8 +121,8 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Register the automatic post-step pressure and context-overflow recovery
-   * listeners. `compactIfNeeded` stays dynamically dispatched so subclass
+   * Register automatic between-step pressure and model-request overflow
+   * recovery. `compactIfNeeded` stays dynamically dispatched so subclass
    * overrides are honored at event time.
    */
   private _registerAutomaticCompaction(): void {
@@ -133,7 +135,7 @@ export class BasicCompactService extends CompactService {
       )
     }
 
-    ctx.on('agent/post-step', async (
+    ctx.on('agent/step', async (
       agent: Agent,
       _turn: number,
       _step: number,
@@ -142,15 +144,27 @@ export class BasicCompactService extends CompactService {
       if (signal.aborted) return
       try {
         const result = await this.compactIfNeeded(agent, 'pressure', signal)
-        if (result !== null) logResult(result, 'post-step pressure')
+        if (result !== null) logResult(result, 'step pressure')
       } catch (error: unknown) {
         if (error instanceof TargetPressureConfigError) {
           if (this.warnedPressureConfigTargets.has(error.targetKey)) return
           this.warnedPressureConfigTargets.add(error.targetKey)
         }
         const message = error instanceof Error ? error.message : String(error)
-        ctx.logger.warn(`post-step compaction failed: ${message}; continuing the turn`)
+        ctx.logger.warn(`step compaction failed: ${message}; continuing the turn`)
       }
+    })
+
+    ctx.on('agent/settled', (agent) => {
+      this.overflowRetries.delete(agent)
+    })
+
+    // A successful response starts a fresh overflow-recovery sequence even
+    // when tool calls continue the same turn into another request.
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'assistant/message') return
+      const agent = this.overflowAgents.get(session)
+      if (agent !== undefined) this.overflowRetries.delete(agent)
     })
 
     ctx.on('agent/request-error', async (
@@ -159,18 +173,16 @@ export class BasicCompactService extends CompactService {
       _step,
       _error,
       failure,
-      priorFailures,
       signal,
       next,
     ) => {
-      const priorOverflowFailures = priorFailures.filter(
-        item => item.code === CONTEXT_WINDOW_EXCEEDED_CODE,
-      ).length
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
+      this.overflowAgents.set(agent.session, agent)
       const target = routedTarget(agent.session)
       if (target === undefined) return next()
       const policy = resolveTargetPolicy(this.config, target)
-      if (priorOverflowFailures >= policy.maxOverflowRetries) return next()
+      const retries = this.overflowRetries.get(agent) ?? 0
+      if (retries >= policy.maxOverflowRetries) return next()
 
       const generation = agent.session.surface.replaceGeneration
       let result: CompactionResult | null
@@ -181,27 +193,29 @@ export class BasicCompactService extends CompactService {
         // A model-free prune can land before later summary work fails. That
         // durable reduction is sufficient retry proof; do not discard it just
         // because the optional second phase threw. Cancellation still wins.
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while recovery is awaited.
         if (!signal.aborted && agent.session.surface.replaceGeneration > generation) {
           ctx.logger.warn(
             `context-overflow compaction failed after durable surface progress: ${message}; `
             + 'retrying from the replacement surface',
           )
-          return { action: 'retry' }
+          this.overflowRetries.set(agent, retries + 1)
+          return { kind: 'retry' }
         }
         ctx.logger.warn(
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while recovery is awaited.
           `context-overflow compaction failed: ${message}; ${signal.aborted
             ? 'cancellation prevents retry'
             : 'preserving the original request error'}`,
         )
         return next()
       }
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while compaction is awaited.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while compaction is awaited.
       if (signal.aborted
         || agent.session.surface.replaceGeneration <= generation) return next()
       if (result !== null) logResult(result, 'context overflow recovery')
-      return { action: 'retry' }
+      this.overflowRetries.set(agent, retries + 1)
+      return { kind: 'retry' }
     })
   }
 
@@ -228,12 +242,12 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Compact for replayed post-step pressure or one provider-confirmed context
+   * Compact for replayed step-boundary pressure or one provider-confirmed context
    * overflow. Both triggers price the latest durable routed request envelope;
    * overflow bypasses the normal threshold and retained-tail policy so it can
    * force one useful balanced reduction.
    * @param agent - agent whose latest durable routed request is measured.
-   * @param trigger - normal post-step pressure or context-overflow recovery.
+   * @param trigger - normal step-boundary pressure or context-overflow recovery.
    * @param signal - live turn cancellation signal forwarded to summarization.
    * @returns the latest summary compaction result, or `null` when no summary ran.
    */

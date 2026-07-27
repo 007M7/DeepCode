@@ -71,7 +71,7 @@ export function WorkspaceCreateFlow({
 
   const items: MenuEntry[] = [
     ...workspaces.map(workspace => ({
-      id: workspace.workspaceId as string,
+      id: workspace.workspaceId,
       label: workspace.title,
       icon: <IconFolderClose16 size={16} />,
       disabled: pickingFolder,
@@ -161,8 +161,8 @@ export function WorkspaceCreateFlow({
         title={folderConflict ? 'A workspace with this name already exists' : 'Couldn’t open folder'}
         footer={(
           <>
-            <Button variant="outline" className={css.modalAction!} onClick={closeModal}>Cancel</Button>
-            <Button variant="primary" className={css.modalAction!} onClick={openLocalFolder}>Choose again</Button>
+            <Button variant="outline" className={css.modalAction} onClick={closeModal}>Cancel</Button>
+            <Button variant="primary" className={css.modalAction} onClick={openLocalFolder}>Choose again</Button>
           </>
         )}
       >
@@ -179,10 +179,10 @@ export function WorkspaceCreateFlow({
         description="The name is used for both the workspace and its new folder."
         footer={(
           <>
-            <Button variant="outline" className={css.modalAction!} disabled={creating} onClick={closeModal}>Cancel</Button>
+            <Button variant="outline" className={css.modalAction} disabled={creating} onClick={closeModal}>Cancel</Button>
             <Button
               variant="primary"
-              className={css.modalAction!}
+              className={css.modalAction}
               disabled={creating || normalizedWorkspaceName === '' || duplicateWorkspaceName}
               onClick={confirmCreate}
             >
