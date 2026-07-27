@@ -565,18 +565,19 @@ Requires: `llm`
 /**
  * Plugin config, validated by the same-named schemastery schema. Every field
  * is optional in yml: credentials/endpoint fall back to the environment (a
- * missing API key fails plugin load, not the first call), and omitted
- * thinking fields send nothing on the wire, so the provider default applies.
+ * missing API key fails plugin load, not the first call), omitted thinking
+ * mode uses the provider default, and omitted reasoning effort resolves to
+ * `high`.
  */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Thinking-mode default for every request (provider default: enabled). */
+  /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
-  /** Thinking effort (only meaningful with thinking enabled). */
-  reasoningEffort?: 'high' | 'max'
+  /** Default thinking effort (default `high`); `off` disables thinking per request. */
+  reasoningEffort?: 'off' | 'high' | 'max'
   /** Positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
@@ -598,7 +599,7 @@ export interface DeepSeekCatalogModel {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:34`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:35`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -622,7 +623,7 @@ export interface PiAiProviderProfile {
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
-  reasoning?: ThinkingLevel
+  reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
   thinkingBudgets?: ThinkingBudgets
   /** Prompt-cache retention preference. */
@@ -638,7 +639,7 @@ export interface PiAiProviderProfile {
 }
 ```
 
-Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `ThinkingLevel` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
+Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
 Source: [`packages/llm/llm-pi-ai/src/config.ts:48`](../packages/llm/llm-pi-ai/src/config.ts)
 
@@ -688,7 +689,7 @@ export interface ReplayModelConfig {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:590`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:598`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -1781,7 +1782,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:270`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:273`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 

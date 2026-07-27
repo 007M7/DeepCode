@@ -17,7 +17,7 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
     apiKey: !!js process.env.DEEPSEEK_API_KEY    # or rely on the env fallback
     baseURL: !!js process.env.DEEPSEEK_BASE_URL  # default: https://api.deepseek.com
     thinking: enabled        # optional; provider default is enabled
-    reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
+    reasoningEffort: high    # optional; off | high | max — omitted ⇒ high
     streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
     defaultContextWindow: 256000 # optional positive-integer fallback for models without an exact value
     models:                  # optional; defaults to V4 Flash and V4 Pro
@@ -30,11 +30,11 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
 
 The plugin registers the single provider route `deepseek`. A request selects it with `provider: deepseek`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash` and `deepseek-v4-pro`, each with a 128,000-token context window; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek')` for UI selectors and deployment introspection, but remain advisory: unlisted model ids still pass through unchanged. An omitted entry name defaults to its id.
 
-`contextWindow` is optional per configured model and is not exposed through the advisory catalog. `ctx.llm.resolveModelContext('deepseek', model)` returns an exact model value first, then `defaultContextWindow` for an entry without capacity or an unlisted pass-through id. When neither value exists it returns `undefined` without invalidating routing. Pressure-sensitive plugins therefore get deployment-owned capacity without treating the model selector as authoritative. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
+`contextWindow` is optional per configured model and is not exposed through the advisory catalog. `ctx.llm.resolveModelInfo('deepseek', model).context` returns an exact model value first, then `defaultContextWindow` for an entry without capacity or an unlisted pass-through id. When neither value exists, `context` is absent without invalidating routing. Pressure-sensitive plugins therefore get deployment-owned capacity without treating the model selector as authoritative. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
 
-`reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort` wire field is not sent and the server applies its own default for the model. The only accepted values are `high` and `max` (DeepSeek's official effort levels). It is meaningful only with thinking enabled (the provider default).
+The same exact-model result exposes ordered `off`, `high`, and `max` efforts under `reasoning` for every pass-through model when deployment policy permits thinking. `reasoningEffort` selects the deployment default and falls back to `high` when omitted. `agent/request` can replace it on each conversation step; the resolved value is logged in `request/header`. `high` and `max` enable thinking and serialize as the official top-level `reasoning_effort`; adapter-owned `off` instead serializes `thinking.type: disabled` and omits `reasoning_effort`. An unsupported value fails with `UNSUPPORTED_REASONING_EFFORT` before network I/O.
 
-`thinking`/`reasoningEffort` are adapter-level request defaults serialized as the official top-level `thinking: {type}` / `reasoning_effort` wire fields. They live in adapter config (not `GenerateOptions`) to keep the core vocabulary provider-neutral. A request with `GenerateOptions.purpose: 'session-title'` forces thinking disabled and omits `reasoning_effort`, reserving its bounded output for visible title text without changing conversation or compaction defaults.
+`thinking: disabled` is a deployment lock that publishes only `off` with `off` as its default. Omitting `reasoningEffort` or configuring it as `off` is valid; configuring `high` or `max` fails plugin loading, and a direct per-request attempt to enable thinking fails before network I/O. A request with `GenerateOptions.purpose: 'session-title'` also forces thinking disabled and omits the already-resolved effort, reserving its bounded output for visible title text without changing conversation or compaction defaults.
 
 `streamIdleTimeoutMs` bounds each outstanding provider read, including the initial `fetch`, without counting time the consumer spends between chunks. One stable abort signal reaches the request and body reader for the whole call; expiry stops the transport and throws `LlmError('TIMEOUT')`, while an earlier caller abort throws `LlmError('ABORTED')`. The adapter makes exactly one provider request per `stream()` call; agent-level retry is a separate plugin policy.
 
@@ -45,6 +45,7 @@ Every request carries the shared attribution header from dsh-llm's `attributionH
 ## Wire-format notes (verified live + against the official docs)
 
 - Streaming only (`stream_options.include_usage` always on). `usage` may arrive attached to the finish chunk or as a trailing usage-only chunk — the translator defers both to `[DONE]`, so `usage` always precedes `finish` and nothing follows `finish`.
+- The adapter-owned `off` effort maps to `thinking: {type: 'disabled'}` and never crosses the wire as `reasoning_effort: 'off'`.
 - The first thinking-mode chunk carries `reasoning_content: ""` — handled (no spurious reasoning block).
 - **Reasoning passback rule**: on assistant turns that carried tool calls, `reasoning_content` is serialized back in history (required by the API in thinking mode); on tool-call-free turns it is dropped (ignored anyway — saves tokens).
 - Cache accounting: `cacheReadTokens` ← `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens`; DeepSeek reports no cache-write metric.
@@ -55,7 +56,7 @@ Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `QUOTA` 
 
 ## Testing
 
-Unit suites run against a local `node:http` mock SSE server (no network), including structured HTTP facts, malformed/truncated streams, caller abort, connection failure, and proof that idle timeout aborts the actual body. Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback.
+Unit suites run against a local `node:http` mock SSE server (no network), including dynamic `high`/`off`/`max` selection, structured HTTP facts, malformed/truncated streams, caller abort, connection failure, and proof that idle timeout aborts the actual body. Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback.
 
 ## Model Experience
 
@@ -81,7 +82,7 @@ Reasoning, text, and raw-string tool arguments are translated into harness chunk
 
 #### Token effect
 
-Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input.
+Generated tokens follow the request's logged reasoning effort and `maxTokens`; only loop-retained blocks affect later input.
 
 #### KV Cache effect
 

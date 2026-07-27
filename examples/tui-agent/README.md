@@ -19,7 +19,7 @@ Type a coding task. The agent works through the `read`/`write`/`edit` filesystem
 
 The `todo_write` task tracker is opt-in and not in the shipped config: add `@deepseek-ai/dsh-tool-todo` to `cordis.yml` (or a personal-config overlay under `~/.dsh`) to expose it. Once loaded, the model records a whole-list plan to the session log and the TUI renders it.
 
-The TUI renders Markdown history, reasoning, tool-owned terminal/diff/generic cards, token totals, and — when `todo_write` is loaded — the latest plan. Long tool bodies keep a head/tail preview; Ctrl+O expands or collapses every card. Enter submits or steers while the agent runs, Ctrl+R toggles reasoning, Escape cancels, and `/help` lists commands. `/plan` selects plan mode for the next step; `/plan <message>` also submits the message into that step, while `/plan off` selects the default mode without model input. `/status` expands the current session's identity, activity counts, exact token/cache buckets, context use, and timestamps without interrupting a running turn. `/model` opens a keyboard selector for the current provider catalog; use Up/Down and Enter, or `/model <model>` and `/model <provider>/<model>` for direct selection. `ask_user_question` opens a wide bottom-left keyboard panel with batch progress and numbered options.
+The TUI renders Markdown history, reasoning, tool-owned terminal/diff/generic cards, token totals, and — when `todo_write` is loaded — the latest plan. Long tool bodies keep a head/tail preview; Ctrl+O expands or collapses every card. Enter submits or steers while the agent runs, Ctrl+R toggles reasoning, Escape cancels, and `/help` lists commands. `/plan` selects plan mode for the next step; `/plan <message>` also submits the message into that step, while `/plan off` selects the default mode without model input. `/status` expands the current session's identity, activity counts, exact token/cache buckets, context use, and timestamps without interrupting a running turn. `/model` opens a keyboard selector for the current provider catalog; use Up/Down to focus a model, Shift+Tab to cycle its advertised reasoning efforts, and Enter to select, or use `/model <model>` and `/model <provider>/<model>` for direct selection. `ask_user_question` opens a wide bottom-left keyboard panel with batch progress and numbered options.
 
 ### Resuming a prior session
 
@@ -53,7 +53,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 | Entry | Demonstrates |
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it depends on the Loader's internal module access |
-| `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
+| `llm-deepseek` | the default native adapter |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
 | `tui-agent` (`@deepseek-ai/dsh-tui-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the pi-tui channel + a pre-created `main` agent |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |

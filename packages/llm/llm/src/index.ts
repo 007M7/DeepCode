@@ -10,14 +10,15 @@ import { Context, Service } from 'cordis'
 import type {
   GenerateOptions,
   LlmFailure,
-  LlmModelContext,
   LlmModelInfo,
+  LlmResolvedModelInfo,
   LlmProviderInfo,
   Message,
   StreamChunk,
 } from './types.ts'
 import type { ProviderRequestId } from './brand.ts'
-import { deepFreeze } from './call-config.ts'
+import { callConfigEquals, deepFreeze } from './call-config.ts'
+import type { LlmCallConfig } from './call-config.ts'
 import { HarnessError } from './error.ts'
 import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
 import type { AdapterFailureScope } from './adapter-failure.ts'
@@ -103,6 +104,20 @@ export class LlmError extends HarnessError {
   }
 }
 
+/** One model call whose config and adapter registration were resolved together. */
+export interface PreparedLlmCall {
+  /** Detached, deep-frozen config with any adapter-owned default materialized. */
+  readonly config: LlmCallConfig
+  /**
+   * Dispatch this call once through the registration captured during
+   * preparation. The request's call-config fields must match {@link config};
+   * reuse or mismatch fails with `INVALID_PREPARED_CALL`.
+   * @param options - fully assembled request carrying the prepared config.
+   * @returns the chunk stream, including the `llm/stream` waterfall.
+   */
+  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+}
+
 /**
  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
  * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
@@ -131,17 +146,20 @@ export abstract class LlmAdapter {
   }
 
   /**
-   * Resolve context capacity for one model accepted by this adapter. Absence
-   * means the adapter does not know the capacity, not that routing is invalid.
-   * @param _provider - one provider route owned by this adapter.
-   * @param _model - exact model id passed to {@link GenerateOptions.model}.
-   * @returns provider-owned context metadata, or `undefined` when unavailable.
+   * Resolve all metadata available for one exact model. This query is
+   * independent of the advisory catalog and does not validate request routing.
+   * @param provider - one provider route owned by this adapter.
+   * @param model - exact model id passed to {@link GenerateOptions.model}.
+   * @param _signal - cancellation for this exact-model lookup; asynchronous
+   *   implementations must settle promptly after it aborts.
+   * @returns provider/model identity plus any context and reasoning metadata.
    */
-  resolveModelContext(
-    _provider: string,
-    _model: string,
-  ): Promise<LlmModelContext | undefined> {
-    return Promise.resolve(undefined)
+  resolveModel(
+    provider: string,
+    model: string,
+    _signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model })
   }
 
   /**
@@ -157,7 +175,7 @@ export abstract class LlmAdapter {
  * surface, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
-  private adapters = new Map<string, { adapter: LlmAdapter; provider: LlmProviderInfo }>()
+  private adapters = new Map<string, AdapterRegistration>()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -175,7 +193,7 @@ export class LlmService extends Service {
     const dispose = this.ctx.effect(function* (this: LlmService) {
       if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
       const unique = new Set<string>()
-      const registrations: { adapter: LlmAdapter; provider: LlmProviderInfo }[] = []
+      const registrations: AdapterRegistration[] = []
       for (const provider of providers) {
         if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
         if (unique.has(provider) || this.adapters.has(provider)) {
@@ -240,29 +258,170 @@ export class LlmService extends Service {
   }
 
   /**
-   * Resolve context capacity from the adapter that owns one exact route.
-   * This query is independent of the advisory model catalog: an unlisted model
-   * may return metadata, while `undefined` never rejects later routing.
+   * Resolve and validate all metadata from the adapter that owns one exact
+   * route. The result is detached from adapter-owned objects; catalog
+   * membership remains advisory and does not control request routing.
    * @param provider - registered provider route to inspect.
    * @param model - exact model id passed to the adapter.
-   * @returns detached context metadata, or `undefined` when the adapter has none.
+   * @param signal - optional cancellation for adapter-owned asynchronous lookup.
+   * @returns exact model identity plus available context and reasoning metadata.
    */
-  async resolveModelContext(
+  async resolveModelInfo(
     provider: string,
     model: string,
-  ): Promise<LlmModelContext | undefined> {
-    const context = await this.registration(provider).adapter.resolveModelContext(provider, model)
-    if (context === undefined) return undefined
-    if (!Number.isInteger(context.contextWindow) || context.contextWindow <= 0) {
+    signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo> {
+    return this.resolveModelInfoFor(this.registration(provider), model, signal)
+  }
+
+  private async resolveModelInfoFor(
+    registration: AdapterRegistration,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo> {
+    const provider = registration.provider.id
+    const resolved = await registration.adapter.resolveModel(provider, model, signal)
+    if (
+      typeof resolved.provider !== 'string'
+      || resolved.provider !== provider
+      || typeof resolved.id !== 'string'
+      || resolved.id !== model
+      || typeof resolved.name !== 'string'
+      || resolved.name.length === 0
+      || (resolved.description !== undefined && typeof resolved.description !== 'string')
+    ) {
+      throw new LlmError(
+        `adapter returned invalid exact model metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_INFO',
+      )
+    }
+    const context = resolved.context
+    if (context !== undefined && (!Number.isInteger(context.contextWindow) || context.contextWindow <= 0)) {
       throw new LlmError(
         `adapter returned invalid context metadata for provider "${provider}" model "${model}"`,
         'INVALID_MODEL_CONTEXT',
       )
     }
-    return { contextWindow: context.contextWindow }
+    const info: LlmResolvedModelInfo = {
+      provider,
+      id: model,
+      name: resolved.name,
+      ...resolved.description === undefined ? {} : { description: resolved.description },
+      ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
+    }
+    const reasoning = resolved.reasoning
+    if (reasoning === undefined) return info
+    if (reasoning.efforts.length === 0) {
+      throw new LlmError(
+        `adapter returned invalid reasoning metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_REASONING',
+      )
+    }
+    const seen = new Set<string>()
+    const efforts = reasoning.efforts.map((effort) => {
+      if (
+        typeof effort.id !== 'string'
+        || effort.id.length === 0
+        || typeof effort.name !== 'string'
+        || effort.name.length === 0
+        || (effort.description !== undefined && typeof effort.description !== 'string')
+        || seen.has(effort.id)
+      ) {
+        throw new LlmError(
+          `adapter returned invalid or duplicate reasoning effort metadata for provider "${provider}" model "${model}"`,
+          'INVALID_MODEL_REASONING',
+        )
+      }
+      seen.add(effort.id)
+      return {
+        id: effort.id,
+        name: effort.name,
+        ...effort.description === undefined ? {} : { description: effort.description },
+      }
+    })
+    if (reasoning.defaultEffort !== undefined && !seen.has(reasoning.defaultEffort)) {
+      throw new LlmError(
+        `adapter returned an unknown default reasoning effort for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_REASONING',
+      )
+    }
+    return {
+      ...info,
+      reasoning: {
+        efforts,
+        ...reasoning.defaultEffort === undefined ? {} : { defaultEffort: reasoning.defaultEffort },
+      },
+    }
   }
 
-  private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {
+  /**
+   * Validate a conversation call config against its exact model capability and
+   * materialize an adapter-configured default. Unsupported explicit efforts
+   * reject before provider I/O; no clamping or aliasing is performed. This
+   * standalone query does not bind a later dispatch; use {@link prepareCall}
+   * when logging and streaming must share one adapter registration.
+   * @param config - provider/model route and optional request controls.
+   * @param signal - optional cancellation for adapter-owned capability lookup.
+   * @returns a detached config only when a default must be materialized.
+   */
+  async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig> {
+    return this.resolveCallConfigFor(this.registration(config.provider), config, signal)
+  }
+
+  private async resolveCallConfigFor(
+    registration: AdapterRegistration,
+    config: LlmCallConfig,
+    signal?: AbortSignal,
+  ): Promise<LlmCallConfig> {
+    const reasoning = (await this.resolveModelInfoFor(registration, config.model, signal)).reasoning
+    const requested = config.reasoningEffort
+    if (reasoning === undefined) {
+      if (requested !== undefined) {
+        throw new LlmError(
+          `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${requested}"`,
+          'UNSUPPORTED_REASONING_EFFORT',
+        )
+      }
+      return config
+    }
+    const effective = requested ?? reasoning.defaultEffort
+    if (effective === undefined) return config
+    if (!reasoning.efforts.some(effort => effort.id === effective)) {
+      throw new LlmError(
+        `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
+        'UNSUPPORTED_REASONING_EFFORT',
+      )
+    }
+    return requested === effective ? config : { ...config, reasoningEffort: effective }
+  }
+
+  /**
+   * Resolve one call under its current adapter registration. The returned
+   * one-shot handle keeps that registration across header logging and dispatch,
+   * so HMR cannot combine one adapter's capability result with another adapter.
+   * @param config - provider/model route and optional request controls.
+   * @param signal - optional cancellation for adapter-owned capability lookup.
+   * @returns a prepared config and its registration-bound stream entry point.
+   */
+  async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall> {
+    const registration = this.registration(config.provider)
+    const resolvedConfig = deepFreeze(structuredClone(
+      await this.resolveCallConfigFor(registration, config, signal),
+    ))
+    let dispatched = false
+    return Object.freeze({
+      config: resolvedConfig,
+      stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
+        if (dispatched) {
+          throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')
+        }
+        dispatched = true
+        return this.streamWithRegistration(options, { registration, config: resolvedConfig })
+      },
+    })
+  }
+
+  private registration(provider: string): AdapterRegistration {
     const registration = this.adapters.get(provider)
     if (!registration) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
     return registration
@@ -295,11 +454,27 @@ export class LlmService extends Service {
   private async * adapterStream(
     options: GenerateOptions,
     failures: AdapterFailureScope,
+    prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
   ): AsyncGenerator<StreamChunk> {
     let iterator: AsyncIterator<StreamChunk>
     try {
-      const adapter = this.registration(options.provider).adapter
-      const stream = adapter.stream(this.forAdapter(options, adapter))
+      const registration = prepared?.registration ?? this.registration(options.provider)
+      const resolvedConfig = prepared === undefined
+        ? await this.resolveCallConfigFor(registration, options, options.signal)
+        : prepared.config
+      if (prepared !== undefined && !callConfigEquals(options, resolvedConfig)) {
+        throw new LlmError(
+          'prepared LLM call config changed before adapter dispatch',
+          'INVALID_PREPARED_CALL',
+        )
+      }
+      const resolvedOptions = prepared !== undefined || callConfigEquals(options, resolvedConfig)
+        ? options
+        : Object.isFrozen(options)
+          ? deepFreeze({ ...options, ...resolvedConfig })
+          : { ...options, ...resolvedConfig }
+      const adapter = registration.adapter
+      const stream = adapter.stream(this.forAdapter(resolvedOptions, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {
       throw markLlmAdapterFailure(failures, error)
@@ -339,18 +514,36 @@ export class LlmService extends Service {
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
    * `options.provider`. Replay state is retained only when the same adapter
    * instance owns its historical provider and the target provider. Final
-   * adapter selection, dispatch, and iteration failures retain their original
-   * Error identity and are tagged in a call-local scope for narrow agent-loop
-   * request recovery; middleware and nested-call failures remain untagged for
-   * the outer call.
+   * adapter selection remains fixed through asynchronous exact-model resolution
+   * and dispatch. Selection, dispatch, and iteration failures retain their
+   * original Error identity and are tagged in a call-local scope for narrow
+   * agent-loop request recovery; middleware and nested-call failures remain
+   * untagged for the outer call.
    * @param options - the full request; `options.provider` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    return this.streamWithRegistration(options)
+  }
+
+  private streamWithRegistration(
+    options: GenerateOptions,
+    prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
+  ): AsyncIterable<StreamChunk> {
     const failures: AdapterFailureScope = new WeakMap<Error, LlmFailure>()
-    const stream = this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options, failures))
+    const stream = this.ctx.waterfall(
+      this,
+      'llm/stream',
+      options,
+      () => this.adapterStream(options, failures, prepared),
+    )
     return bindAdapterFailureScope(stream, failures)
   }
+}
+
+interface AdapterRegistration {
+  readonly adapter: LlmAdapter
+  readonly provider: LlmProviderInfo
 }
 
 export default LlmService
