@@ -36,6 +36,11 @@ import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../s
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
 import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
+import {
+  subagentHistoryRequestSchema, subagentHistoryValueSchema, subagentListEntrySchema,
+  subagentListRequestSchema, subagentListValueSchema, subagentPromptRequestSchema,
+  subagentPromptValueSchema,
+} from '../src/api/subagents.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -75,6 +80,12 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
+    expect(rpcErrorSchema.parse({ code: 'subagent-parent-unavailable', message: 'm', details: { parentSessionId: 'p' } }).code).toBe('subagent-parent-unavailable')
+    expect(rpcErrorSchema.parse({ code: 'subagent-not-found', message: 'm', details: { parentSessionId: 'p', childSessionId: 'c' } }).code).toBe('subagent-not-found')
+    expect(rpcErrorSchema.parse({ code: 'subagent-catalog-diagnostic', message: 'm', details: { parentSessionId: 'p', childSessionId: 'c', reason: 'corrupt' } }).code).toBe('subagent-catalog-diagnostic')
+    expect(rpcErrorSchema.parse({ code: 'subagent-not-resumable', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-not-resumable')
+    expect(rpcErrorSchema.parse({ code: 'subagent-unauthorized', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-unauthorized')
+    expect(rpcErrorSchema.parse({ code: 'subagent-not-delivered', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-not-delivered')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
@@ -269,6 +280,34 @@ describe('sessions domain schemas', () => {
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
+  })
+})
+
+describe('subagent domain schemas', () => {
+  it('validates the direct catalog and addressed history pair', () => {
+    const child = { kind: 'child', id: 'c', label: 'worker', activity: 'running' }
+    const diagnostic = { kind: 'diagnostic', id: 'bad', reason: 'unsupported' }
+    expect(subagentListEntrySchema.parse(child)).toEqual(child)
+    expect(subagentListEntrySchema.parse(diagnostic)).toEqual(diagnostic)
+    expect(subagentListRequestSchema.parse({ parentSessionId: 'p' })).toEqual({ parentSessionId: 'p' })
+    expect(subagentListValueSchema.parse({
+      entries: [child, diagnostic], parentAvailable: true,
+    }).entries).toHaveLength(2)
+    expect(subagentHistoryRequestSchema.parse({
+      parentSessionId: 'p', childSessionId: 'c', beforeSeq: 4, maxMessages: 2,
+    }).beforeSeq).toBe(4)
+    expect(() => subagentHistoryRequestSchema.parse({
+      parentSessionId: 'p', childSessionId: 'c', maxMessages: 0,
+    })).toThrow()
+    expect(subagentHistoryValueSchema.parse({ events: [], hasMore: false }).hasMore).toBe(false)
+  })
+
+  it('validates prompt content and the accepted inbox identity', () => {
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'p', childSessionId: 'c', content: [{ type: 'text', text: '继续' }],
+    }).childSessionId).toBe('c')
+    expect(subagentPromptValueSchema.parse({ messageId: 'm1' }).messageId).toBe('m1')
+    expect(() => subagentPromptValueSchema.parse({ taskId: 't1' })).toThrow()
   })
 })
 

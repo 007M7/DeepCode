@@ -8,7 +8,9 @@
  * explicit act of widening what features may do to the sessions domain.
  */
 import type { Context } from 'cordis'
-import type { RpcResult, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  RpcResult, SessionId, SubagentAddress,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionSearchResultItem } from '../sessions/manager.ts'
 import type {
@@ -34,6 +36,12 @@ export interface ISessions {
    * @param id - session id (must exist in the list; unknown ids fail loud).
    */
   open(id: SessionId): void
+  /**
+   * Resolve an already discovered direct-parent address without opening it.
+   * @param id - possible addressed child id.
+   * @returns the retained address, when present.
+   */
+  subagentAddress(id: SessionId): SubagentAddress | undefined
   /** Clear the current selection into the no-session view state. */
   clear(): void
   /**

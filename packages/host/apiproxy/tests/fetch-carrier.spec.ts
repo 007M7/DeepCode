@@ -103,6 +103,20 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
     },
+    subagents: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { entries: [], parentAvailable: false } } }
+      },
+      async history(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { events: [], hasMore: false } } }
+      },
+      async prompt(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { messageId: 'message-1' as never } },
+        }
+      },
+    },
     host: {
       async describe(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }

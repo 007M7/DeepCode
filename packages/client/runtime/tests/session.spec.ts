@@ -18,6 +18,7 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
   ({ seq, time: 1_700_000_000_000 + seq, ...e }) as unknown as SessionEvent
 
 const SID = 'fk-s1' as SessionId
+const PARENT = 'fk-parent' as SessionId
 
 function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: Session } {
   return { api, session: new Session(SID, api) }
@@ -580,6 +581,33 @@ describe('paging', () => {
 })
 
 describe('prompt and cancel errors', () => {
+  it('routes an addressed child through non-activating history and continuation prompt only', async () => {
+    const api = new FakeApiClient()
+    const session = new Session(SID, api, {
+      address: { parentSessionId: PARENT, childSessionId: SID },
+      parentAvailable: true,
+    })
+    await session.open()
+    const prompted = await session.prompt([{ type: 'text', text: '继续' }], 'queue')
+    const cancelled = await session.cancel()
+
+    expect(prompted).toEqual({ ok: true, value: { accepted: true } })
+    expect(cancelled).toMatchObject({ ok: false, error: { code: 'subagent-not-delivered' } })
+    expect(api.callsOf('subagent.history')).toEqual([
+      { parentSessionId: PARENT, childSessionId: SID, maxMessages: 50 },
+    ])
+    expect(api.callsOf('subagent.prompt')).toEqual([
+      { parentSessionId: PARENT, childSessionId: SID, content: [{ type: 'text', text: '继续' }] },
+    ])
+    expect(api.callsOf('session.history')).toEqual([])
+    expect(api.callsOf('session.prompt')).toEqual([])
+    expect(api.callsOf('session.cancel')).toEqual([])
+    expect(session.getSnapshot().subagent).toEqual({
+      address: { parentSessionId: PARENT, childSessionId: SID },
+      parentAvailable: true,
+    })
+  })
+
   it('sends content through session.prompt; composerPhase steps blank → engaging synchronously at send entry', async () => {
     const { api, session } = makeSession()
     // The blank → engaging edge fires before the RPC settles: the first-send

@@ -4,7 +4,7 @@
 
 import type {
   IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId,
-  SessionSummary, WorkspaceId,
+  SessionSummary, SubagentAddress, SubagentCatalog, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -45,6 +45,14 @@ export interface SessionListSnapshot {
   /** Arrival lifecycle (see {@link SessionListPhase}); `state` stays the pull-activity axis. */
   phase: SessionListPhase
   error: RpcError | null
+  subagentsByParent: Readonly<Record<SessionId, SubagentCatalogSnapshot>>
+  currentAddress: SubagentAddress | undefined
+}
+
+/** One parent-addressed durable catalog projected through the sessions snapshot. */
+export interface SubagentCatalogSnapshot extends SubagentCatalog {
+  state: 'loading' | 'ready' | 'error'
+  error: RpcError | null
 }
 
 type SessionListMutation =
@@ -84,6 +92,11 @@ export class SessionManager {
   private listInflight: Promise<void> | null = null
   /** Mutations arriving after a list request starts are replayed over its response. */
   private listMutations: SessionListMutation[] | null = null
+  private readonly addresses = new Map<SessionId, SubagentAddress>()
+  private readonly catalogs = new Map<SessionId, SubagentCatalogSnapshot>()
+  private readonly catalogInflight = new Map<SessionId, Promise<void>>()
+  private readonly openCatalogs = new Set<SessionId>()
+  private readonly catalogDebounce = new Map<SessionId, ReturnType<typeof setTimeout>>()
 
   private selected: SessionId | undefined
 
@@ -104,8 +117,10 @@ export class SessionManager {
   constructor(
     private readonly api: IApiClient,
     restoredSelection?: SessionId,
+    restoredAddress?: SubagentAddress,
   ) {
     this.selected = restoredSelection
+    if (restoredAddress !== undefined) this.addresses.set(restoredAddress.childSessionId, restoredAddress)
     this.listSnapshotCache = this.buildListSnapshot()
   }
 
@@ -119,7 +134,27 @@ export class SessionManager {
     if (!this.summaries.some(summary => summary.sessionId === sessionId)) {
       throw new Error(`sessions.select: unknown session ${sessionId}`)
     }
+    this.addresses.delete(sessionId)
+    this.sessions.get(sessionId)?.configureSubagent(undefined)
     this.selected = sessionId
+    void this.refreshSubagents(sessionId)
+    this.notifier.notifyNow()
+  }
+
+  /**
+   * Select a healthy child through its durable direct-parent address.
+   * @param address - catalog-derived parent and child ids.
+   */
+  selectSubagent(address: SubagentAddress): void {
+    const catalog = this.catalogs.get(address.parentSessionId)
+    const entry = catalog?.entries.find(candidate => candidate.id === address.childSessionId)
+    if (entry === undefined || entry.kind !== 'child') {
+      throw new Error(`sessions.selectSubagent: ${address.childSessionId} is not a healthy catalog child`)
+    }
+    this.addresses.set(address.childSessionId, address)
+    this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable ?? false)
+    this.selected = address.childSessionId
+    void this.refreshSubagents(address.childSessionId)
     this.notifier.notifyNow()
   }
 
@@ -127,6 +162,15 @@ export class SessionManager {
   clearSelection(): void {
     this.selected = undefined
     this.notifier.notifyNow()
+  }
+
+  /**
+   * Return the durable catalog address retained for one child.
+   * @param sessionId - possible addressed child id.
+   * @returns The direct-parent address, when navigation discovered one.
+   */
+  subagentAddress(sessionId: SessionId): SubagentAddress | undefined {
+    return this.addresses.get(sessionId)
   }
 
   // ---- Instance management ----
@@ -168,13 +212,23 @@ export class SessionManager {
       if (summary !== undefined) {
         session.handleBlank(summary.blank)
         session.handleRunning(summary.running)
+      } else {
+        const address = this.addresses.get(sessionId)
+        const child = address === undefined ? undefined : this.catalogs.get(address.parentSessionId)?.entries
+          .find(entry => entry.kind === 'child' && entry.id === sessionId)
+        if (child?.kind === 'child') session.handleRunning(child.activity === 'running')
       }
     }
     return session
   }
 
   private createSession(sessionId: SessionId): Session {
+    const address = this.addresses.get(sessionId)
     return new Session(sessionId, this.api, {
+      ...(address === undefined ? {} : {
+        address,
+        parentAvailable: this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
+      }),
       // The sender's local first-send flip mirrors into the list row so the
       // session surfaces (lists filter on blank) before any host frame lands.
       onEngaged: (engaged) => {
@@ -195,6 +249,78 @@ export class SessionManager {
       this.projectionStores.set(sessionId, store)
     }
     return store
+  }
+
+  /**
+   * Refresh one direct-child catalog, reusing its in-flight request.
+   * @param parentSessionId - catalog owner.
+   */
+  refreshSubagents(parentSessionId: SessionId): Promise<void> {
+    const existing = this.catalogInflight.get(parentSessionId)
+    if (existing !== undefined) return existing
+    const previous = this.catalogs.get(parentSessionId)
+    this.catalogs.set(parentSessionId, {
+      entries: previous?.entries ?? [],
+      parentAvailable: previous?.parentAvailable ?? false,
+      state: 'loading',
+      error: null,
+    })
+    this.notifier.markDirty()
+    const operation = (async () => {
+      try {
+        const { result } = await this.api.subagents.list({ parentSessionId })
+        if (result.ok) {
+          this.catalogs.set(parentSessionId, {
+            ...result.value,
+            state: 'ready',
+            error: null,
+          })
+          for (const [childId, address] of this.addresses) {
+            if (address.parentSessionId !== parentSessionId) continue
+            this.sessions.get(childId)?.handleSubagentParentAvailable(result.value.parentAvailable)
+          }
+        } else {
+          this.catalogs.set(parentSessionId, {
+            entries: previous?.entries ?? [],
+            parentAvailable: previous?.parentAvailable ?? false,
+            state: 'error',
+            error: result.error,
+          })
+        }
+      } catch (error: unknown) {
+        const folded = transportError<never>(error)
+        this.catalogs.set(parentSessionId, {
+          entries: previous?.entries ?? [],
+          parentAvailable: previous?.parentAvailable ?? false,
+          state: 'error',
+          error: folded.ok ? null : folded.error,
+        })
+      } finally {
+        this.catalogInflight.delete(parentSessionId)
+        this.notifier.markDirty()
+      }
+    })()
+    this.catalogInflight.set(parentSessionId, operation)
+    return operation
+  }
+
+  /**
+   * Mark whether a catalog menu is consuming live membership updates.
+   * @param parentSessionId - catalog owner.
+   * @param open - current menu state.
+   */
+  setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void {
+    if (open) {
+      this.openCatalogs.add(parentSessionId)
+      void this.refreshSubagents(parentSessionId)
+    } else {
+      this.openCatalogs.delete(parentSessionId)
+      const timer = this.catalogDebounce.get(parentSessionId)
+      if (timer !== undefined) {
+        clearTimeout(timer)
+        this.catalogDebounce.delete(parentSessionId)
+      }
+    }
   }
 
   // ---- List surface ----
@@ -484,11 +610,23 @@ export class SessionManager {
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
         })
         this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
+        if (frame.parentSessionId !== undefined
+          && (this.selected === frame.parentSessionId || this.openCatalogs.has(frame.parentSessionId))) {
+          this.scheduleCatalogRefresh(frame.parentSessionId)
+        }
         return
       }
       case 'host/session-removed': {
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
-        this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
+        if (this.addresses.has(frame.sessionId)) {
+          // A continuable activation detaching is not durable child deletion:
+          // keep the addressed conversation usable and return its catalog row
+          // to the inactive state.
+          this.sessions.get(frame.sessionId)?.handleRunning(false)
+          this.updateCatalogActivity(frame.sessionId, false)
+        } else {
+          this.sessions.get(frame.sessionId)?.handleRemoved()
+        }
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
         this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
@@ -497,6 +635,7 @@ export class SessionManager {
       case 'host/session-status': {
         this.recordMutation({ kind: 'status', sessionId: frame.sessionId, running: frame.running })
         this.sessions.get(frame.sessionId)?.handleRunning(frame.running)
+        this.updateCatalogActivity(frame.sessionId, frame.running)
         return
       }
       case 'host/agent-error': {
@@ -535,7 +674,38 @@ export class SessionManager {
   /** After each connection generation: refresh the session baseline and rebuild opened windows. */
   handleConnected(): void {
     void this.refreshList()
+    const selectedAddress = this.selected === undefined ? undefined : this.addresses.get(this.selected)
+    if (selectedAddress !== undefined) void this.refreshSubagents(selectedAddress.parentSessionId)
+    if (this.selected !== undefined) void this.refreshSubagents(this.selected)
+    for (const parentSessionId of this.openCatalogs) void this.refreshSubagents(parentSessionId)
     for (const session of this.sessions.values()) void session.resync()
+  }
+
+  /** Debounce membership refetches while one parent catalog is open. */
+  private scheduleCatalogRefresh(parentSessionId: SessionId): void {
+    if (this.catalogDebounce.has(parentSessionId)) return
+    const timer = setTimeout(() => {
+      this.catalogDebounce.delete(parentSessionId)
+      void this.refreshSubagents(parentSessionId)
+    }, 50)
+    this.catalogDebounce.set(parentSessionId, timer)
+  }
+
+  /** Flip a listed child's coarse activity in place from the shared Host frame. */
+  private updateCatalogActivity(childSessionId: SessionId, running: boolean): void {
+    let changed = false
+    for (const [parentSessionId, catalog] of this.catalogs) {
+      const activity = running ? 'running' as const : 'inactive' as const
+      if (!catalog.entries.some(entry =>
+        entry.kind === 'child' && entry.id === childSessionId && entry.activity !== activity)) continue
+      const entries = catalog.entries.map((entry) => {
+        if (entry.kind !== 'child' || entry.id !== childSessionId) return entry
+        return { ...entry, activity }
+      })
+      changed = true
+      this.catalogs.set(parentSessionId, { ...catalog, entries })
+    }
+    if (changed) this.notifier.markDirty()
   }
 
   private buildListSnapshot(): SessionListSnapshot {
@@ -566,7 +736,8 @@ export class SessionManager {
     const sameOrder = items.length === this.itemsCache.length && items.every((e, i) => e === this.itemsCache[i])
     if (!sameOrder) this.itemsCache = items
     const selected = this.selected
-    const current = selected !== undefined && items.some(item => item.sessionId === selected)
+    const current = selected !== undefined
+      && (items.some(item => item.sessionId === selected) || this.addresses.has(selected))
       ? selected
       : undefined
     return {
@@ -575,6 +746,8 @@ export class SessionManager {
       state: this.listState,
       phase: this.listPhase,
       error: this.listError,
+      subagentsByParent: Object.fromEntries(this.catalogs),
+      currentAddress: current === undefined ? undefined : this.addresses.get(current),
     }
   }
 }

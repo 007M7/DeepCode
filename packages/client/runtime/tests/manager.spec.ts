@@ -272,6 +272,87 @@ describe('host frame routing', () => {
   })
 })
 
+describe('subagent catalogs', () => {
+  it('selects only a catalog-discovered child and keeps its durable address across status frames', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [
+      summary(S1),
+    ] as never[] }))
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{ kind: 'child', id: S2, label: 'worker', activity: 'running' }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshList()
+    await manager.refreshSubagents(S1)
+    manager.selectSubagent({ parentSessionId: S1, childSessionId: S2 })
+
+    expect(manager.getListSnapshot().currentAddress).toEqual({
+      parentSessionId: S1, childSessionId: S2,
+    })
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({
+      address: { parentSessionId: S1, childSessionId: S2 },
+      parentAvailable: true,
+    })
+    const listCalls = api.callsOf('subagent.list').length
+    manager.handleHostEnvelope({
+      rpcId: 'child-complete' as never,
+      payload: { type: 'host/session-status', sessionId: S2, running: false },
+    })
+    expect(manager.getListSnapshot().subagentsByParent[S1]?.entries[0]).toMatchObject({
+      kind: 'child', id: S2, activity: 'inactive',
+    })
+    expect(api.callsOf('subagent.list')).toHaveLength(listCalls)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-detached' as never,
+      payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+    expect(manager.get(S2).getSnapshot()).toMatchObject({
+      removed: false,
+      subagent: { address: { parentSessionId: S1, childSessionId: S2 } },
+    })
+  })
+
+  it('refetches debounced membership only while the parent catalog is open', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = new FakeApiClient()
+      const manager = new SessionManager(api)
+      await manager.refreshSubagents(S1)
+      manager.setSubagentCatalogOpen(S1, true)
+      await Promise.resolve()
+      const baseline = api.callsOf('subagent.list').length
+      manager.handleHostEnvelope({
+        rpcId: 'child-added' as never,
+        payload: {
+          type: 'host/session-added', sessionId: S2, parentSessionId: S1, blank: false,
+        },
+      })
+      manager.handleHostEnvelope({
+        rpcId: 'child-added-again' as never,
+        payload: {
+          type: 'host/session-added', sessionId: 'fk-m3' as SessionId, parentSessionId: S1, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+
+      manager.setSubagentCatalogOpen(S1, false)
+      manager.handleHostEnvelope({
+        rpcId: 'child-added-closed' as never,
+        payload: {
+          type: 'host/session-added', sessionId: 'fk-m4' as SessionId, parentSessionId: S1, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('remaining branches', () => {
   it('refreshList folds a transport throw into the error state', async () => {
     const api = new FakeApiClient()
@@ -434,6 +515,19 @@ describe('connected generation', () => {
       // Only the opened instance repulls history; the cold one stays silent.
       expect(api.callsOf('session.history').length).toBe(historyCallsBefore + 1)
     })
+  })
+
+  it('reloads the durable parent address for a restored child selection', async () => {
+    const api = new FakeApiClient()
+    const address = { parentSessionId: S1, childSessionId: S2 }
+    const manager = new SessionManager(api, S2, address)
+
+    manager.handleConnected()
+
+    await vi.waitFor(() => {
+      expect(api.callsOf('subagent.list')).toContainEqual({ parentSessionId: S1 })
+    })
+    expect(manager.getListSnapshot().currentAddress).toEqual(address)
   })
 })
 

@@ -28,7 +28,8 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
-  SessionSummary, SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
+  SessionSummary, SettingsNamespaceView, SubagentListEntry as SubagentCatalogEntry, ToolEventView,
+  WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -68,6 +69,8 @@ import type {
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import { openNativePath } from './native-path-opener.ts'
+import { SubagentError } from '@deepseek-ai/dsh-subagent'
+import type { SubagentListEntry as CoreSubagentListEntry } from '@deepseek-ai/dsh-subagent'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -460,6 +463,109 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
     }
   }
   return undefined
+}
+
+/** Render one detached history page through the same presenter path as ordinary history. */
+function historyPage(
+  ctx: Context,
+  events: readonly SessionEvent[],
+  beforeSeq: number | undefined,
+  maxMessages: number | undefined,
+): { events: HistoryEntry[]; hasMore: boolean } {
+  const page = paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
+  return {
+    events: page.events.map((event) => {
+      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
+      return { event, ...view === undefined ? {} : { view } }
+    }),
+    hasMore: page.hasMore,
+  }
+}
+
+/** Map a continuation failure without exposing descriptor or provider details. */
+function subagentPromptError(
+  request: RpcRequest<{ childSessionId: SessionId }>,
+  error: unknown,
+  signal?: AbortSignal,
+): RpcResponse<never> {
+  const childSessionId = request.payload.childSessionId
+  if (signal?.aborted) {
+    return err(request, { code: 'cancelled', message: 'subagent prompt was cancelled', details: {} })
+  }
+  if (error instanceof SubagentError) {
+    switch (error.code) {
+      case 'NOT_RESUMABLE':
+        return err(request, { code: 'subagent-not-resumable', message: 'subagent cannot be resumed', details: { childSessionId } })
+      case 'UNAUTHORIZED':
+        return err(request, { code: 'subagent-unauthorized', message: 'subagent does not belong to this parent', details: { childSessionId } })
+      case 'ACTIVATION_CLOSING':
+      case 'DRAINING':
+        return err(request, { code: 'subagent-not-delivered', message: 'message was not delivered', details: { childSessionId } })
+      default:
+        break
+    }
+  }
+  return err(request, { code: 'internal', message: 'subagent prompt failed', details: {} })
+}
+
+/** Verify one address against the complete durable direct-child catalog. */
+async function healthyCatalogChild(
+  ctx: Context,
+  parentSessionId: SessionId,
+  childSessionId: SessionId,
+  signal?: AbortSignal,
+): Promise<{ error?: RpcError }> {
+  try {
+    const entries = await ctx.subagents.listChildren(parentSessionId, signal)
+    const entry = entries.find(candidate => candidate.id === childSessionId)
+    if (entry === undefined || (entry.kind === 'child' && entry.mode !== 'continuable')) {
+      return {
+        error: {
+          code: 'subagent-not-found',
+          message: `session "${childSessionId}" is not a continuable direct child of "${parentSessionId}"`,
+          details: { parentSessionId, childSessionId },
+        },
+      }
+    }
+    if (entry.kind === 'diagnostic') {
+      return {
+        error: {
+          code: 'subagent-catalog-diagnostic',
+          message: `subagent "${childSessionId}" is ${entry.reason}`,
+          details: { parentSessionId, childSessionId, reason: entry.reason },
+        },
+      }
+    }
+    return {}
+  } catch (error: unknown) {
+    if (error instanceof SubagentError && error.code === 'CANCELLED') {
+      return { error: { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} } }
+    }
+    if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+      return {
+        error: {
+          code: 'subagent-not-found',
+          message: `parent session "${parentSessionId}" is unavailable`,
+          details: { parentSessionId, childSessionId },
+        },
+      }
+    }
+    return { error: { code: 'internal', message: 'subagent catalog read failed', details: {} } }
+  }
+}
+
+/** Project the durable catalog onto the continuable-only browser surface. */
+function continuableCatalog(entries: readonly CoreSubagentListEntry[]): SubagentCatalogEntry[] {
+  return entries.flatMap((entry): SubagentCatalogEntry[] => {
+    if (entry.kind === 'diagnostic') return [entry]
+    if (entry.mode !== 'continuable') return []
+    return [{
+      kind: 'child',
+      id: entry.id,
+      label: entry.label,
+      activity: entry.activity,
+    }]
+  })
 }
 
 /**
@@ -1390,19 +1496,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if ('error' in found) return err(request, found.error)
         // Everything below the resume above is synchronous: the page slice,
         // the seq read, and the projection walk see one un-torn session state.
-        const page = paginate(found.agent.session.events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
-        // Views are computed against the registry at pagination time; result
-        // pairing scans within the page only (message-boundary pagination keeps
-        // a call and its result on one page — a cross-page miss soft-falls).
-        const entries: HistoryEntry[] = page.events.map((event) => {
-          const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
-          return { event, ...view === undefined ? {} : { view } }
-        })
+        const page = historyPage(ctx, found.agent.session.events, beforeSeq, maxMessages)
         // Baseline rider: tail page only — loadOlder (beforeSeq present) is
         // the one path that never needs a fresh projection baseline.
         const projections = beforeSeq === undefined ? projectionsFor(ctx, found.agent) : undefined
         return ok(request, {
-          events: entries,
+          events: page.events,
           hasMore: page.hasMore,
           ...projections === undefined ? {} : { projections },
         })
@@ -1589,6 +1688,84 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         agent.cancel({ kind: 'user' }, { keepInbox: true })
         return Promise.resolve(ok(request, { accepted: true as const }))
+      },
+    },
+
+    subagents: {
+      async list(request, signal) {
+        try {
+          const entries = await ctx.subagents.listChildren(request.payload.parentSessionId, signal)
+          return ok(request, {
+            entries: continuableCatalog(entries),
+            parentAvailable: ctx.agents.get(request.payload.parentSessionId) !== undefined,
+          })
+        } catch (error: unknown) {
+          if (error instanceof SubagentError && error.code === 'CANCELLED') {
+            return err(request, { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} })
+          }
+          return err(request, { code: 'internal', message: 'subagent catalog read failed', details: {} })
+        }
+      },
+
+      async history(request, signal) {
+        const { parentSessionId, childSessionId, beforeSeq, maxMessages } = request.payload
+        const verified = await healthyCatalogChild(ctx, parentSessionId, childSessionId, signal)
+        if (verified.error !== undefined) return err(request, verified.error)
+        try {
+          const snapshot = await ctx.sessionQuery.readSession(childSessionId)
+          signal?.throwIfAborted()
+          if (snapshot.session.parentSession !== parentSessionId) {
+            return err(request, {
+              code: 'subagent-unauthorized',
+              message: 'subagent parent changed during history read',
+              details: { childSessionId },
+            })
+          }
+          return ok(request, historyPage(ctx, snapshot.events, beforeSeq, maxMessages))
+        } catch (error: unknown) {
+          if (signal?.aborted) {
+            return err(request, { code: 'cancelled', message: 'subagent history read was cancelled', details: {} })
+          }
+          if (error instanceof SessionQueryError) {
+            if (error.code === 'SESSION_QUERY_ABORTED') {
+              return err(request, { code: 'cancelled', message: 'subagent history read was cancelled', details: {} })
+            }
+            if (error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+              return err(request, {
+                code: 'subagent-not-found',
+                message: 'subagent disappeared during history read',
+                details: { parentSessionId, childSessionId },
+              })
+            }
+          }
+          return err(request, { code: 'internal', message: 'subagent history read failed', details: {} })
+        }
+      },
+
+      async prompt(request, signal) {
+        const { parentSessionId, childSessionId, content } = request.payload
+        const parent = ctx.agents.get(parentSessionId)
+        if (parent === undefined) {
+          return err(request, {
+            code: 'subagent-parent-unavailable',
+            message: `parent session "${parentSessionId}" is not live`,
+            details: { parentSessionId },
+          })
+        }
+        const verified = await healthyCatalogChild(ctx, parentSessionId, childSessionId, signal)
+        if (verified.error !== undefined) return err(request, verified.error)
+        const operationSignal = signal ?? new AbortController().signal
+        try {
+          const messageId = await ctx.subagents.followup(
+            parent,
+            childSessionId,
+            content,
+            { source: { kind: 'user', rpcId: request.rpcId }, signal: operationSignal },
+          )
+          return ok(request, { messageId })
+        } catch (error: unknown) {
+          return subagentPromptError(request, error, operationSignal)
+        }
       },
     },
 

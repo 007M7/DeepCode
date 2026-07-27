@@ -187,6 +187,7 @@ export class TestSessions implements ISessions {
   constructor(private readonly stabilize: Stabilizer, private readonly rootCtx: Context) {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
     })
     this.channel = new SessionProvideChannel({
       rebuildBundles: () => {
@@ -393,6 +394,11 @@ export class TestSessions implements ISessions {
     this.calls.push({ method: 'open', args: [id] })
     this.require(id)
     this.list.update((draft) => { draft.current = id })
+  }
+
+  /** Test fixtures do not synthesize catalog addresses. */
+  subagentAddress(_id: SessionId): undefined {
+    return undefined
   }
 
   /** Clear the current selection (recorded; the production no-session flow). */

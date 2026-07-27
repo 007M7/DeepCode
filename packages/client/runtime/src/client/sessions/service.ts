@@ -17,7 +17,7 @@
  */
 import type { Context, Fiber } from 'cordis'
 import type {
-  IApiClient, RpcError, RpcResult, SessionId, WorkspaceId,
+  IApiClient, RpcError, RpcResult, SessionId, SubagentAddress, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -31,7 +31,7 @@ import type { SessionFace } from '../contract/session.ts'
 import type { ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
-import type { SessionListPhase, SessionSearchResultItem } from './manager.ts'
+import type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './manager.ts'
 import { SessionProvideChannel } from './provide.ts'
 import type { Session } from './session.ts'
 
@@ -68,6 +68,16 @@ export interface SessionListState {
   current: SessionId | undefined
   /** Arrival lifecycle projected 1:1 from the manager snapshot (see SessionListPhase): empty-with-ready means "truly no sessions". */
   phase: SessionListPhase
+  /** Direct durable catalogs keyed by their selected parent address. */
+  subagentsByParent: Readonly<Record<SessionId, SubagentCatalogSnapshot>>
+  /** Current session's catalog-derived address, absent on ordinary navigation. */
+  currentAddress: SubagentAddress | undefined
+}
+
+/** Persisted navigation cell: address survives refresh for correct history routing. */
+interface SessionSelection {
+  sessionId?: SessionId
+  subagentAddress?: SubagentAddress
 }
 
 /** Structured session-create failure. */
@@ -221,7 +231,7 @@ export class SessionsService implements ISessions {
    * selection survives transient list states (reconnect re-pull) and
    * resurfaces when its session returns.
    */
-  private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
+  private readonly selection: SnapshotStore<SessionSelection>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
   /** The provide channel (roster, materialization rules, current projection) — shared with the test runtime's double. */
@@ -244,12 +254,14 @@ export class SessionsService implements ISessions {
     private readonly rootCtx: Context,
     api: IApiClient,
   ) {
-    this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
+    this.selection = createSnapshotStore<SessionSelection>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
-    this.manager = new SessionManager(api, this.selection.getSnapshot().sessionId)
+    const restored = this.selection.getSnapshot()
+    this.manager = new SessionManager(api, restored.sessionId, restored.subagentAddress)
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',
+      subagentsByParent: {}, currentAddress: undefined,
     })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
@@ -301,6 +313,41 @@ export class SessionsService implements ISessions {
    */
   open(id: SessionId): void {
     this.manager.select(id)
+  }
+
+  /**
+   * Open a healthy catalog child through its direct-parent address.
+   * @param address - catalog-derived parent and child ids.
+   */
+  openSubagent(address: SubagentAddress): void {
+    this.manager.selectSubagent(address)
+  }
+
+  /**
+   * Resolve an already discovered direct-parent address without opening it.
+   * Feature plugins use this to avoid Agent-bound RPCs in persisted child views.
+   * @param id - possible addressed child id.
+   * @returns The retained address, when present.
+   */
+  subagentAddress(id: SessionId): SubagentAddress | undefined {
+    return this.manager.subagentAddress(id)
+  }
+
+  /**
+   * Inform the runtime whether a catalog menu is consuming membership updates.
+   * @param parentSessionId - selected parent.
+   * @param open - menu state.
+   */
+  setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void {
+    this.manager.setSubagentCatalogOpen(parentSessionId, open)
+  }
+
+  /**
+   * Refresh one direct-child catalog.
+   * @param parentSessionId - catalog owner.
+   */
+  refreshSubagents(parentSessionId: SessionId): Promise<void> {
+    return this.manager.refreshSubagents(parentSessionId)
   }
 
   /**
@@ -509,6 +556,7 @@ export class SessionsService implements ISessions {
      * cannot miss; kept so a future current writer cannot crash the notify. */
     if (record !== undefined) {
       void record.session.open()
+      void this.manager.refreshSubagents(current)
     }
   }
 
@@ -566,7 +614,9 @@ export class SessionsService implements ISessions {
 
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
   private projectList(): void {
-    const { items, current, phase } = this.manager.getListSnapshot()
+    const {
+      items, current, phase, subagentsByParent, currentAddress,
+    } = this.manager.getListSnapshot()
     const ids: SessionId[] = []
     const byId: Record<SessionId, SessionSummary> = {}
     for (const entry of items) {
@@ -583,15 +633,36 @@ export class SessionsService implements ISessions {
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
       }
     }
+    if (current !== undefined && currentAddress !== undefined && byId[current] === undefined) {
+      const child = subagentsByParent[currentAddress.parentSessionId]?.entries
+        .find(entry => entry.kind === 'child' && entry.id === current)
+      if (child?.kind === 'child') {
+        byId[current] = {
+          id: current,
+          displayTitle: child.label,
+          parentId: currentAddress.parentSessionId,
+          running: child.activity === 'running',
+          waitingApproval: false,
+          blank: false,
+          updatedAt: 0,
+        }
+      }
+    }
     const persisted = this.selection.getSnapshot().sessionId
     // No current (cleared, or masked gap) wipes the persisted cell — a reload
     // stays on empty; the in-memory selection still resurfaces a masked id.
     if (current === undefined) {
       if (persisted !== undefined) this.selection.set({})
-    } else if (byId[current] !== undefined && persisted !== current) {
-      this.selection.set({ sessionId: current })
+    } else if (byId[current] !== undefined
+      && (persisted !== current
+        || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
+        || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId)) {
+      this.selection.set({
+        sessionId: current,
+        ...(currentAddress === undefined ? {} : { subagentAddress: currentAddress }),
+      })
     }
-    this.list.set({ ids, byId, current, phase })
+    this.list.set({ ids, byId, current, phase, subagentsByParent, currentAddress })
     this.pruneScopes(byId)
   }
 
