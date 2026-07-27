@@ -17,6 +17,7 @@
     "build": "tsc -b && tsdown",
     "build:web": "pnpm --filter @deepseek-ai/dsh-frontend run build",
     "clean": "tsx scripts/clean.ts",
+    "change-scope": "tsx scripts/change-scope.ts",
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

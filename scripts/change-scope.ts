@@ -1,0 +1,252 @@
+/** Report the explicit committed and worktree scope of a repository change. */
+
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import { parseArgs } from 'node:util'
+
+const FORMAT_VERSION = 1
+const MAX_GIT_OUTPUT = 64 * 1024 * 1024
+
+interface ChangeScopeReport {
+  formatVersion: typeof FORMAT_VERSION
+  repository: {
+    root: string
+    branch: string | null
+    upstream: string | null
+  }
+  input: {
+    base: string
+    head: string
+  }
+  resolved: {
+    baseSha: string
+    headSha: string
+    mergeBaseSha: string
+  }
+  paths: {
+    committed: string[]
+    staged: string[]
+    unstaged: string[]
+    untracked: string[]
+  }
+}
+
+interface GitCommandResult {
+  status: number | null
+  stdout: string
+  stderr: string
+  error: Error | undefined
+}
+
+interface ChangeScopeOptions {
+  base: string
+  head: string
+  json: boolean
+}
+
+function executeGit(cwd: string, args: string[]): GitCommandResult {
+  const result = spawnSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
+    maxBuffer: MAX_GIT_OUTPUT,
+  })
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    error: result.error,
+  }
+}
+
+function failureDetail(result: GitCommandResult): string {
+  return result.error?.message ?? (result.stderr.trim() || `Git exited with status ${String(result.status)}`)
+}
+
+function requireGit(cwd: string, args: string[], context: string): string {
+  const result = executeGit(cwd, args)
+  if (result.status !== 0) throw new Error(`${context}: ${failureDetail(result)}`)
+  return result.stdout
+}
+
+function parseOptions(args: string[]): ChangeScopeOptions {
+  const { values } = parseArgs({
+    args,
+    allowPositionals: false,
+    options: {
+      base: { type: 'string' },
+      head: { type: 'string', default: 'HEAD' },
+      json: { type: 'boolean', default: false },
+    },
+    strict: true,
+  })
+  if (values.base === undefined) throw new Error('missing required --base <ref>')
+  return { base: values.base, head: values.head, json: values.json }
+}
+
+function resolveCommit(root: string, label: 'base' | 'head', ref: string): string {
+  const result = executeGit(root, [
+    '-c',
+    'core.warnAmbiguousRefs=true',
+    'rev-parse',
+    '--verify',
+    '--end-of-options',
+    `${ref}^{commit}`,
+  ])
+  if (/\bambiguous\b/iu.test(result.stderr)) {
+    throw new Error(`${label} ref ${JSON.stringify(ref)} is ambiguous; use a fully qualified ref or commit ID`)
+  }
+  if (result.status !== 0) {
+    throw new Error(`${label} ref ${JSON.stringify(ref)} does not resolve to a commit: ${failureDetail(result)}`)
+  }
+  const commits = result.stdout.trim().split(/\r?\n/u).filter(Boolean)
+  if (commits.length !== 1) {
+    throw new Error(`${label} ref ${JSON.stringify(ref)} did not resolve to exactly one commit`)
+  }
+  return commits[0] as string
+}
+
+function resolveMergeBase(root: string, baseSha: string, headSha: string): string {
+  const result = executeGit(root, ['merge-base', '--all', baseSha, headSha])
+  if (result.status !== 0) {
+    throw new Error(`base and head do not have a merge base: ${failureDetail(result)}`)
+  }
+  const mergeBases = result.stdout.trim().split(/\r?\n/u).filter(Boolean)
+  if (mergeBases.length !== 1) {
+    throw new Error(`base and head do not have a unique merge base; found ${mergeBases.length}`)
+  }
+  return mergeBases[0] as string
+}
+
+function currentBranch(root: string): string | null {
+  const result = executeGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+  if (result.status === 1) return null
+  if (result.status !== 0) throw new Error(`cannot inspect the current branch: ${failureDetail(result)}`)
+  return result.stdout.trim()
+}
+
+function configuredUpstream(root: string, branch: string | null): string | null {
+  if (branch === null) return null
+  const output = requireGit(
+    root,
+    ['for-each-ref', '--count=1', '--format=%(upstream:short)', `refs/heads/${branch}`],
+    'cannot inspect the configured upstream',
+  ).trim()
+  return output === '' ? null : output
+}
+
+function comparePaths(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+function parsePathSet(output: string): string[] {
+  return [...new Set(output.split('\0').filter(Boolean))].sort(comparePaths)
+}
+
+function diffPaths(root: string, args: string[], context: string): string[] {
+  return parsePathSet(requireGit(root, [
+    'diff',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--no-renames',
+    '--ignore-submodules=none',
+    '--name-only',
+    '-z',
+    ...args,
+    '--',
+  ], context))
+}
+
+function collectReport(options: ChangeScopeOptions, cwd: string): ChangeScopeReport {
+  const root = requireGit(cwd, ['rev-parse', '--show-toplevel'], 'cannot locate a Git worktree').trim()
+  const baseSha = resolveCommit(root, 'base', options.base)
+  const headSha = resolveCommit(root, 'head', options.head)
+  const mergeBaseSha = resolveMergeBase(root, baseSha, headSha)
+  const branch = currentBranch(root)
+  return {
+    formatVersion: FORMAT_VERSION,
+    repository: {
+      root,
+      branch,
+      upstream: configuredUpstream(root, branch),
+    },
+    input: {
+      base: options.base,
+      head: options.head,
+    },
+    resolved: {
+      baseSha,
+      headSha,
+      mergeBaseSha,
+    },
+    paths: {
+      committed: diffPaths(root, [mergeBaseSha, headSha], 'cannot inspect committed paths'),
+      staged: diffPaths(root, ['--cached'], 'cannot inspect staged paths'),
+      unstaged: diffPaths(root, [], 'cannot inspect unstaged paths'),
+      untracked: parsePathSet(requireGit(
+        root,
+        ['ls-files', '--others', '--exclude-standard', '-z', '--'],
+        'cannot inspect untracked paths',
+      )),
+    },
+  }
+}
+
+function formatValue(value: string | null): string {
+  return JSON.stringify(value)
+}
+
+function formatPaths(label: string, paths: string[]): string[] {
+  return [
+    `${label} (${paths.length}):`,
+    ...(paths.length === 0 ? ['  (none)'] : paths.map(path => `  - ${formatValue(path)}`)),
+  ]
+}
+
+function formatHuman(report: ChangeScopeReport): string {
+  return [
+    `Format version: ${report.formatVersion}`,
+    `Repository root: ${formatValue(report.repository.root)}`,
+    `Branch: ${formatValue(report.repository.branch)}`,
+    `Upstream: ${formatValue(report.repository.upstream)}`,
+    `Base ref: ${formatValue(report.input.base)}`,
+    `Head ref: ${formatValue(report.input.head)}`,
+    `Base commit: ${report.resolved.baseSha}`,
+    `Head commit: ${report.resolved.headSha}`,
+    `Merge base: ${report.resolved.mergeBaseSha}`,
+    ...formatPaths('Committed paths', report.paths.committed),
+    ...formatPaths('Staged paths', report.paths.staged),
+    ...formatPaths('Unstaged paths', report.paths.unstaged),
+    ...formatPaths('Untracked paths', report.paths.untracked),
+  ].join('\n')
+}
+
+/**
+ * Validate arguments, collect one complete report, then invoke the writer once.
+ * @param args - Command-line arguments after the script path.
+ * @param cwd - Directory whose containing Git worktree is inspected.
+ * @param write - Destination called once only after every Git query succeeds.
+ * @returns Nothing.
+ */
+export function writeChangeScope(
+  args: string[],
+  cwd: string,
+  write: (output: string) => void,
+): void {
+  const options = parseOptions(args)
+  const report = collectReport(options, cwd)
+  write(`${options.json ? JSON.stringify(report, null, 2) : formatHuman(report)}\n`)
+}
+
+const entryPath = process.argv[1]
+if (entryPath !== undefined && resolve(entryPath) === fileURLToPath(import.meta.url)) {
+  try {
+    writeChangeScope(process.argv.slice(2), process.cwd(), output => process.stdout.write(output))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`change-scope: ${message}\n`)
+    process.exitCode = 1
+  }
+}
