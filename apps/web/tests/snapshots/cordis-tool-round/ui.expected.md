@@ -1,0 +1,44 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Use only Cordis tools. First" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_try with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_stop with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop."
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
+- button "Think The user wants me to:":
+  - img
+  - text: "Think The user wants me to:"
+- button:
+  - img
+- text: Inspect temporary
+- button [expanded]:
+  - img
+- text: Try temporary Plugin typescript
+- button "复制"
+- code: "return { name: \"snapshot-noop\", apply(ctx) {} }"
+- button "Think The cordis_try returned \"dyn-1\" as the temporary plugin id. Now I need to call cordis_stop with that exact id.":
+  - img
+  - text: Think The cordis_try returned "dyn-1" as the temporary plugin id. Now I need to call cordis_stop with that exact id.
+- button:
+  - img
+- text: Stop temporary Plugin dyn-1
+- button "Think All three calls succeeded. I should now reply exactly \"CORDIS_UI_DONE\".":
+  - img
+  - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE".
+- paragraph: CORDIS_UI_DONE
+- text: cache hit 71% · 50,140 tokens · 1 turns · 3 steps
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- button "Send message" [disabled]

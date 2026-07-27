@@ -54,7 +54,7 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 ### 配置、渲染与可观测性
 
-该插件暴露一个配置字段，由 schemastery 校验并记录在[配置目录](../../../../docs/config-catalog.md)中：`vmTimeoutMs`（默认 5000），代码同步求值部分的毫秒上限。当前面向模型的名称是 `cordis_inspect`、`cordis_try` 和 `cordis_stop`；内部 `cordis-dynamic` 分组名和 `dyn-` id 前缀仍是结构性词汇。三个工具均按[工具实操手册](../../../../docs/cookbook/adding-a-tool.md)渲染为 `generic` 卡片：inspect 为 `read`，try 为携带代码 `rawInput` 的 `execute`，stop 为 `delete`。
+该插件暴露一个配置字段，由 schemastery 校验并记录在[配置目录](../../../../docs/config-catalog.md)中：`vmTimeoutMs`（默认 5000），代码同步求值部分的毫秒上限。当前面向模型的名称是 `cordis_inspect`、`cordis_try` 和 `cordis_stop`；内部 `cordis-dynamic` 分组名和 `dyn-` id 前缀仍是结构性词汇。三个工具均按[工具实操手册](../../../../docs/cookbook/adding-a-tool.md)渲染为 `generic` 卡片：inspect 为 `read`，try 为携带代码 `rawInput` 的 `execute`，stop 为 `delete`。Web 对话行保留这些通用机制，同时为各工具设置操作标题 `Inspect`、`Try temporary Plugin` 和 `Stop temporary Plugin` 以及统一的 Cordis 强调色；try 行仍使用共用的 JavaScript 展开视图和语法高亮。
 
 「模型可见 ⟺ 已记录」成立，且无需新的会话事件类型：try 与 stop 通过已记录的 `tool/call` / `tool/result` 对可见，工具集变化由 schema 在 step 间变化时发出的完整 request header 记录。临时 Plugin 属于进程内存，而非 session 状态：恢复持久化 session 只会重建对话历史，绝不会重新创建它们。
 
