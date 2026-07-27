@@ -586,7 +586,7 @@ export interface Config {
   streamIdleTimeoutMs?: number
 }
 
-/** One optional model entry advertised by the hand-written adapter. */
+/** One optional model entry advertised by the direct-fetch adapter. */
 export interface DeepSeekCatalogModel {
   /** Wire model id accepted by the configured endpoint. */
   id: string

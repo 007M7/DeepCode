@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-harness LLM seam 的 DeepSeek chat-completions 适配器：手写 `fetch` + SSE，将官方协议格式（真源：API 文档 guides/thinking_mode、guides/tool_calls、api/create-chat-completion）转换为 `StreamChunk` 协议。
+harness LLM seam 的 DeepSeek chat-completions 适配器：直接 `fetch` + SSE（由 `eventsource-parser` 分帧），将官方协议格式（真源：API 文档 guides/thinking_mode、guides/tool_calls、api/create-chat-completion）转换为 `StreamChunk` 协议。
 
 同一 seam 的第二个库支持实现位于 `@deepseek-ai/dsh-llm-pi-ai`。本包始终拥有 `deepseek` 提供方路由；在同一上下文中装载 `provider: deepseek` 的 pi-ai profile 会按设计抛出 `LlmError('DUPLICATE_ADAPTER')`。
 

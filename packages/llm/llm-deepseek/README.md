@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-DeepSeek chat-completions adapter for the harness LLM seam: hand-rolled `fetch` + SSE translation from the official wire format (source of truth: the API docs — guides/thinking_mode, guides/tool_calls, api/create-chat-completion) into the `StreamChunk` protocol.
+DeepSeek chat-completions adapter for the harness LLM seam: direct `fetch` + SSE (framed by `eventsource-parser`) translating the official wire format (source of truth: the API docs — guides/thinking_mode, guides/tool_calls, api/create-chat-completion) into the `StreamChunk` protocol.
 
 A second, library-backed implementation of the same seam exists in `@deepseek-ai/dsh-llm-pi-ai`. This package always owns the `deepseek` provider route; mounting a pi-ai profile with `provider: deepseek` in the same context throws `LlmError('DUPLICATE_ADAPTER')` by design.
 
