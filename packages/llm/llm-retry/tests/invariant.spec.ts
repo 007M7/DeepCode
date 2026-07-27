@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -25,6 +25,17 @@ function closeStep(ctx: Context, id: string, turn = 1, step = 1) {
   })
   session.append('step/end', { turn, step })
   return session
+}
+
+function appendRetryTurn(session: Session, turn: number) {
+  session.append('turn/start', { turn, trigger: { kind: 'retry' } })
+  session.append('step/start', { turn, step: 1 })
+  session.append('request/header', {
+    header: { config: { provider: 'mock', model: 'mock' } },
+    reason: 'initial',
+  })
+  session.append('step/end', { turn, step: 1 })
+  session.append('llm/retry', { turn, step: 1, ...normal })
 }
 
 const failure = { message: 'provider busy', code: 'RATE_LIMIT', status: 429 }
@@ -223,6 +234,36 @@ describe('llm-retry invariants', () => {
     expect(() => {
       reset.append('llm/retry', { turn: 3, step: 1, ...normal })
     }).not.toThrow()
+  })
+
+  it('starts a fresh retry chain after incomplete predecessor boundaries', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+
+    const missingEnd = ctx.sessions.create(SessionId('retry-invariant-missing-end'))
+    missingEnd.append('user/message', {
+      content: [{ type: 'text', text: 'idle context' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    appendRetryTurn(missingEnd, 2)
+
+    const nonFailureEnd = ctx.sessions.create(SessionId('retry-invariant-non-failure-end'))
+    nonFailureEnd.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    nonFailureEnd.append('user/message', {
+      content: [{ type: 'text', text: 'idle context' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    appendRetryTurn(nonFailureEnd, 2)
+
+    const missingStart = ctx.sessions.create(SessionId('retry-invariant-missing-start'))
+    missingStart.append('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', step: 1, failure },
+    })
+    appendRetryTurn(missingStart, 2)
+
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(RetryInvariant)).resolves.toBeDefined()
   })
 
   it('rejects a provider that does not match the failed request route', async () => {
