@@ -26,6 +26,7 @@ import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionListPhase } from './manager.ts'
 import type { Session } from './session.ts'
+import type { ProjectionCellSpec, SessionProjectionMap } from './projection-cell.ts'
 
 /** Session list row projected from the host list RPC plus live stream increments. */
 export interface SessionSummary {
@@ -165,6 +166,15 @@ export class SessionsService {
   private readonly scopes = new Map<SessionId, ScopeRecord>()
   /** Registered per-session standard-props providers, in registration order. */
   private readonly providers: SessionProvideDescriptor[] = []
+  /**
+   * Projection-cell roster (session-projection RFC): each registered spec is
+   * applied to every live scope's session and to every future scope at mint.
+   * The per-spec map tracks live-session disposers so a provider unload (HMR)
+   * removes its cell from every session; scope drop just forgets the row (the
+   * Session instance dies with the scope).
+   */
+  private readonly projectionCells =
+    new Map<ProjectionCellSpec<keyof SessionProjectionMap & string>, Map<SessionId, () => void>>()
   /** Static no-session projection, rebuilt only when the provider roster changes. */
   private maybeInfo: SessionMaybeProvideInfo
   /**
@@ -232,6 +242,29 @@ export class SessionsService {
     }
   }
 
+  /**
+   * Register a projection cell spec (session-projection RFC): the framework
+   * materializes one cell per session — on every already-live scope now, and
+   * on every future scope at mint (the binding-fed shellFor timing) — and the
+   * cell set dies with the scope. One registration per domain; duplicate keys
+   * fail loud at materialization.
+   * @param spec - typed cell spec (key + wire schema + whole-value extractor).
+   * @returns disposer removing the spec from the roster and its cell from every live session.
+   */
+  registerProjectionCell<K extends keyof SessionProjectionMap & string>(spec: ProjectionCellSpec<K>): () => void {
+    const erased = spec as ProjectionCellSpec<keyof SessionProjectionMap & string>
+    const disposers = new Map<SessionId, () => void>()
+    this.projectionCells.set(erased, disposers)
+    for (const record of this.scopes.values()) {
+      disposers.set(record.binding.sessionId, record.binding.session.projections.register(erased))
+    }
+    return () => {
+      this.projectionCells.delete(erased)
+      for (const dispose of disposers.values()) dispose()
+      disposers.clear()
+    }
+  }
+
   /** Rebuild every live scope's standard-props bundle after a provider roster change. */
   private rematerializeProvideBundles(): void {
     this.maybeInfo = this.materializeMaybeProvideInfo()
@@ -254,7 +287,7 @@ export class SessionsService {
         props[name] = undefined
       }
     }
-    return { sessionId: undefined, hooks, props }
+    return { sessionId: undefined, hooks, props } // no projections face: every key reads absent without a session
   }
 
   /** Materialize the standard-props bundle for one session (fails loud on duplicate member names). */
@@ -287,7 +320,14 @@ export class SessionsService {
         props[name] = contributedProps[name]
       }
     }
-    return { sessionId: binding.sessionId, hooks, props }
+    return {
+      sessionId: binding.sessionId,
+      hooks,
+      props,
+      // The useProjection seat: key-addressed bare cell sources off the
+      // session's cell set (open key space — never a static roster member).
+      projections: { cellOf: key => binding.session.projections.cellOf(key) },
+    }
   }
 
   /**
@@ -485,6 +525,12 @@ export class SessionsService {
     // The Session owns its scoped dispatch point (host Agent.loopCtx mirror);
     // mint and bind are one step so a live scope record implies a bound actx.
     session.bindScope(ctx)
+    // Materialize the projection-cell roster on the freshly scoped session
+    // (dropScope swept the previous scope's rows, so a re-mint registers on
+    // whatever instance the manager now holds — fresh or resident).
+    for (const [spec, disposers] of this.projectionCells) {
+      disposers.set(id, session.projections.register(spec))
+    }
     const binding: SessionBinding = { sessionId: id, session, ctx }
     const record: ScopeRecord = {
       fiber,
@@ -559,6 +605,12 @@ export class SessionsService {
     // Release the Session's dispatch point with the scope it belongs to (a
     // surviving instance — the live Intent — rebinds when resolve re-mints).
     record.binding.session.unbindScope()
+    // Sweep the projection-cell rows with the scope (instance and scope share
+    // one lifecycle; a re-mint re-registers the roster on the new instance).
+    for (const disposers of this.projectionCells.values()) {
+      disposers.get(id)?.()
+      disposers.delete(id)
+    }
     // Optional lookup: slots and sessions are sibling services with no
     // declared dependency; a slots-less boot (object-layer tests) skips.
     this.rootCtx.get('slots')?.pruneStoreScope(id)

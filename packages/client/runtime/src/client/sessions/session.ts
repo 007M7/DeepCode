@@ -20,6 +20,8 @@ import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
+import { ProjectionCellSet } from './projection-cell.ts'
+import type { ProjectionsBaseline } from './projection-cell.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
@@ -125,6 +127,17 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private stitching = false
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
+
+  /**
+   * Per-session projection cells (session-projection RFC): domain client
+   * plugins register cells at scope materialization (disposer rides the scope
+   * fiber, the InputHub.shellFor pattern); the Session dispatches its two
+   * event entrances — appendLive (live signal) and installWindow (window
+   * replace + baseline reset) — into the set. Cells are read via
+   * `projections.cellOf(key)` (the useProjection resolution face); the
+   * conversation snapshot never carries projection values.
+   */
+  readonly projections = new ProjectionCellSet()
 
   private snapshotCache: ConversationSnapshot
   private readonly notifier = new Notifier(() => {
@@ -482,13 +495,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+      this.installWindow(result.value.events, result.value.hasMore, result.value.todos, projectionsOf(result.value))
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos, projectionsOf(result.value))
       }
       this.openState = 'open'
     } catch (error) {
@@ -505,8 +518,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Install the history window + stitch the liveBuffer (seq is the sole dedup key).
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
-   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos: readonly TodoItem[] | undefined): void {
+   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1).
+   *  Projection dispatch (window-replace signal): a carried projections block re-seeds every
+   *  cell first (value + watermark, seq-rule guarded), then the window events pass the same
+   *  per-cell filter as live appends — a blockless response leaves cells folding from events
+   *  alone, and replayed pages can never roll a cell back. */
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos: readonly TodoItem[] | undefined, projections?: ProjectionsBaseline): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
@@ -521,6 +538,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.todos = todos ?? []
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
+    if (projections !== undefined) this.projections.resetBaseline(projections)
+    this.projections.offerWindow(this.events)
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -535,6 +554,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.views.push(view)
     this.foldAdapter.append(event, view)
     this.applyEventSideEffects(event, view)
+    // Projection dispatch (live signal): same filter as the window path.
+    this.projections.offerEvent(event)
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
@@ -569,7 +590,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+        this.installWindow(result.value.events, result.value.hasMore, result.value.todos, projectionsOf(result.value))
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
@@ -828,4 +849,20 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 function derivePhase(hasContent: boolean, promptAttempted: boolean): ComposerPhase {
   if (hasContent) return 'active'
   return promptAttempted ? 'engaging' : 'blank'
+}
+
+/**
+ * Structural read of the optional projections block on a history response.
+ * TODO(gui): drop this narrowing once the host-base PR (dsh-session-projection
+ * + apiproxy block) lands and the wire type carries `projections` — parallel
+ * construction posture, same as the code-dispatch event narrowing above.
+ * @param value - the history response value.
+ * @returns the block, or undefined (loadOlder pages and blockless deployments).
+ */
+function projectionsOf(value: object): ProjectionsBaseline | undefined {
+  const block = (value as { projections?: ProjectionsBaseline }).projections
+  if (block === undefined) return undefined
+  return typeof block.asOfSeq === 'number' && typeof block.values === 'object' && block.values !== null
+    ? block
+    : undefined
 }
