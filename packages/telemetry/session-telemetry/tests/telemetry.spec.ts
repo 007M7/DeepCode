@@ -153,23 +153,75 @@ describe('TelemetryCoordinator capture', () => {
 })
 
 describe('TelemetryCoordinator adoption', () => {
-  it('reads seeded events back at adoption (fork/resume seeds never re-emit)', async () => {
+  it('starts export at the construction boundary: seeded history never re-exports', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const parent = liveSession(ctx, 'seed-parent')
     appendTurn(parent)
-    ctx.sessions.create(SessionId('seeded'), { seed: [...parent.events], meta: {} })
+    const child = ctx.sessions.create(SessionId('seeded'), { seed: [...parent.events], meta: {} })
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
       apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
     })
+    // The live parent (no constructor seed) replays in full; the child's
+    // inherited prefix already left the process under another identity (the
+    // parent's id here; the same id in a previous process for a resume) and
+    // must not be re-exported — only its live suffix ships.
     const seqs = backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']])
-    expect(seqs).toEqual(expect.arrayContaining([
-      ['seed-parent', 0], ['seed-parent', 1],
-      ['seeded', 0], ['seeded', 1],
-    ]))
+    expect(seqs).toEqual(expect.arrayContaining([['seed-parent', 0], ['seed-parent', 1]]))
+    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([])
+    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']]))
+      .toEqual(expect.arrayContaining([['seeded', 2]]))
+  })
+
+  it('resume shape: a full-log seed exports nothing yet still rebuilds the chunk projection', async () => {
+    const backend = new FakeBackend()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const donor = ctx.sessions.create(SessionId('donor'), { meta: {} })
+    donor.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    donor.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' } })
+    const resumed = ctx.sessions.create(SessionId('resumed'), { seed: [...donor.events], meta: {} })
+    await ctx.plugin({
+      name: 'fake-telemetry',
+      inject: ['sessions'],
+      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+    })
+    const ofResumed = () => backend.ledger()
+      .filter(r => r.attributes['session.id'] === 'resumed')
+      .map(r => r.attributes['event.seq'])
+    expect(ofResumed()).toEqual([])
+    // The seed fed the projection: the (turn 1, step 1) first chunk already
+    // shipped from the original process, so its continuation is re-dropped…
+    resumed.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'continuation' } })
+    expect(ofResumed()).toEqual([])
+    // …while a new step's first chunk exports normally.
+    resumed.append('assistant/chunk', { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'next step' } })
+    expect(ofResumed()).toEqual([3])
+  })
+
+  it('stamps session.seed_length from the header so receivers can stitch fork streams', async () => {
+    const backend = new FakeBackend()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const parent = liveSession(ctx, 'stitch-parent')
+    appendTurn(parent)
+    const child = ctx.sessions.create(SessionId('stitch-child'), {
+      seed: [...parent.events],
+      meta: { parentSession: SessionId('stitch-parent'), seedLength: 2 },
+    })
+    await ctx.plugin({
+      name: 'fake-telemetry',
+      inject: ['sessions'],
+      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+    })
+    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const record = backend.ledger().find(r => r.attributes['session.id'] === 'stitch-child')!
+    expect(record.attributes['session.parent_id']).toBe('stitch-parent')
+    expect(record.attributes['session.seed_length']).toBe(2)
   })
 
   it('adopts exactly once when created fires after the sweep', async () => {

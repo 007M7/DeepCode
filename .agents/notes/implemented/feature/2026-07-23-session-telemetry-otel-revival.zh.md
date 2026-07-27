@@ -28,6 +28,8 @@ Status: implemented
 
 **映射到 OTel span（GenAI 语义约定）而非日志。** 本次复活否决：分支实现的日志映射已经过评审、形态可交付；span 模型对可 fork、可中断的会话有损，留给将来真正有 span 查询需求的消费者。
 
+**handoff 游标未存活时全量回放日志（重新导出构造函数种子）。** 首轮复活曾交付此方案，其后收窄：收养现在从会话的构造边界起回放（`Session.firstLiveSeq`，即构造函数种子长度，这一事实会话早已校验过却未曾暴露；`header.seedLength` 不能胜任：它是持久保存的 fork 谱系（lineage）值，而恢复会话的构造函数种子是其完整的已存储日志）。恢复会话的历史已由上一个进程以同一 id 发出，fork 继承的前缀也已在父会话的流中发出；再次导出任何一者，都会让每次恢复为其完整历史重复付费，并在没有原生摄取去重的 OTLP 后端上使查询时的计数翻倍。接收端基于 `session.parent_id` + `session.seed_length` 拼接 fork 谱系。此次收窄放弃的内容与至多一次立场一致：恢复不再回填上一个进程未能投递的记录（彼时遥测未挂载，或崩溃时仍在队列中）——这本是全量回放唯一的真实收益，代价却由常见情形承担。提出回填要求的部署需要的是上文已推迟的 outbox，而不是回放。
+
 **将 seam 的轮次边界 `flush()` 提示转发到 OTel provider 的 `forceFlush()`。** 首轮复活曾交付此转发，其后移除：三轮评审在同一份包装层状态中各发现一条新的静默丢失路径——dispose 与进行中的 flush 之间的竞态（SDK 的并发 flush 防护会令 shutdown 的内部排空被跳过）、相互重叠的提示顶掉留存的 promise、以及 provider 固定的 30 秒 flush 超时在批处理器仍在排空时便 reject。这些路径存在的唯一原因，是该转发让这个后端成为进程内第二个执行 flush 的组件，面对的还是上游实验性（experimental）源码树中未见诸文档的 SDK 内部行为；不实现 `flush()` 时，批处理器就是唯一执行 flush 的组件，其 `scheduledDelayMillis`（已可由部署方经 `processor` passthrough 调优）决定导出节奏，`shutdown()` 的排空从构造上就是完整的。仅当某个部署提出 `scheduledDelayMillis` 无法满足的轮次边界延迟要求时才恢复此转发——且届时应调用留存的 `BatchLogRecordProcessor` 自身的 `forceFlush()`，绝不调用 provider 那个带超时包装的版本。
 
 ## Consequences

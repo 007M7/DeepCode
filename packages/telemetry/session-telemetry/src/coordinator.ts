@@ -117,17 +117,23 @@ export class TelemetryCoordinator {
 
   /**
    * Adopt a session: replay its log THROUGH the projection from the handoff
-   * cursor (or from the start when no cursor survived), then rely on the
-   * firehose for everything after. Events at or below the cursor still feed
-   * the projection state (first-chunk tracking) without being re-handed, so
-   * a resumed fiber drops mid-step chunk continuations exactly like the
-   * fiber that saw the step begin.
+   * cursor, then rely on the firehose for everything after. When no cursor
+   * survived, replay starts at the session's construction boundary
+   * (`firstLiveSeq`), not seq 0: constructor seeds never publish on the
+   * firehose, and their content already left the process under another
+   * identity — the same id in a previous process (resume) or the parent's
+   * stream (fork, stitched by receivers via `session.seed_length`). Events
+   * at or below the start still feed the projection state (first-chunk
+   * tracking) without being re-handed, so a resumed fiber drops mid-step
+   * chunk continuations exactly like the fiber that saw the step begin. The
+   * cost, accepted with the seam's at-most-once stance: a resume no longer
+   * backfills records a previous process failed to deliver.
    * @param session - the live session to adopt; a second adoption is a no-op.
    */
   private adopt(session: Session): void {
     if (this.adopted.has(session)) return
     this.adopted.add(session)
-    const cursor = handoffCursor.get(session) ?? -1
+    const cursor = handoffCursor.get(session) ?? session.firstLiveSeq - 1
     // Containment is PER EVENT, matching the firehose: one rejected record
     // is withheld fail-closed while the rest of the historical replay
     // proceeds — wrapping the whole loop would let a single failure silently
@@ -264,8 +270,11 @@ function identityOf(session: Session, event: SessionEvent): Record<string, strin
     'event.type': event.type,
     'event.seq': event.seq,
   }
-  const { cwd, parentSession } = session.header
+  const { cwd, parentSession, seedLength } = session.header
   if (cwd !== undefined) attributes['session.cwd'] = cwd
   if (parentSession !== undefined) attributes['session.parent_id'] = String(parentSession)
+  // The durable fork boundary: a forked stream starts here, and its prefix
+  // lives in the parent's stream — receivers stitch on (parent_id, seed_length).
+  if (seedLength !== undefined) attributes['session.seed_length'] = seedLength
   return attributes
 }

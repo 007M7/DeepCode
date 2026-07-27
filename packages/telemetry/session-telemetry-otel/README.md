@@ -25,7 +25,7 @@ Records carry the complete `event.data` as the seam's `telemetry/redact` waterfa
 
 ## Field mapping
 
-Seam record → SDK log record: `time` → `timestamp`/`observedTimestamp`; `severity` → `severityNumber`/`severityText` (INFO 9 / WARN 13 / ERROR 17); `body` → the structured log body; `attributes` verbatim. Receivers dedupe on `(session.id, event.seq)`, alert on severity, and detect crashes by `shutdown`-record absence (a session with activity, no `shutdown` ops record, gone stale ended uncleanly). The marker means telemetry stopped observing the session cleanly — emitted at the session's own disposal, or at application teardown for sessions still running then; a marker followed by more of that session's events is a telemetry reload, not a session restart.
+Seam record → SDK log record: `time` → `timestamp`/`observedTimestamp`; `severity` → `severityNumber`/`severityText` (INFO 9 / WARN 13 / ERROR 17); `body` → the structured log body; `attributes` verbatim. Receivers dedupe on `(session.id, event.seq)`, alert on severity, and detect crashes by `shutdown`-record absence (a session with activity, no `shutdown` ops record, gone stale ended uncleanly). The marker means telemetry stopped observing the session cleanly — emitted at the session's own disposal, or at application teardown for sessions still running then; a marker followed by more of that session's events is a telemetry reload, not a session restart. Streams are not self-contained across lineage: a resumed session continues its own id's stream from where the previous process left off, and a forked session's stream starts at its inherited boundary — its prefix lives in the parent's stream, stitched via `session.parent_id` + `session.seed_length`.
 
 ## Model Experience
 

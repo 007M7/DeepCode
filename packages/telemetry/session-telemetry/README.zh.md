@@ -10,7 +10,7 @@
 
 ## 捕获点
 
-协调器的全部注册都经由组合方 fiber 的 effect 完成：`session/created`（收养：记录 header，并经投影回读日志；来自 fork 或恢复的种子事件绝不会在 firehose 上再次发出）、`session/event`（投影、深拷贝、脱敏、交接；零 I/O）、`session/flush`（转发可选的 `flush()` 提示并返回 void；循环所等待的并行任务绝不能等待遥测）、`session/disposed`（在会话自身的终止边缘发出该会话的 `shutdown` 运维记录，接收端正是在这个边缘锚定崩溃检测；随后将该会话退役，因此长生命周期的后端既不会保留已关闭的会话，也不会在卸载时再次标记它们）、`agent/error`（唯一的实时总线转发；轮次封闭机制在结构上决定了这些错误进不了日志）、一个 dispose effect（拆卸时先标记每个仍存活的会话，再等待后端的 `shutdown()`；失败只发出警告而不抛出），以及对 `ctx.sessions.list()` 的收养扫描（热重载不会重放 `session/created`）。
+协调器的全部注册都经由组合方 fiber 的 effect 完成：`session/created`（收养：记录 header，并经投影从构造边界起回读日志；来自 fork 或恢复的构造函数种子绝不会在 firehose 上再次发出，也绝不会再次导出）、`session/event`（投影、深拷贝、脱敏、交接；零 I/O）、`session/flush`（转发可选的 `flush()` 提示并返回 void；循环所等待的并行任务绝不能等待遥测）、`session/disposed`（在会话自身的终止边缘发出该会话的 `shutdown` 运维记录，接收端正是在这个边缘锚定崩溃检测；随后将该会话退役，因此长生命周期的后端既不会保留已关闭的会话，也不会在卸载时再次标记它们）、`agent/error`（唯一的实时总线转发；轮次封闭机制在结构上决定了这些错误进不了日志）、一个 dispose effect（拆卸时先标记每个仍存活的会话，再等待后端的 `shutdown()`；失败只发出警告而不抛出），以及对 `ctx.sessions.list()` 的收养扫描（热重载不会重放 `session/created`）。
 
 ## 脱敏 waterfall
 
@@ -18,7 +18,7 @@
 
 ## handoff 游标
 
-一个模块作用域的 `WeakMap<Session, seq>` 记录每个会话已交接（而非已投递）的最高 seq，在 emit 时推进。游标在不重新求值本模块的重载（配置重新应用、后端源码重载）中存活，而迭代恰恰发生在这类重载中；这种不对称正是游标放在 seam 一侧的原因。重新收养时，协调器只重新交接游标之后的事件（游标及其之前的事件仍用于重建分片投影状态）；游标缺失时安全退化为全量重新交接，由接收端基于 `(session.id, event.seq)` 的去重吸收。这是对「注册即 effect」纪律的一次有意且范围极窄的例外：条目随其会话消亡，值是单调水位线，丢失它绝不是错误。
+一个模块作用域的 `WeakMap<Session, seq>` 记录每个会话已交接（而非已投递）的最高 seq，在 emit 时推进。游标在不重新求值本模块的重载（配置重新应用、后端源码重载）中存活，而迭代恰恰发生在这类重载中；这种不对称正是游标放在 seam 一侧的原因。重新收养时，协调器只重新交接游标之后的事件（游标及其之前的事件仍用于重建分片投影状态）；游标缺失时安全退化为从会话构造边界起的重新交接（`Session.firstLiveSeq`，对在本进程中诞生的会话即 seq 0），由接收端基于 `(session.id, event.seq)` 的去重吸收。构造函数种子绝不会再次导出：恢复会话的历史已由上一个进程以同一 id 发出，fork 继承的前缀则位于父会话的流中（接收端基于 `session.parent_id` + `session.seed_length` 拼接）。由此接受的代价与至多一次（at-most-once）投递一致：恢复不会回填上一个进程未能投递的记录；有回填要求的部署需要的是已推迟的 outbox，而不是回放。这是对「注册即 effect」纪律的一次有意且范围极窄的例外：条目随其会话消亡，值是单调水位线，丢失它绝不是错误。
 
 ## 固定分片投影
 
@@ -26,7 +26,7 @@
 
 ## 逻辑记录
 
-`TelemetryRecord` 包含：`channel`（`ledger` | `ops`）、`time`（epoch 毫秒）、`severity`（预先映射好的严重级别：`tool/result.isError` 与 `turn/end` 的错误原因映射为 ERROR，`prompt/blocked` 映射为 WARN，其余为 INFO，包括结果语义仍归其所有者的插件合并事件类型）、只含身份信息的 `attributes`（`session.id`、`event.type`、`event.seq`，header 中存在时再加 `session.cwd`/`session.parent_id`），以及作为 `body` 的完整深拷贝 `event.data`，且以脱敏后的内容为准。运维记录携带 `telemetry.op`（`agent-error` | `shutdown`）和 `session.id`，并刻意不带 `event.seq`/`event.type`：它们是用来告警的信号，不是用来累加的条目。交接之后的投递由后端 SDK 负责；重复仍然可能出现（无游标的重新收养、SDK 重试），因此接收端基于 `(session.id, event.seq)` 去重。
+`TelemetryRecord` 包含：`channel`（`ledger` | `ops`）、`time`（epoch 毫秒）、`severity`（预先映射好的严重级别：`tool/result.isError` 与 `turn/end` 的错误原因映射为 ERROR，`prompt/blocked` 映射为 WARN，其余为 INFO，包括结果语义仍归其所有者的插件合并事件类型）、只含身份信息的 `attributes`（`session.id`、`event.type`、`event.seq`，header 中存在时再加 `session.cwd`/`session.parent_id`/`session.seed_length`），以及作为 `body` 的完整深拷贝 `event.data`，且以脱敏后的内容为准。运维记录携带 `telemetry.op`（`agent-error` | `shutdown`）和 `session.id`，并刻意不带 `event.seq`/`event.type`：它们是用来告警的信号，不是用来累加的条目。交接之后的投递由后端 SDK 负责；重复仍然可能出现（无游标的重新收养、SDK 重试），因此接收端基于 `(session.id, event.seq)` 去重。
 
 ## 模型体验
 
