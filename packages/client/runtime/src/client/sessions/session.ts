@@ -99,7 +99,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
-  /** Latest todo/write whole-list snapshot in the window (last write wins on replay). */
+  /** Current whole-list todo/write projection: each tail history response replaces it (an omitted
+   *  field is the authoritative empty list) and every live write overwrites it. */
   private todos: readonly TodoItem[] = []
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
@@ -505,15 +506,19 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
    *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos?: readonly TodoItem[]): void {
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos: readonly TodoItem[] | undefined): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
     // Session-level projection from the tail page (full-log latest todo/write,
     // independent of the window); an in-window write below re-derives the same
-    // value, and later live events keep overwriting it.
-    if (todos !== undefined) this.todos = todos
+    // value, and later live events keep overwriting it. Every caller here is a
+    // tail request (no beforeSeq), which the host answers with the projection
+    // or omits it only when the full log holds no todo/write — so an absent
+    // field is the authoritative empty list, not a missing carrier. Assigning
+    // it clears a plan the log never kept (a write lost to a host crash).
+    this.todos = todos ?? []
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
     const buffered = this.liveBuffer

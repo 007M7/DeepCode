@@ -244,6 +244,7 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
-  /** Latest `todo/write` whole-list snapshot in the window (last write wins); empty = no plan. */
+  /** Current whole-list `todo/write` projection — the tail page's full-log value, then each live
+   *  write (last write wins); empty = the log holds no plan. */
   todos: readonly TodoItem[]
 }

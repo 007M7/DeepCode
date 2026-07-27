@@ -217,6 +217,22 @@ describe('live event path', () => {
     await Promise.resolve()
     expect(session.getSnapshot().todos).toEqual(current)
   })
+
+  it('clears the plan when a tail response omits the projection (a write the log never kept)', async () => {
+    // Live write lands, then the host crashes before persisting it: the
+    // authoritative log holds no todo/write, so the resync tail response
+    // carries no projection — an omitted field on a tail request is the empty
+    // list, not a missing carrier, and the rolled-back plan must disappear.
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(6, [{ content: '丢失的计划', status: 'in_progress' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '丢失的计划', status: 'in_progress' }])
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.resync()
+    expect(session.getSnapshot().todos).toEqual([])
+  })
 })
 
 describe('paging', () => {

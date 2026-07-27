@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-23-web-todo-display.md
-2026-07-23-web-todo-display.md: 8b7bc8cbe0c072613c9b4ad01983df74466e81da
-2026-07-23-web-todo-display.zh.md: 4d5565f805386cf33eaae81e7dcc48e6260e3313
+2026-07-23-web-todo-display.md: a8ee5a5d2799b6e2f9ff442e0bd6230b46e9374b
+2026-07-23-web-todo-display.zh.md: 0bf7157789a0be8f2c68d462bc815db8cf07d96e
