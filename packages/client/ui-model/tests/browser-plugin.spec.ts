@@ -23,8 +23,30 @@ const GROUPS = [{
   id: 'deepseek',
   name: 'DeepSeek',
   models: [
-    { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
-    { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+    {
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek-V4-Flash',
+      reasoning: {
+        efforts: [
+          { id: 'off', name: 'Off' },
+          { id: 'high', name: 'High' },
+          { id: 'max', name: 'Max' },
+        ],
+        defaultEffort: 'high',
+      },
+    },
+    {
+      id: 'deepseek-v4-pro',
+      name: 'DeepSeek-V4-Pro',
+      reasoning: {
+        efforts: [
+          { id: 'off', name: 'Off' },
+          { id: 'high', name: 'High' },
+          { id: 'max', name: 'Max' },
+        ],
+        defaultEffort: 'high',
+      },
+    },
   ],
 }]
 
@@ -38,9 +60,15 @@ async function bench() {
       calls.models += 1
       return Promise.resolve({ result: { ok: true as const, value: { current, groups: GROUPS, failures: [] } } })
     },
-    selectModel: (payload: { provider: string; model: string }) => {
+    selectModel: (payload: { provider: string; model: string; reasoningEffort?: string }) => {
       calls.select += 1
-      current = { provider: payload.provider, model: payload.model }
+      current = {
+        provider: payload.provider,
+        model: payload.model,
+        ...payload.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: payload.reasoningEffort },
+      }
       return Promise.resolve({ result: { ok: true as const, value: { selected: current } } })
     },
   } } })
@@ -102,9 +130,21 @@ describe('ui-model dual entry', () => {
     b.mint('s1')
     const seatFace = b.seat().inject!(sid('s1'))
     // Switch through the SEAT entry.
-    expect(await seatFace.select({ provider: 'deepseek', model: 'deepseek-v4-pro' })).toBe(true)
-    expect(b.hostCurrent()).toEqual({ provider: 'deepseek', model: 'deepseek-v4-pro' })
-    expect(seatFace.directory.getSnapshot().current).toEqual({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    expect(await seatFace.select({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    })).toBe(true)
+    expect(b.hostCurrent()).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    })
+    expect(seatFace.directory.getSnapshot().current).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    })
     // The POPUP's next options pass reflects it without a seat-side reload.
     const options = await b.contribution().ui.options(projection('s1'), new AbortController().signal)
     expect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')).toMatchObject({ active: true })
@@ -117,7 +157,11 @@ describe('ui-model dual entry', () => {
     const options = await b.contribution().ui.options(projection('s1'), new AbortController().signal)
     const pro = options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!
     await b.contribution().ui.onSelect(pro, projection('s1'))
-    expect(seatFace.directory.getSnapshot().current).toEqual({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    expect(seatFace.directory.getSnapshot().current).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+    })
   })
 
   it('both entries share one directory instance per session, isolated across sessions', async () => {

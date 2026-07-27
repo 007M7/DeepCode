@@ -6,7 +6,7 @@
  */
 import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ModelDirectoryState, ModelEffort } from './directory.ts'
+import type { ModelDirectoryState } from './directory.ts'
 
 /** Injected business face of the composer model seat. */
 export interface ModelSelectInjected {
@@ -15,15 +15,9 @@ export interface ModelSelectInjected {
   /** Refresh the advisory directory (fire-and-forget; errors land on the store). */
   load(): void
   /**
-   * Select a complete provider/model target through the shared route.
-   * @param target - target picked from one provider group.
+   * Select a complete provider/model/reasoning target through the shared route.
+   * @param target - model target and optional adapter-owned effort.
    * @returns whether the host accepted the selection.
    */
   select(target: ModelTarget): Promise<boolean>
-  /**
-   * Set the displayed thinking-effort level (client-local echo; see the
-   * directory state contract).
-   * @param effort - the level to display.
-   */
-  setEffort(effort: ModelEffort): void
 }

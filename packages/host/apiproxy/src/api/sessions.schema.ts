@@ -10,8 +10,8 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
-  HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelTarget,
-  SessionSummary,
+  HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  ModelReasoningEffort, ModelTarget, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -83,7 +83,21 @@ export const sessionHistoryRequestSchema = z.object({
 export const modelTargetSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
+  reasoningEffort: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<ModelTarget>>
+
+/** One adapter-owned reasoning effort. */
+export const modelReasoningEffortSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+}) satisfies z.ZodType<Wire<ModelReasoningEffort>>
+
+/** Exact-model reasoning metadata. */
+export const modelReasoningSchema = z.object({
+  efforts: z.array(modelReasoningEffortSchema).min(1),
+  defaultEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<ModelReasoning>>
 
 /** One advisory model entry inside a provider group. */
 export const modelCatalogModelSchema = z.object({
@@ -91,6 +105,7 @@ export const modelCatalogModelSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   unlisted: z.literal(true).optional(),
+  reasoning: modelReasoningSchema.optional(),
 }) satisfies z.ZodType<Wire<ModelCatalogModel>>
 
 /** One successfully loaded provider group. */
@@ -154,6 +169,7 @@ export const sessionSelectModelRequestSchema = z.object({
   sessionId: sessionIdSchema,
   provider: z.string().min(1),
   model: z.string().min(1),
+  reasoningEffort: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.selectModel'>>>
 
 /** session.selectModel response value. */

@@ -6,37 +6,38 @@
  * the shared directory, and the effort levels. The trigger (313:14108's
  * ToggleButton) shows both: model name + effort in the caption tone.
  * Data and submission ride the SAME per-session ModelDirectory as the
- * /model popup; effort is a client-local display echo until a wire carries
- * a per-session override (see the directory's state contract).
+ * /model popup; exact-model reasoning metadata and the selected effort come
+ * from the Host rather than a client-owned vocabulary.
  */
 import {
   useEffect, useId, useMemo, useRef, useState, useSyncExternalStore,
   type KeyboardEvent, type FocusEvent,
 } from 'react'
 import clsx from 'clsx'
-import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
+import type { ModelReasoningEffort, ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ModelEffort } from './directory.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 
-/** The displayable effort levels (deepseek wire vocabulary, capitalized for the UI). */
-const EFFORT_LEVELS: readonly { id: ModelEffort; label: string }[] = [
-  { id: 'high', label: 'High' },
-  { id: 'max', label: 'Max' },
-]
-
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
 type Pane = 'root' | 'model' | 'effort'
+
+/** One dynamic effort row; undefined means preserve the provider default. */
+interface EffortChoice {
+  key: string
+  effort: string | undefined
+  label: string
+  description?: string
+}
 
 /**
  * Render the composer model seat.
  * @param props - owner share (locked) + injected face (shared directory store/verbs).
  * @returns the trigger and, while open, the two-level menu.
  */
-export function ModelSelect({ locked, directory, load, select, setEffort }: ModelSelectInjected & { locked: boolean }) {
+export function ModelSelect({ locked, directory, load, select }: ModelSelectInjected & { locked: boolean }) {
   const state = useSyncExternalStore(
     fn => directory.subscribe(fn),
     () => directory.getSnapshot(),
@@ -52,13 +53,39 @@ export function ModelSelect({ locked, directory, load, select, setEffort }: Mode
     group.models.map(model => ({
       group,
       model,
-      target: { provider: group.id, model: model.id } satisfies ModelTarget,
+      target: {
+        provider: group.id,
+        model: model.id,
+        ...model.reasoning?.defaultEffort === undefined
+          ? {}
+          : { reasoningEffort: model.reasoning.defaultEffort },
+      } satisfies ModelTarget,
     }))), [state.groups])
   const selectedIndex = state.current === null
     ? -1
     : choices.findIndex(c => c.target.provider === state.current?.provider && c.target.model === state.current.model)
+  const currentChoice = choices[selectedIndex]
+  const reasoning = currentChoice?.model.reasoning
+  const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
+  const effortLabel = reasoning === undefined
+    ? undefined
+    : effectiveEffort === undefined
+      ? 'Provider default'
+      : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
+  const effortChoices = useMemo<readonly EffortChoice[]>(() => reasoning === undefined
+    ? []
+    : [
+        ...reasoning.defaultEffort === undefined
+          ? [{ key: 'provider-default', effort: undefined, label: 'Provider default' }]
+          : [],
+        ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
+          key: `effort:${effort.id}`,
+          effort: effort.id,
+          label: effort.name,
+          ...effort.description === undefined ? {} : { description: effort.description },
+        })),
+      ], [reasoning])
   const busy = state.status === 'selecting'
-  const effortLabel = EFFORT_LEVELS.find(l => l.id === state.effort)?.label ?? 'High'
 
   // Mount-time load resolves the trigger label; every open refreshes.
   useEffect(() => { load() }, [load])
@@ -122,7 +149,24 @@ export function ModelSelect({ locked, directory, load, select, setEffort }: Mode
     })
   }
 
+  const chooseEffort = (effort: string | undefined): void => {
+    if (state.current === null) return
+    if (effectiveEffort === effort) {
+      close(true)
+      return
+    }
+    const target: ModelTarget = {
+      provider: state.current.provider,
+      model: state.current.model,
+      ...effort === undefined ? {} : { reasoningEffort: effort },
+    }
+    void select(target).then((accepted) => {
+      if (accepted && rootRef.current !== null) close(true)
+    })
+  }
+
   const modelLabel = choices[selectedIndex]?.model.name ?? state.current?.model ?? '选择模型'
+  const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
   itemRefs.current = []
   let itemIndex = 0
   const itemRef = () => {
@@ -136,16 +180,16 @@ export function ModelSelect({ locked, directory, load, select, setEffort }: Mode
         ref={triggerRef}
         type="button"
         className={css.trigger}
-        aria-label={`选择模型，当前 ${modelLabel}，effort ${effortLabel}`}
+        aria-label={`选择模型，当前 ${modelLabel}${effortLabel === undefined ? '' : `，推理等级 ${effortLabel}`}`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
-        title={`${modelLabel} · ${effortLabel}`}
+        title={triggerLabel}
         disabled={locked}
         onClick={() => { open ? close() : show() }}
       >
         <span className={css.triggerLabel}>{modelLabel}</span>
-        <span className={css.triggerEffort}>{effortLabel}</span>
+        {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
         <IconChevronDownOutline14 className={clsx(css.chevron, open && css.chevronOpen)} />
       </button>
 
@@ -154,7 +198,7 @@ export function ModelSelect({ locked, directory, load, select, setEffort }: Mode
           id={`${id}-menu`}
           className={css.menu}
           role="menu"
-          aria-label="模型与 effort"
+          aria-label="模型与推理等级"
           aria-busy={state.status === 'loading' || busy}
         >
           {pane === 'root' && (
@@ -164,11 +208,13 @@ export function ModelSelect({ locked, directory, load, select, setEffort }: Mode
                 <span className={css.cellValue}>{modelLabel}</span>
                 <IconChevronRightOutline14 className={css.cellChevron} />
               </button>
-              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => setPane('effort')}>
-                <span className={css.cellLabel}>Effort</span>
-                <span className={css.cellValue}>{effortLabel}</span>
-                <IconChevronRightOutline14 className={css.cellChevron} />
-              </button>
+              {reasoning !== undefined && (
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => setPane('effort')}>
+                  <span className={css.cellLabel}>Effort</span>
+                  <span className={css.cellValue}>{effortLabel}</span>
+                  <IconChevronRightOutline14 className={css.cellChevron} />
+                </button>
+              )}
             </>
           )}
 
@@ -234,24 +280,40 @@ export function ModelSelect({ locked, directory, load, select, setEffort }: Mode
             </>
           )}
 
-          {pane === 'effort' && EFFORT_LEVELS.map(level => (
-            <button
-              ref={itemRef()}
-              type="button"
-              role="menuitemradio"
-              aria-checked={state.effort === level.id}
-              className={clsx(css.option, state.effort === level.id && css.selected)}
-              key={level.id}
-              onClick={() => { setEffort(level.id); close(true) }}
-            >
-              <span className={css.optionCopy}>
-                <span className={css.modelName}>{level.label}</span>
-              </span>
-              <span className={css.check}>
-                {state.effort === level.id ? <IconCheckOutline16 /> : null}
-              </span>
-            </button>
-          ))}
+          {pane === 'effort' && (
+            <>
+              {state.error !== null && (
+                <div className={css.error}>
+                  <span>模型操作失败：{state.error}</span>
+                  <button type="button" className={css.retry} onClick={() => { load() }}>重新加载</button>
+                </div>
+              )}
+              {effortChoices.length === 0
+                ? <div className={css.empty}>当前模型未提供推理等级。</div>
+                : effortChoices.map(level => (
+                    <button
+                      ref={itemRef()}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={effectiveEffort === level.effort}
+                      className={clsx(css.option, effectiveEffort === level.effort && css.selected)}
+                      key={level.key}
+                      disabled={busy}
+                      onClick={() => { chooseEffort(level.effort) }}
+                    >
+                      <span className={css.optionCopy}>
+                        <span className={css.modelName}>{level.label}</span>
+                        {level.description !== undefined && (
+                          <span className={css.description}>{level.description}</span>
+                        )}
+                      </span>
+                      <span className={css.check}>
+                        {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
+                      </span>
+                    </button>
+                  ))}
+            </>
+          )}
         </div>
       )}
     </div>

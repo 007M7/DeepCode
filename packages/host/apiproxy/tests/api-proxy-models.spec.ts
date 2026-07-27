@@ -8,9 +8,10 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import LlmService, { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
-  GenerateOptions, LlmCallConfig, LlmModelInfo, LlmProviderInfo, StreamChunk,
+  GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
+  LlmResolvedModelInfo, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -29,6 +30,8 @@ class CatalogAdapter extends LlmAdapter {
   constructor(
     private readonly name: string,
     private readonly models: readonly LlmModelInfo[] | Error,
+    private readonly reasoning?: LlmModelReasoningInfo,
+    private readonly exactError?: Error,
   ) {
     super()
   }
@@ -43,12 +46,35 @@ class CatalogAdapter extends LlmAdapter {
       : Promise.resolve(this.models)
   }
 
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    if (this.exactError !== undefined) return Promise.reject(this.exactError)
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      ...this.reasoning === undefined ? {} : { reasoning: this.reasoning },
+    })
+  }
+
   override async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
     // Catalog tests never enter provider streaming.
   }
 }
 
-async function harness(logged?: { provider: string; model: string }): Promise<{
+const REASONING: LlmModelReasoningInfo = {
+  efforts: [
+    { id: ReasoningEffortId('off'), name: 'Off' },
+    { id: ReasoningEffortId('high'), name: 'High' },
+    { id: ReasoningEffortId('max'), name: 'Max' },
+  ],
+  defaultEffort: ReasoningEffortId('high'),
+}
+
+async function harness(logged?: {
+  provider: string
+  model: string
+  reasoningEffort?: ReasoningEffortId
+}): Promise<{
   ctx: Context
   agent: Agent
   sessionId: SessionId
@@ -62,8 +88,11 @@ async function harness(logged?: { provider: string; model: string }): Promise<{
   ctx.llm.registerAdapter(['deepseek'], new CatalogAdapter('DeepSeek', [
     { provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek Chat' },
     { provider: 'deepseek', id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
-  ]))
+  ], REASONING))
   ctx.llm.registerAdapter(['broken'], new CatalogAdapter('Broken Provider', new Error('catalog offline')))
+  ctx.llm.registerAdapter(['metadata-broken'], new CatalogAdapter('Metadata Broken', [
+    { provider: 'metadata-broken', id: 'listed', name: 'Listed' },
+  ], undefined, new Error('reasoning metadata offline')))
   ctx.llm.registerAdapter(['empty'], new CatalogAdapter('Empty Provider', []))
   ctx.llm.registerAdapter(['duplicate'], new CatalogAdapter('Duplicate Provider', [
     { provider: 'duplicate', id: 'same', name: 'Same' },
@@ -90,22 +119,41 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
 
 describe('Web session model selection', () => {
   it('groups successful providers, isolates failures, and preserves an unlisted current model', async () => {
-    const { ctx, sessionId } = await harness({ provider: 'deepseek', model: 'private-preview' })
+    const { ctx, sessionId } = await harness({
+      provider: 'deepseek',
+      model: 'private-preview',
+      reasoningEffort: ReasoningEffortId('max'),
+    })
     const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
-    expect(catalog.current).toEqual({ provider: 'deepseek', model: 'private-preview' })
+    expect(catalog.current).toEqual({
+      provider: 'deepseek',
+      model: 'private-preview',
+      reasoningEffort: 'max',
+    })
     expect(catalog.groups).toEqual([{
       id: 'deepseek',
       name: 'DeepSeek',
       models: [
-        { id: 'deepseek-chat', name: 'DeepSeek Chat' },
-        { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
-        { id: 'private-preview', name: 'private-preview', unlisted: true },
+        { id: 'deepseek-chat', name: 'DeepSeek Chat', reasoning: REASONING },
+        {
+          id: 'deepseek-reasoner',
+          name: 'DeepSeek Reasoner',
+          description: 'Reasoning model',
+          reasoning: REASONING,
+        },
+        {
+          id: 'private-preview',
+          name: 'private-preview',
+          unlisted: true,
+          reasoning: REASONING,
+        },
       ],
     }])
     expect(catalog.failures).toEqual([
       { id: 'broken', name: 'Broken Provider', message: 'catalog offline' },
+      { id: 'metadata-broken', name: 'Metadata Broken', message: 'reasoning metadata offline' },
       {
         id: 'duplicate',
         name: 'Duplicate Provider',
@@ -130,8 +178,13 @@ describe('Web session model selection', () => {
       sessionId,
       provider: 'deepseek',
       model: 'private-preview',
+      reasoningEffort: 'max',
     })))
-    expect(selected.selected).toEqual({ provider: 'deepseek', model: 'private-preview' })
+    expect(selected.selected).toEqual({
+      provider: 'deepseek',
+      model: 'private-preview',
+      reasoningEffort: 'max',
+    })
     await expect(agentEvents(ctx, agent).waterfall(
       'agent/request', 1, 0, seed, signal, () => Promise.resolve(seed),
     )).resolves.toMatchObject({ provider: 'deepseek', model: 'deepseek-chat' })
@@ -140,7 +193,25 @@ describe('Web session model selection', () => {
       .toMatchObject({ provider: 'deepseek', model: 'private-preview' })
     await expect(agentEvents(ctx, agent).waterfall(
       'agent/request', 1, 1, seed, signal, () => Promise.resolve(seed),
-    )).resolves.toMatchObject({ provider: 'deepseek', model: 'private-preview' })
+    )).resolves.toMatchObject({
+      provider: 'deepseek',
+      model: 'private-preview',
+      reasoningEffort: 'max',
+    })
+
+    const unsupported = await api.sessions.selectModel(request({
+      sessionId,
+      provider: 'deepseek',
+      model: 'private-preview',
+      reasoningEffort: 'medium',
+    }))
+    expect(unsupported.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'model-unavailable',
+        message: 'provider "deepseek" model "private-preview" does not support reasoning effort "medium"',
+      },
+    })
 
     const rejected = await api.sessions.selectModel(request({
       sessionId,
@@ -151,12 +222,12 @@ describe('Web session model selection', () => {
       ok: false,
       error: {
         code: 'model-unavailable',
-        message: 'provider "missing" is not registered',
+        message: 'no adapter registered for provider "missing"',
         details: { provider: 'missing', model: 'model' },
       },
     })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
-      .toEqual({ provider: 'deepseek', model: 'private-preview' })
+      .toEqual({ provider: 'deepseek', model: 'private-preview', reasoningEffort: 'max' })
     await ctx.fiber.dispose()
   })
 })

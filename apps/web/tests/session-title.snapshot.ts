@@ -17,7 +17,9 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-ui-settings-general', dir: 'ui-settings-general', url: '/plugins/ui-settings-general.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-settings', '@deepseek-ai/dsh-client-locale'] },
   { id: '@deepseek-ai/dsh-client-ui-models', dir: 'ui-models', url: '/plugins/ui-models.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-settings'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  { id: '@deepseek-ai/dsh-client-ui-model-selector', dir: 'ui-model-selector', url: '/plugins/ui-model-selector.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-slash', dir: 'ui-slash', url: '/plugins/ui-slash.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-command', dir: 'ui-command', url: '/plugins/ui-command.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-slash', '@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-model', dir: 'ui-model', url: '/plugins/ui-model.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-command'] },
   { id: '@deepseek-ai/dsh-client-ui-workspace', dir: 'ui-workspace', url: '/plugins/ui-workspace.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-sidebar'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
@@ -118,11 +120,20 @@ it('projects titles and routes the next turn through the selected model in the b
   const revised = titleSurfaces(revisedLabel)
 
   const modelTrigger = await screen.findByRole('button', {
-    name: '选择模型，当前 DeepSeek-V4-Flash',
+    name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
   })
   fireEvent.click(modelTrigger)
+  fireEvent.click(screen.getByRole('menuitem', { name: /Model/ }))
   fireEvent.click(screen.getByRole('menuitemradio', { name: /GPT-5/ }))
-  await waitFor(() => { expect(modelTrigger.textContent).toBe('GPT-5') })
+  await waitFor(() => {
+    expect(modelTrigger.getAttribute('aria-label')).toBe('选择模型，当前 GPT-5，推理等级 Medium')
+  })
+  fireEvent.click(modelTrigger)
+  fireEvent.click(screen.getByRole('menuitem', { name: /Effort/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Max' }))
+  await waitFor(() => {
+    expect(modelTrigger.getAttribute('aria-label')).toBe('选择模型，当前 GPT-5，推理等级 Max')
+  })
 
   // fx-alpha starts in the running state. Selecting above is intentionally
   // allowed for the next turn; stop the fixture's resident run before sending
@@ -131,7 +142,7 @@ it('projects titles and routes the next turn through the selected model in the b
   const composer = await screen.findByPlaceholderText('Message the agent')
   fireEvent.change(composer, { target: { value: 'report model' } })
   fireEvent.keyDown(composer, { key: 'Enter' })
-  await screen.findByText('当前模型：openai/gpt-5', {}, { timeout: 10_000 })
+  await screen.findByText('当前模型：openai/gpt-5 · 推理等级：max', {}, { timeout: 10_000 })
 
   await expect(`${JSON.stringify({ initial, revised }, null, 2)}\n`)
     .toMatchFileSnapshot('./snapshots/session-title.json')

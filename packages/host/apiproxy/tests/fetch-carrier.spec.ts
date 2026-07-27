@@ -54,7 +54,15 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           rpcId: request.rpcId,
           result: {
             ok: true,
-            value: { selected: { provider: request.payload.provider, model: request.payload.model } },
+            value: {
+              selected: {
+                provider: request.payload.provider,
+                model: request.payload.model,
+                ...request.payload.reasoningEffort === undefined
+                  ? {}
+                  : { reasoningEffort: request.payload.reasoningEffort },
+              },
+            },
           },
         }
       },
@@ -160,11 +168,22 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
-    expect((await c.sessions.selectModel({
+    const selected = await c.sessions.selectModel({
       sessionId: 's' as never,
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
-    })).result.ok).toBe(true)
+      reasoningEffort: 'max',
+    })
+    expect(selected.result).toMatchObject({
+      ok: true,
+      value: {
+        selected: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          reasoningEffort: 'max',
+        },
+      },
+    })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)

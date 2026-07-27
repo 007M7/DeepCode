@@ -46,6 +46,25 @@ const MARKDOWN_FIXTURE = [
 
 const USER_MARKDOWN_LITERAL = '用户字面量：# 不渲染 `code` [link](https://example.com)'
 
+const DEEPSEEK_REASONING = {
+  efforts: [
+    { id: 'off', name: 'Off' },
+    { id: 'high', name: 'High' },
+    { id: 'max', name: 'Max' },
+  ],
+  defaultEffort: 'high',
+}
+
+const OPENAI_REASONING = {
+  efforts: [
+    { id: 'off', name: 'Off' },
+    { id: 'medium', name: 'Medium' },
+    { id: 'high', name: 'High' },
+    { id: 'max', name: 'Max' },
+  ],
+  defaultEffort: 'medium',
+}
+
 function sid(id: string): SessionId {
   return id as SessionId
 }
@@ -666,20 +685,36 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             id: 'deepseek',
             name: 'DeepSeek',
             models: [
-              { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', description: '快速响应' },
-              { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', description: '复杂任务' },
+              {
+                id: 'deepseek-v4-flash',
+                name: 'DeepSeek-V4-Flash',
+                description: '快速响应',
+                reasoning: DEEPSEEK_REASONING,
+              },
+              {
+                id: 'deepseek-v4-pro',
+                name: 'DeepSeek-V4-Pro',
+                description: '复杂任务',
+                reasoning: DEEPSEEK_REASONING,
+              },
             ],
           },
           {
             id: 'openai',
             name: 'OpenAI',
-            models: [{ id: 'gpt-5', name: 'GPT-5' }],
+            models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
           },
         ],
         failures: [],
       }),
       selectModel: (request) => {
-        const selected = { provider: request.payload.provider, model: request.payload.model }
+        const selected: ModelTarget = {
+          provider: request.payload.provider,
+          model: request.payload.model,
+          ...request.payload.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: request.payload.reasoningEffort },
+        }
         modelTargets.set(request.payload.sessionId, selected)
         return ok(request, { selected })
       },
@@ -718,7 +753,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           userText === 'render markdown'
             ? MARKDOWN_FIXTURE
             : userText === 'report model'
-              ? `当前模型：${modelTargets.get(id)?.provider ?? 'unknown'}/${modelTargets.get(id)?.model ?? 'unknown'}`
+              ? (() => {
+                const target = modelTargets.get(id)
+                return `当前模型：${target?.provider ?? 'unknown'}/${target?.model ?? 'unknown'}`
+                  + (target?.reasoningEffort === undefined ? '' : ` · 推理等级：${target.reasoningEffort}`)
+              })()
               : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
         return ok(request, { accepted: true as const })

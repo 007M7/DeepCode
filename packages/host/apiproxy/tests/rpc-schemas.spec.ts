@@ -141,7 +141,7 @@ describe('sessions domain schemas', () => {
     }).hasMore).toBe(false)
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
-      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
       groups: [{
         id: 'deepseek',
         name: 'DeepSeek',
@@ -150,6 +150,13 @@ describe('sessions domain schemas', () => {
           name: 'DeepSeek V4 Flash',
           description: 'fast',
           unlisted: true,
+          reasoning: {
+            efforts: [
+              { id: 'off', name: 'Off' },
+              { id: 'max', name: 'Max', description: 'Largest budget' },
+            ],
+            defaultEffort: 'off',
+          },
         }],
       }],
       failures: [{ id: 'broken', name: 'Broken', message: 'offline' }],
@@ -158,14 +165,30 @@ describe('sessions domain schemas', () => {
       sessionId: 's1',
       provider: 'deepseek',
       model: 'deepseek-v4-pro',
-    }).model).toBe('deepseek-v4-pro')
+      reasoningEffort: 'max',
+    }).reasoningEffort).toBe('max')
     expect(sessionSelectModelValueSchema.parse({
-      selected: { provider: 'deepseek', model: 'deepseek-v4-pro' },
-    }).selected.model).toBe('deepseek-v4-pro')
+      selected: { provider: 'deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
+    }).selected.reasoningEffort).toBe('max')
     expect(() => sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
       provider: '',
       model: 'm',
+    })).toThrow()
+    expect(() => sessionSelectModelRequestSchema.parse({
+      sessionId: 's1',
+      provider: 'deepseek',
+      model: 'm',
+      reasoningEffort: '',
+    })).toThrow()
+    expect(() => sessionModelsValueSchema.parse({
+      current: { provider: 'deepseek', model: 'm' },
+      groups: [{
+        id: 'deepseek',
+        name: 'DeepSeek',
+        models: [{ id: 'm', name: 'M', reasoning: { efforts: [] } }],
+      }],
+      failures: [],
     })).toThrow()
     const prompt = sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
     expect(prompt.mode).toBe('queue')

@@ -32,12 +32,32 @@ export interface HistoryEntry {
   view?: ToolEventView
 }
 
-/** Complete provider/model route selected for one session. */
+/** Complete model target selected for one session. */
 export interface ModelTarget {
   /** Registered provider route. */
   provider: string
   /** Provider-owned model id. */
   model: string
+  /** Adapter-owned reasoning effort; absence preserves adapter/provider default behavior. */
+  reasoningEffort?: string
+}
+
+/** One adapter-owned reasoning effort displayed for an exact model route. */
+export interface ModelReasoningEffort {
+  /** Opaque value submitted back to the owning adapter. */
+  id: string
+  /** Adapter-supplied display name. */
+  name: string
+  /** Optional adapter-supplied description. */
+  description?: string
+}
+
+/** Selectable reasoning metadata for one exact model route. */
+export interface ModelReasoning {
+  /** Efforts in adapter-preferred display order. */
+  efforts: ModelReasoningEffort[]
+  /** Adapter-configured default; absence preserves the provider default. */
+  defaultEffort?: string
 }
 
 /** One model displayed inside its provider group. */
@@ -50,6 +70,8 @@ export interface ModelCatalogModel {
   description?: string
   /** The current model was inserted because the advisory catalog omitted it. */
   unlisted?: true
+  /** Exact-route reasoning metadata when the adapter exposes it. */
+  reasoning?: ModelReasoning
 }
 
 /** One provider and the models it advertised successfully. */
@@ -139,10 +161,16 @@ export interface SessionsApi {
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
 
   /**
-   * Selects the complete route for this session. The registered provider is
-   * validated, while model catalog membership remains advisory.
+   * Selects the complete target for this session. Exact model metadata
+   * validates an optional reasoning effort, while catalog membership remains
+   * advisory.
    */
-  selectModel(request: RpcRequest<{ sessionId: SessionId; provider: string; model: string }>):
+  selectModel(request: RpcRequest<{
+    sessionId: SessionId
+    provider: string
+    model: string
+    reasoningEffort?: string
+  }>):
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
   /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */

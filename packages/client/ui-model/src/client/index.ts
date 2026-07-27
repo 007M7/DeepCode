@@ -20,7 +20,7 @@ import type { ModelSelectInjected } from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
 
 export { ModelDirectory } from './directory.ts'
-export type { ModelDirectoryState, ModelEffort } from './directory.ts'
+export type { ModelDirectoryState } from './directory.ts'
 export { ModelService } from './service.ts'
 export type { ModelSelectInjected } from './slots.ts'
 
@@ -61,7 +61,16 @@ function optionsOf(directory: SessionModels): SelectOption[] {
 function targetOf(state: ModelDirectoryState, id: string): ModelTarget | undefined {
   for (const group of state.groups) {
     for (const model of group.models) {
-      if (rowId(group.id, model.id) === id) return { provider: group.id, model: model.id }
+      if (rowId(group.id, model.id) !== id) continue
+      const sameRoute = state.current?.provider === group.id && state.current.model === model.id
+      const reasoningEffort = sameRoute
+        ? state.current?.reasoningEffort ?? model.reasoning?.defaultEffort
+        : model.reasoning?.defaultEffort
+      return {
+        provider: group.id,
+        model: model.id,
+        ...reasoningEffort === undefined ? {} : { reasoningEffort },
+      }
     }
   }
   return undefined
@@ -114,7 +123,6 @@ export function apply(ctx: ClientContext): void {
           directory: directory.store,
           load: () => { directory.load().catch(() => { /* surfaced on the store */ }) },
           select: (target: ModelTarget) => directory.select(target).then(() => true, () => false),
-          setEffort: (effort) => { directory.setEffort(effort) },
         }
       },
     }, ModelSelect), 'ui-model: composer model seat registration')

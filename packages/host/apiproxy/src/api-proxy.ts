@@ -8,7 +8,10 @@ import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentLlmTargetRef, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type {
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentMessage, AgentMessageId, AgentStatus,
+} from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -21,7 +24,7 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelTarget,
+  ApiProxy, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
   MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
@@ -359,7 +362,7 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
   const agentOptions = { provider: defaults.provider, model: defaults.model }
-  type WebLlmTargetRef = AgentLlmTargetRef & { current: ModelTarget }
+  type WebLlmTargetRef = AgentLlmTargetRef & { current: AgentLlmTarget }
   const targets = new WeakMap<Agent, WebLlmTargetRef>()
   /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
   const resumes = new Map<SessionId, Promise<Agent>>()
@@ -383,7 +386,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const target: WebLlmTargetRef = {
       current: logged === undefined
         ? { provider: defaults.provider, model: defaults.model }
-        : { provider: logged.provider, model: logged.model },
+        : {
+          provider: logged.provider,
+          model: logged.model,
+          ...logged.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: logged.reasoningEffort },
+        },
       assembled: undefined,
     }
     installAgentLlmTarget(agent.ctx, target)
@@ -710,15 +719,50 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const current = targetFor(found.agent).current
         const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
           try {
-            const models = await ctx.llm.listModels(provider.id)
-            const group: ModelProviderGroup = {
-              id: provider.id,
-              name: provider.name,
-              models: models.map(model => ({
+            const advertised = await ctx.llm.listModels(provider.id)
+            const models = [...advertised]
+            if (
+              provider.id === current.provider
+              && !models.some(model => model.id === current.model)
+            ) {
+              models.push({
+                provider: provider.id,
+                id: current.model,
+                name: current.model,
+              })
+            }
+            const entries = await Promise.all(models.map(async (model) => {
+              const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
+              const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
+                ? undefined
+                : {
+                  efforts: resolved.reasoning.efforts.map(effort => ({
+                    id: effort.id,
+                    name: effort.name,
+                    ...effort.description === undefined
+                      ? {}
+                      : { description: effort.description },
+                  })),
+                  ...resolved.reasoning.defaultEffort === undefined
+                    ? {}
+                    : { defaultEffort: resolved.reasoning.defaultEffort },
+                }
+              return {
                 id: model.id,
                 name: model.name,
                 ...model.description === undefined ? {} : { description: model.description },
-              })),
+                ...provider.id === current.provider
+                  && model.id === current.model
+                  && !advertised.some(candidate => candidate.id === current.model)
+                  ? { unlisted: true as const }
+                  : {},
+                ...reasoning === undefined ? {} : { reasoning },
+              }
+            }))
+            const group: ModelProviderGroup = {
+              id: provider.id,
+              name: provider.name,
+              models: entries,
             }
             return { kind: 'group' as const, group }
           } catch (error: unknown) {
@@ -732,17 +776,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }))
         const groups = catalog.flatMap(item => item.kind === 'group' ? [item.group] : [])
         const failures = catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : [])
-        const currentGroup = groups.find(group => group.id === current.provider)
-        if (
-          currentGroup !== undefined
-          && !currentGroup.models.some(model => model.id === current.model)
-        ) {
-          currentGroup.models.push({
-            id: current.model,
-            name: current.model,
-            unlisted: true,
-          })
-        }
         return ok(request, {
           current: { ...current },
           groups: groups.filter(group => group.models.length > 0),
@@ -751,19 +784,33 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async selectModel(request) {
-        const { sessionId, provider, model } = request.payload
+        const { sessionId, provider, model, reasoningEffort } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
-        if (!ctx.llm.listProviders().some(entry => entry.id === provider)) {
+        try {
+          const resolved = await ctx.llm.resolveCallConfig({
+            provider,
+            model,
+            ...reasoningEffort === undefined
+              ? {}
+              : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
+          })
+          const selected: AgentLlmTarget = {
+            provider: resolved.provider,
+            model: resolved.model,
+            ...resolved.reasoningEffort === undefined
+              ? {}
+              : { reasoningEffort: resolved.reasoningEffort },
+          }
+          targetFor(found.agent).current = selected
+          return ok(request, { selected: { ...selected } })
+        } catch (error: unknown) {
           return err(request, {
             code: 'model-unavailable',
-            message: `provider "${provider}" is not registered`,
+            message: error instanceof Error ? error.message : String(error),
             details: { provider, model },
           })
         }
-        const selected: ModelTarget = { provider, model }
-        targetFor(found.agent).current = selected
-        return ok(request, { selected: { ...selected } })
       },
 
       async prompt(request) {
