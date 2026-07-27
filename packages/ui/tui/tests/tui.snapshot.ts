@@ -229,33 +229,45 @@ const DISPLAYED_CONTROL_PROBE = String.raw`\x1b]2;snapshot-controlled\x07\x09\x7
 describe('TUI terminal-state snapshots', () => {
   it('pins an in-flight reasoning and Markdown stream', async () => {
     const harness = await setupSnapshot()
-    await renderAfter(harness, () => {
-      harness.agent.status = 'running'
-      harness.ctx.emit('agent/status', harness.agent, 'running')
-      appendUser(harness.session, 'Show the live update.')
-      harness.session.append('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'block-start', index: 0, blockType: 'reasoning' },
+    // Freeze the loader's first animation interval so this semantic snapshot
+    // cannot select a different spinner frame under scheduler contention.
+    const frozenLoaderTimer = setInterval(() => {}, 60_000)
+    const intervals = vi.spyOn(globalThis, 'setInterval').mockImplementationOnce(() => frozenLoaderTimer)
+    try {
+      await renderAfter(harness, () => {
+        harness.agent.status = 'running'
+        harness.ctx.emit('agent/status', harness.agent, 'running')
+        appendUser(harness.session, 'Show the live update.')
+        harness.session.append('assistant/chunk', {
+          turn: 1,
+          step: 1,
+          chunk: { type: 'block-start', index: 0, blockType: 'reasoning' },
+        })
+        harness.session.append('assistant/chunk', {
+          turn: 1,
+          step: 1,
+          chunk: { type: 'reasoning-delta', index: 0, text: 'Inspecting width and styles.' },
+        })
+        harness.session.append('assistant/chunk', {
+          turn: 1,
+          step: 1,
+          chunk: { type: 'block-start', index: 1, blockType: 'text' },
+        })
+        harness.session.append('assistant/chunk', {
+          turn: 1,
+          step: 1,
+          chunk: { type: 'text-delta', index: 1, text: 'Streaming **visible state**…' },
+        })
       })
-      harness.session.append('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'reasoning-delta', index: 0, text: 'Inspecting width and styles.' },
-      })
-      harness.session.append('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'block-start', index: 1, blockType: 'text' },
-      })
-      harness.session.append('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'text-delta', index: 1, text: 'Streaming **visible state**…' },
-      })
-    })
-    await checkpoint('conversation-streaming', harness.terminal)
-    await disposeSnapshot(harness)
+      const loaderIntervalMs = intervals.mock.calls[0]?.[1]
+      if (typeof loaderIntervalMs !== 'number') throw new Error('TUI loader did not register an animation interval')
+      await new Promise(resolve => setTimeout(resolve, loaderIntervalMs + 5))
+      await checkpoint('conversation-streaming', harness.terminal)
+    } finally {
+      intervals.mockRestore()
+      clearInterval(frozenLoaderTimer)
+      await disposeSnapshot(harness)
+    }
   })
 
   it('pins failed-stream retraction, scheduled retry, and eventual success', async () => {

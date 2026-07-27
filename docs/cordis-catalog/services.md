@@ -2040,6 +2040,16 @@ get(id: WorkspaceId): Workspace | undefined
 list(): Workspace[]
 
 /**
+ * Delete one workspace registration while retaining its directory and every
+ * session log. The durable order is updated before the table deletion; a
+ * failed table write restores the prior order and keeps the entity
+ * published. Unknown ids are an idempotent no-op for domain callers.
+ * @param id - Workspace registration to remove.
+ * @returns `true` when a record was deleted, `false` when it was unknown.
+ */
+delete(id: WorkspaceId): Promise<boolean>
+
+/**
  * Resolve by canonical directory path without creating or mutating a
  * workspace. A missing path rejects during `realpath`; an existing unowned
  * directory returns `undefined`.

@@ -39,7 +39,10 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   }
 }
 
-async function harness(mode: 'danger-full-access' | 'workspace-write') {
+async function harness(
+  mode: 'danger-full-access' | 'workspace-write',
+  timing: { idleSilenceMs?: number; timeoutMs?: number } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-pty-local-'))
   roots.push(root)
   const ctx = new Context()
@@ -51,8 +54,8 @@ async function harness(mode: 'danger-full-access' | 'workspace-write') {
   const fiber = await ctx.plugin(ptyLocal, {
     pollIntervalMs: 10,
     exactProbeAfterMs: 20,
-    idleSilenceMs: 250,
-    timeoutMs: 2000,
+    idleSilenceMs: timing.idleSilenceMs ?? 250,
+    timeoutMs: timing.timeoutMs ?? 2_000,
     disposeGraceMs: 500,
     scrollbackLines: 100,
     scrollbackMaxBytes: 32_768,
@@ -63,8 +66,8 @@ async function harness(mode: 'danger-full-access' | 'workspace-write') {
   return { ctx, root, agent, fiber, sandbox: ctx.sandbox as PassthroughSandbox }
 }
 
-async function waitForOutput(operation: PtySendOperation, expected: string): Promise<void> {
-  const deadline = Date.now() + 2_000
+async function waitForOutput(operation: PtySendOperation, expected: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
   let output = ''
   while (!output.includes(expected) && Date.now() < deadline) {
     output += operation.readOutput().delta
@@ -131,20 +134,25 @@ describe('pty-local real shell', () => {
     expect(() => process.kill(pid, 0)).toThrow()
   }, 10_000)
 
-  it('cancels a raw-mode foreground process with a real SIGINT', async () => {
-    const { ctx, agent } = await harness('danger-full-access')
+  it('cancels a slow-starting raw-mode foreground process with a real SIGINT', async () => {
+    const { ctx, agent } = await harness('danger-full-access', {
+      idleSilenceMs: 10_000,
+      timeoutMs: 15_000,
+    })
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     const controller = new AbortController()
     const ready = 'RAW_READY'
+    // Delay readiness beyond the shared harness's short send bound so this
+    // process test owns enough slack for loaded macOS startup and shell echo.
     // The interactive shell echoes the command, so only child output may contain the readiness marker.
-    const command = 'python3 -c \'import signal,sys,termios,time; signal.signal(signal.SIGINT, lambda *_: (print("SIGINT_SEEN", flush=True), sys.exit(0))); attrs=termios.tcgetattr(0); attrs[3] &= ~termios.ISIG; termios.tcsetattr(0, termios.TCSANOW, attrs); print("RAW_" + "READY", flush=True); time.sleep(60)\''
+    const command = 'python3 -c \'import signal,sys,termios,time; signal.signal(signal.SIGINT, lambda *_: (print("SIGINT_SEEN", flush=True), sys.exit(0))); attrs=termios.tcgetattr(0); attrs[3] &= ~termios.ISIG; termios.tcsetattr(0, termios.TCSANOW, attrs); time.sleep(2.1); print("RAW_" + "READY", flush=True); time.sleep(60)\''
     expect(command).not.toContain(ready)
     const foreground = ctx.pty.startSend(agent, created.sessionId, {
       text: command,
       submit: true,
       signal: controller.signal,
     })
-    await waitForOutput(foreground, ready)
+    await waitForOutput(foreground, ready, 15_000)
     controller.abort()
     const result = await foreground.done
     expect(result.waitReason).toBe('stdin_read')
@@ -155,5 +163,5 @@ describe('pty-local real shell', () => {
     expect(after.viewport).toContain('AFTER_SIGINT')
     expect(after.waitReason).toBe('stdin_read')
     await ctx.pty.kill(agent, created.sessionId)
-  }, 10_000)
+  }, 20_000)
 })
