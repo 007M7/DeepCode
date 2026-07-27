@@ -29,7 +29,8 @@ export type {
 } from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantTiming, CodeSubCall, ComposerPhase, ContextMessageNode,
-  ConversationContext, ConversationContextOriginKind, ConversationNode, ConversationSnapshot, QueuedMessage, RunningToolCall,
+  ConversationContext, ConversationContextOriginKind, ConversationNode, ConversationPromptSnapshot,
+  ConversationSnapshot, QueuedMessage, RunningToolCall,
   SteeringMessageNode, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export { PendingWait } from './sessions/pending.ts'

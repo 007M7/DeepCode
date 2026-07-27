@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import {
   extractMarkdownPlainText, IconChevronRightOutline14, JsonTree, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ConversationPromptSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
 } from './trajectory-record.ts'
@@ -31,7 +32,16 @@ interface TableRecord {
   collapsedSummaryKind?: 'turn' | 'assistant'
 }
 
-type DetailTab = 'overview' | 'rendered' | 'source' | 'input' | 'output' | 'schema' | 'timing'
+type DetailTab =
+  | 'system-prompt'
+  | 'tools'
+  | 'overview'
+  | 'rendered'
+  | 'source'
+  | 'input'
+  | 'output'
+  | 'schema'
+  | 'timing'
 type RecordState = 'complete' | 'running' | 'error'
 
 interface DetailTabItem {
@@ -42,6 +52,11 @@ interface DetailTabItem {
 interface ParentRecords {
   message?: TableRecord
   tool?: TableRecord
+}
+
+interface ToolCallTextParts {
+  name: string
+  args?: string
 }
 
 interface DetailsResizeDrag {
@@ -61,6 +76,11 @@ const TOOL_REQUEST_MIN_WIDTH = 180
 const TOOL_REQUEST_MAX_WIDTH = 480
 const DEFAULT_TOOL_REQUEST_SHARE = 0.36
 const DEFAULT_TOOL_REQUEST_OFFSET = 56
+const SYSTEM_PROMPT_INDEX = 0
+const SYSTEM_PROMPT_TABS: readonly DetailTabItem[] = [
+  { id: 'system-prompt', label: 'System Prompt' },
+  { id: 'tools', label: 'Tools' },
+]
 
 type TrajectorySplitStyle = CSSProperties & {
   '--trajectory-tool-request-width': string
@@ -156,6 +176,8 @@ function AssistantTimingPanel({ metrics }: { metrics: AssistantMetricDetail }) {
 
 /** Props for the trajectory ledger. */
 export interface TrajectoryTableProps {
+  /** Latest model request header in force for the selected context. */
+  prompt?: ConversationPromptSnapshot
   /** Grouped records in display order. */
   turns: readonly TrajectoryTurnModel[]
   /** Turn ids whose rows after the first are folded into a summary. */
@@ -326,9 +348,21 @@ function statusLabel(state: RecordState): string {
   return 'Completed'
 }
 
-function tokenSummary(cell: TrajectoryCellProps): string {
+function tokenSummary(cell: TrajectoryCellProps): ReactNode {
   if (cell.kind !== 'message') return '—'
-  return `${cell.input ?? '—'} / ${cell.output ?? '—'} / ${cell.think ?? '—'}`
+  if (cell.output === undefined) return '—'
+  if (cell.think === undefined) return String(cell.output)
+  return (
+    <span className={css.tokenEquation}>
+      <span title="Total output tokens">{cell.output}</span>
+      <span className={css.tokenOperator}>=</span>
+      <span title="Non-reasoning output tokens">
+        {Math.max(0, cell.output - cell.think)}
+      </span>
+      <span className={css.tokenOperator}>+</span>
+      <span title="Reasoning tokens">{cell.think}</span>
+    </span>
+  )
 }
 
 function isMarkdownRecord(record: TableRecord): boolean {
@@ -407,6 +441,19 @@ function recordDisplayText(cell: TrajectoryCellProps): string {
   if (!markdown) return cell.text
   const plainText = extractMarkdownPlainText(markdown)
   return plainText.replace(/\s+/g, ' ').trim()
+}
+
+function toolCallTextParts(
+  kind: TrajectoryCellKind,
+  text: string,
+): ToolCallTextParts | undefined {
+  if (kind !== 'tool' && kind !== 'subtool') return undefined
+  const separator = text.indexOf(' · ')
+  if (separator === -1) return { name: text }
+  return {
+    name: text.slice(0, separator),
+    args: text.slice(separator + 3),
+  }
 }
 
 function isToolCallOnly(cell: TrajectoryCellProps): boolean {
@@ -578,6 +625,55 @@ function AssistantToolCalls({
         </li>
       ))}
     </ul>
+  )
+}
+
+function ToolGlyph() {
+  return (
+    <svg
+      className={css.toolCatalogIcon}
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ToolCatalog({ tools }: { tools: ConversationPromptSnapshot['tools'] }) {
+  if (tools.length === 0) return <p className={css.noPayload}>No tools in this request</p>
+  return (
+    <div className={css.toolCatalog}>
+      {tools.map((tool, index) => (
+        <details className={css.toolCatalogItem} key={`${tool.name}:${index}`}>
+          <summary className={css.toolCatalogSummary}>
+            <IconChevronRightOutline14 className={css.toolCatalogChevron} size={12} />
+            <ToolGlyph />
+            <span className={css.toolCatalogName}>{tool.name}</span>
+            <span className={css.toolCatalogDescription}>{tool.description}</span>
+          </summary>
+          <div className={css.toolCatalogDefinition}>
+            {tool.description !== '' && (
+              <p className={css.toolCatalogFullDescription}>{tool.description}</p>
+            )}
+            <JsonTree
+              data={tool.parameters}
+              label={`${tool.name} parameters JSON`}
+              className={css.toolCatalogTree}
+            />
+          </div>
+        </details>
+      ))}
+    </div>
   )
 }
 
@@ -879,6 +975,7 @@ function OverviewSection({
  * @returns The ledger and an optional local record inspector.
  */
 export function TrajectoryTable({
+  prompt,
   turns,
   collapsedTurns,
   onToggleTurn,
@@ -895,9 +992,17 @@ export function TrajectoryTable({
   const allRecords = flattenRecords(turns)
   const turnRecords = collapseTurnRecords(allRecords, collapsedTurns)
   const records = collapseAssistantRecords(turnRecords, collapsedAssistants)
+  const systemPromptPreview = prompt === undefined
+    ? 'Request header not recorded'
+    : prompt.system === ''
+      ? 'No system prompt'
+      : extractMarkdownPlainText(prompt.system).replace(/\s+/g, ' ').trim()
+  const promptSelected = selectedIndex === SYSTEM_PROMPT_INDEX
   const selected = allRecords.find(record => record.cell.index === selectedIndex)
   const selectedState = selected === undefined ? undefined : stateOf(selected)
-  const selectedTabs = selected === undefined ? [] : detailTabs(selected)
+  const selectedTabs = promptSelected
+    ? SYSTEM_PROMPT_TABS
+    : selected === undefined ? [] : detailTabs(selected)
   const selectedParents: ParentRecords = selected === undefined
     ? {}
     : parentRecords(allRecords, selected)
@@ -922,6 +1027,11 @@ export function TrajectoryTable({
     const available = new Set(detailTabs(record).map(tab => tab.id))
     const recent = [...tabHistory.current].reverse().find(tab => available.has(tab))
     setActiveTab(recent ?? 'overview')
+  }
+
+  const selectSystemPrompt = () => {
+    setSelectedIndex(SYSTEM_PROMPT_INDEX)
+    activateTab('system-prompt')
   }
 
   const openRecordSummary = (target: TableRecord) => {
@@ -954,8 +1064,42 @@ export function TrajectoryTable({
             <col className={css.contentColumn} />
           </colgroup>
           <tbody>
+            <tr
+              tabIndex={0}
+              aria-label="System prompt and tool catalog"
+              aria-selected={promptSelected}
+              data-kind="system"
+              data-selected={promptSelected || undefined}
+              onClick={selectSystemPrompt}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                selectSystemPrompt()
+              }}
+            >
+              <td className={css.event}>
+                {promptSelected && <span className={css.selectionRail} aria-hidden="true" />}
+                <div className={css.eventInner}>
+                  <span className={`${css.kindSlot} ${css.kindSlotLeft}`}>
+                    <span className={`${css.kindTag} ${css.systemNeutral}`}>SYSTEM</span>
+                  </span>
+                </div>
+              </td>
+              <td className={css.content}>
+                <span
+                  className={css.contentText}
+                  title={prompt?.system || systemPromptPreview}
+                >
+                  {systemPromptPreview}
+                </span>
+              </td>
+            </tr>
             {records.map((record) => {
               const displayText = recordDisplayText(record.cell)
+              const toolCallText = toolCallTextParts(record.cell.kind, displayText)
+              const listDisplayText = toolCallText === undefined
+                ? displayText
+                : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
               const isCollapsedSummary = record.collapsedSummary !== undefined
               return (
                 <tr
@@ -963,7 +1107,7 @@ export function TrajectoryTable({
                   tabIndex={0}
                   aria-label={isCollapsedSummary
                     ? `Collapsed ${record.collapsedSummaryKind} summary, ${record.collapsedSummary}`
-                    : `${KIND_LABEL[record.cell.kind]}, ${displayText || 'no content'}`}
+                    : `${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
                   aria-selected={!isCollapsedSummary && selectedIndex === record.cell.index}
                   data-kind={record.cell.kind}
                   data-group-start={record.groupStart || undefined}
@@ -1028,7 +1172,18 @@ export function TrajectoryTable({
                             : `${css.kindSlot} ${css.kindSlotRight}`
                         }
                       >
-                        <span className={`${css.kindTag} ${css[record.cell.kind]}`}>
+                        <span className={`${css.kindTag} ${
+                          record.cell.kind === 'context'
+                            ? css.contextGreen
+                            : record.cell.kind === 'tool'
+                              ? css.toolAmber
+                              : record.cell.kind === 'message'
+                                ? css.assistantVioletBright
+                                : record.cell.kind === 'subtool'
+                                  ? css.subtoolAmber
+                                  : css[record.cell.kind]
+                        }`}
+                        >
                           {KIND_LABEL[record.cell.kind]}
                         </span>
                         {record.turnStart && record.cell.opensTurn && (
@@ -1056,11 +1211,26 @@ export function TrajectoryTable({
                         <span
                           className={record.cell.result === undefined ? css.contentText : css.resultPreview}
                           title={record.cell.result === undefined
-                            ? displayText
-                            : `${displayText} → ${record.cell.result}`}
+                            ? listDisplayText
+                            : `${listDisplayText} → ${record.cell.result}`}
                         >
                           <span className={record.cell.result === undefined ? undefined : css.resultRequest}>
-                            {isToolCallOnly(record.cell) ? null : displayText || '—'}
+                            {isToolCallOnly(record.cell)
+                              ? null
+                              : toolCallText === undefined
+                                ? listDisplayText || '—'
+                                : (
+                                    <>
+                                      <span className={css.toolCallNameTypeface}>
+                                        {toolCallText.name || '—'}
+                                      </span>
+                                      {toolCallText.args !== undefined && (
+                                        <span className={css.toolCallPayload}>
+                                          {toolCallText.args}
+                                        </span>
+                                      )}
+                                    </>
+                                  )}
                           </span>
                           {record.cell.result !== undefined && (
                             <span className={record.cell.isError ? `${css.inlineResult} ${css.error}` : css.inlineResult}>
@@ -1077,7 +1247,7 @@ export function TrajectoryTable({
           </tbody>
         </table>
       </div>
-      {selected !== undefined && selectedState !== undefined && (
+      {(promptSelected || (selected !== undefined && selectedState !== undefined)) && (
         <aside
           className={css.details}
           aria-label="Event details"
@@ -1159,10 +1329,29 @@ export function TrajectoryTable({
           />
           <div className={css.detailsHeader}>
             <div className={css.detailsTitle}>
-              <span className={`${css.kindTag} ${css[selected.cell.kind]}`}>
-                {KIND_LABEL[selected.cell.kind]}
-              </span>
-              <span className={css.detailsLocation}>{`Turn ${selected.turn} · ${selected.group}`}</span>
+              {promptSelected
+                ? (
+                    <span className={`${css.kindTag} ${css.systemNeutral}`}>SYSTEM</span>
+                  )
+                : selected !== undefined && (
+                    <>
+                      <span className={`${css.kindTag} ${
+                        selected.cell.kind === 'context'
+                          ? css.contextGreen
+                          : selected.cell.kind === 'tool'
+                    ? css.toolAmber
+                    : selected.cell.kind === 'message'
+                      ? css.assistantVioletBright
+                      : selected.cell.kind === 'subtool'
+                        ? css.subtoolAmber
+                        : css[selected.cell.kind]
+              }`}
+                      >
+                        {KIND_LABEL[selected.cell.kind]}
+                      </span>
+                      <span className={css.detailsLocation}>{`Turn ${selected.turn} · ${selected.group}`}</span>
+                    </>
+                  )}
             </div>
             <button
               type="button"
@@ -1195,7 +1384,23 @@ export function TrajectoryTable({
             role="tabpanel"
             aria-labelledby={`trajectory-detail-${activeTab}`}
           >
-            {activeTab === 'overview' && (
+            {promptSelected && activeTab === 'system-prompt' && (
+              prompt === undefined
+                ? <p className={css.noPayload}>Request header not recorded</p>
+                : prompt.system === ''
+                  ? <p className={css.noPayload}>No system prompt in this request</p>
+                  : (
+                    <div className={`${css.markdownPayload} ${css.systemPrompt}`}>
+                      <MarkdownText text={prompt.system} />
+                    </div>
+                  )
+            )}
+            {promptSelected && activeTab === 'tools' && (
+              prompt === undefined
+                ? <p className={css.noPayload}>Request header not recorded</p>
+                : <ToolCatalog tools={prompt.tools} />
+            )}
+            {!promptSelected && selected !== undefined && selectedState !== undefined && activeTab === 'overview' && (
               <>
                 <dl className={css.overview}>
                   {hasSelectedParents && (
@@ -1205,19 +1410,27 @@ export function TrajectoryTable({
                         {selectedParents.message !== undefined && (
                           <button
                             type="button"
-                            className={css.overviewHierarchyLink}
+                            className={css.overviewHierarchyNavLink}
                             onClick={() => { openRecordSummary(selectedParents.message!) }}
                           >
-                            Parent Message
+                            <span>Parent Message</span>
+                            <IconChevronRightOutline14
+                              className={css.overviewHierarchyJumpIconTight}
+                              size={11}
+                            />
                           </button>
                         )}
                         {selectedParents.tool !== undefined && (
                           <button
                             type="button"
-                            className={css.overviewHierarchyLink}
+                            className={css.overviewHierarchyNavLink}
                             onClick={() => { openRecordSummary(selectedParents.tool!) }}
                           >
-                            Parent Tool Call
+                            <span>Parent Tool Call</span>
+                            <IconChevronRightOutline14
+                              className={css.overviewHierarchyJumpIconTight}
+                              size={11}
+                            />
                           </button>
                         )}
                       </dd>
@@ -1271,7 +1484,7 @@ export function TrajectoryTable({
                 </div>
               </>
             )}
-            {activeTab === 'rendered' && (
+            {!promptSelected && selected !== undefined && activeTab === 'rendered' && (
               <MarkdownRecordContent
                 record={selected}
                 rendered
@@ -1280,7 +1493,7 @@ export function TrajectoryTable({
                 onOpenCall={openCallSummary}
               />
             )}
-            {activeTab === 'source' && (
+            {!promptSelected && selected !== undefined && activeTab === 'source' && (
               <MarkdownRecordContent
                 record={selected}
                 rendered={false}
@@ -1289,16 +1502,16 @@ export function TrajectoryTable({
                 onOpenCall={openCallSummary}
               />
             )}
-            {activeTab === 'input' && (
+            {!promptSelected && selected !== undefined && activeTab === 'input' && (
               <RecordPayload record={selected} direction="input" />
             )}
-            {activeTab === 'output' && (
+            {!promptSelected && selected !== undefined && activeTab === 'output' && (
               <RecordPayload record={selected} direction="output" />
             )}
-            {activeTab === 'schema' && (
+            {!promptSelected && selected !== undefined && activeTab === 'schema' && (
               <RecordSchema record={selected} />
             )}
-            {activeTab === 'timing' && (
+            {!promptSelected && selected !== undefined && activeTab === 'timing' && (
               <RecordTiming record={selected} />
             )}
           </div>

@@ -161,17 +161,15 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
           />
         )}
         <div className={css.ledger}>
-          {turns.length === 0 && <p className={css.empty}>No trajectory events</p>}
-          {turns.length > 0 && (
-            <TrajectoryTable
-              key={selectedContext.id}
-              turns={turns}
-              collapsedTurns={collapsedTurns}
-              onToggleTurn={toggleTurn}
-              collapsedAssistants={collapsedAssistants}
-              onToggleAssistant={toggleAssistant}
-            />
-          )}
+          <TrajectoryTable
+            key={selectedContext.id}
+            {...selectedContext.prompt === undefined ? {} : { prompt: selectedContext.prompt }}
+            turns={turns}
+            collapsedTurns={collapsedTurns}
+            onToggleTurn={toggleTurn}
+            collapsedAssistants={collapsedAssistants}
+            onToggleAssistant={toggleAssistant}
+          />
         </div>
       </div>
     </div>

@@ -235,13 +235,28 @@ export function JsonTree({
     const rootRect = root.getBoundingClientRect()
     const rowRect = row.getBoundingClientRect()
     setCopyTarget({
-      left: root.scrollLeft + root.clientWidth - 26,
+      left: rootRect.left + root.clientWidth - 26,
       path: target.path,
       side: rowRect.top - rootRect.top > root.clientHeight / 2 ? 'top' : 'bottom',
-      top: root.scrollTop + rowRect.top - rootRect.top,
+      top: rowRect.top,
       value: target.value,
     })
   }
+
+  useEffect(() => {
+    const reposition = () => {
+      const row = activeRowRef.current
+      if (row === undefined) return
+      const resolved = resolveRow(data, row, expandTopLevel)
+      if (resolved !== undefined) positionCopyButton(row, resolved)
+    }
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    return () => {
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+    }
+  }, [data, expandTopLevel])
 
   const clearCopyTarget = () => {
     setActiveRow(undefined)

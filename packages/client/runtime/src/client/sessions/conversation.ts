@@ -209,6 +209,14 @@ export type ComposerPhase = 'blank' | 'engaging' | 'active'
 /** Operation that started a new append-only model context. */
 export type ConversationContextOriginKind = 'compaction' | 'rewind' | 'rewrite'
 
+/** Latest complete model request header in force within one context generation. */
+export interface ConversationPromptSnapshot {
+  /** Rendered system prompt text; empty when the request had no system prompt. */
+  system: string
+  /** Complete tool catalog sent with the request, including tools that were never called. */
+  tools: readonly ToolSchema[]
+}
+
 /** One immutable model-context generation reconstructed from surface replacements. */
 export interface ConversationContext {
   /** Zero-based generation within the session; stable across later appends. */
@@ -221,6 +229,8 @@ export interface ConversationContext {
   originSeq?: number
   /** Unix epoch ms of the replacement that created this generation. */
   createdAt?: number
+  /** Latest request header observed in this generation, inherited until a later header replaces it. */
+  prompt?: ConversationPromptSnapshot
   /** Final frozen nodes for historical generations, or current folded nodes for the tail. */
   nodes: readonly ConversationNode[]
 }

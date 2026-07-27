@@ -13,6 +13,7 @@ import {
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   AssistantTiming, ConversationContext, ConversationContextOriginKind, ConversationNode,
+  ConversationPromptSnapshot,
 } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 
@@ -111,9 +112,12 @@ export class FoldAdapter {
    *  reference-stability contract (§A.9.4) starts here. */
   private rev = 0
   private nodesResult: { rev: number; value: { nodes: ConversationNode[]; degraded: boolean } } | null = null
-  /** Revision of the model-visible surface only; log-only chunks do not rebuild context generations. */
-  private surfaceRev = 0
+  /** Revision of context structure or its request header; unrelated log-only events do not rebuild contexts. */
+  private contextRev = 0
   private contextsResult: { rev: number; value: readonly ConversationContext[] } | null = null
+  private contextGeneration = 0
+  private activePrompt: ConversationPromptSnapshot | undefined
+  private promptsByContext = new Map<number, ConversationPromptSnapshot>()
 
   /** In-window tool/call index (Session uses it for runningCalls and result-card backfill). */
   get callIndex(): ReadonlyMap<string, CallIndexEntry> {
@@ -129,7 +133,7 @@ export class FoldAdapter {
    */
   reset(events: readonly SessionEvent[], baseSeq: number, views?: readonly (ToolEventView | undefined)[]): void {
     this.rev++
-    this.surfaceRev++
+    this.contextRev++
     this.baseSeq = baseSeq
     this.padded = []
     for (let i = 0; i < baseSeq; i++) this.padded.push(paddingEvent(i))
@@ -139,10 +143,16 @@ export class FoldAdapter {
     this.degraded = false
     this.callIdx = new Map()
     this.resultViews.clear()
+    this.contextGeneration = 0
+    this.activePrompt = undefined
+    this.promptsByContext = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
-      if (event !== undefined) this.indexCall(event, views?.[i])
+      if (event !== undefined) {
+        this.indexCall(event, views?.[i])
+        this.indexContextPrompt(event)
+      }
     }
   }
 
@@ -154,9 +164,10 @@ export class FoldAdapter {
    */
   append(event: SessionEvent, view?: ToolEventView): void {
     this.rev++
-    if (isSurfaceEvent(event)) this.surfaceRev++
+    if (isSurfaceEvent(event) || event.type === 'request/header') this.contextRev++
     this.padded.push(event)
     this.indexCall(event, view)
+    this.indexContextPrompt(event)
   }
 
   /**
@@ -207,13 +218,17 @@ export class FoldAdapter {
    * @returns Frozen historical contexts followed by the current context.
    */
   contexts(): readonly ConversationContext[] {
-    if (this.contextsResult !== null && this.contextsResult.rev === this.surfaceRev) {
+    if (this.contextsResult !== null && this.contextsResult.rev === this.contextRev) {
       return this.contextsResult.value
     }
     const current = this.nodes()
     if (current.degraded) {
-      const value: readonly ConversationContext[] = [{ id: 0, nodes: current.nodes }]
-      this.contextsResult = { rev: this.surfaceRev, value }
+      const value: readonly ConversationContext[] = [{
+        id: 0,
+        ...(this.activePrompt === undefined ? {} : { prompt: this.activePrompt }),
+        nodes: current.nodes,
+      }]
+      this.contextsResult = { rev: this.contextRev, value }
       return value
     }
     const value = this.surface.contexts.map((context): ConversationContext => {
@@ -222,7 +237,14 @@ export class FoldAdapter {
         const node = this.materialize(seq)
         if (node !== undefined) nodes.push(node)
       }
-      if (context.origin === undefined) return { id: context.generation, nodes }
+      const prompt = this.promptsByContext.get(context.generation)
+      if (context.origin === undefined) {
+        return {
+          id: context.generation,
+          ...(prompt === undefined ? {} : { prompt }),
+          nodes,
+        }
+      }
       const originEvent = this.padded[context.origin.seq]
       return {
         id: context.generation,
@@ -230,10 +252,11 @@ export class FoldAdapter {
         origin: contextOriginKind(originEvent),
         originSeq: context.origin.seq,
         ...(originEvent === undefined ? {} : { createdAt: originEvent.time }),
+        ...(prompt === undefined ? {} : { prompt }),
         nodes,
       }
     })
-    this.contextsResult = { rev: this.surfaceRev, value }
+    this.contextsResult = { rev: this.contextRev, value }
     return value
   }
 
@@ -303,6 +326,21 @@ export class FoldAdapter {
     // No backfill into already-materialized tool-result nodes for this callId
     // (window order puts the call before its result; cannot happen on the normal path).
   }
+
+  private indexContextPrompt(event: SessionEvent): void {
+    if (isSurfaceEvent(event) && event.surfaceOp !== 'append') {
+      this.contextGeneration++
+      if (this.activePrompt !== undefined) {
+        this.promptsByContext.set(this.contextGeneration, this.activePrompt)
+      }
+    }
+    if (event.type !== 'request/header') return
+    this.activePrompt = {
+      system: event.data.header.system ?? '',
+      tools: event.data.header.tools ?? [],
+    }
+    this.promptsByContext.set(this.contextGeneration, this.activePrompt)
+  }
 }
 
 function contextOriginKind(event: SessionEvent | undefined): ConversationContextOriginKind {
@@ -310,10 +348,8 @@ function contextOriginKind(event: SessionEvent | undefined): ConversationContext
   const source = event.data.source
   if (
     typeof source === 'object'
-    && source !== null
     && 'kind' in source
     && 'plugin' in source
-    && source.kind === 'plugin'
   ) {
     if (source.plugin === 'compact') return 'compaction'
     if (source.plugin === 'rewind') return 'rewind'

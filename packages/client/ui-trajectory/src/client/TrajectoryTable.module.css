@@ -79,7 +79,7 @@
   transition: background-color 120ms var(--ds-ease-in-out);
 }
 
-.table tbody tr:not([data-collapsed-summary]):hover {
+.table tbody tr:not([data-collapsed-summary]):not([data-selected='true']):hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
@@ -230,28 +230,53 @@
   background: var(--dsw-alias-state-business-tertiary);
 }
 
-.context {
-  border-color: var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-1);
-}
-
-.message {
-  border-color: var(--dsw-alias-border-l2);
+.systemNeutral {
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-module-platform);
 }
 
-.tool {
-  border-color: var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-layer-1);
+.contextGreen {
+  color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 68%,
+    var(--dsw-alias-label-secondary)
+  );
+  background: var(--dsw-alias-state-success-tertiary);
 }
 
-.subtool {
-  border-color: var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-state-business-primary);
-  background: transparent;
+.assistantVioletBright {
+  color: color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%,
+    var(--dsw-alias-state-error-secondary)
+  );
+  background: color-mix(
+    in srgb,
+    color-mix(
+      in srgb,
+      var(--dsw-alias-brand-primary-new-colorprimary-new-color) 55%,
+      var(--dsw-alias-state-error-secondary)
+    ) 15%,
+    var(--dsw-alias-bg-layer-1)
+  );
+}
+
+.toolAmber {
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+.subtoolAmber {
+  color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-label) 62%,
+    var(--dsw-alias-label-tertiary)
+  );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-tertiary) 58%,
+    var(--dsw-alias-bg-layer-1)
+  );
 }
 
 .contentText {
@@ -324,6 +349,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.toolCallNameTypeface {
+  color: var(--dsw-alias-label-primary);
+  font: 400 13px/18px Menlo, Consolas, 'Liberation Mono', 'PingFang SC',
+    'Microsoft YaHei';
+}
+
+.toolCallPayload {
+  margin-left: 7px;
+  color: var(--dsw-alias-label-secondary);
+  font: 400 12px/18px var(--ds-font-family-code);
 }
 
 .table tbody tr[data-kind='tool'] .contentText,
@@ -475,7 +512,7 @@
   height: 34px;
   padding: 0 8px;
   overflow-x: auto;
-  gap: 2px;
+  gap: 1px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   scrollbar-width: none;
 }
@@ -534,27 +571,32 @@
   gap: 14px;
 }
 
-.overviewHierarchyLink {
+.overviewHierarchyNavLink {
   all: unset;
   display: inline-flex;
   align-items: center;
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   font: inherit;
+  gap: 1px;
   opacity: 1;
-  text-decoration-line: underline;
-  text-decoration-color: currentColor;
-  text-decoration-style: solid;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
 }
 
-.overviewHierarchyLink:hover {
+.overviewHierarchyNavLink:hover {
   color: var(--dsw-alias-label-primary);
-  text-decoration-thickness: 2px;
 }
 
-.overviewHierarchyLink:focus-visible {
+.overviewHierarchyJumpIconTight {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+.overviewHierarchyNavLink:hover .overviewHierarchyJumpIconTight,
+.overviewHierarchyNavLink:focus-visible .overviewHierarchyJumpIconTight {
+  color: var(--dsw-alias-label-primary);
+}
+
+.overviewHierarchyNavLink:focus-visible {
   color: var(--dsw-alias-label-primary);
   outline: 1px solid var(--dsw-alias-state-business-primary);
   outline-offset: 2px;
@@ -580,6 +622,16 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tokenEquation {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.tokenOperator {
+  margin: 0 2px;
+  color: var(--dsw-alias-label-caption);
 }
 
 .overviewSections {
@@ -651,8 +703,8 @@
   padding-bottom: 0;
 }
 
-.overviewPreview .jsonPreview > :last-child,
-.overviewPreview .schemaTree > :last-child {
+.overviewPreview .jsonPreview > :first-child,
+.overviewPreview .schemaTree > :first-child {
   padding-bottom: 0;
 }
 
@@ -1020,6 +1072,91 @@
   color: var(--dsw-alias-label-tertiary);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.systemPrompt {
+  box-sizing: border-box;
+}
+
+.toolCatalog {
+  min-height: 100%;
+  padding: 8px 0 16px;
+}
+
+.toolCatalogItem {
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.toolCatalogSummary {
+  display: grid;
+  grid-template-columns: 12px 12px max-content minmax(0, 1fr);
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 30px;
+  padding: 4px 12px;
+  gap: 5px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.toolCatalogSummary::-webkit-details-marker {
+  display: none;
+}
+
+.toolCatalogSummary:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.toolCatalogSummary:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
+}
+
+.toolCatalogChevron,
+.toolCatalogIcon {
+  color: var(--dsw-alias-label-caption);
+}
+
+.toolCatalogChevron {
+  transition: transform 100ms var(--ds-ease-in-out);
+}
+
+.toolCatalogItem[open] .toolCatalogChevron {
+  transform: rotate(90deg);
+}
+
+.toolCatalogName {
+  color: var(--dsw-alias-label-primary);
+  font: 500 12px/18px var(--ds-font-family-code);
+}
+
+.toolCatalogDescription {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xs-13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolCatalogDefinition {
+  padding: 0 0 8px 29px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.toolCatalogFullDescription {
+  margin: 0;
+  padding: 7px 14px 4px 0;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+  white-space: pre-wrap;
+}
+
+.toolCatalogTree {
+  margin-left: -14px;
+  margin-right: 6px;
 }
 
 .resultBlocks {
