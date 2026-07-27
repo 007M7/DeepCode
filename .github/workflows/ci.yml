@@ -693,8 +693,8 @@ jobs:
   # 'cancelled' and 'skipped'.
   all-checks-passed:
     name: all checks passed
-    # The required verdict must not add a separate standard-hosted billing dependency.
-    runs-on: dsh-enterprise-ubuntu-latest-32core-test
+    # This bookkeeping-only verdict must not depend on custom-pool provisioning.
+    runs-on: ubuntu-latest
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
