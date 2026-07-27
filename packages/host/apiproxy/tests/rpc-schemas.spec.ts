@@ -215,10 +215,10 @@ describe('commands domain schemas', () => {
     expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
     expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
     expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
-    const matched = commandExecuteValueSchema.parse({ matched: true, result: { kind: 'success', text: 'done' } })
-    expect(matched.result?.kind).toBe('success')
-    expect(commandExecuteValueSchema.parse({ matched: true, result: { kind: 'error', text: 'bad' } }).result?.kind).toBe('error')
-    expect(() => commandExecuteValueSchema.parse({ matched: true, result: { kind: 'other' } })).toThrow()
+    // Pure admission: the value carries only the matched bit (outcomes ride
+    // the logged lifecycle events, never this response).
+    expect(commandExecuteValueSchema.parse({ matched: true })).toEqual({ matched: true })
+    expect(() => commandExecuteValueSchema.parse({})).toThrow()
   })
 })
 

@@ -919,12 +919,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         try {
+          // Pure admission: the executor's durable command/run + command/done
+          // pair (broadcast on the mux stream) carries the outcome; the
+          // response only reports whether the line resolved to a handler.
           const result = await commands.execute(found.agent, line, signal)
-          if (result === undefined) return ok(request, { matched: false })
-          return ok(request, {
-            matched: true,
-            result: { kind: result.kind, ...result.text === undefined ? {} : { text: result.text } },
-          })
+          return ok(request, { matched: result !== undefined })
         } catch (error: unknown) {
           if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
           return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })

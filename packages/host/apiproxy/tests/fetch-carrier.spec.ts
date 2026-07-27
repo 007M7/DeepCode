@@ -91,7 +91,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           return { rpcId: request.rpcId, result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } } }
         }
         if (request.payload.line.startsWith('/plan')) {
-          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, result: { kind: 'success' as const, text: 'plan set' } } } }
+          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true } } }
         }
         return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
       },
@@ -163,7 +163,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const list = await c.commands.list({ sessionId: 's' as never })
     expect(list.result).toEqual({ ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } })
     const hit = await c.commands.execute({ sessionId: 's' as never, line: '/plan off' })
-    expect(hit.result).toEqual({ ok: true, value: { matched: true, result: { kind: 'success', text: 'plan set' } } })
+    expect(hit.result).toEqual({ ok: true, value: { matched: true } })
     const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
     expect(miss.result).toEqual({ ok: true, value: { matched: false } })
     const skills = await c.skills.list({ sessionId: 's' as never })

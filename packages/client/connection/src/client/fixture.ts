@@ -808,25 +808,27 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           ],
         })
       },
+      // Pure admission, mirroring the host: an admitted command logs the
+      // command/run + command/done lifecycle pair (mux-broadcast by append),
+      // and the response only reports resolution.
       execute: (request) => {
         const missing = requireSession(request)
         if (missing !== undefined) return missing
+        const id = request.payload.sessionId
         const line = request.payload.line.trim()
         const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
         const name = match?.[1]
-        if (name === 'compact' || name === 'echo') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: name === 'echo' ? (match?.[2] ?? '') : 'fixture：已压缩（假动作）' },
-          })
+        const outcomes: Record<string, string> = {
+          compact: 'fixture：已压缩（假动作）',
+          echo: match?.[2] ?? '',
+          'goal-fixture': `fixture：goal 已设置（${id}）`,
         }
-        if (name === 'goal-fixture') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: `fixture：goal 已设置（${request.payload.sessionId}）` },
-          })
-        }
-        return ok(request, { matched: false as const })
+        const text = name === undefined ? undefined : outcomes[name]
+        if (name === undefined || text === undefined) return ok(request, { matched: false as const })
+        const commandId = `fx-cmd-${logOf(id).length}`
+        append(id, { type: 'command/run', data: { commandId, name, line, source: { kind: 'user' } } })
+        append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
+        return ok(request, { matched: true as const })
       },
     },
     skills: {
