@@ -117,10 +117,11 @@ export class AppCLIEntry {
   }
 
   /**
-   * Compose the patch set from the three non-yml config sources: profile
-   * json (user config), CLI flags, and the resolved frontend dist. Patches
-   * replace a row's config wholesale, so each patched row's yml static
-   * values are re-read here (bypass parse) and merged under the overrides.
+   * Compose the patch set from the non-yml config sources: computed
+   * engineering defaults (the global session root), profile json (user
+   * config, overriding those defaults), CLI flags, and the resolved frontend
+   * dist. Patches replace a row's config wholesale, so each patched row's yml
+   * static values are re-read here (bypass parse) and merged under the overrides.
    */
   private composePatches(): void {
     const rows = this.parseYmlRows()
@@ -130,6 +131,12 @@ export class AppCLIEntry {
       bag[key] = value
       overrides.set(entryId, bag)
     }
+
+    // Source 0: computed engineering defaults. The session store defaults to
+    // a global dir under the Harness home ($DSH_HOME, else ~/.dsh) so history
+    // is shared across every cwd, not a project-local ./.sessions. The profile
+    // (Source 1) overwrites this same field via last-write-wins in put().
+    put('session-persistence-jsonl', 'root', join(resolveDshHome(), 'sessions'))
 
     // Source 1: profile json (missing file = empty; unmapped key = loud).
     for (const [key, value] of Object.entries(this.readProfile())) {

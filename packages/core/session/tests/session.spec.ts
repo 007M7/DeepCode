@@ -1,8 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
-  displayPromptContent,
   findLastMessageTurnEnd,
   SESSION_FORMAT_VERSION,
   Session,
@@ -136,46 +135,11 @@ describe('Session', () => {
     expect(steeringMessage!.content).toEqual([{ type: 'text', text: 'focus on tests' }])
   })
 
-  it('derives baked prompt context while exposing only the direct prompt for display', () => {
-    const session = new Session(SessionId('prompt-envelope'))
-    const event = session.append('user/message', {
-      content: [
-        { type: 'text', text: 'background' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'question' },
-      ],
-      source: { kind: 'user' },
-      envelope: {
-        displayContent: [{ type: 'text', text: 'question' }],
-        prefixContexts: [{ source: { kind: 'plugin', plugin: 'reference' }, meta: { kind: 'card' } }],
-      },
-    }, { surfaceOp: 'append' })
-
-    expect(session.deriveMessages()).toEqual([{
-      role: 'user',
-      content: [
-        { type: 'text', text: 'background' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'question' },
-      ],
-    }])
-    expect(displayPromptContent(event.data)).toEqual([{ type: 'text', text: 'question' }])
-    expect(Object.isFrozen(event.data.envelope?.displayContent)).toBe(true)
-    expect(new Session(SessionId('prompt-envelope-replay'), session.events).deriveMessages())
-      .toEqual(session.deriveMessages())
-  })
-
-  it('keeps context meta durable in the event while hiding it from the projection', () => {
+  it('keeps context source durable in the event while hiding it from the projection', () => {
     const session = new Session(SessionId('s2-raw'))
-    const meta = {
-      kind: 'workspace-instructions',
-      version: 1,
-      changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
-    }
     session.append('user/message', {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-context' },
-      meta,
     }, { surfaceOp: 'append' })
 
     expect(session.deriveMessages()).toEqual([{
@@ -183,7 +147,7 @@ describe('Session', () => {
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
     }])
     const event = session.events[0]
-    expect(event?.type === 'user/message' && event.data.meta).toEqual(meta)
+    expect(event?.type === 'user/message' && event.data.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
   })
 
   it('replays identically from a seeded event log', () => {
@@ -226,6 +190,35 @@ describe('Session', () => {
     } as unknown as SessionEvent
     expect(new Session(SessionId('primitive-plugin-data'), [unrelatedPrimitiveData]).events)
       .toEqual([unrelatedPrimitiveData])
+  })
+
+  it('round-trips a non-empty reasoning effort and rejects invalid durable values', () => {
+    const valid = {
+      type: 'request/header',
+      seq: 0,
+      time: 1,
+      data: {
+        header: {
+          config: {
+            provider: 'mock',
+            model: 'model',
+            reasoningEffort: ReasoningEffortId('adapter-owned'),
+          },
+        },
+        reason: 'initial',
+      },
+    } as const
+    expect(new Session(SessionId('reasoning-effort'), [valid]).events[0])
+      .toEqual(valid)
+
+    for (const reasoningEffort of ['', 1]) {
+      const invalid = structuredClone(valid) as unknown as SessionEvent
+      if (invalid.type !== 'request/header') throw new Error('test fixture must be a request header')
+      const config = invalid.data.header.config as unknown as Record<string, unknown>
+      config.reasoningEffort = reasoningEffort
+      expect(() => new Session(SessionId('invalid-reasoning-effort'), [invalid]))
+        .toThrow('seed request/header at index 0 has an invalid reasoningEffort')
+    }
   })
 
   it('isolates the log from mutation through a derived message (append-only contract)', () => {

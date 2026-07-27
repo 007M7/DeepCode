@@ -8,26 +8,37 @@ import AgentRegistry, {
   type AgentStatus,
   type SendOptions,
 } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  LlmModelInfo,
+  LlmProviderInfo,
+  LlmResolvedModelInfo,
+} from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionHeader, type UserMessageData } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
 import { TestSessionQueryService } from './session-query.ts'
+import TuiPromptService from '../src/prompt.ts'
 
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
   sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
-  steeredOptions: (SendOptions | undefined)[]
+  steeredIds: AgentMessageId[]
+  steeredOptions: UserMessageData[]
+  injected: ContentBlock[][]
+  injectedOptions: UserMessageData[]
   cancelled: AgentCancelCause[]
 }
 
 export interface TuiHarnessOptions {
   status?: AgentStatus
+  /** Override the fake agent's next-step capability independently of status. */
+  acceptsNextStep?: boolean
   config?: Config
   /** Leave the session event log empty instead of seeding one turn and step. */
   omitInitialLifecycle?: boolean
@@ -38,6 +49,7 @@ export interface TuiHarnessOptions {
   beforeMount?: (session: Session) => void
   cwd?: string | null
   formatCwd?: TuiRuntime['formatCwd']
+  gitBranch?: TuiRuntime['gitBranch']
   /** Fake-agent creation options (`provider`/`model` seed the model selector's initial target). */
   agentOptions?: AgentOptions
   contextWindow?: number
@@ -47,7 +59,10 @@ export interface TuiHarnessOptions {
     providers: LlmProviderInfo[]
     models: LlmModelInfo[]
     listModels?: (provider: string) => Promise<LlmModelInfo[]>
-    resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
+    resolveModelInfo?: (
+      provider: string,
+      model: string,
+    ) => Promise<Pick<LlmResolvedModelInfo, 'context' | 'reasoning'>>
   }
   /** Provide a fake `sessionPersistence` service so resume surfaces can list sessions. */
   sessionPersistence?: {
@@ -85,6 +100,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandService)
   await ctx.plugin(UserInteractionService)
+  await ctx.plugin(TuiPromptService)
   const catalog = options.catalog ?? {
     providers: [{ id: 'deepseek', name: 'DeepSeek' }],
     models: [
@@ -98,12 +114,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     },
   } as never)
   if (options.configureContext === undefined) {
-    const tools = options.tools ?? {}
-    ctx.provide('tools', {
-      get(name: string) {
-        return tools[name]
-      },
-    } as never)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    for (const tool of Object.values(options.tools ?? {})) ctx.tools.register(tool)
   } else {
     await options.configureContext(ctx)
   }
@@ -118,9 +131,20 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
         return catalog.listModels?.(provider)
           ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
       },
-      resolveModelContext(provider: string, model: string) {
-        return catalog.resolveModelContext?.(provider, model)
-          ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+      async resolveModelInfo(provider: string, model: string) {
+        const advertised = catalog.models.find(candidate =>
+          candidate.provider === provider && candidate.id === model)
+        const capabilities = await (catalog.resolveModelInfo?.(provider, model)
+          ?? Promise.resolve({
+            context: { contextWindow: options.contextWindow ?? 128_000 },
+          }))
+        return {
+          provider,
+          id: model,
+          name: advertised?.name ?? model,
+          ...advertised?.description === undefined ? {} : { description: advertised.description },
+          ...capabilities,
+        }
       },
     } as never)
   }
@@ -158,38 +182,52 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
+  const steeredIds: AgentMessageId[] = []
   const sentOptions: (SendOptions | undefined)[] = []
-  const steeredOptions: (SendOptions | undefined)[] = []
+  const steeredOptions: UserMessageData[] = []
+  const injected: ContentBlock[][] = []
+  const injectedOptions: UserMessageData[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
     options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
+    get acceptsNextStep() {
+      return options.acceptsNextStep ?? this.status === 'running'
+    },
     ctx,
     sent,
     sentOptions,
     steered,
+    steeredIds,
     steeredOptions,
+    injected,
+    injectedOptions,
     cancelled,
-    followup(content, options) {
-      sent.push(content)
+    send(input, options) {
+      sent.push(input.content)
       sentOptions.push(options)
       return AgentMessageId('stub')
     },
-    queue(content, options) {
-      sent.push(content)
-      sentOptions.push(options)
+    followup(input) {
+      sent.push(input.content)
+      sentOptions.push(undefined)
       return AgentMessageId('stub')
     },
-    steer(content, options) {
-      steered.push(content)
-      steeredOptions.push(options)
+    steer(input) {
+      steered.push(input.content)
+      steeredOptions.push(input)
+      const id = AgentMessageId(`steering-${steeredIds.length + 1}`)
+      steeredIds.push(id)
+      return id
+    },
+    inject(input) {
+      injected.push(input.content)
+      injectedOptions.push(input)
       return AgentMessageId('stub')
     },
-    inject: () => AgentMessageId('stub'),
-    send: () => AgentMessageId('stub'),
-    cancel(cause = { kind: 'user' }) {
+    cancel(cause) {
       cancelled.push(cause)
     },
     whenIdle() {
@@ -200,7 +238,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const controller = createTuiChat(ctx, Object.assign({
     ...options.omitWelcome === true ? {} : { welcome: 'Coding agent ready.' },
     sessionId,
-    color: false,
+    theme: { color: false },
   }, options.config), {
     terminal,
     exit,
@@ -210,6 +248,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
     ...(options.handoffResume === undefined ? {} : { handoffResume: options.handoffResume }),
+    gitBranch: options.gitBranch ?? (() => 'tui-staging'),
   })
   return { ctx, session, agent, terminal, exit, controller }
 }

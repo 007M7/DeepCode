@@ -2,23 +2,13 @@
 
 [English](bash.md) | 中文
 
-bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。
+bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。原始进程组机制位于[进程管理器 seam](subprocess.md)之后。
 
 源码：[`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
 ## 受管 shell 环境命名空间
 
-`DSH_*` 变量是归 Harness 所有的子进程事实。面向模型的 bash 工具通过 `ctx.bashEnv` 收集它们，再经由 `BashExecRequest.dshEnv` 传递；执行器在合并当前快照之前会移除继承而来的 `DSH_*` 名称。
-
-```ts type-equiv
-/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
-type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
-```
-
-```ts type-equiv
-/** Trusted DeepSeek Harness variables for one bash execution. */
-type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
-```
+`DSH_*` 变量是归 Harness 所有的子进程事实。面向模型的 bash 工具通过 `ctx.bashEnv` 收集它们，再经由 `BashExecRequest.dshEnv` 传递；进程管理器在合并当前快照之前会移除继承而来的 `DSH_*` 名称。`DshEnvironmentKey`／`DshEnvironment` 词汇归[进程管理器 seam](subprocess.md)所有，由 `dsh-bash` 重导出。
 
 ## 请求与规格：`resolve()` 拆分
 
@@ -56,17 +46,18 @@ interface BashExecRequest {
   stdin?: string | undefined
   /**
    * Ordinary environment entries for the command, merged after the credential
-   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
-   * here. Set by in-process plugins (the hooks bridges set
-   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
-   * does not expose it as a parameter.
+   * scrub. Managed facts belong in {@link dshEnv}, which merges after this
+   * map, so an entry here can never displace one. Set by in-process plugins
+   * (the hooks bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the
+   * model-facing bash tool does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
   /**
-   * Harness-owned `DSH_*` variables for this execution. Executors discard
-   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
-   * current fact cannot inherit a stale value from the harness process, and
-   * reject non-`DSH_*` names supplied through this managed channel.
+   * Harness-owned `DSH_*` variables for this execution (typed to managed
+   * keys). Executors discard ambient `DSH_*` entries before merging this
+   * snapshot last, so an unavailable current fact cannot inherit a stale
+   * value from the harness process and a caller {@link env} entry cannot
+   * displace a managed one.
    */
   dshEnv?: DshEnvironment | undefined
   /** Fully resolved per-call sandbox policy; sandboxing executors default it. */
@@ -95,12 +86,12 @@ interface BashExecSpec {
   stdin?: string | undefined
   /**
    * Ordinary environment entries carried through from
-   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * {@link BashExecRequest.env}; {@link dshEnv} still merges after them.
    * OPTIONAL on the spec for the same reason as `stdin`: absent means no
    * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
-  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  /** Managed `DSH_*` snapshot (typed to managed keys); merges after {@link env}. */
   dshEnv?: DshEnvironment | undefined
   /** Resolved sandbox policy; ignored by executors that do not confine. */
   sandboxPolicy: SandboxExecutionPolicy | undefined
@@ -145,19 +136,7 @@ interface BashRunResult {
 }
 ```
 
-每个流是一个 `CollectedOutput`：（可能被截断的）文本加恢复信息。截断时，`text` 是**尾部**，完整流溢出到一个私有文件：
-
-```ts type-equiv
-/** One captured stream: the (possibly truncated) text plus recovery info. */
-interface CollectedOutput {
-  /** Collected text — the TAIL of the stream when truncated. */
-  text: string
-  /** True when bytes were dropped from `text`. */
-  truncated: boolean
-  /** Path to a file holding the COMPLETE stream, when truncated and available. */
-  spillPath?: string
-}
-```
+每个流是一个 `CollectedOutput`：（可能被截断的）文本加恢复信息；截断时，`text` 是**尾部**，完整流溢出到一个私有文件。该形状归[进程管理器 seam](subprocess.md)所有，由 `dsh-bash` 重导出。
 
 ## 文件沙箱：`BashSandboxInfo`
 
@@ -192,8 +171,9 @@ interface BashSandboxInfo {
 ```ts type-equiv
 /**
  * A background process handle returned by {@link BashExecutor.start}. It is the
- * only access path; buffered output remains readable after exit. Executor
- * disposal kills running processes and awaits {@link done}.
+ * only access path; buffered output remains readable after exit. Composition
+ * teardown (the subprocess service's disposal) kills running processes and
+ * awaits {@link done}; an executor-only reload leaves them running.
  */
 interface BashProcess {
   /** Process lifecycle state (settled exactly once). */
@@ -238,4 +218,4 @@ interface BashProcessRead {
 
 ## 服务
 
-`BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有进程组、超时/中止处理、有界收集器、spill 文件、凭据清除以及 dispose（资源释放）后完全停稳。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。
+`BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有命令默认值补全、超时/中止分类、终端环境以及后台读取合并；进程组、有界收集器、spill 文件、凭据清除与 dispose（资源释放）后完全停稳归[进程管理器](subprocess.md)所有。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。

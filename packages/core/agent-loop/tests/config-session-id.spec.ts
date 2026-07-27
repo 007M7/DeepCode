@@ -89,7 +89,7 @@ describe('config-driven session id', () => {
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first'), textResponse('second')]))
-    const config = { agents: [{ id: 'main', sessionId: SessionId('config-exact-reload'), model: 'mock' }] }
+    const config = { agents: [{ id: 'main', sessionId: SessionId('config-exact-reload'), provider: 'mock', model: 'mock' }] }
 
     const firstLoop = await ctx.plugin(AgentLoop, config)
     let first: Agent | undefined
@@ -98,7 +98,7 @@ describe('config-driven session id', () => {
       first = ctx.agents.get(SessionId('config-exact-reload'))
     }
     expect(first).toBeDefined()
-    first!.followup([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
+    first!.followup({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } })
     await waitForIdle(ctx, first!)
     await firstLoop.dispose()
 
@@ -110,7 +110,7 @@ describe('config-driven session id', () => {
     }
     expect(second).toBeDefined()
     expect(JSON.stringify(second!.session.deriveMessages())).toContain('remember me')
-    second!.followup([{ type: 'text', text: 'continue' }], { source: { kind: 'user' } })
+    second!.followup({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } })
     await waitForIdle(ctx, second!)
     await ctx.sessions.flush(second!.session)
     const loaded = await ctx.sessionPersistence.load(SessionId('config-exact-reload'))
@@ -131,20 +131,20 @@ describe('config-driven session id', () => {
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
     const first = ctx.agents.get(sessionId) as Agent
 
-    const flushGate = Promise.withResolvers<undefined>()
-    let flushStarted = false
-    ctx.on('session/flush', (session) => {
-      if (session !== first.session) return
-      flushStarted = true
-      return flushGate.promise
+    const cleanupGate = Promise.withResolvers<undefined>()
+    const cleanupStarted = Promise.withResolvers<undefined>()
+    first.ctx.effect(() => async () => {
+      cleanupStarted.resolve(undefined)
+      await cleanupGate.promise
     })
-    first.inject([{ type: 'text', text: 'persist before replacement' }], {
-      source: { kind: 'plugin', plugin: 'test' },
-    })
-    expect(flushStarted).toBe(true)
+    first.inject({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'plugin', plugin: 'test' } })
+    await ctx.sessions.flush(first.session)
+    expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
+      .toContain('persist before replacement')
 
     const firstDisposal = firstLoop.dispose()
-    await expect.poll(() => first.status).toBe('disposed')
+    await cleanupStarted.promise
+    expect(first.status).toBe('idle')
     const failures: unknown[] = []
     ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
     const secondLoop = await ctx.plugin(AgentLoop, config)
@@ -152,7 +152,7 @@ describe('config-driven session id', () => {
     expect(ctx.agents.get(sessionId)).toBe(first)
     expect(failures).toEqual([])
 
-    flushGate.resolve(undefined)
+    cleanupGate.resolve(undefined)
     await firstDisposal
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
     const second = ctx.agents.get(sessionId) as Agent
@@ -175,21 +175,25 @@ describe('config-driven session id', () => {
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
     const first = ctx.agents.get(sessionId) as Agent
 
-    const flushGate = Promise.withResolvers<undefined>()
-    ctx.on('session/flush', (session) => {
-      if (session === first.session) return flushGate.promise
+    const cleanupGate = Promise.withResolvers<undefined>()
+    const cleanupStarted = Promise.withResolvers<undefined>()
+    first.ctx.effect(() => async () => {
+      cleanupStarted.resolve(undefined)
+      await cleanupGate.promise
     })
-    first.inject([{ type: 'text', text: 'persist before cancellation' }], {
-      source: { kind: 'plugin', plugin: 'test' },
-    })
+    first.inject({ content: [{ type: 'text', text: 'persist before cancellation' }], source: { kind: 'plugin', plugin: 'test' } })
+    await ctx.sessions.flush(first.session)
+    expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
+      .toContain('persist before cancellation')
 
     const firstDisposal = firstLoop.dispose()
-    await expect.poll(() => first.status).toBe('disposed')
+    await cleanupStarted.promise
+    expect(first.status).toBe('idle')
     const secondLoop = await ctx.plugin(AgentLoop, config)
     await secondLoop.dispose()
     expect(ctx.agents.get(sessionId)).toBe(first)
 
-    flushGate.resolve(undefined)
+    cleanupGate.resolve(undefined)
     await firstDisposal
     expect(ctx.agents.get(sessionId)).toBeUndefined()
     await ctx.fiber.dispose()
@@ -268,14 +272,14 @@ describe('config-driven session id', () => {
   })
 
   it.each(['resolve', 'reject'] as const)(
-    'joins an exact-id persistence lookup that will %s before AgentLoop disposal completes',
+    'abandons an exact-id persistence lookup that later %s when AgentLoop disposal starts',
     async (outcome) => {
       const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
       dirs.push(root)
       const ctx = await makeCoreContext()
       await ctx.plugin(SessionPersistenceJsonl, { root })
-      const listing = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.list>>>()
-      vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(listing.promise)
+      const loading = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.load>>>()
+      vi.spyOn(ctx.sessionPersistence, 'load').mockReturnValue(loading.promise)
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
       const failures: unknown[] = []
       ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
@@ -283,14 +287,20 @@ describe('config-driven session id', () => {
       const loop = await ctx.plugin(AgentLoop, {
         agents: [{ id: 'main', sessionId: SessionId('config-exact-dispose'), model: 'mock' }],
       })
-      let disposed = false
-      const disposal = loop.dispose().then(() => { disposed = true })
+      await loop.dispose()
+      if (outcome === 'resolve') {
+        loading.resolve({
+          meta: {
+            id: SessionId('config-exact-dispose'),
+            version: 0,
+            createdAt: Date.now(),
+          },
+          events: [],
+        })
+      } else {
+        loading.reject(new Error('startup cancelled by teardown'))
+      }
       await Promise.resolve()
-      expect(disposed).toBe(false)
-
-      if (outcome === 'resolve') listing.resolve([])
-      else listing.reject(new Error('startup cancelled by teardown'))
-      await disposal
       expect(ctx.agents.get(SessionId('config-exact-dispose'))).toBeUndefined()
       expect(failures).toEqual([])
       expect(warn).not.toHaveBeenCalled()
@@ -335,7 +345,7 @@ describe('config-driven session id', () => {
     expect(a1.id).toBe(a1.session.id)
     expect(a1.session.id).toMatch(idPattern)
     expect(ctx1.agents.get(SessionId('cfg'))).toBeUndefined()
-    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -354,7 +364,7 @@ describe('config-driven session id', () => {
     expect(a2.id).toBe(a2.session.id)
     expect(a2.session.id).toMatch(idPattern)
     expect(a2.session.id).not.toBe(a1.session.id)
-    a2.followup([{ type: 'text', text: 'q2' }], { source: { kind: 'user' } })
+    a2.followup({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } })
     await waitForIdle(ctx2, a2)
     await ctx2.fiber.dispose()
   })
@@ -375,7 +385,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sticky-1') })).agent
-    a1.followup([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -427,6 +437,39 @@ describe('config-driven session id', () => {
     await new Promise(r => setTimeout(r, 200))
     expect(ctx.agents.list()).toEqual([])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('config-driven resume of "does-not-exist" failed'))
+    warn.mockRestore()
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('startup reporting after factory teardown', () => {
+  it('suppresses the configured-restore failure report once the loop is disposed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-disposed-report-'))
+    dirs.push(root)
+    const ctx = await makeCoreContext()
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('x')]))
+
+    // A restore lookup that hangs until after the loop is gone: the eventual
+    // failure lands with ownership inactive and must be silently dropped.
+    const gate = Promise.withResolvers<never>()
+    // The teardown path may drop the pending lookup without awaiting it.
+    gate.promise.catch(() => undefined)
+    vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(gate.promise)
+    const failures: unknown[] = []
+    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    const loop = await ctx.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId: SessionId('config-disposed-report'), model: 'mock' }],
+    })
+    const disposal = loop.dispose()
+    gate.reject(new Error('backend failed after teardown began'))
+    await disposal
+
+    await new Promise(r => setTimeout(r, 20))
+    expect(failures).toEqual([])
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('config-driven restore'))
     warn.mockRestore()
     await ctx.fiber.dispose()
   })

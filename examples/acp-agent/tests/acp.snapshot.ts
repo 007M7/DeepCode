@@ -40,6 +40,7 @@ const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
+const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -109,6 +110,12 @@ const SCENARIOS: Scenario[] = [
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
+  // web_fetch markdown rendering end to end: the overlay's loopback fixture
+  // server supplies deterministic HTML (entities, a GFM table, nesting), the
+  // REAL local fetch provider retrieves it, and the tool result pins the
+  // turndown conversion. The fetched URL (fixed port) is part of the recorded
+  // transcript; replay re-executes the real fetch against the same fixture.
+  { name: 'web-fetch', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'web', configPath: WEB_CONFIG },
   {
     name: 'workspace-edit',
     hasModelTurn: true,
@@ -124,10 +131,10 @@ const SCENARIOS: Scenario[] = [
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish): a live provider cannot be coaxed
   // into a degenerate empty completion, so the fixture scripts the adapters'
-  // EMPTY_RESPONSE error finish (step 1) followed by the recovered reply
-  // (step 2), proving the default retry policy end to end: the durable
+  // EMPTY_RESPONSE error finish in turn 1 followed by the recovered reply
+  // in retry turn 2, proving the default retry policy end to end: the durable
   // llm/retry event, no ACP output for the discarded attempt, the recovered
-  // reply, and a clean completed turn. Its overlay only pins a deterministic
+  // reply, and a clean completed retry turn. Its overlay only pins a deterministic
   // 1 ms zero-jitter delay, so it shares the default header class.
   { name: 'empty-response-retry', hasModelTurn: true, recorded: false, configPath: RETRY_CONFIG },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
@@ -188,10 +195,10 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
   },
-  // Prompt-submit blocks are authored keylessly: they persist a rejected turn
-  // and hook events without starting a model step, so their logs still compare.
-  { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
-  { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
+  // Prompt-submit blocks are authored keylessly. Admission rejects before a
+  // turn opens, so only the ACP stop reason is observable and no log is harvested.
+  { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, recorded: false },
+  { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, recorded: false },
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log

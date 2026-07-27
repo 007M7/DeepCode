@@ -38,15 +38,15 @@ interface SessionReferenceCandidate {
 
 ## 预备消息
 
-预备过程保留可读的当前消息内容，并最多返回一个聚合上下文。宿主会把 `contexts` 绑定到该次确切的 `followup()` 或 `steer()` 调用。
+预备过程保留可读的当前消息内容，并最多返回一个聚合上下文。
 
 ```ts type-equiv
-/** Message payload and the zero-or-one durable snapshot contexts bound to it. */
+/** Direct message content and optional referenced-session context. */
 interface PreparedReferencedMessage {
   /** Readable message content after host mention tokens are removed. */
   content: ContentBlock[]
-  /** Empty without references; otherwise one aggregated untrusted context. */
-  contexts: HookContext[]
+  /** Aggregated untrusted snapshot, absent when the message has no references. */
+  additionalContext?: UserMessageData
 }
 ```
 

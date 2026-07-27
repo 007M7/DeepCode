@@ -191,7 +191,7 @@ function resolveRoute(
 function systemPrompt(config: ResolvedSessionTitleLlmConfig): string {
   return [
     'Create a concise title for an AI coding-assistant session from the supplied human messages.',
-    'Return only the title on one line, with no quotes, prefix, explanation, Markdown, or terminal control codes.',
+    'Return only the title on one line, **in plain text of natural language**, with no quotes, prefix, explanation, Markdown, XML, or terminal control codes. No code is allowed.',
     'Use the language of the messages.',
     `Aim for about ${config.targetWords} words in non-CJK languages or ${config.targetCjkCharacters} CJK characters.`,
   ].join('\n')

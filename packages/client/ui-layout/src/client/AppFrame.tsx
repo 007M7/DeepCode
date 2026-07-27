@@ -33,7 +33,10 @@ function DetailsColumn(props: { children?: ReactNode }) {
   return <div className={css.detailsCol}>{props.children}</div>
 }
 
-/** One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin. `side` keys the hover-reveal CSS to the owning column. */
+/**
+ * One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin.
+ * `side` keys the hover-reveal CSS to the owning column.
+ */
 function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart: () => void; onDrag: (dx: number) => void; onEnd: () => void }) {
   const [dragging, setDragging] = useState(false)
   const origin = useRef(0)
@@ -86,7 +89,7 @@ export function AppFrame({
   actions,
   renderSlot,
 }: AppFrameProps) {
-  const panels = useStore((s) => s)
+  const panels = useStore(s => s)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 

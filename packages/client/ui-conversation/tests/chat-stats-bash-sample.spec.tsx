@@ -36,7 +36,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
   let snap: ConversationSnapshot = { ...snapshotBase(), ...init }
   const subs = new Set<() => void>()
   return {
-    set(next: Partial<ConversationSnapshot>) {
+    set: (next: Partial<ConversationSnapshot>) => {
       snap = { ...snap, ...next }
       for (const fn of [...subs]) fn()
     },
@@ -100,9 +100,9 @@ describe('StatsLine', () => {
     render(<Counting {...props(source)} />)
     const before = renders
     // Chunk frames swap partial only; nodes keeps its reference (object-layer contract).
-    act(() => set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'a' }] } }))
-    act(() => set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'ab' }] } }))
-    act(() => set({ running: true }))
+    act(() => { set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'a' }] } }) })
+    act(() => { set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'ab' }] } }) })
+    act(() => { set({ running: true }) })
     expect(renders).toBe(before)
   })
 })
@@ -128,7 +128,7 @@ describe('bash sample row', () => {
       },
       current: undefined,
       phase: 'ready',
-    } as SessionListState)
+    })
   }
 
   const rowProps = (sessionId: SessionId, over?: {
@@ -169,17 +169,19 @@ describe('bash sample row', () => {
     expect(view.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
   })
 
-  it('summarizes the command and hands clicks to openDetails on both arms', () => {
+  it('summarizes as Bash · description and hands clicks to openDetails on both arms', () => {
     const openGlobal = vi.fn()
     const global = render(<BashRow {...rowProps(ROOT, { openDetails: openGlobal })} />)
     // Two renders share document.body: query inside each container.
     const globalRow = global.container.querySelector('[data-sample="bash-global"]')!
+    expect(globalRow.textContent).toContain('Bash')
     expect(globalRow.textContent).toContain('Build')
     fireEvent.click(globalRow)
     expect(openGlobal).toHaveBeenCalledTimes(1)
     const openScoped = vi.fn()
     const scoped = render(<BashRow {...rowProps(CHILD, { openDetails: openScoped })} />)
     const scopedRow = scoped.container.querySelector('[data-sample="bash-scoped"]')!
+    expect(scopedRow.textContent).toContain('Bash')
     expect(scopedRow.textContent).toContain('Build')
     fireEvent.click(scopedRow)
     expect(openScoped).toHaveBeenCalledTimes(1)

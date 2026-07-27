@@ -42,18 +42,18 @@ export function AppRoot(props: AppRootProps) {
         <div className={css.wordmark}>HARNESS</div>
         {!loud
           ? (
-              <>
-                <div className={css.spinner} />
-                <div className={css.hint}>Loading plugins…</div>
-              </>
-            )
+            <>
+              <div className={css.spinner} />
+              <div className={css.hint}>Loading plugins…</div>
+            </>
+          )
           : (
-              <div className={css.failed}>
-                <div className={css.failedTitle}>Failed to load plugins</div>
-                {failed.map(([id]) => <div key={id} className={css.failedItem}>{id}</div>)}
-                {error !== undefined && <div className={css.failedItem}>{error}</div>}
-              </div>
-            )}
+            <div className={css.failed}>
+              <div className={css.failedTitle}>Failed to load plugins</div>
+              {failed.map(([id]) => <div key={id} className={css.failedItem}>{id}</div>)}
+              {error !== undefined && <div className={css.failedItem}>{error}</div>}
+            </div>
+          )}
       </div>
     </div>
   )

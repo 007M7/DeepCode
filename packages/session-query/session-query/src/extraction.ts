@@ -16,8 +16,6 @@ export function extractSessionEventText(event: SessionEvent): string {
     case 'assistant/message':
     case 'steering/message':
       return contentText(event.data.content)
-    case 'prompt/blocked':
-      return joinText([contentText(event.data.content), event.data.reason])
     case 'tool/call':
       return joinText([event.data.name, event.data.arguments])
     case 'tool/result':
@@ -51,8 +49,6 @@ function turnEndText(reason: SessionEvent<'turn/end'>['data']['reason']): string
         : joinText(['error', reason.message, reason.code ?? ''])
     case 'aborted':
       return 'aborted'
-    case 'rejected':
-      return joinText(['rejected', reason.reason])
     case 'disposed':
     case 'max-tokens':
     case 'interrupted':

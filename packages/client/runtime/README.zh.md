@@ -6,7 +6,9 @@
 
 ## Workspace 与 Session 列表
 
-Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线阶段，也有各自的刷新活动／错误状态。列表请求期间到达的增量帧会在其响应之上回放。第一次成功的基线建立 Host 顺序；后续刷新更新行和成员关系，但不改变已经显示的标识之间的相对顺序。Workspace 新近程度只在两条基线都 ready 后派生，且绝不改变 Workspace 列表顺序。
+Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线阶段，也有各自的刷新活动／错误状态。列表请求期间到达的增量更新／移除帧与一元变更回显会在其响应之上回放。第一次成功的基线建立 Host 顺序；后续刷新更新行和成员关系，但不改变已经显示的标识之间的相对顺序。已移除的 Workspace id 会保留进程本地删除标记，避免延迟到达的 changed 帧将其复活；重连仍以 `workspace.list` 作为基线。Workspace 新近程度只在两条基线都 ready 后派生，且绝不改变 Workspace 列表顺序。
+
+`WorkspacesService.delete(workspaceId)` 在一元响应成功后从客户端投影中移除注册记录；对应的 `host/workspace-removed` 帧具有幂等性，并负责同步其他标签页。Session 状态与当前 Session selection 相互独立，因此 Workspace 消失后，其已记账的 Session 会立即投影到 Ungrouped 下。
 
 SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建 hook。Workspace 业务状态不会进入 `SessionListState` 或配置项 store。
 
@@ -22,13 +24,17 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 `SessionManager` 独立于列表和 Session 实例到达情况，保留最近一次通过验证的 `session/title` 控制快照。seq 更新的事件会替换旧快照，标题时间戳计入列表新近程度；订阅基线会先丢弃 seq 超过其 `lastSeq` 的任何已保留标题，再接收可选的折叠标题。显式移除 Session 也会清除已保留标题。因此，面向客户端的 `SessionSummary.title` 只包含真实的持久标题；`displayTitle` 始终存在，并依次回退到 cwd basename 和 Session id。冷启动的持久会话会保持该回退值，直到打开或恢复会话，促使主机折叠并投影日志支持的标题。
 
+## 会话模型选择
+
+每个常驻 `Session` 都拥有一个 `modelSelection` 快照，其中包含当前提供方/模型目标、按提供方分组的目录、逐提供方失败记录，以及 `idle`／`loading`／`ready`／`selecting`／`error` 状态。历史记录会建立或刷新当前目标，打开选择器会刷新目录；选择失败会保留上一个目标和可用分组。目录与选择操作共用单调递增的代次，因此较旧响应无法覆盖较新的选择。重连重建会恢复 Host 报告的目标，同时不替换未变化的选择子结构。
+
 ## 模型体验
 
-无。客户端运行时承载浏览器侧服务与 Session 对象层；这里没有任何内容进入模型请求。
+无，因为 Session 对象层会选择后续 Host 请求使用的提供方/模型路由，但不添加任何模型可见内容。
 
 #### KV Cache 影响
 
-无；该包既不组装也不发送提供方请求。
+更改目标可能改变提供方侧的缓存复用，或使其失效；该包本身不会改变提示词前缀。
 
 ## 已知限制与暂缓事项
 

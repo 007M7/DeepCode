@@ -2,8 +2,10 @@
 
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { LlmFailure } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { providerForClosedStep } from './history.ts'
 import type {} from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-llm-retry'
@@ -13,21 +15,95 @@ export const name = 'llm-retry-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
+/** Validate the complete provider-neutral failure payload at the durable boundary. */
+function validateFailure(value: unknown, fail: InvariantFailure): asserts value is LlmFailure {
+  if (typeof value !== 'object' || value === null) {
+    fail('llm/retry failure must be an object')
+  }
+  const failure = value as Partial<LlmFailure>
+  if (typeof failure.message !== 'string' || failure.message.length === 0) {
+    fail('llm/retry failure.message must be a non-empty string')
+  }
+  if (typeof failure.code !== 'string' || failure.code.length === 0) {
+    fail('llm/retry failure.code must be a non-empty string')
+  }
+  if (failure.status !== undefined
+    && (!Number.isInteger(failure.status) || failure.status < 100 || failure.status > 599)) {
+    fail('llm/retry failure.status must be an integer from 100 through 599 when present')
+  }
+  if (failure.providerRetryAfterMs !== undefined
+    && (!Number.isFinite(failure.providerRetryAfterMs) || failure.providerRetryAfterMs <= 0)) {
+    fail('llm/retry failure.providerRetryAfterMs must be a positive finite number when present')
+  }
+  if (failure.requestId !== undefined
+    && (typeof failure.requestId !== 'string' || failure.requestId.length === 0)) {
+    fail('llm/retry failure.requestId must be a non-empty string when present')
+  }
+}
+
+/** Find the first turn in the structured-failure retry chain containing `turn`. */
+function retryChainStart(history: readonly SessionEvent[], turn: number): number {
+  let startIndex = history.findLastIndex(
+    event => event.type === 'turn/start' && event.data.turn === turn,
+  )
+  while (startIndex >= 0) {
+    const start = history[startIndex]
+    if (start?.type !== 'turn/start' || start.data.trigger.kind !== 'retry') break
+
+    let endIndex = startIndex - 1
+    while (endIndex >= 0 && history[endIndex]?.type !== 'turn/end') endIndex -= 1
+    const end = history[endIndex]
+    if (end?.type !== 'turn/end'
+      || end.data.reason.kind !== 'error'
+      || end.data.reason.failure === undefined) break
+
+    const previousStart = history.findLastIndex(
+      (event, index) =>
+        index < endIndex
+        && event.type === 'turn/start'
+        && event.data.turn === end.data.turn,
+    )
+    if (previousStart < 0) break
+    startIndex = previousStart
+  }
+  return startIndex
+}
+
 /** Validate one retry record against the open turn and most recently closed step. */
 function validateRetry(
   history: readonly SessionEvent[],
   event: SessionEvent<'llm/retry'>,
   fail: InvariantFailure,
 ): void {
-  const { turn, step, retry, maxRetries, delayMs } = event.data
+  const { turn, step, provider, mode, policyKey, retry, delayMs } = event.data
+  const failure: unknown = event.data.failure
+  validateFailure(failure, fail)
   if (!Number.isSafeInteger(retry) || retry < 1) {
     fail('llm/retry retry must be a positive safe integer')
   }
-  if (!Number.isSafeInteger(maxRetries) || maxRetries < 1 || retry > maxRetries) {
-    fail(`llm/retry retry ${retry} must not exceed a positive safe maxRetries ${maxRetries}`)
+  if (typeof provider !== 'string' || provider.length === 0) {
+    fail('llm/retry provider must be a non-empty string')
   }
-  if (!(delayMs >= 0 && delayMs <= MAX_TIMER_DELAY_MS)) {
-    fail(`llm/retry delayMs must be within 0..${MAX_TIMER_DELAY_MS}`)
+  if (typeof policyKey !== 'string' || policyKey.length === 0) {
+    fail('llm/retry policyKey must be a non-empty string')
+  }
+  switch (mode) {
+    case 'normal': {
+      const { maxRetries } = event.data
+      if (!Number.isSafeInteger(maxRetries) || maxRetries < 1 || retry > maxRetries) {
+        fail(`llm/retry retry ${retry} must not exceed a positive safe maxRetries ${maxRetries}`)
+      }
+      break
+    }
+    case 'always':
+      if ('maxRetries' in event.data) fail('llm/retry always mode must omit maxRetries')
+      break
+    default:
+      fail(`llm/retry mode must be normal or always, got ${String(mode)}`)
+  }
+  if (typeof delayMs !== 'number' || !Number.isFinite(delayMs)
+    || delayMs < 0 || delayMs > MAX_TIMER_DELAY_MS) {
+    fail(`llm/retry delayMs must be a finite number within 0..${MAX_TIMER_DELAY_MS}`)
   }
 
   const currentTurnEvents: SessionEvent[] = []
@@ -58,15 +134,24 @@ function validateRetry(
   if (closedStep === undefined || step !== closedStep) {
     fail(`llm/retry names step ${step}, but the latest closed step is ${String(closedStep)}`)
   }
+  const routedProvider = providerForClosedStep(history, turn, step)
+  if (routedProvider !== provider) {
+    fail(`llm/retry provider ${provider} does not match the failed request provider ${String(routedProvider)}`)
+  }
 
-  const priorRetries = currentTurnEvents
+  const chainStart = retryChainStart(history, turn)
+  const chain = history.slice(Math.max(chainStart, 0))
+  const lastSuccess = chain.findLastIndex(prior => prior.type === 'assistant/message')
+  const chainRetries = chain.slice(lastSuccess + 1)
     .filter((prior): prior is SessionEvent<'llm/retry'> => prior.type === 'llm/retry')
-  if (priorRetries.some(prior => prior.data.step === step)) {
+  if (chainRetries.some(prior => prior.data.turn === turn && prior.data.step === step)) {
     fail(`llm/retry duplicates the retry record for turn ${turn}/step ${step}`)
   }
-  const priorRetry = priorRetries[0]
-  if (priorRetry !== undefined && retry <= priorRetry.data.retry) {
-    fail(`llm/retry retry ${retry} must increase after retry ${priorRetry.data.retry}`)
+  const priorPolicyRetry = chainRetries.findLast(prior =>
+    prior.data.provider === provider && prior.data.policyKey === policyKey)
+  const expectedRetry = (priorPolicyRetry?.data.retry ?? 0) + 1
+  if (retry !== expectedRetry) {
+    fail(`llm/retry retry ${retry} must equal provider policy retry ${expectedRetry}`)
   }
 }
 

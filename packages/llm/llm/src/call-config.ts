@@ -1,24 +1,27 @@
 /**
  * Conversation call configuration and freeze utilities. Provider routing,
- * model, and sampling values are request-header state that can affect cache
- * reuse; request waterfalls replace them and the loop logs changed snapshots
- * instead of allowing silent per-call drift.
+ * model, reasoning effort, and sampling values are request-header state that
+ * can affect cache reuse; request waterfalls replace them and the loop logs
+ * changed snapshots instead of allowing silent per-call drift.
  * @module dsh-llm/call-config
  */
 
 import type { GenerateOptions } from './types.ts'
+import type { ReasoningEffortId } from './brand.ts'
 
 /** Process-local identities of request objects assembled by dsh-agent-loop. */
 const AGENT_LOOP_REQUESTS = new WeakSet<GenerateOptions>()
 
 /**
- * Provider + model + sampling scalars of one conversation's requests. Every field maps
- * 1:1 onto the same-named `GenerateOptions` field; the loop builds requests
- * from the logged header rather than accepting these per call.
+ * Provider, model, reasoning effort, and sampling scalars of one conversation's
+ * requests. Every field maps 1:1 onto the same-named `GenerateOptions` field;
+ * the loop builds requests from the logged header rather than accepting these
+ * per call.
  */
 export interface LlmCallConfig {
   provider: string
   model: string
+  reasoningEffort?: ReasoningEffortId
   temperature?: number
   maxTokens?: number
   stop?: string[]
@@ -33,7 +36,13 @@ export interface LlmCallConfig {
  * @returns whether every field (including the `stop` list, element-wise) matches.
  */
 export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
-  if (a.provider !== b.provider || a.model !== b.model || a.temperature !== b.temperature || a.maxTokens !== b.maxTokens) return false
+  if (
+    a.provider !== b.provider
+    || a.model !== b.model
+    || a.reasoningEffort !== b.reasoningEffort
+    || a.temperature !== b.temperature
+    || a.maxTokens !== b.maxTokens
+  ) return false
   if (a.stop === undefined || b.stop === undefined) return a.stop === b.stop
   return a.stop.length === b.stop.length && a.stop.every((s, i) => s === b.stop?.[i])
 }

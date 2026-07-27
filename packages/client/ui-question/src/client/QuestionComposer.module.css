@@ -128,6 +128,11 @@
   gap: 10px;
   width: 100%;
   min-height: 42px;
+  /* Rows are the scroll content, never the slack absorber: a shrinkable row
+     collapses to min-height while its wrapped copy keeps the taller
+     intrinsic height, and centered content then paints outside the row box —
+     over the title and the next row. Overflow belongs to .options. */
+  flex-shrink: 0;
   padding: 5px 8px;
   border: 1px solid transparent;
   border-radius: 12px;
@@ -208,6 +213,9 @@
 }
 
 .custom {
+  /* Same reason as .option: the custom block is scroll content, and shrinking
+     it pushes its trigger row (and the open textarea) past the footer. */
+  flex-shrink: 0;
   border: 1px solid transparent;
   border-radius: 12px;
 }

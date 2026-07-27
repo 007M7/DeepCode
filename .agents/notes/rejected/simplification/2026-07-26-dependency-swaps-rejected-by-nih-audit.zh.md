@@ -18,7 +18,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `vscode-languageserver-types` 承担 lsp-local 的协议类型子集**：约 80 行类型加约 45 行守卫，但上游守卫在两个方向上都与本仓库不一致（接受本仓库必须拒绝的 `uri: undefined`；强制要求本仓库容忍缺失的 `targetRange`），而且 initialize 结果的形状住在 `vscode-languageserver-protocol` 里，会把 `vscode-jsonrpc` 拖成运行时依赖——为 80 行严格贴合规范的代码付出约 1 MB。
 - **以 `json-rpc-2.0` 替换 `dsh-jsonrpc`**：可删除的关联/分发代码确实存在（约 100–130 行），但 NDJSON 协议格式（wire format）必须与手写的 Python SDK 客户端逐位一致，该包只有单一维护者，且 [GUI RPC 决策](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)已把这个包当作冻结的窄接口面对待。`vscode-jsonrpc` 更不合适（Content-Length 分帧、该协议并不具备的取消词汇）。
 - **以 `jsonrpcclient` 承担 Python SDK 客户端**：v4 只做消息的构造/解析——约 20 行——而真正要紧的 500 行（子进程生命周期、线程化读取器、id 关联、双向的服务端角色应答）全都保留；该库处于低维护模式。
-- **以 `eventsource-parser` 替换 apiproxy 的 `readSse`**：可删除的分帧只有约 15 行，线路两端都在仓库内，规范符合性无关紧要，而且这会给一个浏览器安全的包添加依赖。（对比 [llm-deepseek 提案](../../proposed/simplification/2026-07-26-eventsource-parser-for-deepseek-sse.md)：那里线路对面是真实的提供方。）
+- **以 `eventsource-parser` 替换 apiproxy 的 `readSse`**：可删除的分帧只有约 15 行，线路两端都在仓库内，规范符合性无关紧要，而且这会给一个浏览器安全的包添加依赖。（对比 [llm-deepseek 提案](../../implemented/simplification/2026-07-26-eventsource-parser-for-deepseek-sse.md)：那里线路对面是真实的提供方。）
 
 **重试、定时器与异步：**
 
@@ -41,12 +41,12 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 - **以 `write-file-atomic` 承担 fs-local/storage-json 的原子写**：这些包缺少私有 0700 暂存目录、Win32 DACL 复制/`ReplaceFileW`、AbortSignal 支持和父目录 fsync——每一项都正是手写实现的意义所在。koffi Win32 绑定本身由 [Windows 持久发布决策](../../implemented/architecture/2026-07-05-windows-jsonl-durable-publish.md)提供依据。
 - **以 `fzstd`/原生 zstd 包承担 JSONL 帧扫描**：`node:zlib` 内置的 zstd 已经负责压缩（[zstd 决策](../../implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md)，其中明确否决了外部原生依赖）；剩下的 `scanZstdFrames` 为撕裂尾部修复*不做解压*地定位 RFC 8878 帧边界，没有任何包公开这项能力。
-- **以 `picomatch`/`tinyglobby`/`ignore` 承担 fs 搜索**：根本不存在 glob 引擎——依照 [bash 承载的发现工具决策](../../implemented/feature/2026-07-09-bash-backed-grep-glob-discovery.md)，两个发现类工具都通过 shell 调用 ripgrep。
+- **以 `picomatch`/`tinyglobby`/`ignore` 承担 fs 搜索**：根本不存在 glob 引擎——依照 [bash 承载的发现工具决策](../../archived/feature/2026-07-09-bash-backed-grep-glob-discovery.md)，两个发现类工具都通过 shell 调用 ripgrep。
 - **以 `istextorbinary`/`chardet` 承担文本检测**：手写实现是约 15 行的 NUL 采样加 fatal 模式的 `TextDecoder`；启发式包体量更大，还会改变模型能读到哪些文件（模型可见的 `FS_NOT_TEXT` 漂移）。
 - **以 `shell-quote` 承担 POSIX 单引号包裹**：两个各 1 行、测试详尽的引号辅助函数，对上一个处于维护模式、有 CVE 历史、转义输出还不一样的包——安全边界不是省一行代码的地方。
 - **以 `strip-ansi` 承担 pty 净化**：pty 净化器是一台流式状态机，带跨分片的断裂序列续接和 OSC `133;D` 提示符标记提取（shell 就绪信号）；无状态的剥离器只能替掉约 20 行内层代码，全部状态机构件原样保留。`stripVTControlCharacters` 还被实证会泄漏未终止的 OSC 载荷，会话标题归一化器必须剥除它们（反欺骗）。
 - **以 `pidtree`/`ps-tree` 承担 pty 进程巡检器**：它们只给裸 PID 树；这段代码需要对抗 PID 复用的启动时间身份校验，加上 `/proc` stdin 等待检测，没有包做这些。
-- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」契约；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见 [execa 提案](../../proposed/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
+- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」契约；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见 [execa Agent Note](../../implemented/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
 - **以 `tree-kill` 承担 acp-snapshot 拆除与 lsp 进程终止**：那些代码行做的是排空顺序与错误传播，不是进程树遍历；lsp/bash 已经使用分离的进程组加 taskkill。
 - **在 TUI 测试驱动器上到处使用 node-pty**：[Windows TUI 决策](../../implemented/feature/2026-07-20-windows-tui-support.md)已明确否决在每个宿主上都用 node-pty；它已经是 Windows 那一条腿。
 
@@ -67,7 +67,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `syncpack`/`manypkg` 替换 `check-workspace-constraints.ts`**：它们只覆盖约 20 行的版本范围对齐；承重的 200+ 行（计算生成的 `files` 列表、cordis peer=dev 配对、层级形状）是仓库政策，没有通用引擎能表达。
 - **以 `remark-validate-links` 替换 `verify-md-links.ts`**：该门禁搭载仓库共享的 mdast 工具链；采用 remark-cli 等于为删掉一个小文件而增加第二套 markdown 技术栈。
 - **以 `prebuildify`/`node-gyp-build` 承担 landlock 启动器打包**：不适用——那些工具通过 dlopen 加载 `.node` addon；这个启动器交付的是独立 exec 的静态二进制，而按平台划分的 `optionalDependencies` 恰恰*就是*二进制分发的生态惯例。
-- **以 `@landstrip/landstrip` 替换 Landlock 启动器本身**：未通过安全不变式检验——启动器是一个约 300 行、可完整评审、来源逐字节锁定的 C 文件，且早已从一个 Rust 依赖迁移出来；单一维护者的 LGPL Rust 二进制集合是更大的审计面加更弱的来源保障。（尚未构建的 Windows 层级是另一个问题——见 [landstrip 评估提案](../../proposed/feature/2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md)。）
+- **以 `@landstrip/landstrip` 替换 Landlock 启动器本身**：未通过安全不变式检验——启动器是一个约 300 行、可完整评审、来源逐字节锁定的 C 文件，且早已从一个 Rust 依赖迁移出来；单一维护者的 LGPL Rust 二进制集合是更大的审计面加更弱的来源保障。（尚未构建的 Windows 层级经单独权衡后同样被[驳回](../feature/2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md)——landstrip 未经实战检验。）
 - **以 `hatch-nodejs-version` 承担 Python 发布版本号**：代码行数大致持平（一个自定义 metadata 钩子换掉那个正则），却反转了「dev 哨兵值绝不决定发布版本」这条记录在案的决策，还把一个单一维护者的构建插件放进发布供应链。
 - **YAML 归一（`js-yaml` 与 `yaml`）**：仓库同时携带两个解析器，`!!js` 标签在 js-yaml 上定义了四次（vendor 收录的 include、app-boot、apps/cli、`scripts/verify-cordis-config.ts`），在 `yaml` 上定义了两次（sdk-telemetry 的 `ScalarTag`、sdk-helper 的保留注释式 Document 编辑）。方向是被迫的——js-yaml 无法取代 `yaml`（sdk-helper 需要 Document API）——但迁移 js-yaml 各调用点也退休不了这个库（vendor 收录的 include 锁定了它），还会让两个解析器共管一种必须完全一致的方言，违背[个人配置决策](../../implemented/feature/2026-07-20-dsh-cli-personal-config.md)刻意的「仅加载副本」对等性。可删除的：约 20–25 行重复标签定义和两条 `@types/js-yaml` 条目。归一的时机是未来某次 include 同步，不是现在。
 

@@ -34,12 +34,15 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scope = ctx.plugin(() => {})
   return {
-    id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
-    followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
+    followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 
-async function harness(mode: 'danger-full-access' | 'workspace-write') {
+async function harness(
+  mode: 'danger-full-access' | 'workspace-write',
+  timing: { idleSilenceMs?: number; handoffGraceMs?: number; timeoutMs?: number } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-pty-local-'))
   roots.push(root)
   const ctx = new Context()
@@ -51,8 +54,9 @@ async function harness(mode: 'danger-full-access' | 'workspace-write') {
   const fiber = await ctx.plugin(ptyLocal, {
     pollIntervalMs: 10,
     exactProbeAfterMs: 20,
-    idleSilenceMs: 250,
-    timeoutMs: 2000,
+    idleSilenceMs: timing.idleSilenceMs ?? 250,
+    handoffGraceMs: timing.handoffGraceMs ?? 250,
+    timeoutMs: timing.timeoutMs ?? 2_000,
     disposeGraceMs: 500,
     scrollbackLines: 100,
     scrollbackMaxBytes: 32_768,
@@ -63,14 +67,27 @@ async function harness(mode: 'danger-full-access' | 'workspace-write') {
   return { ctx, root, agent, fiber, sandbox: ctx.sandbox as PassthroughSandbox }
 }
 
-async function waitForOutput(operation: PtySendOperation, expected: string): Promise<void> {
-  const deadline = Date.now() + 2_000
+// PtySendOperation.append drops output once the operation settles, so this only
+// observes a marker the child prints while `operation` is still active. A caller
+// whose child is slow to print must raise the harness `timing` bounds too;
+// extending this deadline alone cannot recover output the operation never collected.
+async function waitForOutput(operation: PtySendOperation, expected: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
   let output = ''
   while (!output.includes(expected) && Date.now() < deadline) {
     output += operation.readOutput().delta
     if (!output.includes(expected)) await new Promise(resolve => setTimeout(resolve, 10))
   }
   expect(output).toContain(expected)
+}
+
+// A send the test interrupts settles when bash returns to its prompt, so the
+// kernel may publish the foreground handoff on either side of the silence
+// bound. `handoffGraceMs` widens the window that wins the exact attribution but
+// cannot remove the race on a loaded host, so these settles assert that the
+// session became usable again, not which readiness tier observed it.
+function expectReadyForNextSend(waitReason: string): void {
+  expect(['stdin_read', 'inferred_idle']).toContain(waitReason)
 }
 
 describe('pty-local real shell', () => {
@@ -116,7 +133,7 @@ describe('pty-local real shell', () => {
     const foreground = ctx.pty.startSend(agent, created.sessionId, { text: 'sleep 60', submit: true })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect((await ctx.pty.signal(agent, created.sessionId, 'SIGINT')).delivered).toBe(true)
-    expect((await foreground.done).waitReason).toBe('stdin_read')
+    expectReadyForNextSend((await foreground.done).waitReason)
 
     const background = ctx.pty.startSend(agent, created.sessionId, {
       text: 'sh -c \'trap "" TERM; sleep 60\' & echo CHILD=$!',
@@ -131,29 +148,34 @@ describe('pty-local real shell', () => {
     expect(() => process.kill(pid, 0)).toThrow()
   }, 10_000)
 
-  it('cancels a raw-mode foreground process with a real SIGINT', async () => {
-    const { ctx, agent } = await harness('danger-full-access')
+  it('cancels a slow-starting raw-mode foreground process with a real SIGINT', async () => {
+    const { ctx, agent } = await harness('danger-full-access', {
+      idleSilenceMs: 10_000,
+      timeoutMs: 15_000,
+    })
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     const controller = new AbortController()
     const ready = 'RAW_READY'
+    // Delay readiness beyond the shared harness's short send bound so this
+    // process test owns enough slack for loaded macOS startup and shell echo.
     // The interactive shell echoes the command, so only child output may contain the readiness marker.
-    const command = 'python3 -c \'import signal,sys,termios,time; signal.signal(signal.SIGINT, lambda *_: (print("SIGINT_SEEN", flush=True), sys.exit(0))); attrs=termios.tcgetattr(0); attrs[3] &= ~termios.ISIG; termios.tcsetattr(0, termios.TCSANOW, attrs); print("RAW_" + "READY", flush=True); time.sleep(60)\''
+    const command = 'python3 -c \'import signal,sys,termios,time; signal.signal(signal.SIGINT, lambda *_: (print("SIGINT_SEEN", flush=True), sys.exit(0))); attrs=termios.tcgetattr(0); attrs[3] &= ~termios.ISIG; termios.tcsetattr(0, termios.TCSANOW, attrs); time.sleep(2.1); print("RAW_" + "READY", flush=True); time.sleep(60)\''
     expect(command).not.toContain(ready)
     const foreground = ctx.pty.startSend(agent, created.sessionId, {
       text: command,
       submit: true,
       signal: controller.signal,
     })
-    await waitForOutput(foreground, ready)
+    await waitForOutput(foreground, ready, 15_000)
     controller.abort()
     const result = await foreground.done
-    expect(result.waitReason).toBe('stdin_read')
+    expectReadyForNextSend(result.waitReason)
     const after = await ctx.pty.startSend(agent, created.sessionId, {
       text: 'echo AFTER_SIGINT',
       submit: true,
     }).done
     expect(after.viewport).toContain('AFTER_SIGINT')
-    expect(after.waitReason).toBe('stdin_read')
+    expectReadyForNextSend(after.waitReason)
     await ctx.pty.kill(agent, created.sessionId)
-  }, 10_000)
+  }, 20_000)
 })

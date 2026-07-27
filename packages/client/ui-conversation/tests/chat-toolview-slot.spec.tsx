@@ -12,7 +12,7 @@
 
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
@@ -42,7 +42,7 @@ function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
-  } as ConversationSnapshot
+  }
 }
 
 /** Test-owned AppFrame role: declares and renders the resident conversation area. */
@@ -108,6 +108,10 @@ async function bench(nodes: ToolResultNode[]) {
       return info
     },
     maybeProvideInfo(id: string | undefined) {
+      // `this` inside an object-literal method is any under strict lint; the
+      // fake resolves through its own provideInfo above.
+      /* eslint-disable-next-line @typescript-eslint/no-unsafe-return,
+         @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
       return (id === undefined ? undefined : this.provideInfo(id)) ?? { hooks: {}, props: {} }
     },
     provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
@@ -156,9 +160,29 @@ describe('keyed toolview hole through the real machinery', () => {
     // bash: the sample plugin's keyed registration took the row (root
     // session → global arm, decided inside the component off useSessions).
     expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('Build')).toBeTruthy()
     // mystery: no registration under that key → render-site fallback.
     expect(view.getByText('Tool call')).toBeTruthy()
+  })
+
+  it('renders top-level Cordis calls with lifecycle titles over the generic variants', async () => {
+    const code = 'return { name: "audit", apply(ctx) {} }'
+    const b = await bench([
+      toolResult(3, 'cordis-1', 'cordis_inspect', '{"what":"api","name":"tools"}'),
+      toolResult(4, 'cordis-2', 'cordis_mount', JSON.stringify({ code })),
+      toolResult(5, 'cordis-3', 'cordis_unmount', '{"id":"dyn-2"}'),
+    ])
+    const view = mountApp(b.slots)
+
+    expect(view.container.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
+    const mounted = view.container.querySelector('[data-variant="code"]')
+    expect(mounted?.textContent).toContain(`Mount temporary Plugin${code}`)
+    expect(view.container.querySelector('[data-tool="cordis_unmount"]')?.textContent)
+      .toContain('Unmount temporary Plugindyn-2')
+
+    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
   })
 
   it('row clicks travel owner openDetails → chat inject → layout orchestration', async () => {
@@ -251,7 +275,7 @@ describe('registrant load-order seam', () => {
       children: {
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
-        },
+      },
     }, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject

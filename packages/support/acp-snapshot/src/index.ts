@@ -32,6 +32,7 @@ export {
   type LaunchedAcpTestAgent,
 } from './launcher.ts'
 export {
+  extractSnapshotSpillPaths,
   normalizeSessionLog,
   normalizeStdout,
   scrubRequestHeaders,

@@ -19,11 +19,14 @@ import {
   sessionCreateRequestSchema,
   sessionHistoryRequestSchema,
   sessionListRequestSchema,
+  sessionModelsRequestSchema,
   sessionPromptRequestSchema,
+  sessionSelectModelRequestSchema,
 } from '../api/sessions.schema.ts'
-import { hostDescribeRequestSchema } from '../api/host.schema.ts'
+import { hostDescribeRequestSchema, hostPickDirectoryRequestSchema } from '../api/host.schema.ts'
 import {
   workspaceCreateRequestSchema,
+  workspaceDeleteRequestSchema,
   workspaceInsertSessionBeforeRequestSchema,
   workspaceListRequestSchema,
   workspaceRenameRequestSchema,
@@ -51,12 +54,16 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.list': { schema: sessionListRequestSchema, invoke: (api, r) => api.sessions.list(r) },
   'session.create': { schema: sessionCreateRequestSchema, invoke: (api, r) => api.sessions.create(r) },
   'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
+  'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
+  'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
+  'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
   'workspace.list': { schema: workspaceListRequestSchema, invoke: (api, r) => api.workspace.list(r) },
   'workspace.create': { schema: workspaceCreateRequestSchema, invoke: (api, r) => api.workspace.create(r) },
   'workspace.rename': { schema: workspaceRenameRequestSchema, invoke: (api, r) => api.workspace.rename(r) },
+  'workspace.delete': { schema: workspaceDeleteRequestSchema, invoke: (api, r) => api.workspace.delete(r) },
   'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
   'command.list': { schema: commandListRequestSchema, invoke: (api, r) => api.commands.list(r) },
   'command.execute': { schema: commandExecuteRequestSchema, invoke: (api, r, signal) => api.commands.execute(r, signal) },

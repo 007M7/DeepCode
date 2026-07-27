@@ -8,9 +8,9 @@
  *
  * The state in force is folded from the session log (`plan/mode`, last one
  * wins), so resume and fork restore it without a live mirror. User selections
- * are held as pending intent until a turn boundary because every session event
- * is turn-enclosed. The service flushes before the affected request assembly
- * on prompt submission, ordinary continuation, and request-recovery retry.
+ * are held as pending intent until an in-turn request boundary because every
+ * session event is turn-enclosed. The service flushes at `agent/step` before
+ * the affected request assembly, including retry turns.
  *
  * The exit tool remains registered while plan mode is inactive so crossing a
  * boundary changes only the prompt section, not the request tool catalog.
@@ -145,9 +145,9 @@ export class PlanModeService extends Service {
   private readonly section: string
 
   /**
-   * Latest selection per session awaiting a turn-boundary flush. `narrate` is
-   * true for user selections and false for the exit tool, whose result already
-   * narrates the transition.
+   * Latest selection per session awaiting an in-turn request-boundary flush.
+   * `narrate` is true for user selections and false for the exit tool, whose
+   * result already narrates the transition.
    */
   private readonly pendingIntents = new WeakMap<Session, { active: boolean; narrate: boolean }>()
 
@@ -156,45 +156,20 @@ export class PlanModeService extends Service {
     this.section = resolveConfig(config).section
     let disposed = false
 
-    // Boundary flushes use loop interception seams, not post-commit
-    // `session/event` observation. Flush after next(): a selection arriving
-    // while a downstream async listener awaits must still shape the request
-    // this boundary precedes. Failures are contained so policy cannot block a
-    // prompt or turn; a failed append remains pending for a later boundary.
-    const flushAfter = async <T>(agent: Agent, next: () => Promise<T>): Promise<T> => {
-      const decision = await next()
-      if (!disposed) {
-        try {
-          this.onBoundary(agent)
-        } catch (error) {
-          ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
-        }
-      }
-      return decision
-    }
-    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) =>
-      flushAfter(agent, next), { prepend: true })
-    ctx.on('agent/turn-continuation', (agent, _turn, _decision, _signal, next) =>
-      flushAfter(agent, next), { prepend: true })
-    ctx.on('agent/request-error', async (
-      agent,
-      _turn,
-      _step,
-      _error,
-      _failure,
-      _priorFailures,
-      _signal,
-      next,
-    ) => {
-      const decision = await next()
-      // A waterfall can retain this wrapper after Cordis unregisters it.
-      if (disposed || decision.action !== 'retry') return decision
+    // The boundary flush uses the loop's `agent/step` interception seam, not
+    // post-commit `session/event` observation. `agent/step` runs inside the
+    // open turn before every request derivation (including turn 1 step 1), so
+    // it is the sole flush point: prompt admission happens pre-turn, where a
+    // `plan/mode` append would land outside any open turn. Failures are
+    // contained so policy cannot block a turn; a failed append remains
+    // pending for a later boundary.
+    ctx.on('agent/step', (agent) => {
+      if (disposed) return
       try {
         this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
       }
-      return decision
     }, { prepend: true })
     ctx.effect(() => () => { disposed = true }, 'dsh-plan-mode: close boundary lifetime')
 
@@ -226,7 +201,7 @@ export class PlanModeService extends Service {
             return { kind: 'success', text: 'Plan mode is already inactive.' }
           }
           this.set(agent, true)
-          if (message !== '') agent.steer([{ type: 'text', text: message }])
+          if (message !== '') agent.steer({ content: [{ type: 'text', text: message }], source: { kind: 'user' } })
           return {
             kind: 'success',
             text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
@@ -323,7 +298,7 @@ export class PlanModeService extends Service {
   }
 
   /**
-   * Select whether plan mode should be active from the next turn boundary.
+   * Select whether plan mode should be active from the next request boundary.
    * Repeated selection of the current or already-pending state is a no-op.
    *
    * @param agent The agent to switch.

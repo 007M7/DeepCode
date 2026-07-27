@@ -11,6 +11,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -29,6 +30,7 @@ async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: str
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   await ctx.plugin(ToolBash, dshHome === undefined ? {} : { dshHome })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -109,11 +111,12 @@ describe('bash tool through the agent loop', () => {
     const location = ctx.sessionPersistence.locate(agent.session.header)
     expect(location?.kind).toBe('jsonl')
 
-    agent.followup([{ type: 'text', text: 'inspect the current session' }])
+    agent.followup({ content: [{ type: 'text', text: 'inspect the current session' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const result = findEvent(events(agent), 'tool/result')
     expect(resultText(result)).toBe(`${dshHome}\n1\nsession-env-id\n${location?.path}\nunset\nabsent\n`)
+    await ctx.sessions.flush(agent.session)
     expect(existsSync(location!.path)).toBe(true)
     const header = JSON.parse(readFileSync(location!.path, 'utf8').split('\n')[0]!) as { type: string; id: string }
     expect(header).toMatchObject({ type: 'session', id: 'session-env-id' })
@@ -128,7 +131,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-fg'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'run echo integration-ok' }])
+    agent.followup({ content: [{ type: 'text', text: 'run echo integration-ok' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
@@ -160,7 +163,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-exit'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'run exit 9' }])
+    agent.followup({ content: [{ type: 'text', text: 'run exit 9' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const toolResult = findEvent(events(agent), 'tool/result')
@@ -180,7 +183,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-bg'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'run echo bg-ok in the background' }])
+    agent.followup({ content: [{ type: 'text', text: 'run echo bg-ok in the background' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const firstResult = findEvent(events(agent), 'tool/result')
@@ -200,7 +203,7 @@ describe('bash tool through the agent loop', () => {
     expect(notice.data.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
 
     // The next turn collects the output through the generic task tool.
-    agent.followup([{ type: 'text', text: 'collect it' }])
+    agent.followup({ content: [{ type: 'text', text: 'collect it' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     const readResult = findEvent(events(agent), 'tool/result', 'last')
     expect(readResult.data.isError).toBe(false)

@@ -320,6 +320,11 @@ describe('installLlmReplay (through the real LlmService)', () => {
         {
           id: 'deepseek',
           name: 'DeepSeek',
+          retryPolicy: {
+            mode: 'normal',
+            maxRetries: 2,
+            backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+          },
           models: [
             { id: 'flash', contextWindow: 128_000 },
             { id: 'pro', name: 'Pro', description: 'Larger model' },
@@ -338,14 +343,43 @@ describe('installLlmReplay (through the real LlmService)', () => {
       { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
     ])
     await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
-    await expect(ctx.llm.resolveModelContext('deepseek', 'flash')).resolves.toEqual({ contextWindow: 128_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'pro')).resolves.toBeUndefined()
-    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted')).resolves.toBeUndefined()
-    await expect(ctx.llm.resolveModelContext('empty', 'unlisted')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'flash')).resolves.toMatchObject({
+      context: { contextWindow: 128_000 },
+    })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('context')
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted')).resolves.not.toHaveProperty('context')
+    await expect(ctx.llm.resolveModelInfo('empty', 'unlisted')).resolves.not.toHaveProperty('context')
+    expect(ctx.llm.providerRetryPolicy('deepseek')).toMatchObject({
+      mode: 'normal',
+      maxRetries: 2,
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      jitterRatio: 0,
+    })
+    expect(ctx.llm.providerRetryPolicy('empty')).toMatchObject({
+      mode: 'normal',
+      maxRetries: 2,
+      initialDelayMs: 500,
+      maxDelayMs: 10_000,
+      jitterRatio: 0.1,
+    })
     expect(await drain(ctx.llm.stream({ provider: 'deepseek', model: 'pro', messages: [] }))).toEqual(TEXT_CHUNKS)
 
     dispose()
     expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('rejects an invalid replay-provider retry policy during registration', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    expect(() => {
+      installLlmReplay(ctx, {
+        file,
+        providers: [{ id: 'deepseek', retryPolicy: { mode: 'normal', maxRetries: -1 } }],
+      })
+    }).toThrow(/llm-replay: provider "deepseek" retryPolicy\.maxRetries/)
   })
 
   it('serves the Nth call the Nth derived entry (positional)', async () => {

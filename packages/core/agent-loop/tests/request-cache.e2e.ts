@@ -73,10 +73,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('log-derived request cache hits (
     const agent = ctx.agentLoop.create(SessionId('cache-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     // Turn 1: forces a tool call → at least two steps (two model requests).
-    agent.followup([{ type: 'text', text: 'Look up the key "deploy-color" with the lookup tool and tell me the value.' }])
+    agent.followup({ content: [{ type: 'text', text: 'Look up the key "deploy-color" with the lookup tool and tell me the value.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     // Turn 2: a follow-up over the same (longer) prefix.
-    agent.followup([{ type: 'text', text: 'Thanks. Repeat that value one more time.' }])
+    agent.followup({ content: [{ type: 'text', text: 'Thanks. Repeat that value one more time.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const usages = [...agent.session.events]

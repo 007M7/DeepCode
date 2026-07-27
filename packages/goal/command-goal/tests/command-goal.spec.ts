@@ -2,12 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type UserMessageData } from '@deepseek-ai/dsh-session'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 
 interface Harness {
@@ -17,25 +16,9 @@ interface Harness {
   readonly plugin: Awaited<ReturnType<Context['plugin']>>
 }
 
-/** Number the next balanced injection or message turn. */
-function nextTurn(session: Session): number {
-  return session.events.reduce(
-    (maximum, event) => event.type === 'turn/start' ? Math.max(maximum, event.data.turn) : maximum,
-    0,
-  ) + 1
-}
-
-/** Append one idle injection using the public Agent contract's balanced shape. */
-function appendInjection(session: Session, content: ContentBlock[], options?: InjectOptions): void {
-  const source: MessageSource = options?.source ?? { kind: 'plugin', plugin: '' }
-  const turn = nextTurn(session)
-  session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-  session.append('user/message', {
-    content,
-    source,
-    ...options?.meta === undefined ? {} : { meta: options.meta },
-  }, { surfaceOp: 'append' })
-  session.append('turn/end', { turn, reason: { kind: 'completed' } })
+/** Append one idle injection using the public Agent contract. */
+function appendInjection(session: Session, input: UserMessageData): void {
+  session.append('user/message', input, { surfaceOp: 'append' })
 }
 
 /** Build a live idle agent accepted by the exact-identity goal service. */
@@ -48,11 +31,11 @@ function stubAgent(id: string): { agent: Agent; session: Session } {
     session,
     ctx: new Context(),
     get status() { return status },
-    followup: () => AgentMessageId('stub'),
-    queue: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
-    inject(content, options) { appendInjection(session, content, options); return AgentMessageId('stub') },
+    get acceptsNextStep() { return status === 'running' },
     send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject(input) { appendInjection(session, input); return AgentMessageId('stub') },
     cancel() { status = 'idle' },
     whenIdle() { return Promise.resolve() },
   }
@@ -127,7 +110,7 @@ describe('/goal human command', () => {
     expect(created.text).toContain('Rounds: 0/256')
     expect(created.text).toContain('Activation: armed')
     expect(test.ctx.goals.get(test.agent)?.objective).toBe('finish the release')
-    expect(test.session.events.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
+    expect(test.session.events.map(event => event.type)).toEqual(['user/message'])
 
     const count = test.session.events.length
     await expect(run(test, ' replacement')).resolves.toEqual({
