@@ -10,12 +10,12 @@ import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
   SessionEventResultFilter,
+  SessionEventSearchPage,
   SessionEventReadRequest,
   SessionEventRecord,
-  SessionEventSearchHit,
   SessionEventSearchDocument,
   SessionEventSearchRequest,
-  SessionEventTrace,
+  SessionEventTraceObservation,
   SessionEventTraceRequest,
   SessionEventWindow,
   SessionLineageTrace,
@@ -27,8 +27,11 @@ import type {
   SessionSearchPage,
   SessionSearchRequest,
   SessionSurfaceSnapshot,
+  SessionTitleObservation,
+  SessionTitleObservationResult,
 } from './types.ts'
 import {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   SESSION_QUERY_READ_WINDOW_MAX,
   SessionQueryError,
   type Config,
@@ -46,7 +49,11 @@ import * as tracing from './tracing.ts'
 export type * from './types.ts'
 export { SessionSearchCursor } from './cursor.ts'
 export type { Config, SessionQueryErrorCode } from './config.ts'
-export { SESSION_QUERY_READ_WINDOW_MAX, SessionQueryError } from './config.ts'
+export {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
+  SESSION_QUERY_READ_WINDOW_MAX,
+  SessionQueryError,
+} from './config.ts'
 export { extractSessionEventText } from './extraction.ts'
 export { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
 export {
@@ -86,7 +93,15 @@ export abstract class SessionQueryService extends Service {
         'SESSION_QUERY_INVALID_CONFIG',
       )
     }
-    this._corpus = new SessionCorpus(ctx)
+    const persistedInspectConcurrency = config.persistedInspectConcurrency
+      ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY
+    if (!Number.isSafeInteger(persistedInspectConcurrency) || persistedInspectConcurrency < 1) {
+      throw new SessionQueryError(
+        'session-query: persistedInspectConcurrency must be a positive safe integer',
+        'SESSION_QUERY_INVALID_CONFIG',
+      )
+    }
+    this._corpus = new SessionCorpus(ctx, persistedInspectConcurrency)
   }
 
   /**
@@ -104,19 +119,20 @@ export abstract class SessionQueryService extends Service {
    * Search events within one live-preferred logical session.
    * @param request - target session, query text, filters, page size, and cursor.
    * @param exec - optional cancellation control.
-   * @returns matching event hits in deterministic relevance order.
+   * @returns matching event hits and their target header from one indexed generation.
    */
   abstract searchEvents(
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
-  ): Promise<SessionSearchPage<SessionEventSearchHit>>
+  ): Promise<SessionEventSearchPage>
 
   /**
    * List the complete logical corpus using live-preferred records.
+   * @param signal - optional cancellation for persistence listing.
    * @returns deterministic newest-first cloned session records.
    */
-  listSessions(): Promise<SessionRecord[]> {
-    return this._corpus.listSessions()
+  listSessions(signal?: AbortSignal): Promise<SessionRecord[]> {
+    return this._corpus.listSessions(signal)
   }
 
   /**
@@ -137,21 +153,65 @@ export abstract class SessionQueryService extends Service {
   /**
    * Filter the complete logical corpus with provider-independent predicates.
    * @param filters - ANDed session metadata and availability clauses.
+   * @param signal - optional cancellation for persistence listing.
    * @returns matching cloned records in deterministic newest-first order.
    */
-  async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]> {
+  async filterSessions(
+    filters: readonly SessionResultFilter[],
+    signal?: AbortSignal,
+  ): Promise<SessionRecord[]> {
     const ownedFilters = materializeSessionResultFilters(filters)
-    return this._filterSessions(ownedFilters)
+    return this._filterSessions(ownedFilters, signal)
   }
 
   /**
    * Fold the latest log-backed title from one live-preferred logical session.
    * @param sessionId - live or persisted session id to read.
+   * @param signal - optional cancellation for source resolution and title folding.
    * @returns latest title snapshot, or `undefined` when the log has no title event.
    */
-  async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined> {
-    const loaded = await this._corpus.load(sessionId)
-    return foldSessionTitle(loaded.events)
+  async readTitle(
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SessionTitleSnapshot | undefined> {
+    return (await this.readTitleSnapshot(sessionId, signal)).title
+  }
+
+  /**
+   * Fold the latest title and return its source header from one corpus observation.
+   * @param sessionId - live or persisted session id to read.
+   * @param signal - optional cancellation for source resolution and title folding.
+   * @returns cloned source header and optional latest title snapshot.
+   */
+  async readTitleSnapshot(
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SessionTitleObservation> {
+    const result = (await this.readTitleSnapshots([sessionId], signal))[0] as SessionTitleObservationResult
+    if (result.status === 'rejected') throw result.reason
+    return result.value
+  }
+
+  /**
+   * Fold titles for unique sessions from one cancellable corpus observation.
+   *
+   * Results preserve first-occurrence input order. Operational failures stay
+   * isolated per session, while cancellation rejects the complete operation.
+   * @param sessionIds - live or persisted session ids to observe.
+   * @param signal - optional cancellation shared by all source reads.
+   * @returns one fulfilled or rejected result per unique requested id.
+   */
+  async readTitleSnapshots(
+    sessionIds: readonly SessionId[],
+    signal?: AbortSignal,
+  ): Promise<SessionTitleObservationResult[]> {
+    return this._corpus.projectMany(sessionIds, (source): SessionTitleObservation => {
+      const title = foldSessionTitle(source.events)
+      return {
+        session: structuredClone(source.header),
+        ...title === undefined ? {} : { title },
+      }
+    }, signal)
   }
 
   /**
@@ -178,8 +238,11 @@ export abstract class SessionQueryService extends Service {
     return this._filterEvents(sessionId, ownedFilters)
   }
 
-  private async _filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]> {
-    return filterSessionResults(await this._corpus.listSessions(), filters)
+  private async _filterSessions(
+    filters: readonly SessionResultFilter[],
+    signal?: AbortSignal,
+  ): Promise<SessionRecord[]> {
+    return filterSessionResults(await this._corpus.listSessions(signal), filters)
   }
 
   private async _filterEvents(
@@ -209,36 +272,44 @@ export abstract class SessionQueryService extends Service {
   /**
    * Trace known ancestry and descendants from one corpus observation.
    * @param sessionId - logical session id to trace.
+   * @param signal - optional cancellation for persistence listing.
    * @returns a complete lineage or an explicit unresolved parent boundary.
    * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
    */
-  async traceSession(sessionId: SessionId): Promise<SessionLineageTrace> {
-    const records = await this._corpus.listSessions()
+  async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace> {
+    const records = await this._corpus.listSessions(signal)
+    signal?.throwIfAborted()
     return tracing.traceSession(records, sessionId)
   }
 
   /**
    * Trace one event's direct positional and provenance relationships.
    * @param request - target session id and event seq.
-   * @returns direct links plus the target's positional replacement chain.
+   * @param signal - optional cancellation for persisted source resolution.
+   * @returns source header, direct links, and the target's positional replacement chain.
    * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
    */
-  async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace> {
-    const loaded = await this._corpus.load(request.sessionId)
-    return tracing.traceEvent(request.sessionId, loaded.events, request.seq)
+  async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation> {
+    const loaded = await this._corpus.load(request.sessionId, signal)
+    signal?.throwIfAborted()
+    return {
+      session: loaded.header,
+      ...tracing.traceEvent(request.sessionId, loaded.events, request.seq),
+    }
   }
 
   /**
    * Read one full event plus a bounded raw-log context window.
    * @param request - target session/seq and context sizes.
+   * @param signal - optional cancellation for persisted source resolution.
    * @returns cloned target and neighboring events.
    */
-  async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow> {
+  async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow> {
     const before = this._readWindow('before', request.before)
     const after = this._readWindow('after', request.after)
     const sessionId = request.sessionId
     const seq = request.seq
-    return this._readEvent(sessionId, seq, before, after)
+    return this._readEvent(sessionId, seq, before, after, signal)
   }
 
   private async _readEvent(
@@ -246,8 +317,10 @@ export abstract class SessionQueryService extends Service {
     seq: number,
     before: number,
     after: number,
+    signal?: AbortSignal,
   ): Promise<SessionEventWindow> {
-    const loaded = await this._corpus.load(sessionId)
+    const loaded = await this._corpus.load(sessionId, signal)
+    signal?.throwIfAborted()
     const target = loaded.events[seq]
     if (target === undefined || target.seq !== seq) {
       throw new SessionQueryError(

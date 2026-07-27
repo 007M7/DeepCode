@@ -21,11 +21,6 @@ export interface ChatStoreState {
   selection: SelectionTarget | null
   /** Composer draft (persisted; survives session switches and reloads). */
   draft: string
-  /**
-   * Ordered browser-draft attachment ids. The matching File/object-URL
-   * objects stay in ConversationService because they are runtime-only.
-   */
-  imageIds: string[]
   /** Active conversation view id ('conversation.view' entry id); null falls back to the first view. */
   view: string | null
 }

@@ -1,5 +1,7 @@
 # attachment/ - durable attachment capability family
 
+English | [中文](README.zh.md)
+
 The durable binary attachment seam and its local filesystem implementation. Both are product packages.
 
 | Package | Role | ctx key |

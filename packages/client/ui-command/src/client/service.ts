@@ -1,0 +1,292 @@
+/**
+ * CommandService (`ctx.command`): the '/' command source over the
+ * session-keyed directory, the client-contribution registry, and the
+ * per-session popupSelect controllers. Candidate synthesis merges the host
+ * catalog with contributions by availability, then query/position filtering;
+ * a host/contribution name collision fails loud. Every execute addresses the
+ * session's agent by sessionId — sessions are always agent-backed.
+ */
+import { Service } from 'cordis'
+import type { Context } from 'cordis'
+import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { ClientContext, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
+  SlashServiceContract, SubmitOutcome,
+} from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { CommandContribution, CommandServiceContract } from './contract.ts'
+import type { CommandDescriptor } from './directory.ts'
+import { CommandDirectory } from './directory.ts'
+import { PopupSelectController } from './popup.ts'
+import type { TokenSegment } from './popup.ts'
+
+/** Live mutable state in one holder (service methods run behind the caller-ctx tracker). */
+interface LiveState {
+  readonly contributions: Map<string, CommandContribution>
+  readonly popups: Map<SessionId, PopupSelectController<ClientSessionContext>>
+}
+
+/** Command surface: session-keyed directory + '/' source + contribution registry + per-session popups. */
+export class CommandService extends Service implements CommandServiceContract {
+  static inject = ['slash', 'sessions', 'connection']
+
+  private readonly directory: CommandDirectory
+  private readonly live: LiveState = { contributions: new Map(), popups: new Map() }
+
+  /**
+   * @param ctx - owning root context (plugin fiber; the service registers
+   * itself as `command` and follows that fiber's lifetime).
+   */
+  constructor(ctx: Context) {
+    super(ctx, 'command')
+    const connection = ctx.get('connection') as ConnectionHandle | undefined
+    if (connection === undefined) throw new Error('ui-command: connection service unavailable')
+    this.directory = new CommandDirectory(async (sessionId) => {
+      const { result } = await connection.api.commands.list({ sessionId })
+      if (!result.ok) throw new Error(`command.list failed: ${result.error.code}: ${result.error.message}`)
+      return result.value.commands
+    })
+    const slash = ctx.get('slash') as SlashServiceContract | undefined
+    if (slash === undefined) throw new Error('ui-command: slash service unavailable')
+    ctx.effect(() => slash.registerSource({
+      trigger: '/',
+      name: 'command',
+      candidates: (session, req) => this.candidates(session, req),
+      onPick: pick => this.dispatch(pick),
+      matchSpace: (session, token) => this.matchSpace(session, token),
+      matchEnter: (session, line, signal) => this.matchEnter(session, line, signal),
+      warm: (session) => { this.directory.warm(session.sessionId) },
+    }), 'command: slash source')
+    ctx.on('commands/changed', () => { this.directory.invalidateAll() })
+    ctx.on('connection/reset', () => { this.directory.resetConnected() })
+  }
+
+  /**
+   * Register one client command contribution; effect disposer (rides the
+   * caller's fiber). Duplicate names throw.
+   * @param contribution - the contribution (descriptor + availability + popup spec).
+   * @returns the disposer removing the registration.
+   */
+  register(contribution: CommandContribution): () => void {
+    const dispose = this.ctx.effect(() => {
+      const { contributions } = this.live
+      if (contributions.has(contribution.name)) {
+        throw new Error(`ui-command: duplicate contribution for /${contribution.name}`)
+      }
+      contributions.set(contribution.name, contribution)
+      return () => { contributions.delete(contribution.name) }
+    }, 'command.register()')
+    return () => { void dispose() }
+  }
+
+  /**
+   * Resolve the per-session popup controller (lazy; dies with the session
+   * scope). The controller's consume callback dispatches the scoped
+   * consume-token event back to this session; focusComposer reaches the
+   * composer through the overlay slot currency.
+   * @param actx - session-scope ctx.
+   * @returns the resident controller.
+   */
+  popupFor(actx: ClientContext): PopupSelectController<ClientSessionContext> {
+    const sessions = this.sessions()
+    const id = sessions.scopeOf(actx)
+    if (id === undefined) throw new Error('command.popupFor requires a session scope')
+    const { popups } = this.live
+    const existing = popups.get(id)
+    if (existing !== undefined) return existing
+    const controller = new PopupSelectController<ClientSessionContext>({
+      consume: segment => actx.bail(actx, 'slash/input-consume-token', {
+        guard: segment.via === 'menu'
+          ? { kind: 'span', span: segment.span }
+          : { kind: 'bare-token', token: segment.token },
+      }) === true,
+      focusComposer: () => { this.focusHooks.get(id)?.() },
+    })
+    popups.set(id, controller)
+    actx.effect(() => () => {
+      controller.dispose()
+      popups.delete(id)
+      this.focusHooks.delete(id)
+    }, 'command: session popup')
+    return controller
+  }
+
+  /** Composer focus hooks by session (the overlay wiring binds the textarea focus here). */
+  private readonly focusHooks = new Map<SessionId, () => void>()
+
+  /**
+   * Bind one session's composer-focus hook (overlay slot wiring; unbind on unmount).
+   * @param id - session id.
+   * @param focus - textarea focus callback.
+   * @returns the unbind disposer.
+   */
+  bindComposerFocus(id: SessionId, focus: () => void): () => void {
+    this.focusHooks.set(id, focus)
+    return () => {
+      if (this.focusHooks.get(id) === focus) this.focusHooks.delete(id)
+    }
+  }
+
+  /** Menu candidates: host catalog + contribution availability, then query/position filtering. */
+  private async candidates(session: ClientSessionContext, req: CandidateRequest): Promise<readonly SlashCandidate[]> {
+    const list = await this.directory.ensureReady(session.sessionId, req.signal)
+    const rows: SlashCandidate[] = []
+    const seen = new Set<string>()
+    for (const c of list) {
+      seen.add(c.name)
+      rows.push({ name: c.name, description: c.description, ...(c.input !== undefined ? { hint: c.input.hint } : {}) })
+    }
+    for (const contribution of this.live.contributions.values()) {
+      if (!contribution.available(session)) continue
+      if (seen.has(contribution.name)) {
+        throw new Error(`ui-command: contribution /${contribution.name} collides with a host command`)
+      }
+      rows.push({ name: contribution.name, description: contribution.description })
+    }
+    return rows
+      .filter(c => c.name.startsWith(req.query))
+      .filter(c => req.position === 'leading' || c.hint === undefined)
+  }
+
+  /** Decision table, menu column: contribution → popup; host input → claim; host bare → detached execute. */
+  private dispatch(pick: SlashPick): PickOutcome {
+    const name = pick.candidate.name
+    const contribution = this.live.contributions.get(name)
+    if (contribution !== undefined && contribution.available(pick.session)) {
+      this.openPopup(contribution, pick.session, { via: 'menu', span: pick.span })
+      return 'handled'
+    }
+    const desc = this.directory.resolve(pick.session.sessionId, name)
+    if (desc === undefined) return undefined // snapshot swapped between menu and pick → miss
+    if (desc.input !== undefined) return { claim: this.leadingClaim(desc, pick.session) }
+    // Menu-pick execute consumes the trigger span before the detached run
+    // (scoped event; the input owns the CAS guard).
+    this.consumeVia(pick.session.sessionId, { via: 'menu', span: pick.span })
+    this.runDetached(desc, pick.session, `/${name}`)
+    return 'handled'
+  }
+
+  /** Decision table, space column: hot-key sync check; only host leadingInput claims. */
+  private matchSpace(session: ClientSessionContext, token: string): PickOutcome {
+    if (!token.startsWith('/')) return undefined
+    const name = token.slice(1)
+    if (this.live.contributions.has(name)) return undefined // popup kinds never claim on space
+    const desc = this.directory.resolve(session.sessionId, name)
+    if (desc === undefined || desc.input === undefined) return undefined
+    return { claim: this.leadingClaim(desc, session) }
+  }
+
+  /**
+   * Decision table, enter column. Strong-waits the session's catalog (a
+   * warmup failure rejects — never a silent downgrade). Contributions and
+   * bare host commands act on the bare token only; leadingInput claims
+   * args-tolerant.
+   */
+  private async matchEnter(session: ClientSessionContext, line: string, signal: AbortSignal): Promise<PickOutcome> {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('/')) return undefined
+    const ws = trimmed.search(/\s/)
+    const token = ws === -1 ? trimmed : trimmed.slice(0, ws)
+    const bare = ws === -1
+    const name = token.slice(1)
+    if (name === '') return undefined
+    const contribution = this.live.contributions.get(name)
+    if (contribution !== undefined && contribution.available(session)) {
+      if (!bare) return undefined
+      this.openPopup(contribution, session, { via: 'enter', token })
+      return 'handled'
+    }
+    await this.directory.ensureReady(session.sessionId, signal)
+    const desc = this.directory.resolve(session.sessionId, name)
+    if (desc === undefined) return undefined
+    if (desc.input !== undefined) return { claim: this.leadingClaim(desc, session) }
+    if (!bare) return undefined
+    this.consumeVia(session.sessionId, { via: 'enter', token })
+    this.runDetached(desc, session, trimmed)
+    return 'handled'
+  }
+
+  /** Open the session's popup for one contribution (menu pick / bare enter). */
+  private openPopup(
+    contribution: CommandContribution,
+    session: ClientSessionContext,
+    segment: TokenSegment,
+  ): void {
+    const actx = this.scopeFor(session.sessionId)
+    if (actx === undefined) return
+    this.popupFor(actx).open(contribution.name, contribution.ui, session, segment)
+  }
+
+  /** Build the leadingInput claim: token `/name ` + the command.execute submit transaction. */
+  private leadingClaim(desc: CommandDescriptor, session: ClientSessionContext): CommandClaim {
+    const token = `/${desc.name} `
+    return {
+      token,
+      ...(desc.input !== undefined ? { hint: desc.input.hint } : {}),
+      submit: (args, _actx) => this.execute(session, token + args),
+    }
+  }
+
+  /** The command.execute transaction, addressed to the session's agent. */
+  private async execute(
+    session: ClientSessionContext,
+    line: string,
+  ): Promise<SubmitOutcome> {
+    const connection = this.ctx.get('connection') as ConnectionHandle
+    const { result } = await connection.api.commands.execute({ sessionId: session.sessionId, line })
+    if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
+    if (!result.value.matched) return { kind: 'error', text: `unknown or malformed command: ${line}` }
+    const detached = result.value.result
+    return detached === undefined
+      ? { kind: 'success' }
+      : { kind: detached.kind, ...(detached.text !== undefined ? { text: detached.text } : {}) }
+  }
+
+  /**
+   * Fire-and-forget execute for the internal ('handled') paths. The detached
+   * result surfaces as a notice routed to the triggering session's composer,
+   * so a late result lands on its own session after a switch.
+   */
+  private runDetached(desc: CommandDescriptor, session: ClientSessionContext, line: string): void {
+    void this.execute(session, line).then(
+      (outcome) => {
+        if (outcome.kind === 'error') this.noticeFor(session.sessionId, desc.name, 'error', outcome.text ?? `/${desc.name} failed`)
+        else if (outcome.text !== undefined) this.noticeFor(session.sessionId, desc.name, 'info', outcome.text)
+      },
+      (error: unknown) => {
+        this.noticeFor(session.sessionId, desc.name, 'error', error instanceof Error ? error.message : String(error))
+      },
+    )
+  }
+
+  /** Dispatch a consume-token event to one session (menu-pick / bare-enter execute paths). */
+  private consumeVia(id: SessionId, segment: TokenSegment): void {
+    const actx = this.scopeFor(id)
+    if (actx === undefined) return
+    actx.bail(actx, 'slash/input-consume-token', {
+      guard: segment.via === 'menu'
+        ? { kind: 'span', span: segment.span }
+        : { kind: 'bare-token', token: segment.token },
+    })
+  }
+
+  /** Route a detached result to the session's composer notice channel (scope gone = attempt died with it). */
+  private noticeFor(id: SessionId, _name: string, level: 'info' | 'error', text: string): void {
+    const actx = this.scopeFor(id)
+    if (actx === undefined) return
+    const conversation = actx.get('conversation')
+    if (conversation === undefined) return
+    conversation.input.for(actx).notify(level, text)
+  }
+
+  /** id → actx interchange (registered exchange point: this service coordinates for projection-only sources). */
+  private scopeFor(id: SessionId): ClientContext | undefined {
+    return this.sessions().scope(id)
+  }
+
+  private sessions(): SessionsService {
+    const sessions = this.ctx.get('sessions')
+    if (sessions === undefined) throw new Error('ui-command: sessions service unavailable')
+    return sessions
+  }
+}

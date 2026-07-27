@@ -61,6 +61,17 @@
   background: var(--dsw-alias-state-warn-tertiary);
 }
 
+/* run_code sub-dispatch cells: the business tint plus an indent so the
+   nesting under the parent Tool cell reads at a glance. */
+.tagSubtool {
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-tertiary);
+}
+
+.root[data-kind='subtool'] {
+  padding-left: 28px;
+}
+
 .text {
   flex: 1 1 auto;
   min-width: 0;

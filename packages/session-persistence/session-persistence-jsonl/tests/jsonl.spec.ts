@@ -275,6 +275,56 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     discovery.mockRestore()
   })
 
+  it('forwards snapshot-list cancellation and awaits in-flight discovery cleanup', async () => {
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(signal?: AbortSignal): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const started = Promise.withResolvers<AbortSignal>()
+    const cleanup = Promise.withResolvers<undefined>()
+    vi.spyOn(persistence, 'listArtifacts').mockImplementation(async (signal) => {
+      if (signal === undefined) throw new Error('expected snapshot-list signal')
+      started.resolve(signal)
+      await cleanup.promise
+      return []
+    })
+    const reason = new Error('JSONL snapshot discovery cancelled')
+    const controller = new AbortController()
+    const pending = ctx.sessionPersistence.listSnapshots(controller.signal)
+    expect(await started.promise).toBe(controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+
+    controller.abort(reason)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    cleanup.resolve(undefined)
+    await expect(pending).rejects.toBe(reason)
+  })
+
+  it('checks cancellation after an uncancellable snapshot stat settles', async () => {
+    const m = meta('snapshot-stat-cancellation')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(signal?: AbortSignal): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const discovery = vi.spyOn(persistence, 'listArtifacts').mockResolvedValue([{
+      header: m,
+      path: rawLogPath(root, m.cwd, m.id),
+    }])
+    const reason = new Error('JSONL snapshot stat cancelled')
+    const controller = new AbortController()
+    const pending = ctx.sessionPersistence.listSnapshots(controller.signal)
+    queueMicrotask(() => { controller.abort(reason) })
+
+    await expect(pending).rejects.toBe(reason)
+    expect(discovery).toHaveBeenCalledWith(controller.signal)
+  })
+
   it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
     const m = meta('legacy-header-delta', '/legacy')
     const path = rawLogPath(root, m.cwd, m.id)
@@ -674,7 +724,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   })
 })
 
-describe('SessionPersistenceJsonl: packed chunk rows (packChunks: true)', () => {
+describe('SessionPersistenceJsonl: default packed chunk rows', () => {
   let ctx: Context
   beforeEach(async () => {
     root = await freshRoot()
@@ -682,7 +732,7 @@ describe('SessionPersistenceJsonl: packed chunk rows (packChunks: true)', () => 
     await ctx.plugin(SessionStore)
     // compression: 'none' — these tests assert the textual storage-record layout
     // (row tags per line); packing is orthogonal to the physical encoding.
-    await ctx.plugin(SessionPersistenceJsonl, { root, packChunks: true, compression: 'none' })
+    await ctx.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
   })
   afterEach(async () => { await ctx.fiber.dispose() })
 
@@ -704,7 +754,7 @@ describe('SessionPersistenceJsonl: packed chunk rows (packChunks: true)', () => 
     ]
   }
 
-  it('writes a delta run as one text-chunks row and loads back identical events', async () => {
+  it('writes a delta run as one text-chunks row by default and loads back identical events', async () => {
     const m = meta('packed', '/work')
     const log = chunkRunLog()
     await ctx.sessionPersistence.create(m)
@@ -716,6 +766,32 @@ describe('SessionPersistenceJsonl: packed chunk rows (packChunks: true)', () => 
 
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events).toEqual(log)
+  })
+
+  it('packChunks: false writes one event per line and still loads identical events', async () => {
+    const unpackedRoot = await freshRoot()
+    const unpacked = new Context()
+    await unpacked.plugin(SessionStore)
+    await unpacked.plugin(SessionPersistenceJsonl, {
+      root: unpackedRoot,
+      packChunks: false,
+      compression: 'none',
+    })
+    try {
+      const m = meta('unpacked', '/work')
+      const log = chunkRunLog()
+      await unpacked.sessionPersistence.create(m)
+      await unpacked.sessionPersistence.append(m.id, log)
+
+      const records = (await readFile(rawLogPath(unpackedRoot, '/work', m.id), 'utf8'))
+        .split('\n').filter(Boolean).slice(1)
+        .map(line => JSON.parse(line) as { type: string })
+      expect(records.filter(record => record.type === 'assistant/chunk')).toHaveLength(5)
+      expect(records.some(record => record.type === 'text-chunks')).toBe(false)
+      expect((await unpacked.sessionPersistence.load(m.id)).events).toEqual(log)
+    } finally {
+      await unpacked.fiber.dispose()
+    }
   })
 
   it('loads a mixed file: verbatim lines from an unpacked writer, then packed appends', async () => {

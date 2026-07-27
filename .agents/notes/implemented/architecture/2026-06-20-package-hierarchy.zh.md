@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-20-package-hierarchy.md) | 中文
 
-后续的[折叠 stdio helper](../simplification/2026-07-04-fold-stdio-ui-helper.md)决策取代了最初的 `support/ui-stdio` 放置方式，[冗余 agent 移除](../simplification/2026-07-20-remove-stdio-and-echo-agents.md)随后又彻底移除了该接口。[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md)把 ACP 放在 `packages/acp/acp` 下，而不是面向人类的 UI 组。这里拥有的决策仍是统一的二层目录深度。
+[冗余 agent 移除](../simplification/2026-07-20-remove-stdio-and-echo-agents.md)直接删除最初的 `support/ui-stdio` 接口，而不是将其迁移；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md)把 ACP 放在 `packages/acp/acp` 下，而不是面向人类的 UI 组。这里拥有的决策仍是统一的二层目录深度。
 
 ## 问题
 

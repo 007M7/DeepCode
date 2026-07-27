@@ -11,7 +11,8 @@ interface ProjectGraph {
   options: ts.CompilerOptions
 }
 
-const configHost: ts.ParseConfigFileHost = {
+/** TypeScript config host shared by repository scripts. */
+export const repositoryConfigHost: ts.ParseConfigFileHost = {
   useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
   readDirectory: (...args) => ts.sys.readDirectory(...args),
   fileExists: fileName => ts.sys.fileExists(fileName),
@@ -52,7 +53,7 @@ function loadProjectGraph(projectRoot: string): ProjectGraph {
 
 /** Parse one config file and fail loud on any config diagnostic. */
 function parseConfig(configPath: string): ts.ParsedCommandLine {
-  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, configHost)
+  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, repositoryConfigHost)
   if (!parsed) throw new Error(`cannot parse TypeScript config ${configPath}`)
   if (parsed.errors.length > 0) {
     throw new Error(parsed.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, '\n')).join('\n'))

@@ -11,7 +11,7 @@ Status: implemented
      移除；把它排除在外，使本 Agent Note 的范围保持在边界上。后来每个保留事件
      都由各自的决策移除——参见
      [停止将 token 流镜像为 agent 事件](2026-07-02-remove-stream-chunk-mirror.md)
-     和[移除 `agent/steering` 镜像 emit](2026-07-04-remove-agent-steering-mirror.md)。 -->
+     和[移除 `agent/steering` 镜像 emit](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md)。 -->
 
 ## 问题
 
@@ -33,13 +33,13 @@ Status: implemented
 
 保留——不是持久边界镜像，因此不在本决策范围内：
 
-- `agent/steering`——不是边界，因此不在本决策范围内（原始提案将其一并移除；在此会造成范围蔓延）。它镜像持久的 `steering/message` 控制记录，而非边界，后来由自己的后续决策移除：[移除 `agent/steering` 镜像 emit](2026-07-04-remove-agent-steering-mirror.md)。
+- `agent/steering`——不是边界，因此不在本决策范围内（原始提案将其一并移除；在此会造成范围蔓延）。它镜像持久的 `steering/message` 控制记录，而非边界，后来由自己的后续决策移除：[移除 `agent/steering` 镜像 emit](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md)。
 - `agent/stream-chunk`——实时 token 流。不在本决策范围内（它镜像持久的 `assistant/chunk`，而非边界），后来由自己的后续决策移除：[停止将 token 流镜像为 agent 事件](2026-07-02-remove-stream-chunk-mirror.md)。
 - `agent/created`、`agent/disposed`、`agent/status`、`agent/error`、`agent/queued`——不属于 transcript 数据的生命周期/控制事件。尤其是 `agent/queued`，它是在任何持久事件存在之前触发的 inbox 确认（取消的排队工作可能永远不会进入日志），所以有意只保留为实时事件。
 
 ## 曾考虑的替代方案
 
-- **将 `agent/steering` 一并移除**——原始提案的形状；作为范围蔓延被排除：它镜像持久的 `steering/message` 控制记录，而非边界，后来由[自己的决策](2026-07-04-remove-agent-steering-mirror.md)移除（`agent/stream-chunk` 也由[流分片镜像 Agent Note](2026-07-02-remove-stream-chunk-mirror.md)移除）。
+- **将 `agent/steering` 一并移除**——原始提案的形状；作为范围蔓延被排除：它镜像持久的 `steering/message` 控制记录，而非边界，后来由[自己的决策](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md)移除（`agent/stream-chunk` 也由[流分片镜像 Agent Note](2026-07-02-remove-stream-chunk-mirror.md)移除）。
 - **为 stdio UI 保留轮次镜像**——[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 的原始立场；在此否决，因为 `dsh-ui-stdio` 是可随时丢弃的测试 REPL，而非承载关键约束的消费方，并且它改为根据 `session/event` 加自己的实时目标对象渲染边界。
 
 ## 后果

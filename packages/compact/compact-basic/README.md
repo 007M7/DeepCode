@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-compact-basic
 
+English | [中文](README.zh.md)
+
 The **basic compaction backend**: a `BasicCompactService` implementing the `@deepseek-ai/dsh-compact` seam with reusable `ctx.tokenMeter` pressure, token-budget retention, and summarization as a direct one-shot `ctx.llm.stream()` call that replays the conversation prefix to reuse the provider's KV cache (interceptable at `llm/stream`).
 
 This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tui
 
+English | [中文](README.zh.md)
+
 The interactive terminal front door for DeepSeek Harness agents, built on [`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui). It requires stdin and stdout TTYs; scripts and Loader pipes should use the one-shot [`@deepseek-ai/dsh-cli-demo`](../../examples/cli-demo/README.md) app instead.
 
 The implemented [TUI feature Agent Note](../../../.agents/notes/implemented/feature/2026-07-17-dedicated-full-screen-tui-front-door.md) owns the front-door decision; the [file-reference autocomplete Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-tui-file-reference-autocomplete.md) owns path-only `@file` behavior; the [terminal-state snapshot Agent Note](../../../.agents/notes/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md) owns its verification strategy.

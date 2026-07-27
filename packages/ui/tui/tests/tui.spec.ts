@@ -206,7 +206,7 @@ describe('TUI config', () => {
 })
 
 describe('resume command and /resume', () => {
-  const RESUME = 'RESUME_SESSION_ID={session} dsh'
+  const RESUME = 'dsh --resume {session}'
   const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
     ({ version: 0, id: SessionId(id), createdAt, cwd })
   const resumeEvents = (
@@ -234,7 +234,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output).toContain('To resume this session: RESUME_SESSION_ID=main-session dsh')
+    expect(result.terminal.output).toContain('To resume this session: dsh --resume main-session')
     expect(result.exit).toHaveBeenCalledWith(0)
     await dispose(result)
   })
@@ -998,9 +998,10 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     result.terminal.send('Fallback target')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
-    expect(result.terminal.output).toContain('RESUME_SESSION_ID=fallback-session')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
+    })
+    expect(result.terminal.output).toContain('dsh --resume fallback-session')
     expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })
@@ -1019,8 +1020,9 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     result.terminal.send('No fallback target')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
+    })
     await dispose(result)
   })
 

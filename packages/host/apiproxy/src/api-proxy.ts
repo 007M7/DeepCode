@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment-local'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment-local'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -16,7 +16,8 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
-  workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId, WorkspaceNameConflictError,
+  workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
+  WorkspaceMoveInvalidError, WorkspaceNameConflictError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
@@ -24,6 +25,9 @@ import type {
   ApiProxy, HistoryEntry, HostFrame, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionSummary, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+// Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
+import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-skill'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -223,6 +227,7 @@ function summarize(session: Session, running: boolean): SessionSummary {
     sessionId: session.id,
     updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
     running,
+    blank: session.events.length === 0,
     ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
     ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
   }
@@ -247,6 +252,9 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
     sessionId: meta.id,
     updatedAt,
     running: false,
+    // Lazy persistence keeps never-appended sessions out of list(): a cold
+    // session necessarily has events, so blank is constantly false here.
+    blank: false,
     ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
     /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
     filters those out (legacy logs are not served); the conditional mirrors
@@ -375,6 +383,15 @@ class SessionCwdConflict extends Error {
 /** Host failed before the registry could adopt a name-created directory. */
 class WorkspaceDirectoryCreationError extends Error {}
 
+/** Shared workspace-not-found error response of the workspace.* mutation rows. */
+function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string): RpcResponse<T> {
+  return err(request, {
+    code: 'workspace-not-found',
+    message: `workspace "${workspaceId}" not found`,
+    details: { workspaceId },
+  })
+}
+
 /** Wire projection of one workspace entity (the workspace.* value row). */
 function workspaceView(workspace: Workspace): WorkspaceView {
   return {
@@ -422,6 +439,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const envelope = frame(payload)
     for (const queue of muxQueues) queue.push(envelope)
   }
+
+  /**
+   * Per-session inbox mirror serving the mux-open queue snapshot (the same
+   * refresh-recovery baseline as pending questions). Keyed by the stable
+   * AgentMessageId: every enqueued id receives exactly one terminal
+   * `agent/inbox/dequeue` OR `agent/inbox/discard` (the inbox contract), so
+   * the mirror needs no consumption heuristics or sweeps beyond disposal.
+   */
+  const queuedMirror = new Map<SessionId, Map<AgentMessageId, AgentMessage>>()
+  ctx.effect(() => {
+    const retire = (agent: Agent, id: AgentMessageId): void => {
+      const entries = queuedMirror.get(agent.id)
+      if (entries === undefined) return
+      entries.delete(id)
+      if (entries.size === 0) queuedMirror.delete(agent.id)
+    }
+    const disposers = [
+      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage) => {
+        let entries = queuedMirror.get(agent.id)
+        if (entries === undefined) queuedMirror.set(agent.id, entries = new Map<AgentMessageId, AgentMessage>())
+        entries.set(message.id, message)
+        broadcast({ type: 'session/queued', sessionId: agent.id, content: message.content, source: message.source, steering: message.steering })
+      }),
+      ctx.on('agent/inbox/dequeue', (agent: Agent, message: AgentMessage) => {
+        retire(agent, message.id)
+      }),
+      ctx.on('agent/inbox/discard', (agent: Agent, messages: AgentMessage[]) => {
+        for (const message of messages) retire(agent, message.id)
+      }),
+      ctx.on('session/disposed', (session: Session) => {
+        queuedMirror.delete(session.id)
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'api-proxy: queued mirror')
 
   /** Remove a wait before settling it: synchronous deletion makes the first claimant win. */
   function claimQuestion(pending: PendingQuestion, outcome: 'answered' | 'cancelled'): void {
@@ -702,7 +754,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { reason: error.code },
             })
           }
-          // A synchronous throw from send/steer means disposed or invalid input; surface as agent-busy with the reason attached.
+          // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
         }
         return ok(request, { accepted: true as const })
@@ -812,6 +864,60 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async rename(request) {
+        const { payload } = request
+        const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
+        const title = payload.title.trim()
+        // Uniqueness AND the same-title no-op both ride the create chain so
+        // they observe the state left by earlier queued renames — checked
+        // up front, a queued A→A could report success while an earlier A→B
+        // still lands afterwards.
+        const operation = workspaceCreationChain.then(async () => {
+          if (title === workspace.title) return
+          if (ctx.workspace.list().some(other => other.id !== workspace.id && other.title === title)) {
+            throw new WorkspaceNameConflictError(title)
+          }
+          await workspace.setTitle(title)
+        })
+        workspaceCreationChain = operation.then(() => undefined, () => undefined)
+        try {
+          await operation
+        } catch (error: unknown) {
+          if (error instanceof WorkspaceNameConflictError) {
+            return err(request, {
+              code: 'workspace-name-conflict',
+              message: error.message,
+              details: { name: error.workspaceName },
+            })
+          }
+          throw error
+        }
+        return ok(request, { workspace: workspaceView(workspace) })
+      },
+
+      async insertSessionBefore(request) {
+        const { payload } = request
+        const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
+        try {
+          await workspace.insertSessionBefore(payload.sessionId, payload.beforeSessionId)
+        } catch (error: unknown) {
+          // Only the entity's unaccounted-id rejection is the business code;
+          // storage/durability failures propagate as internal errors.
+          if (!(error instanceof WorkspaceMoveInvalidError)) throw error
+          return err(request, {
+            code: 'workspace-move-invalid',
+            message: error.message,
+            details: {
+              workspaceId: payload.workspaceId,
+              sessionId: payload.sessionId,
+              ...payload.beforeSessionId === undefined ? {} : { beforeSessionId: payload.beforeSessionId },
+            },
+          })
+        }
+        return ok(request, { workspace: workspaceView(workspace) })
+      },
     },
 
     host: {
@@ -836,6 +942,88 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    commands: {
+      // Both methods address one session's agent (agentFor keeps its
+      // resume-on-miss: clients only send a sessionId for a published
+      // session, and resume restores an existing entity).
+      async list(request) {
+        // Missing service = the deployment omitted dsh-commands from its
+        // composition, not an empty catalog: fail loud instead of serving [].
+        const commands = ctx.get('commands')
+        if (commands === undefined) {
+          return err(request, { code: 'internal', message: 'command registry is absent: this deployment does not mount @deepseek-ai/dsh-commands in its composition (cordis.yml or explicit assembly)', details: {} })
+        }
+        const found = await agentFor(request.payload.sessionId)
+        if ('error' in found) return err(request, found.error)
+        return ok(request, { commands: commands.list(found.agent) })
+      },
+
+      async execute(request, signal) {
+        const commands = ctx.get('commands')
+        if (commands === undefined) {
+          return err(request, { code: 'internal', message: 'command registry is absent: this deployment does not mount @deepseek-ai/dsh-commands in its composition (cordis.yml or explicit assembly)', details: {} })
+        }
+        const { sessionId, line } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          const result = await commands.execute(found.agent, line, signal)
+          if (result === undefined) return ok(request, { matched: false })
+          return ok(request, {
+            matched: true,
+            result: { kind: result.kind, ...result.text === undefined ? {} : { text: result.text } },
+          })
+        } catch (error: unknown) {
+          if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
+          return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })
+        }
+      },
+    },
+
+    skills: {
+      // Skill lookup never touches the Agent registry: the session address
+      // resolves to a canonical cwd from the host-resident session header, so
+      // listing skills cannot create or resume an agent as a side effect.
+      async list(request) {
+        const { sessionId } = request.payload
+        const session = ctx.sessions.get(sessionId)
+        if (session === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `session "${sessionId}" not found (not attached)`,
+            details: { sessionId },
+          })
+        }
+        if (session.header.cwd === undefined) {
+          // Every served session records its project at create time; a
+          // cwd-less header is a pre-project legacy log (not served).
+          return err(request, { code: 'internal', message: `session "${sessionId}" has no project cwd`, details: {} })
+        }
+        const cwd = session.header.cwd
+        // Same stance as the commands domain: a missing service means the
+        // deployment omitted dsh-skill from its composition, not an empty
+        // catalog. ctx.get also keeps this handler independent of the gateway
+        // plugin's inject list (an undeclared `ctx.skills` property read
+        // fails the reflect proxy).
+        const skillRegistry = ctx.get('skills')
+        if (skillRegistry === undefined) {
+          return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
+        }
+        try {
+          const skills = await skillRegistry.list({ cwd })
+          return ok(request, {
+            skills: skills.map(skill => ({
+              name: skill.name,
+              description: skill.description,
+              ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
+            })),
+          })
+        } catch (error: unknown) {
+          return err(request, { code: 'internal', message: `skill listing failed: ${String(error)}`, details: {} })
+        }
+      },
+    },
+
     events: {
       mux(_request, signal) {
         const queue = new FrameQueue<RpcRequest<MuxFrame>>()
@@ -851,6 +1039,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               questions: pending.questions,
             },
           })
+        }
+        // Queue snapshot baseline (pendingQuestions precedent): frames replayed
+        // in arrival order per session; a reconnecting client rebuilds its
+        // queue view from these alone.
+        for (const [sessionId, entries] of queuedMirror) {
+          for (const entry of entries.values()) {
+            queue.push(frame({ type: 'session/queued', sessionId, content: entry.content, source: entry.source, steering: entry.steering }))
+          }
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
@@ -901,6 +1097,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({
               type: 'host/session-added',
               sessionId: session.id,
+              // Derived at frame time like summarize(); a just-created session
+              // has no events yet, so this is constantly true in practice.
+              blank: session.events.length === 0,
               ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
               // cwd rides the frame so the client list needs no refresh to group the new session.
               ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
@@ -938,6 +1137,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               type: 'host/workspace-changed',
               workspace: changedWorkspaceView(change.key, change.value),
             }))
+          }),
+          ctx.on('commands/change', () => {
+            queue.push(frame({ type: 'host/commands-changed' }))
           }),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })

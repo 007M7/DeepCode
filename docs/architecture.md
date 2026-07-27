@@ -43,7 +43,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts with package-contributed servi
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable session-log storage |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | `session-query` interface: concrete live-preferred exact/filter/trace; exactly two abstract FTS methods via `session-query-sqlite` |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | Live-preferred exact/filter/trace interface, SQLite FTS backend, and workspace-authorized model tools |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks plus one optional asynchronous provider |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry for package-owned runtime checks |
 

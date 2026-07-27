@@ -10,9 +10,9 @@ beforeEach(() => {
 })
 
 describe('createChatStore', () => {
-  it('init shape: empty selection/draft/images/view', () => {
+  it('init shape: empty selection/draft/view', () => {
     const store = createChatStore().create()
-    expect(store.store.getSnapshot()).toEqual({ selection: null, draft: '', imageIds: [], view: null })
+    expect(store.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null })
   })
 
   it('actions cover the declared write set', () => {
@@ -25,30 +25,9 @@ describe('createChatStore', () => {
 
     store.actions.setDraft('hello')
     expect(store.store.getSnapshot().draft).toBe('hello')
-    store.actions.addImages(['a', 'b'])
-    store.actions.removeImage('a')
-    expect(store.store.getSnapshot().imageIds).toEqual(['b'])
-    store.actions.pruneImages([])
-    expect(store.store.getSnapshot().imageIds).toEqual([])
-    store.actions.clearDraft()
-    expect(store.store.getSnapshot().draft).toBe('')
 
     store.actions.setView('chat')
     expect(store.store.getSnapshot().view).toBe('chat')
-  })
-
-  it('restoreDraft only fills an empty draft (optimistic-send rollback contract)', () => {
-    const store = createChatStore().create()
-    // Rollback path: draft was cleared by send, nothing typed since.
-    store.actions.restoreDraft('failed text', ['old-image'])
-    expect(store.store.getSnapshot().draft).toBe('failed text')
-    expect(store.store.getSnapshot().imageIds).toEqual(['old-image'])
-    // The user typed something new before the failure landed: keep theirs.
-    store.actions.setDraft('newer input')
-    store.actions.addImages(['new-image'])
-    store.actions.restoreDraft('stale text', ['old-image'])
-    expect(store.store.getSnapshot().draft).toBe('newer input')
-    expect(store.store.getSnapshot().imageIds).toEqual(['old-image', 'new-image'])
   })
 
   it('persists per scope key and rehydrates a fresh instance', () => {

@@ -1,5 +1,5 @@
 /**
- * Scope-addressed conversation send, cancel, history, and retained-prompt orchestration.
+ * Scope-addressed conversation send, cancel, and history orchestration.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
@@ -15,6 +15,7 @@ import type { Context } from 'cordis'
 import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
+import { InputHub } from './input/hub.ts'
 
 /** Opaque wrapper keeps browser `File` internals outside persisted store state. */
 class BrowserDraftAttachment implements ComposerAttachment {
@@ -42,6 +43,8 @@ interface ImageUrlEntry {
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service {
+  /** The per-session input machine registry. */
+  readonly input: InputHub
   private readonly draftAttachments = new Map<string, BrowserDraftAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
@@ -50,9 +53,13 @@ export class ConversationService extends Service {
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
+   * @param config - the shared InputHub constructed by the plugin apply
+   * (shared with the slot inject factories); absent = own instance
+   * (object-layer tests that never touch slots).
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config?: { input?: InputHub }) {
     super(ctx, 'conversation')
+    this.input = config?.input ?? new InputHub(ctx)
     ctx.effect(() => () => {
       for (const url of this.createdImageUrls) URL.revokeObjectURL(url)
       this.createdImageUrls.clear()
@@ -72,6 +79,38 @@ export class ConversationService extends Service {
    */
   async send(text: string, mode: 'queue' | 'steer', images: readonly File[] = []): Promise<void> {
     const session = this.scopedSession('send')
+    await this.sendFiles(session, text, mode, images)
+  }
+
+  /**
+   * Submit the input shell's ordered draft-image ids with its text.
+   * Missing runtime objects fail explicitly instead of silently dropping a
+   * persisted or stale id.
+   * @param session - target session.
+   * @param text - serialized prompt text.
+   * @param mode - queue or steer.
+   * @param imageIds - ordered draft-local attachment ids.
+   */
+  async sendSession(
+    session: Session,
+    text: string,
+    mode: 'queue' | 'steer',
+    imageIds: readonly string[],
+  ): Promise<void> {
+    const attachments = this.draftImages(imageIds)
+    if (attachments.length !== imageIds.length) {
+      throw new Error('conversation.sendSession: one or more draft images are no longer available')
+    }
+    await this.sendFiles(session, text, mode, attachments.map(attachment => attachment.file))
+    this.releaseDraftImages(attachments)
+  }
+
+  private async sendFiles(
+    session: Session,
+    text: string,
+    mode: 'queue' | 'steer',
+    images: readonly File[],
+  ): Promise<void> {
     this.validateImages(images, [])
     const uploaded = await this.serializeImages(images)
     const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
@@ -83,15 +122,13 @@ export class ConversationService extends Service {
    * Create runtime-only draft attachments and their object URLs.
    * @param files - browser-owned image files.
    * @param current - images already present in the same composer.
-   * @param checkDefaultModel - whether to apply the host default-model capability before a session exists.
-   * @returns ordered attachment descriptors whose ids may enter the chat store.
+   * @returns ordered attachment descriptors whose ids may enter the input state.
    */
   createDraftImages(
     files: readonly File[],
     current: readonly ComposerAttachment[] = [],
-    checkDefaultModel = false,
   ): readonly ComposerAttachment[] {
-    this.validateImages(files, current, checkDefaultModel)
+    this.validateImages(files, current)
     return files.map((file) => {
       const attachment = new BrowserDraftAttachment(file)
       this.draftAttachments.set(attachment.id, attachment)
@@ -101,8 +138,8 @@ export class ConversationService extends Service {
   }
 
   /**
-   * Resolve ordered store ids to runtime-owned draft attachments.
-   * @param ids - ordered ids from the chat store.
+   * Resolve ordered input-state ids to runtime-owned draft attachments.
+   * @param ids - ordered ids from the per-session input state.
    * @returns attachments still available in this browser runtime.
    */
   draftImages(ids: readonly string[]): readonly ComposerAttachment[] {
@@ -202,31 +239,6 @@ export class ConversationService extends Service {
     await this.scopedSession('loadOlder').loadOlder()
   }
 
-  /**
-   * Copy browser-owned images into the current Session Intent before its
-   * workspace/session materialization starts.
-   * @param images - temporary files selected in the empty-state composer.
-   */
-  async prepareIntentImages(images: readonly File[]): Promise<void> {
-    this.validateImages(images, [], true)
-    const session = this.requireSessions().intent()
-    if (session === undefined) throw new Error('conversation.prepareIntentImages: no active Session intent')
-    session.updatePendingImages(await this.serializeImages(images))
-  }
-
-  /**
-   * Update the scoped Session's retained pending prompt.
-   * @param text - exact controlled-input value to retain.
-   */
-  updatePendingPrompt(text: string): void {
-    this.scopedSession('updatePendingPrompt').updatePendingPrompt(text)
-  }
-
-  /** Retry the scoped Session's retained pending prompt. */
-  retryPendingPrompt(): void {
-    this.scopedSession('retryPendingPrompt').retryPendingPrompt()
-  }
-
   /** Resolve the caller scope's Session or throw on root contexts. */
   private scopedSession(op: string): Session {
     const id = this.scopeId(op)
@@ -257,12 +269,11 @@ export class ConversationService extends Service {
   private validateImages(
     files: readonly File[],
     current: readonly ComposerAttachment[],
-    checkDefaultModel = false,
   ): void {
     if (files.length === 0 && current.length === 0) return
     const description = this.requireSessions().hostDescription()
     const modalities = description?.activeModel?.inputModalities
-    if (checkDefaultModel && modalities !== undefined && !modalities.includes('image')) {
+    if (modalities !== undefined && !modalities.includes('image')) {
       throw new Error('当前模型不支持图片输入')
     }
     const limits = description?.imageLimits
@@ -287,7 +298,7 @@ export class ConversationService extends Service {
   }
 
   /** Convert browser files to the prompt wire's canonical base64 image parts. */
-  private serializeImages(images: readonly File[]): Promise<Parameters<Session['updatePendingImages']>[0]> {
+  private serializeImages(images: readonly File[]): Promise<Parameters<Session['prompt']>[0]> {
     return Promise.all(images.map(async file => ({
       type: 'image' as const,
       mediaType: imageMediaType(file.type),

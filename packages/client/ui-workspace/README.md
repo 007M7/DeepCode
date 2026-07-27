@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-workspace
 
+English | [中文](README.zh.md)
+
 Shared Workspace picker plugin. `WorkspacePicker` is registered into the sidebar's `sidebar.workspace` slot and the page-local Session Intent hero's `conversation.empty.workspace` slot, so both surfaces use the same menu and creation modals.
 
 The picker lists real Host Workspace entities through the global `useWorkspaces` hook. Selecting a Workspace invokes the slot owner's `onPick` callback to retarget the frontend Session object; the existing-folder and create-new actions first create a real Workspace through the object layer, then select it. Create-new disables names already present in that list, while the Host remains authoritative for concurrent or non-UI callers. The runtime Session and Workspace services own materialization.

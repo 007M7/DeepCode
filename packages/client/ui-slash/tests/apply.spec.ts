@@ -1,0 +1,86 @@
+/**
+ * apply wiring on a real cordis Context + SlotsService: SlashService mounts
+ * as ctx.slash once its sessions dependency is up; the MenuView overlay
+ * registration waits on the conversation seam (ctx.inject scope), lands once
+ * the declarer is up, resolves the per-session controller from the slot's
+ * sessionId, and unregisters on fiber teardown.
+ */
+import { Context } from 'cordis'
+import { describe, expect, it, vi } from 'vitest'
+import { createScope, scopeOf, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { apply, inject, SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { MenuViewInjected } from '@deepseek-ai/dsh-client-ui-slash/client'
+
+const sid = (k: string): SessionId => k as SessionId
+
+async function bench() {
+  const ctx = new Context()
+  await ctx.plugin(SlotsService).await()
+  const slots = ctx.get('slots') as SlotsService
+  // Stand-in for the ui-conversation composer entry: declare the overlay
+  // slot, then provide the conversation service (declaration precedes the
+  // service exactly as the real apply orders them).
+  slots.register(
+    { name: 'root', children: { 'conversation.input.overlay': { kind: 'list', scope: 'session' } } } as never,
+    () => null,
+  )
+  // Sessions face: mint one real scope for session 'a' and resolve it by id.
+  const scope = createScope(ctx, sid('a'))
+  ctx.provide('sessions', {
+    scope: (id: SessionId) => (id === sid('a') ? scope.ctx : undefined),
+    scopeOf: (c: Context) => scopeOf(c),
+  })
+  return { ctx, slots }
+}
+
+describe('apply', () => {
+  it('declares the sessions dependency (controller resolution reads the scope tree)', () => {
+    expect(inject).toEqual(['sessions'])
+  })
+
+  it('mounts ctx.slash once sessions is up, before any conversation service exists', async () => {
+    const { ctx } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    expect(ctx.get('slash')).toBeInstanceOf(SlashService)
+  })
+
+  it('registers MenuView into the overlay and resolves the per-session controller by slot sessionId', async () => {
+    const { ctx, slots } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    expect(slots.entries('conversation.input.overlay')).toHaveLength(0)
+
+    ctx.provide('conversation', {})
+    // The inject scope activates asynchronously on the service arrival.
+    await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
+    const entries = slots.entries('conversation.input.overlay')
+    expect(entries[0]!.options.id).toBe('slash-menu')
+
+    const slash = ctx.get('slash') as SlashService
+    // StoredEntry.inject is declaration-typed ((...args: never[]) shape);
+    // the erased registration widens it past a direct cast, so hop unknown.
+    const injectEntry = entries[0]!.inject as unknown as (sessionId: SessionId) => MenuViewInjected
+    const injected = injectEntry(sid('a'))
+    const controller = slash.sessionOf(
+      (ctx.get('sessions') as { scope(id: SessionId): Context }).scope(sid('a')),
+    )
+    expect(injected.menu).toBe(controller.menu)
+    // The pick face routes into the controller pipeline (closed menu → no-op).
+    injected.onPick('command', 0)
+    expect(controller.menu.getSnapshot().open).toBe(false)
+    // An unknown session id fails loud (no silent scope miss).
+    expect(() => injectEntry(sid('ghost'))).toThrow(/resolved no scope/)
+  })
+
+  it('fiber teardown removes the overlay entry', async () => {
+    const { ctx, slots } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    ctx.provide('conversation', {})
+    await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
+
+    await fiber.dispose()
+    expect(slots.entries('conversation.input.overlay')).toHaveLength(0)
+    expect(ctx.get('slash')).toBeUndefined()
+  })
+})

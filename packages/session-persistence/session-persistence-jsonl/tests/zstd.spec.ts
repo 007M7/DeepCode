@@ -16,6 +16,18 @@ const MAGIC = Buffer.from([0x28, 0xB5, 0x2F, 0xFD])
 const roots: string[] = []
 const contexts: Context[] = []
 
+interface ZstdReaderInternals {
+  readZstdPrefix(buffer: Buffer, signal?: AbortSignal): Promise<unknown>
+}
+
+type HeaderRead = (
+  this: FileHandle,
+  buffer: Buffer,
+  offset: number,
+  length: number,
+  position: number | null,
+) => Promise<{ bytesRead: number; buffer: Buffer }>
+
 async function freshRoot(prefix = 'dsh-jsonl-zstd-'): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix))
   roots.push(root)
@@ -233,10 +245,35 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
       backend = new SessionPersistenceJsonl(inner, { root })
     }, { inject: ['sessions'] }))
     const header = meta('direct-default')
+    const path = logPath(root, header.cwd, header.id, 'zstd')
     expect(backend.locate(header)).toEqual({
       kind: 'jsonl',
-      path: logPath(root, header.cwd, header.id, 'zstd'),
+      path,
     })
+
+    const base = oneTurnLog()
+    const events: SessionEvent[] = [
+      ...base.slice(0, 3),
+      ...Array.from({ length: 3 }, (_, index): SessionEvent => ({
+        type: 'assistant/chunk',
+        seq: 3 + index,
+        time: 4 + index,
+        data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: `part-${index}` } },
+      })),
+      ...base.slice(3).map((event): SessionEvent => ({
+        ...event,
+        seq: event.seq + 3,
+        time: event.time + 3,
+      })),
+    ]
+    await backend.create(header)
+    await backend.append(header.id, events)
+
+    const plaintext = (await decodeCompleteFrames(await readFile(path))).toString()
+    const recordTypes = plaintext.trimEnd().split('\n')
+      .map(line => (JSON.parse(line) as { type: string }).type)
+    expect(recordTypes).toContain('text-chunks')
+    expect((await backend.load(header.id)).events).toEqual(events)
   })
 
   it('appends one frame per durable batch without rewriting prior bytes', async () => {
@@ -274,6 +311,65 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     expect((await ctx.sessionPersistence.list()).map(item => item.id)).toEqual([header.id])
     await expect(ctx.sessionPersistence.load(header.id)).rejects.toThrow(/frame at byte .* failed validation/)
   })
+
+  it('stops multi-frame inspection after cancellation interrupts the active decode', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('cancel-zstd-frames')
+    const headerFrame = await compressZstdFrame(`${JSON.stringify(toHeaderLine(header))}\n`)
+    const eventFrame = await compressZstdFrame(`${JSON.stringify(oneTurnLog()[0])}\n`)
+    const laterFrame = await compressZstdFrame(`${JSON.stringify(oneTurnLog()[1])}\n`)
+    const stream = Buffer.concat([headerFrame, eventFrame, laterFrame])
+    expect(scanZstdFrames(stream).frames).toHaveLength(3)
+    const controller = new AbortController()
+    const reason = new Error('cancel after Zstandard decode starts')
+    const reader = ctx.sessionPersistence as unknown as ZstdReaderInternals
+    const zstdModule = await import('../src/zstd.ts')
+    const decode = vi.spyOn(zstdModule, 'decompressZstdFrame')
+
+    // readZstdPrefix reaches its first asynchronous decompression before it
+    // returns this promise. The microtask abort therefore occurs after decode
+    // starts and must prevent every later frame from reaching the decoder.
+    const pending = reader.readZstdPrefix(stream, controller.signal)
+    queueMicrotask(() => { controller.abort(reason) })
+
+    await expect(pending).rejects.toBe(reason)
+    expect(decode).toHaveBeenCalledTimes(1)
+    expect(decode).toHaveBeenCalledWith(headerFrame)
+  })
+
+  it.each(['none', 'zstd'] as const)(
+    'observes cancellation after each async %s header read during listing',
+    async (compression) => {
+      const root = await freshRoot()
+      const ctx = await mount(root, compression)
+      const header = meta(`cancel-${compression}-header-read`, '/work')
+      await ctx.sessionPersistence.create(header)
+      await ctx.sessionPersistence.append(header.id, oneTurnLog())
+      await ctx.sessionPersistence.list()
+      const path = logPath(root, header.cwd, header.id, compression)
+      const probe = await open(path, 'r')
+      const prototype = Object.getPrototypeOf(probe) as { read: HeaderRead }
+      const originalRead = prototype.read
+      await probe.close()
+      const controller = new AbortController()
+      const reason = new Error(`cancel ${compression} header read`)
+      const read = vi.spyOn(prototype, 'read').mockImplementation(async function (
+        this: FileHandle,
+        buffer: Buffer,
+        offset: number,
+        length: number,
+        position: number | null,
+      ) {
+        const result = await originalRead.call(this, buffer, offset, length, position)
+        controller.abort(reason)
+        return result
+      })
+
+      await expect(ctx.sessionPersistence.list(controller.signal)).rejects.toBe(reason)
+      expect(read).toHaveBeenCalledTimes(1)
+    },
+  )
 
   it('preserves complete records from a torn frame and re-encodes them with crash closers', async () => {
     const root = await freshRoot()

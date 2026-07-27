@@ -135,7 +135,50 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
-  push({ type: 'turn/start', data: { turn: 64, trigger: { kind: 'message', source: { kind: 'user' } } } })
+  // Turn 64: one run_code turn with three logged sub-dispatches — the Code
+  // Mode acceptance surface (parent code row + nested native-identical rows,
+  // including an isError sub-call and a bash sub-call that must hit the same
+  // keyed registration a top-level bash row uses).
+  {
+    const turn = 64
+    const callId = `fx-call-${turn}`
+    const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
+      + 'const demo = await tools.read({ path: "notes/demo.txt" })\n'
+      + 'await tools.read({ path: "notes/missing.txt" }).catch(() => "tolerated")\n'
+      + 'return { listing, demo }'
+    const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
+    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：run_code 样本。`), source: { kind: 'user' } } })
+    push({ type: 'step/start', data: { turn, step: 0 } })
+    push({
+      type: 'assistant/message', surfaceOp: 'append',
+      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+    })
+    push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'run_code', arguments: args } })
+    const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
+      push({
+        type: 'tool/code-dispatch-start',
+        data: { parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
+      })
+      push({
+        type: 'tool/code-dispatch',
+        data: {
+          parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
+          arguments: dispatchArgs, isError, content: [{ type: 'text', text: resultText }],
+        },
+      })
+    }
+    dispatchPair(1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt\nnew-demo.txt')
+    dispatchPair(2, 'read', { path: 'notes/demo.txt' }, 'hello fixture\n')
+    dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
+    push({
+      type: 'tool/result', surfaceOp: 'append',
+      data: { turn, step: 0, callId, content: text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), isError: false },
+    })
+    push({ type: 'step/end', data: { turn, step: 0 } })
+    push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
+  }
+  push({ type: 'turn/start', data: { turn: 65, trigger: { kind: 'message', source: { kind: 'user' } } } })
   push({
     type: 'user/message',
     surfaceOp: 'append',
@@ -144,19 +187,19 @@ function buildAlphaLog(): SessionEvent[] {
       source: { kind: 'user' },
     },
   })
-  push({ type: 'step/start', data: { turn: 64, step: 0 } })
+  push({ type: 'step/start', data: { turn: 65, step: 0 } })
   push({
     type: 'assistant/message',
     surfaceOp: 'append',
     data: {
-      turn: 64,
+      turn: 65,
       step: 0,
       content: [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }],
       provenance: { provider: 'fixture', model: 'fx-vision' },
     },
   })
-  push({ type: 'step/end', data: { turn: 64, step: 0 } })
-  push({ type: 'turn/end', data: { turn: 64, reason: { kind: 'completed' } } })
+  push({ type: 'step/end', data: { turn: 65, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 65, reason: { kind: 'completed' } } })
   return events as unknown as SessionEvent[]
 }
 
@@ -349,13 +392,14 @@ class FxInbox<F> implements StreamConn<F> {
  * @returns an ApiProxy backed entirely by in-memory state — no host process, no network.
  */
 export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
+  // The resident fixture sessions all carry history, so none of them is blank.
   const sessions: SessionSummary[] = options.empty ? [] : [
-    { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, blank: false, cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, blank: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
-  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 65]])
+  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 66]])
   const attachments = new Map<string, { attachment: ImageAttachmentRef; data: string }>([[
     String(FIXTURE_IMAGE_REF.attachmentId),
     { attachment: FIXTURE_IMAGE_REF, data: FIXTURE_IMAGE_DATA },
@@ -433,6 +477,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   }
 
   const summaryOf = (id: SessionId): SessionSummary | undefined => sessions.find(s => s.sessionId === id)
+  /** Shared session guard for sessionId-addressed catalog routes: the error
+   *  response when the session is unknown, undefined when it exists. */
+  const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined => {
+    if (summaryOf(request.payload.sessionId) !== undefined) return undefined
+    return err<{ sessionId: SessionId }, never>(request, {
+      code: 'session-not-found',
+      message: `no session ${request.payload.sessionId}`,
+      details: { sessionId: request.payload.sessionId },
+    })
+  }
   const setRunning = (id: SessionId, running: boolean): void => {
     const summary = summaryOf(id)
     if (summary === undefined || summary.running === running) return
@@ -588,12 +642,13 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           }
         }
         const created: SessionSummary = {
-          sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, cwd,
+          sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
         attachedSessions += 1
         const emitSession = (): void => {
-          emitHost({ type: 'host/session-added', sessionId: created.sessionId, cwd })
+          // Mirrors the host: the frame fires at creation, so blank is constantly true.
+          emitHost({ type: 'host/session-added', sessionId: created.sessionId, blank: true, cwd })
         }
         if (workspace !== undefined && options.failWorkspaceAttach) {
           emitSession()
@@ -634,6 +689,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           })
         }
         summary.updatedAt = Date.now()
+        // First accepted prompt appends events: the summary stops being blank.
+        summary.blank = false
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         const durable: ContentBlock[] = content.map((block) => {
           if (block.type === 'text') return block
@@ -759,6 +816,105 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         emitHost({ type: 'host/workspace-changed', workspace: { ...created } })
         return ok(request, { workspace: { ...created }, created: true })
       },
+      rename: (request) => {
+        const { workspaceId, title } = request.payload
+        const workspace = workspaces.find(w => w.workspaceId === workspaceId)
+        if (workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        const trimmed = title.trim()
+        if (trimmed !== workspace.title) {
+          if (workspaces.some(w => w.workspaceId !== workspaceId && w.title === trimmed)) {
+            return err(request, {
+              code: 'workspace-name-conflict',
+              message: `workspace name '${trimmed}' is already in use`,
+              details: { name: trimmed },
+            })
+          }
+          workspace.title = trimmed
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { workspace: { ...workspace } })
+      },
+      insertSessionBefore: (request) => {
+        const { workspaceId, sessionId, beforeSessionId } = request.payload
+        const workspace = workspaces.find(w => w.workspaceId === workspaceId)
+        if (workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        if (!workspace.sessionIds.includes(sessionId)
+          || (beforeSessionId !== undefined && !workspace.sessionIds.includes(beforeSessionId))) {
+          return err(request, {
+            code: 'workspace-move-invalid',
+            message: `session or anchor is not accounted by workspace ${workspaceId}`,
+            details: { workspaceId, sessionId, ...beforeSessionId === undefined ? {} : { beforeSessionId } },
+          })
+        }
+        const without = workspace.sessionIds.filter(id => id !== sessionId)
+        const at = beforeSessionId === undefined ? without.length : without.indexOf(beforeSessionId)
+        const sessionIds = [...without.slice(0, at), sessionId, ...without.slice(at)]
+        if (!sessionIds.every((id, index) => id === workspace.sessionIds[index])) {
+          workspace.sessionIds = sessionIds
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { workspace: { ...workspace } })
+      },
+    },
+    commands: {
+      // The catalog mirrors one session's effective view (every fixture
+      // session has an agent, like the real host).
+      list: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          commands: [
+            { name: 'compact', description: 'fixture：压缩当前会话上下文' },
+            { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
+            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+          ],
+        })
+      },
+      execute: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const line = request.payload.line.trim()
+        const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
+        const name = match?.[1]
+        if (name === 'compact' || name === 'echo') {
+          return ok(request, {
+            matched: true as const,
+            result: { kind: 'success' as const, text: name === 'echo' ? (match?.[2] ?? '') : 'fixture：已压缩（假动作）' },
+          })
+        }
+        if (name === 'goal-fixture') {
+          return ok(request, {
+            matched: true as const,
+            result: { kind: 'success' as const, text: `fixture：goal 已设置（${request.payload.sessionId}）` },
+          })
+        }
+        return ok(request, { matched: false as const })
+      },
+    },
+    skills: {
+      list: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          skills: [
+            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
+          ],
+        })
+      },
     },
     events: {
       async *mux(_request, signal) {
@@ -876,6 +1032,12 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'host.describe': return this.api.host.describe(request)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
+      case 'workspace.rename': return this.api.workspace.rename(request)
+      case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
+      case 'command.list': return this.api.commands.list(request)
+      // The in-memory execute never blocks, so a never-aborting signal is faithful here.
+      case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
+      case 'skill.list': return this.api.skills.list(request)
     }
   }
 

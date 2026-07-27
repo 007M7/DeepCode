@@ -136,6 +136,51 @@ describe('Menu', () => {
     expect(screen.getByRole('separator')).toBeDefined()
   })
 
+  it('renders a non-interactive heading label and a danger row', () => {
+    const onSelect = vi.fn()
+    render(
+      <Menu
+        open
+        anchor={<span>trigger</span>}
+        items={[
+          { type: 'label', id: 'h', text: 'Group by' },
+          { id: 'del', label: 'Delete', danger: true },
+        ]}
+        onSelect={onSelect}
+        onClose={() => {}}
+      />)
+    const heading = screen.getByText('Group by')
+    expect(heading.getAttribute('role')).toBe('presentation')
+    // The heading is not a menu item — only the danger row is interactive.
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    const danger = screen.getByRole('menuitem', { name: 'Delete' })
+    expect(danger.className).toMatch(/danger/)
+    fireEvent.click(danger)
+    expect(onSelect).toHaveBeenCalledWith('del')
+  })
+
+  it('closeOnPointerLeave closes when the pointer leaves the list; default stays open', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(
+      <Menu open closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+    fireEvent.pointerLeave(screen.getByRole('menu'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    rerender(
+      <Menu open anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+    fireEvent.pointerLeave(screen.getByRole('menu'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a list click does not bubble to the anchor row (portal synthetic-event path)', () => {
+    const rowClick = vi.fn()
+    render(
+      <div onClick={rowClick}>
+        <Menu open anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={() => {}} />
+      </div>)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Alpha' }))
+    expect(rowClick).not.toHaveBeenCalled()
+  })
+
   it('opens a submenu on hover and selects a nested item', () => {
     const onSelect = vi.fn()
     render(

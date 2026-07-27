@@ -1,5 +1,7 @@
 # tui-agent
 
+English | [中文](README.zh.md)
+
 The full-screen interactive coding agent: DeepSeek V4, local bash and filesystem tools, compaction, subagents, workflows and fresh-agent Ralph iteration, plan mode (`/plan` enters and `exit_plan_mode` reviews the exit), timeout/spill policy, and JSONL persistence through [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), loaded from `cordis.yml`. The sibling [`headless-agent`](../headless-agent/README.md) runs the same capability class as a one-shot pipe-friendly task, and [`acp-agent`](../acp-agent/README.md) serves it over JSON-RPC.
 
 ## Run it
@@ -27,7 +29,7 @@ Each run starts a fresh session by default (its event log lands under `./.sessio
 dsh --resume <prior-session-id>
 ```
 
-`/resume` opens a searchable keyboard selector with titles, activity, last-turn results, model route, durable goal phase, and live/persisted state. The installed `dsh` host flushes and disposes the current app, then replaces the process with `dsh --resume <id>`. The TUI still prints that command on exit and shows it when a custom host cannot hand off. The flag sets `RESUME_SESSION_ID`, wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); the env var still works directly for the uninstalled demo (`RESUME_SESSION_ID=<prior-session-id> pnpm run demo:tui`), and with neither set the agent starts a new session. A missing or unreadable id starts no agent and emits `agent-loop/config-start-failed`: the TUI prints the failure and exits nonzero. The selector has no cross-process session lock, so deployments with concurrent hosts must coordinate session ownership separately.
+`/resume` opens a searchable keyboard selector with titles, activity, last-turn results, model route, durable goal phase, and live/persisted state. The installed `dsh` host flushes and disposes the current app, then replaces the process with `dsh --resume <id>`. The TUI still prints that command on exit and shows it when a custom host cannot hand off. `dsh --resume <id>` provides the id on the boot context, which `cordis.yml` reads (`resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"`); with no flag the agent starts a new session. A missing or unreadable id starts no agent and emits `agent-loop/config-start-failed`: the TUI prints the failure and exits nonzero. The selector has no cross-process session lock, so deployments with concurrent hosts must coordinate session ownership separately.
 
 ## Code Mode
 

@@ -23,10 +23,10 @@ Version one supports PNG, JPEG, WebP, and GIF paste and drag-and-drop, image-onl
 ### Product behavior
 
 - Pasting or dropping one or more supported images adds ordered thumbnails above the textarea without inserting placeholder text. Dragging files over the composer highlights the drop target.
-- The rail is shared by the empty-state and resident composers, is hidden when empty, and scrolls horizontally instead of widening the composer.
+- The same resident `InputBar` renders the rail in both blank-session Hero and active-session layouts. The rail is hidden when empty and scrolls horizontally instead of widening the composer.
 - Each approximately 72-by-72-pixel thumbnail has a remove action and opens its original draft image on double-click.
 - A prompt may contain text and images or images only. Pure text paste remains native browser behavior; mixed clipboard content inserts its text normally while adding its files to the rail, and file-only paste prevents default browser handling. File drops on the composer always prevent browser navigation and report unsupported files locally.
-- A failed send restores the complete text and image draft. The empty state navigates to the new session only after its first send is accepted, so a rejected send keeps the draft and its error surface mounted. Removal, successful send, empty-state disposal, rendered-session disposal, and application disposal revoke the object URLs they own.
+- A failed send restores the complete text and image draft without clobbering text or images added while the request was in flight. Removal, successful send, session-scope disposal, rendered-history disposal, and application disposal revoke the object URLs they own.
 - Historical user and assistant images use one `MessageImage` control. Inline images preserve intrinsic aspect ratio, do not upscale, and stay within a 240-by-240-pixel box.
 - Double-clicking a message image opens the stored original in a viewport-bounded modal. Escape, the close control, and backdrop activation close it and restore focus.
 - Version one does not override the browser context menu and provides no explicit image-copy action.
@@ -41,7 +41,7 @@ The persistence boundary is message acceptance, not paste:
 | Accepted user image | Immutable object below `DSH_HOME` plus `ImageAttachmentRef` | The host commits every image before `agent.send()` or `agent.steer()` can append the owning user event. |
 | Structured model image output | Immutable object below `DSH_HOME` plus `ImageAttachmentRef` | The provider adapter commits the bytes before it emits a completed image block or assistant message event. Temporary URLs, paths, and base64 are forbidden in the event. |
 
-The framework-owned chat store keeps the per-session draft text and ordered attachment identifiers. `ConversationService` owns the corresponding browser-only `File` and object-URL registry:
+Each session's `InputMachine` state keeps the ordered runtime-only attachment identifiers alongside the live draft. The framework-owned chat store receives only the draft's plain-text persistence mirror, while `ConversationService` owns the corresponding browser-only `File` and object-URL registry:
 
 ```ts
 export {}
@@ -49,8 +49,12 @@ export {}
 interface ChatStoreState {
   selection: object | null
   draft: string
-  imageIds: string[]
   view: string | null
+}
+
+interface InputState {
+  draft: string
+  imageIds: readonly string[]
 }
 
 interface ComposerAttachment {
@@ -61,7 +65,7 @@ interface ComposerAttachment {
 }
 ```
 
-This split uses the slots framework's store seat and bound actions as the single subscription path for UI state while keeping non-serializable browser objects out of persisted JSON. Draft text and ordered image identifiers continue to use `localStorage`; after a reload, `ConversationRoot` prunes identifiers whose runtime objects no longer exist. Unsent images therefore do not survive reload because browser `File` and object URLs are not durable. A native client may stage input in an OS temporary directory, but it must treat that path exactly like the browser object URL: delete it when no longer needed and copy the bytes into the durable store before message acceptance.
+This split uses the session provide channel's input hook and actions as the single subscription path for live composer state while keeping non-serializable browser objects out of persisted JSON. Only the plain-text draft mirror uses `localStorage`; attachment identifiers, browser `File` objects, and object URLs remain scoped to the live session input shell. Unsent images therefore do not survive reload or session-scope disposal. A native client may stage input in an OS temporary directory, but it must treat that path exactly like the browser object URL: delete it when no longer needed and copy the bytes into the durable store before message acceptance.
 
 The local attachment backend resolves an explicit `dshHome`, then `$DSH_HOME`, then `~/.dsh`. It stores content-addressed objects below `$DSH_HOME/attachments/v1/objects/<prefix>/<sha256>` with owner-only directory and file permissions. A temporary file is written, synchronized, atomically published, and made durable with a directory sync on the publication directories (POSIX; Windows relies on filesystem metadata journaling) before the service returns a reference. The content digest is encoded in the opaque `sha256:<digest>` identifier, and every read verifies the digest, media type, byte length, width, and height.
 
@@ -116,7 +120,7 @@ Base64 crosses JSON-RPC once and is discarded after persistence. The host valida
 
 Model catalog entries gain optional merge-extensible input and output modality declarations. A missing declaration means unknown; a present list without `image` is an explicit negative capability.
 
-The host is the authoritative preflight boundary. It resolves the session's latest routed provider/model, falling back through agent options to host defaults; if that model explicitly excludes image input, it rejects the prompt before writing any attachment or event, and the client restores the draft. Unknown capability proceeds to the adapter guard so uncatalogued model identifiers remain usable. `host.describe` projects the default model and image limits into `SessionsService`; both composers use the limits before allocating object URLs or base64, while only the no-session composer uses the default model for early explicit text-only feedback. Decoded-pixel validation and every resident session's actual route remain authoritative on the host.
+The host is the authoritative preflight boundary. It resolves the session's latest routed provider/model, falling back through agent options to host defaults; if that model explicitly excludes image input, it rejects the prompt before writing any attachment or event, and the client restores the draft. Unknown capability proceeds to the adapter guard so uncatalogued model identifiers remain usable. `host.describe` projects the active model and image limits into `SessionsService`; the resident `InputBar` uses them before allocating object URLs or base64 for fast feedback. Decoded-pixel validation and the session's actual route remain authoritative on the host.
 
 The Pi-AI adapter is the first visual-input route: it resolves `ctx.attachments` at request time, then resolves each durable reference and emits native image content only for models that declare image input. The shipped Web assembly reaches it through `dsh web --provider <name> --model <id>`, which mounts that pi-ai catalog route with the provider's ambient credentials; the DeepSeek-only default remains text-only. Request-time service resolution keeps Cordis load order from freezing optional attachment availability. The hand-written DeepSeek adapter throws typed `UNSUPPORTED_CONTENT` for an image anywhere in the request, including nested tool results. No adapter may flatten or skip an image.
 

@@ -43,7 +43,7 @@
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久化存储 |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | `session-query` 接口：精确检索、过滤与追踪采用实时优先的具体实现；恰有两个全文搜索方法为抽象方法，由 `session-query-sqlite` 实现 |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 实时优先的精确检索／过滤／追踪接口、SQLite 全文搜索后端，以及经工作区授权的模型工具 |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题，以及单个可选的异步提供方 |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 

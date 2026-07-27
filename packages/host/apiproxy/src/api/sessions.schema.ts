@@ -40,6 +40,7 @@ export const sessionSummarySchema = z.object({
   sessionId: sessionIdSchema,
   updatedAt: z.number(),
   running: z.boolean(),
+  blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
   cwd: z.string().optional(),
 }) satisfies z.ZodType<Wire<SessionSummary>>
@@ -98,6 +99,9 @@ export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
+
+/** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
+export const contentBlockSchema = z.looseObject({ type: z.string() })
 
 /** Raster image media types accepted by the version-one browser wire. */
 export const imageMediaTypeSchema = z.union([
