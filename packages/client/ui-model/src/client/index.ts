@@ -114,7 +114,7 @@ export function apply(ctx: ClientContext): void {
           directory: directory.store,
           load: () => { directory.load().catch(() => { /* surfaced on the store */ }) },
           select: (target: ModelTarget) => directory.select(target).then(() => true, () => false),
-          setEffort: effort => directory.setEffort(effort),
+          setEffort: (effort) => { directory.setEffort(effort) },
         }
       },
     }, ModelSelect), 'ui-model: composer model seat registration')
