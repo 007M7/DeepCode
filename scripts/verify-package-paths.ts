@@ -5,7 +5,7 @@
  * outside the check.
  */
 
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, globSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   findReferenceViolations,
@@ -41,12 +41,8 @@ const isExcluded = (p: string): boolean =>
  */
 function realPackageNames(): Set<string> {
   const names = new Set<string>()
-  const pkgRoot = resolve(root, 'packages')
-  for (const group of readdirSync(pkgRoot, { withFileTypes: true })) {
-    if (!group.isDirectory()) continue
-    for (const pkg of readdirSync(resolve(pkgRoot, group.name), { withFileTypes: true })) {
-      if (pkg.isDirectory()) names.add(pkg.name)
-    }
+  for (const pkg of globSync('packages/*/*', { cwd: root, withFileTypes: true })) {
+    if (pkg.isDirectory()) names.add(pkg.name)
   }
   return names
 }
