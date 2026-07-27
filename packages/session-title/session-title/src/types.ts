@@ -1,12 +1,11 @@
 /**
- * Pure-type client outlet of the title domain: the ONE home of the `title`
- * projection-key declaration, importable from client aggregates without
- * dragging this package's host-side value imports (cordis service,
- * schemastery, the llm seam). The host entry (`index.ts`) imports this module
- * type-only to reuse the same merge — one declaration serves both program
- * sides.
+ * Pure types of the title domain: the ONE home of the `title` projection-key
+ * declaration, free of this package's host-side value imports (cordis
+ * service, schemastery, the llm seam). Two namespace projections serve it —
+ * `./types` for host consumers, `./client/types` (the browser half-entry's
+ * re-export) for client aggregates — with zero content duplication.
  *
- * @module @deepseek-ai/dsh-session-title/client/types
+ * @module @deepseek-ai/dsh-session-title/types
  */
 
 // Marks this file a module so the declaration below AUGMENTS the projection
