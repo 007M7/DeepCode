@@ -3,10 +3,11 @@
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
-import { parseArgs } from 'node:util'
+import { parseArgs, TextDecoder } from 'node:util'
 
 const FORMAT_VERSION = 1
 const MAX_GIT_OUTPUT = 64 * 1024 * 1024
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true })
 
 interface ChangeScopeReport {
   formatVersion: typeof FORMAT_VERSION
@@ -39,6 +40,13 @@ interface GitCommandResult {
   error: Error | undefined
 }
 
+interface GitBytesCommandResult {
+  status: number | null
+  stdout: Buffer
+  stderr: Buffer
+  error: Error | undefined
+}
+
 interface ChangeScopeOptions {
   base: string
   head: string
@@ -59,6 +67,19 @@ function executeGit(cwd: string, args: string[]): GitCommandResult {
   }
 }
 
+function executeGitBytes(cwd: string, args: string[]): GitBytesCommandResult {
+  const result = spawnSync('git', ['-C', cwd, ...args], {
+    env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
+    maxBuffer: MAX_GIT_OUTPUT,
+  })
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    error: result.error,
+  }
+}
+
 function failureDetail(result: GitCommandResult): string {
   return result.error?.message ?? (result.stderr.trim() || `Git exited with status ${String(result.status)}`)
 }
@@ -66,6 +87,16 @@ function failureDetail(result: GitCommandResult): string {
 function requireGit(cwd: string, args: string[], context: string): string {
   const result = executeGit(cwd, args)
   if (result.status !== 0) throw new Error(`${context}: ${failureDetail(result)}`)
+  return result.stdout
+}
+
+function requireGitBytes(cwd: string, args: string[], context: string): Buffer {
+  const result = executeGitBytes(cwd, args)
+  if (result.status !== 0) {
+    const detail = result.error?.message
+      ?? (result.stderr.toString('utf8').trim() || `Git exited with status ${String(result.status)}`)
+    throw new Error(`${context}: ${detail}`)
+  }
   return result.stdout
 }
 
@@ -141,12 +172,27 @@ function comparePaths(left: string, right: string): number {
   return 0
 }
 
-function parsePathSet(output: string): string[] {
-  return [...new Set(output.split('\0').filter(Boolean))].sort(comparePaths)
+function parsePathSet(output: Buffer, context: string): string[] {
+  const paths: string[] = []
+  let start = 0
+  let record = 0
+  for (let end = 0; end < output.length; end += 1) {
+    if (output[end] !== 0) continue
+    if (end > start) {
+      record += 1
+      try {
+        paths.push(UTF8_DECODER.decode(output.subarray(start, end)))
+      } catch {
+        throw new Error(`${context}: Git path ${record} is not valid UTF-8`)
+      }
+    }
+    start = end + 1
+  }
+  return [...new Set(paths)].sort(comparePaths)
 }
 
 function diffPaths(root: string, args: string[], context: string): string[] {
-  return parsePathSet(requireGit(root, [
+  return parsePathSet(requireGitBytes(root, [
     'diff',
     '--no-ext-diff',
     '--no-textconv',
@@ -156,7 +202,7 @@ function diffPaths(root: string, args: string[], context: string): string[] {
     '-z',
     ...args,
     '--',
-  ], context))
+  ], context), context)
 }
 
 function stripGitLineTerminator(output: string): string {
@@ -194,11 +240,11 @@ function collectReport(options: ChangeScopeOptions, cwd: string): ChangeScopeRep
       committed: diffPaths(root, [mergeBaseSha, headSha], 'cannot inspect committed paths'),
       staged: diffPaths(root, ['--cached'], 'cannot inspect staged paths'),
       unstaged: diffPaths(root, [], 'cannot inspect unstaged paths'),
-      untracked: parsePathSet(requireGit(
+      untracked: parsePathSet(requireGitBytes(
         root,
         ['ls-files', '--others', '--exclude-standard', '-z', '--'],
         'cannot inspect untracked paths',
-      )),
+      ), 'cannot inspect untracked paths'),
     },
   }
 }

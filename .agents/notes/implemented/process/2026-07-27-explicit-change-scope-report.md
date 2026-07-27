@@ -12,13 +12,13 @@ An incorrect range undermines evidence selection because it can omit affected pa
 
 ## Decision
 
-The root `change-scope` command requires `--base <ref>`, accepts `--head <ref>` with `HEAD` as the default, and offers a versioned `--json` form. It resolves both inputs to commits with ambiguity detection and requires one merge base before writing output. The report records the repository root without normalizing legal path whitespace, current branch, configured upstream, input refs, resolved base, head, and merge-base commit IDs, plus sorted committed, staged, unstaged, and untracked path sets.
+The root `change-scope` command requires `--base <ref>`, accepts `--head <ref>` with `HEAD` as the default, and offers a versioned `--json` form. It resolves both inputs to commits with ambiguity detection and requires one merge base before writing output. The report records the repository root without normalizing legal path whitespace, current branch, configured upstream, input refs, resolved base, head, and merge-base commit IDs, plus sorted committed, staged, unstaged, and untracked path sets. Path records are split at raw NUL bytes and decoded as strict UTF-8; an invalid record aborts the report before output instead of substituting characters or collapsing distinct paths.
 
 Committed paths compare the resolved merge base with the resolved head. Dirty path sets always describe the current worktree and index, even when `--head` names another commit. Diff configuration cannot hide submodules or invoke external diff or text-conversion drivers, and rename detection is disabled so both sides of a rename remain visible.
 
 The command never guesses or fetches a base, queries a hosting provider, or selects tests. Each calling workflow verifies current remote or stack state, supplies the base explicitly, and uses the factual report as input to semantic review or evidence selection.
 
-Focused temporary-repository tests cover a fresh branch tracking `origin/master` without a same-name remote, its post-push upstream, a worktree path ending in legal whitespace, a stacked non-master base, every dirty layer, invalid, ambiguous, and non-commit refs, deterministic human/JSON parity, and unchanged refs, index, config, and status after reporting.
+Focused temporary-repository tests cover a fresh branch tracking `origin/master` without a same-name remote, its post-push upstream, a worktree path ending in legal whitespace, a stacked non-master base, every dirty layer, distinct non-UTF-8 POSIX paths failing without partial output, invalid, ambiguous, and non-commit refs, deterministic human/JSON parity, and unchanged refs, index, config, and status after reporting.
 
 ## Alternatives considered
 
@@ -33,5 +33,7 @@ Focused temporary-repository tests cover a fresh branch tracking `origin/master`
 ## Consequences
 
 The explicit input makes an incorrect base possible but visible: both input refs and all three resolved commit IDs appear in either output form. Callers pay the small cost of verifying and fetching the live base before running the command.
+
+The string schema deliberately cannot represent non-UTF-8 path bytes. A repository containing them must rename those paths before it can produce a report, preserving exact scope instead of returning a lossy one.
 
 The repository owns one Git-topology helper and focused tests. In return, pre-push selection, code review, and documentation audit share a deterministic, read-only account of committed and local changes without importing forge or policy concerns.

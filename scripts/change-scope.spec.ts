@@ -26,13 +26,21 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-function git(cwd: string, args: string[], input?: string): string {
+function git(cwd: string, args: string[], input?: string | Buffer): string {
   return execFileSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
     input,
     stdio: ['pipe', 'pipe', 'pipe'],
   }).trim()
+}
+
+function gitBytes(cwd: string, args: string[], input?: Buffer): Buffer {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
+    input,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
 }
 
 function write(path: string, content: string): void {
@@ -185,6 +193,34 @@ describe('change-scope', () => {
       untracked: ['untracked.txt'],
     })
     expect(repositoryState(root)).toEqual(before)
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects distinct non-UTF-8 Git paths without partial output', () => {
+    const { root } = fixture()
+    const blobSha = git(root, ['hash-object', '-w', '--stdin'], 'content')
+    const entry = Buffer.from(`100644 ${blobSha}\t`, 'ascii')
+    const firstPath = Buffer.from([0x80])
+    const secondPath = Buffer.from([0x81])
+    gitBytes(root, ['update-index', '-z', '--index-info'], Buffer.concat([
+      entry,
+      firstPath,
+      Buffer.from([0]),
+      entry,
+      secondPath,
+      Buffer.from([0]),
+    ]))
+    expect(gitBytes(root, ['diff', '--cached', '--name-only', '-z', '--'])).toEqual(Buffer.concat([
+      firstPath,
+      Buffer.from([0]),
+      secondPath,
+      Buffer.from([0]),
+    ]))
+    const output: string[] = []
+
+    expect(() => {
+      writeChangeScope(['--base', 'HEAD', '--json'], root, chunk => output.push(chunk))
+    }).toThrow('cannot inspect staged paths: Git path 1 is not valid UTF-8')
+    expect(output).toEqual([])
   })
 
   it('rejects missing, ambiguous, and non-commit refs before writing output', () => {

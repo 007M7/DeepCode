@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-27-explicit-change-scope-report.md
-2026-07-27-explicit-change-scope-report.md: 2be148d4fe5503cbdfb3bc15c32f3846dc7f413f
-2026-07-27-explicit-change-scope-report.zh.md: 33ecddd966ec56759f13a603d95de35d3f3601ec
+2026-07-27-explicit-change-scope-report.md: aa6398368d5f161ed852aa92c1d9d35dd2564a5e
+2026-07-27-explicit-change-scope-report.zh.md: 042258122d43e5da81cd470e1cf5af09dfeb2fba
