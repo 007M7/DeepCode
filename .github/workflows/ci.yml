@@ -102,11 +102,12 @@ jobs:
           || 'dsh-enterprise-ubuntu-24-04-32core-test' }}
     name: node 24 / coverage
     env:
-      # Failover halves the worker bound: the hosted 32-core runner is
+      # Failover shrinks the worker bound: the hosted 32-core runner is
       # exclusive to one job, but the failover pool shares one 64-core VM
-      # across four runner instances, and the timing-sensitive process
-      # suites have documented aggregate-contention failures.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && '12' || '24' }}
+      # across six always-on runner instances, and the timing-sensitive
+      # process suites have documented aggregate-contention failures.
+      # 8 × 6 instances = 48 workers worst case on 64 cores.
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && '8' || '24' }}
       DSH_GATE_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
@@ -160,7 +161,7 @@ jobs:
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
       DSH_PUBLINT_CONCURRENCY: '8'
       # Failover halves snapshot concurrency for the shared 64-core VM.
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && '16' || '32' }}
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && '12' || '32' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -765,8 +766,15 @@ jobs:
   # 'cancelled' and 'skipped'.
   all-checks-passed:
     name: all checks passed
-    # The required verdict must not add a separate standard-hosted billing dependency.
-    runs-on: dsh-enterprise-ubuntu-latest-32core-test
+    # The required verdict must not add a separate standard-hosted billing
+    # dependency — and it must follow the failover selector like the worker
+    # jobs it aggregates: if it stayed pinned to the hosted pool, every
+    # failover-passed run would still leave the branch-protection verdict
+    # queued forever on the failed pool.
+    runs-on: >-
+      ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
