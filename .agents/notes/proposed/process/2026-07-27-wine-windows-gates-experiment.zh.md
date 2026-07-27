@@ -18,6 +18,8 @@ Pull request 的 Windows 通道存在的意义是证明两个阻断性 win32 表
 
 该通道以 Linux CI 作业的墙钟（约两分钟）为目标，靠四个杠杆：master 刷新的 pnpm store 缓存（只恢复，与 ci.yml 同键）、Wine 供给（apt 安装、Windows Node 下载、`wineboot`）与 `pnpm install` 并发运行、两个阻断表面并发运行——与 `run-gates` 在原生 Windows 上给它们的形状相同——以及按 runner 镜像为键的 apt 归档缓存，使 Wine 的包下载每个镜像版本只付一次。
 
+2026-07-27 实测：热缓存 pull request 运行端到端 2 分 46 秒（准备与缓存恢复约 17 秒，并发安装+供给 33 秒，并发门禁 110 秒），对照 Linux CI 作业的 1.5–2.5 分钟与付费 Windows 通道的 7–9 分钟；冷缓存约多付一分钟。8 核基准腿从未离开队列——受限的 `dsh-ubuntu-*` 池在兄弟 KVM 实验中也被观察到无限排队——因此标准 runner 的数字即为结果，达标不需要更大的机器。
+
 这刻意是一次保真度探针，而非直接替换：Wine 在大小写敏感的 ext4 之上重实现 Win32 API（默认不模拟 NTFS 的大小写不敏感）、不提供 ConPTY、并用自己的安全描述符与 `MoveFileExW` 语义替代——恰是本仓库 `win32.ts` 模块与 PTY 后端关心的表面。实验度量哪些阻断门禁通过、哪些因 Wine 原因而非产品原因失败，以及相对已记录 Windows 基准通道的墙钟成本。
 
 若结论为正则晋升：把 Wine 通道并入为 pull request 的阻断门禁 Windows 信号，将真实 Windows 池降级为 master 串行参照；否则在此记录失败类别并保留该池。
