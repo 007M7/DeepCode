@@ -59,6 +59,7 @@ function snapshotWith(
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    modelSelection: { current: null, groups: [], failures: [], status: 'idle', error: null },
   } as ConversationSnapshot
 }
 

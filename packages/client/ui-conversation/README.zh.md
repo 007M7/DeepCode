@@ -4,7 +4,7 @@
 
 会话领域：骨架（标题栏／标签页／编辑器／空状态）、聊天视图（分组步骤摘要流、流式尾部隔离、统计行、逐工具行 slot 及一个 bash 示例注册方）、最小详情面板、按 scope 寻址的 ConversationService。契约：api-contracts v3 §7 加 slot 终端设计（store seat／props share）。
 
-无会话主视觉区会渲染来自 Session 列表投影的前端 Session Intent；没有真实 Workspace 时，还会包含其前端 Workspace Intent。它声明 `conversation.empty.workspace`，ui-workspace 会在此注册侧边栏所用的同一选择器。WorkspacesService 启动跨对象流程；每个 Workspace 或 Session 对象拥有自身的物化。Session 在发布期间保持身份，并保留任何仍需连接或交付的提示词；ConversationRoot 读取该 `pendingPrompt`，其来源是 `useSession`，再通过 scope 内的 ConversationService 编辑或重试。
+常驻会话壳会跨无会话与会话状态切换而保留。没有当前会话时，它会渲染禁用输入栏；其根作用域的 `conversation.hero.workspace` slot 承载 Workspace 选择器。选择 Workspace 会连接或复用由 Host 拥有的空白会话，并在不替换会话壳的情况下打开该会话。空白会话与活跃会话渲染相同的输入区主体；InputHub 则在 Workspace 切换间携带草稿，并将草稿镜像到会话 store。
 
 视图环本身就是 slot：会话注册声明 `'conversation.view'` 列表 slot（Session scope），并将其列在 `children` 表中；ConversationRoot 通过 renderSlot share 渲染活跃配置项（`only: <active id>`）；视图标签页从环账本的注册选项（`id`／`order`／`label`）投影而来。聊天视图是该包自身的环配置项；其他插件（ui-trajectory）通过普通的 `ctx.slots.register` 贡献标签页。先前包内的视图注册表（`registerView`／`ViewEntry`／`ConversationViewMap` 及 chrome 附加表）已退役，逐视图 chrome 则被拆入视图组件自身。
 
@@ -12,7 +12,9 @@
 
 工具行同样是 slot：独立工具环（`ToolViewRegistry`／`ctx.toolviews`／outlet）已经退役。聊天配置项声明键控的 `'conversation.chat.toolview'` 空位（Session scope；key 空间在运行时开放）；其渲染点逐行通过 `entryKey: toolName` 分发，并以 `GenericToolCard` 作为调用点 `fallback`。owner 载荷是统一的 `ToolRowOwnerProps`（`callId`／`toolName`／`block`／`openDetails`），`ToolRowProps` 则预先将其与 Session 标准工具包组合。注册方只是普通插件：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作为加载顺序 seam（apply 在聊天注册后挂载 ConversationService，因此服务存在即可保证 slot 已声明）；Session 区分在组件内部完成（`useSessions` 读取 `parentId`，bash 示例是第三方姿态的范例）。Trajectory/waterfall 工具视图 slot 共享此形状，并随各自的渲染点落地（RendersCheck 会拒绝没有任何渲染方的声明）。
 
-逐 Session UI 状态（选择、普通编辑器草稿、活跃视图）位于已声明的聊天 store（`stores.ts` `createChatStore`）中：apply 构造一个 handle，并将其传给会话、聊天视图和详情注册，因此 Session slot 每个 Session 共享一个实例（选择由聊天视图写入、详情读取），框架拥有实例生命周期与草稿持久化。前端 Session Intent 来自 Session 列表投影；发布后，任何保留的提示词都来自该 Session 的会话快照。组件保持纯粹：框架标准工具包（Session scope 下的 `useSession`／`sessionId`，以及全局 `useSessions`／`useWorkspaces`）和 store 表层（`useStore`／`actions`）会从注册声明自动到达；inject factory 为运行时 Session 操作、发送／停止、标签页、详情和分页贡献普通数据与回调。
+逐 Session UI 状态中的选择与活跃视图位于已声明的聊天 store（`stores.ts` `createChatStore`）中；InputHub 拥有输入区状态机，并将草稿镜像到该 store 以便持久化。apply 将同一个 store handle 传给严格限定于会话的子树、聊天视图和详情注册，因此每个会话内共享一个实例，框架拥有其生命周期。组件保持纯粹：框架标准工具包提供 `useSession`／`sessionId`、全局 `useSessions`／`useWorkspaces`，以及输入状态机的 `useInput`／`inputActions`；store 表层与 inject factory 提供其余状态和回调。
+
+输入栏为 `'conversation.input.plan'` 和 `'conversation.input.model'` 声明会话作用域的单实例 seat，并为 overlay、dock、left 和 right 输入扩展声明列表 slot。InputBar 将模型 seat 渲染在 pending 指示器与发送／停止按钮之前。各功能包拥有相应控件及其状态；ui-conversation 提供放置位置、`locked` owner prop 和标准 slot share。常驻无会话壳使用 `DisabledInputBar`，因此不会分发任何会话作用域的控件 seat。
 
 `src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件（骨架、聊天行）与 store factory 保持内部状态，只能通过 apply 的 slot 注册到达页面（测试通过 `./src/*` 子路径获取它们）。
 

@@ -42,6 +42,7 @@ function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    modelSelection: { current: null, groups: [], failures: [], status: 'idle', error: null },
   } as ConversationSnapshot
 }
 

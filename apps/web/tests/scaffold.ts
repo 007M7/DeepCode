@@ -67,7 +67,11 @@ const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/cordis.yml')
 // catch-all would leave resolveModelContext unroutable and compact-basic's
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
-const REPLAY_PROVIDERS = [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
+const REPLAY_PROVIDERS = [{
+  id: 'deepseek',
+  name: 'DeepSeek',
+  models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
+}]
 
 /** Repo-root .env → process.env for record mode (never overrides set vars); the smoke-real convention. */
 function loadRootEnv(): void {
