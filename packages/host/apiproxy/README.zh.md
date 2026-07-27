@@ -14,7 +14,7 @@ mux 流会在每个已附加会话的订阅基线之后，以及对应的实时�
 
 会话模型路由属于会话领域契约。`session.models` 返回选中的提供方／模型／推理（reasoning）目标，以及按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。
 
-Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白——惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
+Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白：惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
 
 `session.history` 按消息边界分页，其尾页（不带 `beforeSeq`）额外携带两项页窗口本身无法提供的会话级数据：进行中局部消息的 chunk 事件，以及 `todos`——整份日志上最后一次 `todo/write` 的整表投影。较早的页面不带 `todos`，因为该投影是会话级而非分页级的；尾页响应缺少该字段意味着整份日志中没有任何 `todo/write`，因此客户端要把缺失字段读作空计划，而不是读作「状态未变」。
 

@@ -85,7 +85,9 @@ export type MuxFrame =
  * agent-error is the only outlet for live failures with no turn position;
  * workspace-changed pushes the full new snapshot after every durable
  * workspace mutation (create/attach/order change — the client upserts, while
- * `workspace.list` provides the reconnect baseline).
+ * `workspace.list` provides the reconnect baseline); workspace-removed is the
+ * committed registration-deletion increment and never implies directory or
+ * session-log deletion.
  */
 export type HostFrame =
   | { type: 'host/session-added'; sessionId: SessionId; blank: boolean; parentSessionId?: SessionId; cwd?: string }
@@ -93,6 +95,7 @@ export type HostFrame =
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
+  | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
   /**
    * The command registry changed (`commands/change` passthrough). Pure
    * invalidation signal, no payload: clients refetch `command.list` in the

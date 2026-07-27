@@ -20,8 +20,9 @@ export const inject = ['invariants']
  * domain's durable table. Every `domain/changed` for the `workspaces` table
  * must name a record the cache already holds an entity for (the registry
  * caches before the durable put and mutates only through cached entities).
- * A delete is valid only for create rollback, after the provisional cache
- * entry has been removed; deleting a published entity proves a bypass.
+ * A delete is valid only after the registry has removed the entity from its
+ * cache, whether for create rollback or an explicit registration deletion;
+ * deleting while the cache still publishes the entity proves a bypass.
  */
 const install: InvariantInstaller = Object.assign(
   (ctx: Context, fail: (message: string) => never) => {
