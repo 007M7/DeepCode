@@ -41,9 +41,12 @@ The tool layer builds this request from the model input and its own config; the 
  * What a caller asks for when starting a ONE-SHOT subagent. The tool layer
  * builds this from the model's `{ description, prompt }` plus its own config;
  * the service validates {@link SubagentCapabilities} against the named provider
- * before dispatching to {@link SubagentProvider.start}.
+ * and resolves the durable descriptor before dispatching to
+ * {@link SubagentProvider.start}.
  */
 interface SubagentStartRequest {
+  /** Short display label persisted with a session-backed child. */
+  readonly label: string
   /** Content delivered as the child's user message. */
   readonly prompt: ContentBlock[]
   /**
@@ -95,7 +98,18 @@ interface SubagentStartRequest {
 
 `signal` is the single cancellation channel before and after readiness. The [subagent composition-controls Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the persona, live global-tool filter, absolute-depth, and visibility-not-authority rationale.
 
-Providers receive exactly this request: one-shot delegation has no service-resolved continuation state, because a continuable child never reaches `SubagentProvider.start()`.
+The caller-facing request does not carry catalog format details or continuation state. `SubagentService.start()` resolves the detached one-shot descriptor after capability checks, then passes this provider-facing request to the selected transport; a continuable child never reaches `SubagentProvider.start()`:
+
+```ts type-equiv
+/**
+ * Provider-facing one-shot request after {@link SubagentService.start} resolves
+ * the durable child descriptor.
+ */
+interface ResolvedSubagentStartRequest extends SubagentStartRequest {
+  /** Detached descriptor a session-backed provider persists in the child log. */
+  readonly descriptor: SubagentDescriptorData
+}
+```
 
 ## Continuable children and activations
 
@@ -200,11 +214,13 @@ interface ContinuableCreateSpec {
 }
 ```
 
-The descriptor (`SubagentDescriptorData` in [descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts)) snapshots explicit fields — provider name, the delegation `description` as the durable creation `label`, resolved child `agentOptions.provider`/`model`, optional `persona`/`toolFilter` — never the merge-extensible `AgentOptions` object, so an unrelated extension value cannot break continuation and a later composition input is a deliberate version change. It omits `subagentDepth` (cold resume trusts the persisted header's `delegationDepth` as the monotone floor) and `outputSchema` (a one-shot result contract, not durable composition). The continuation manager appends the model-hidden `subagent/descriptor` event after any provider-supplied lineage and before the initial prompt is admitted; `header.seedLength` remains the fork-lineage boundary, so descriptor lookup reads the child's own suffix. The event is log-only: no `surfaceOp`, never in model history, and retained across compaction by the append-only log.
+The descriptor (`SubagentDescriptorData` in [descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts)) is a mode-discriminated durable identity for every session-backed subagent. Both modes carry the provider name and delegation `description` as the durable creation `label`. `one-shot` stops there; `continuable` additionally snapshots resolved child `agentOptions.provider`/`model` and optional `persona`/`toolFilter` for cold resume. It never snapshots the merge-extensible `AgentOptions` object, so an unrelated extension value cannot break continuation and a later composition input is a deliberate version change. It omits `subagentDepth` (cold resume trusts the persisted header's `delegationDepth` as the monotone floor) and `outputSchema` (one run or Activation's result contract, not durable identity).
+
+A local one-shot provider appends the descriptor inside the child's initial turn before its first request. The continuation manager appends the descriptor after any provider-supplied lineage and before the initial prompt is admitted; `header.seedLength` remains the fork-lineage boundary, so descriptor lookup reads the child's own suffix. The event is log-only: no `surfaceOp`, never in model history, and retained across compaction by the append-only log. Malformed current-version descriptors are corrupt; unsupported versions cannot be classified by this runtime.
 
 ## Durable enumeration: `listChildren()` and `SubagentListEntry`
 
-`SubagentService.listChildren(parentSessionId)` enumerates the parent's direct continuable children from one `ctx.sessionQuery.traceSession()` observation, without loading or resuming any Agent. Session lineage is broader than subagent identity — ordinary forks and one-shot children share `parentSession` — so exactly one supported `subagent/descriptor` event in the child's own suffix (after `seedLength`, so a fork seed cannot leak an ancestor's descriptor) is the sole subagent discriminator. The result is one `SubagentListEntry[]` in the trace's `createdAt`-then-id candidate order: a valid descriptor yields a `child` entry whose `status` snapshots the logical record (`running` = live in `ctx.sessions`, `complete` = persisted only, resumable by `send_message`); a per-child inspection failure yields a `diagnostic` entry (`corrupt`, `unsupported`, or `unavailable`) so one damaged sibling cannot hide healthy children; a missing descriptor yields no entry. A failure while building the initial trace fails the whole call — per-child isolation begins only after a trustworthy candidate set exists. The service keeps `sessionQuery` optional for by-id continuation: `listChildren()` throws `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` when it is absent, while the model-facing `list_agents` adapter (the separately loadable `/list-agents` plugin of [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control)) requires the service at plugin load. Listing does not consult the continuation manager's Activation map or provider availability; `send_message` remains the authoritative delivery-time operation, and a listed `running` child may still reject delivery as an ownership conflict.
+`SubagentService.listChildren(parentSessionId)` enumerates the parent's direct session-backed subagents from one `ctx.sessionQuery.traceSession()` observation, without loading or resuming any Agent. Session lineage is broader than subagent identity — ordinary forks share `parentSession` — so exactly one supported `subagent/descriptor` event in the child's own suffix (after `seedLength`, so a fork seed cannot leak an ancestor's descriptor) is the sole subagent discriminator. The result is one `SubagentListEntry[]` in the trace's `createdAt`-then-id candidate order: a valid descriptor yields a `child` entry with `mode: 'one-shot' | 'continuable'` and `activity: 'running' | 'inactive'`; a per-child inspection failure yields a `diagnostic` entry (`corrupt`, `unsupported`, or `unavailable`) so one damaged sibling cannot hide healthy children; a missing descriptor yields no entry. Activity snapshots only whether the logical record is live in `ctx.sessions`, not outcome or resumability. A service consumer such as a UI can display both modes, while the model-facing `list_agents` adapter (the separately loadable `/list-agents` plugin of [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control)) keeps only continuable entries and maps activity to its existing `running`/`complete` vocabulary. A failure while building the initial trace fails the whole call — per-child isolation begins only after a trustworthy candidate set exists. The service keeps `sessionQuery` optional for by-id continuation: `listChildren()` throws `SubagentError` with code `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` when it is absent, while the list tool requires `ctx.subagents` and `ctx.sessionQuery` at plugin load. Listing does not consult the continuation manager's Activation map, Agent registry, or provider availability; `send_message` remains the authoritative delivery-time operation, and a listed running continuable child may still reject delivery as an ownership conflict.
 
 ## The terminal result: `SubagentResult`
 
@@ -295,7 +311,7 @@ interface SubagentRun {
 }
 ```
 
-A local one-shot run MUST publish an ordinary child agent/session before `start()` fulfills, return that child session id as `SubagentRun.id`, expose the exact child as `localAgent`, and record `request.parent.session.id` in the child's `parentSession` header. Runtime ownership may place the child under the parent, provider, or root scope. A remote provider instead returns a parent-scoped lifecycle id and `localAgent: undefined`.
+A local one-shot run MUST publish an ordinary child agent/session before `start()` fulfills, return that child session id as `SubagentRun.id`, expose the exact child as `localAgent`, record `request.parent.session.id` in the child's `parentSession` header, and append the resolved descriptor inside the child's initial turn before its first request. Runtime ownership may place the child under the parent, provider, or root scope. A remote provider instead returns a parent-scoped lifecycle id and `localAgent: undefined`; without a local child Session, it is absent from trace-backed enumeration.
 
 ## The provider seam: `SubagentProvider`
 
@@ -321,13 +337,13 @@ interface SubagentProvider {
   /**
    * Establish a ONE-SHOT child and return its handle only after publication.
    * The service has already validated that every requested start-time
-   * capability is supported, so an implementation may assume e.g.
-   * `request.maxDepth` is honorable when present. If setup fails or
-   * `request.signal` aborts before fulfillment, the provider owns and cleans
-   * all partial resources before this promise rejects. Ownership transfers to
-   * the caller only on fulfillment.
+   * capability is supported and resolved `request.descriptor`, so a
+   * session-backed implementation appends that descriptor inside the child's
+   * initial turn. If setup fails or `request.signal` aborts before fulfillment,
+   * the provider owns and cleans all partial resources before this promise
+   * rejects. Ownership transfers to the caller only on fulfillment.
    */
-  start(request: SubagentStartRequest): Promise<SubagentRun>
+  start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
   /**
    * OPTIONAL (continuable-creation capability): contribute the detached
    * creation inputs that distinguish this provider's continuable children —

@@ -6,7 +6,7 @@ The optional, globally named `send_message` and `list_agents` tools are thin ada
 
 The tool performs no lifecycle routing — residency and cold resume belong to the subagent service. It passes `exec.agent` as the exact live parent that authorizes delivery and attributes every message as durable provenance `{ kind: 'coordinator', senderSessionId: parent.id }`, which the service retains but never treats as authority. Every message becomes the subagent's next FIFO turn through `Agent.followup()`: if the child is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. The tool forwards its execution signal, which owns admission only until inbox acceptance; once the child accepts the message the accepted turn cannot be cancelled through this tool. The child does not reply to the sender — its transcript by that id is the source of what it did. A delivery failure becomes an errored tool result stating the message was not delivered.
 
-`list_agents` takes no arguments, derives the parent id from the calling agent, and renders `ctx.subagents.listChildren()`'s complete entry array without a cursor. It is discovery only: durable identity comes from each child's descriptor, while delivery-time authority and Activation ownership checks remain `send_message`'s.
+`list_agents` takes no arguments, derives the parent id from the calling agent, and projects `ctx.subagents.listChildren()` to continuable children without a cursor. The service result also contains one-shot session-backed subagents for consumers such as a UI, but those entries are omitted from this model tool because they cannot accept `send_message`. Diagnostics remain visible. Durable identity and mode come from each child's descriptor, while delivery-time authority and Activation ownership checks remain `send_message`'s.
 
 ## Model Experience
 
@@ -42,7 +42,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-One line per entry in the trace's stable order: `<id> [<status>] — <label>` for a child (`running` = the logical session is live, `complete` = persisted only and resumable by `send_message`), `<id> [diagnostic: <reason>]` for a candidate that could not be read (`corrupt`, `unsupported`, or `unavailable`), and `(no subagents)` for an empty result. Diagnostics never expose descriptor contents.
+One line per continuable child in the trace's stable order: `<id> [<status>] — <label>` (`running` = the logical session is live, `complete` = persisted only and resumable by `send_message`), plus `<id> [diagnostic: <reason>]` for a candidate that could not be read (`corrupt`, `unsupported`, or `unavailable`). One-shot children are intentionally absent; `(no subagents)` means no continuable child or diagnostic survived the projection. Diagnostics never expose descriptor contents.
 
 #### Token effect
 

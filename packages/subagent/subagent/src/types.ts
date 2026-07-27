@@ -14,6 +14,7 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { SubagentDescriptorData } from './descriptor.ts'
 
 /** Identifies one accepted subagent run across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -88,9 +89,12 @@ export interface SubagentCapabilities {
  * What a caller asks for when starting a ONE-SHOT subagent. The tool layer
  * builds this from the model's `{ description, prompt }` plus its own config;
  * the service validates {@link SubagentCapabilities} against the named provider
- * before dispatching to {@link SubagentProvider.start}.
+ * and resolves the durable descriptor before dispatching to
+ * {@link SubagentProvider.start}.
  */
 export interface SubagentStartRequest {
+  /** Short display label persisted with a session-backed child. */
+  readonly label: string
   /** Content delivered as the child's user message. */
   readonly prompt: ContentBlock[]
   /**
@@ -137,6 +141,15 @@ export interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+}
+
+/**
+ * Provider-facing one-shot request after {@link SubagentService.start} resolves
+ * the durable child descriptor.
+ */
+export interface ResolvedSubagentStartRequest extends SubagentStartRequest {
+  /** Detached descriptor a session-backed provider persists in the child log. */
+  readonly descriptor: SubagentDescriptorData
 }
 
 /**
@@ -268,13 +281,13 @@ export interface SubagentProvider {
   /**
    * Establish a ONE-SHOT child and return its handle only after publication.
    * The service has already validated that every requested start-time
-   * capability is supported, so an implementation may assume e.g.
-   * `request.maxDepth` is honorable when present. If setup fails or
-   * `request.signal` aborts before fulfillment, the provider owns and cleans
-   * all partial resources before this promise rejects. Ownership transfers to
-   * the caller only on fulfillment.
+   * capability is supported and resolved `request.descriptor`, so a
+   * session-backed implementation appends that descriptor inside the child's
+   * initial turn. If setup fails or `request.signal` aborts before fulfillment,
+   * the provider owns and cleans all partial resources before this promise
+   * rejects. Ownership transfers to the caller only on fulfillment.
    */
-  start(request: SubagentStartRequest): Promise<SubagentRun>
+  start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
   /**
    * OPTIONAL (continuable-creation capability): contribute the detached
    * creation inputs that distinguish this provider's continuable children —

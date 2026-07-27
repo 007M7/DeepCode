@@ -27,7 +27,7 @@ const mockServer = fileURLToPath(new URL('./mock-acp-server.ts', import.meta.url
 const fakeParent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
 
 function request(text = 'p', signal = new AbortController().signal) {
-  return { prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
+  return { label: text, prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
 }
 
 interface SetupEnv {
@@ -126,7 +126,9 @@ describe('child env layering (through the subprocess seam)', () => {
     // explicit entry merges after it and the child must see the value.
     const ctx = await setup({ MOCK_ECHO_ENV: 'DSH_ACP_TEST_FACT', DSH_ACP_TEST_FACT: 'managed' })
     const parent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
-    const run = await ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal })
+    const run = await ctx.subagents.start('acp', {
+      label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+    })
     const result = await run.result
     await run.dispose()
     const text = result.output.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')
@@ -208,7 +210,9 @@ describe('cwd resolution', () => {
     try {
       const ctx = await setup({ MOCK_ECHO_CWD: '1' })
       const parent = { id: 'parent', session: { header: { cwd: workdir } } } as unknown as Agent
-      const run = await ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal })
+      const run = await ctx.subagents.start('acp', {
+        label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+      })
       const result = await run.result
       await run.dispose()
       // Line 1: where the child process actually ran; line 2: the workspace the
@@ -229,7 +233,9 @@ describe('cwd resolution', () => {
       // A command that would create the sentinel if the child were ever spawned.
       await ctx.plugin(acp, { providerName: 'acp', command: 'touch', args: [sentinel], permission: 'reject', env: {} })
       const parent = { id: 'parent', session: { header: {} } } as unknown as Agent
-      await expect(ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+      await expect(ctx.subagents.start('acp', {
+        label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+      }))
         .rejects.toThrow('no working directory')
       // Resolution failed BEFORE the process boundary — nothing was launched.
       expect(existsSync(sentinel)).toBe(false)
@@ -254,7 +260,9 @@ describe('cwd resolution', () => {
         env: { MOCK_ECHO_CWD: '1' },
       })
       const parent = { id: 'parent', session: { header: { cwd: parentDir } } } as unknown as Agent
-      const run = await ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal })
+      const run = await ctx.subagents.start('acp', {
+        label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+      })
       const result = await run.result
       await run.dispose()
       expect(text(result.output)).toBe(`${configured}\n${configured}`)
@@ -350,7 +358,9 @@ describe('cwd resolution', () => {
     // re-introduce the launch-directory dependency this resolution removes.
     const ctx = await setup({})
     const parent = { id: 'parent', session: { header: { cwd: 'relative/workspace' } } } as unknown as Agent
-    await expect(ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+    await expect(ctx.subagents.start('acp', {
+      label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+    }))
       .rejects.toThrow('must be an absolute path')
   })
 
@@ -361,7 +371,9 @@ describe('cwd resolution', () => {
     try {
       const ctx = await setup({})
       const parent = { id: 'parent', session: { header: { cwd: file } } } as unknown as Agent
-      await expect(ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+      await expect(ctx.subagents.start('acp', {
+        label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+      }))
         .rejects.toThrow('not an accessible directory')
     } finally {
       rmSync(tmp, { recursive: true, force: true })
@@ -377,7 +389,9 @@ describe('cwd resolution', () => {
       await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(acp, { providerName: 'acp', command: 'touch', args: [sentinel], permission: 'reject', env: {} })
       const parent = { id: 'parent', session: { header: { cwd: join(tmp, 'vanished') } } } as unknown as Agent
-      await expect(ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+      await expect(ctx.subagents.start('acp', {
+        label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+      }))
         .rejects.toThrow('not an accessible directory')
       expect(existsSync(sentinel)).toBe(false)
     } finally {

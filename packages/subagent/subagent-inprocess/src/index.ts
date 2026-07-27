@@ -24,9 +24,10 @@ import {
   resolveChildDepth,
 } from '@deepseek-ai/dsh-subagent'
 import type {
+  ResolvedSubagentStartRequest,
+  SubagentDescriptorData,
   SubagentResult,
   SubagentRun,
-  SubagentStartRequest,
   SubagentStopReason,
 } from '@deepseek-ai/dsh-subagent'
 // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
@@ -72,16 +73,27 @@ function prePublicationAbort(): Error {
   return new Error('subagent request was aborted before child publication')
 }
 
+/** Append one one-shot descriptor inside the child's initial turn before its first request. */
+function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescriptorData): void {
+  let appended = false
+  childCtx.on('agent/step', (agent) => {
+    if (appended) return
+    appended = true
+    agent.session.append('subagent/descriptor', descriptor)
+  })
+}
+
 /**
  * Establish and drive one in-process one-shot child. Fulfillment means the agent
  * is already published in the registry; rejection means the agent factory's
  * creation transaction and any partially-created child have reached quiescence.
+ * Every start appends its resolved descriptor inside the child's initial turn.
  * @param request - the trusted typed start request, including its required signal.
  * @param options - the optional fork seed.
  * @returns a ready holder-owned run.
  */
 export async function startInProcessRun(
-  request: SubagentStartRequest,
+  request: ResolvedSubagentStartRequest,
   options: InProcessRunOptions,
 ): Promise<SubagentRun> {
   assertSubagentMaxDepth(request.maxDepth)
@@ -116,6 +128,7 @@ export async function startInProcessRun(
     if (request.outputSchema !== undefined) {
       structured = attachStructuredRuntime(childCtx, request.outputSchema)
     }
+    attachDescriptorAppend(childCtx, request.descriptor)
   }
 
   const handle = await parent.ctx.agents.create({

@@ -65,7 +65,7 @@ export interface ContinuableStartSpec {
    * The delegation request. The manager reserves the stable child id, resolves
    * the durable descriptor, and composes the child itself.
    */
-  readonly request: Omit<SubagentStartRequest, 'signal' | 'outputSchema'>
+  readonly request: Omit<SubagentStartRequest, 'label' | 'signal' | 'outputSchema'>
   /** Caller cancellation, owning the operation only until inbox acceptance. */
   readonly signal: AbortSignal
 }
@@ -298,6 +298,7 @@ export class SubagentContinuationManager {
     const agentProvider = request.agentOptions?.provider ?? parent.options.provider
     const agentModel = request.agentOptions?.model ?? parent.options.model
     const descriptor = snapshotSubagentDescriptor({
+      mode: 'continuable',
       provider: spec.provider,
       label: spec.label,
       ...agentProvider !== undefined ? { agentProvider } : {},
@@ -587,7 +588,7 @@ export class SubagentContinuationManager {
     // which may carry an ANCESTOR's descriptor when the parent is itself a
     // continuable child.
     const descriptor = foldSubagentDescriptor(loaded.events.slice(loaded.meta.seedLength ?? 0))
-    if (descriptor === undefined) {
+    if (descriptor === undefined || descriptor.mode !== 'continuable') {
       throw new SubagentError(
         `subagent "${childId}" has no supported continuation state and cannot be resumed; `
         + 'do not retry send_message with this id',

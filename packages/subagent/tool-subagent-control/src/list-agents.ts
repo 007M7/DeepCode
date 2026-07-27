@@ -1,6 +1,7 @@
 /**
  * The globally named `list_agents` tool: a thin model-facing adapter over
- * `ctx.subagents.listChildren()`. It is separately loadable from the
+ * the continuable projection of `ctx.subagents.listChildren()`. It is
+ * separately loadable from the
  * root `send_message` plugin because it additionally requires the session
  * query service — a deployment may use `send_message` without loading session
  * query, and this plugin catches that misconfiguration at load.
@@ -15,6 +16,19 @@ import type {} from '@deepseek-ai/dsh-subagent'
 export const name = 'tool-subagent-list-agents'
 export const inject = ['tools', 'subagents', 'sessionQuery']
 
+type ListAgentsEntry =
+  | {
+    readonly kind: 'child'
+    readonly id: string
+    readonly label: string
+    readonly status: 'running' | 'complete'
+  }
+  | {
+    readonly kind: 'diagnostic'
+    readonly id: string
+    readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
+  }
+
 /**
  * Register the `list_agents` tool.
  * @param ctx - context carrying the tool registry, subagent service, and session query.
@@ -23,7 +37,7 @@ export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'list_agents',
     description:
-      'List your background subagents by durable id and label. Status is a snapshot of the stored '
+      'List your continuable background subagents by durable id and label. Status is a snapshot of the stored '
       + 'record: running means the subagent session is currently live in this process, complete means '
       + 'it exists only in storage and a `send_message` starts a new turn on the same conversation. '
       + 'The snapshot is not a delivery promise — `send_message` performs the authoritative check and '
@@ -74,7 +88,21 @@ export function apply(ctx: Context): void {
       }
       // The registry drains started tool bodies, so the scan must observe the
       // call's signal rather than finish a slow catalog after cancellation.
-      return await ctx.subagents.listChildren(parent.id, exec.signal)
+      const entries = await ctx.subagents.listChildren(parent.id, exec.signal)
+      const visible: ListAgentsEntry[] = []
+      for (const entry of entries) {
+        if (entry.kind === 'diagnostic') {
+          visible.push(entry)
+        } else if (entry.mode === 'continuable') {
+          visible.push({
+            kind: 'child',
+            id: entry.id,
+            label: entry.label,
+            status: entry.activity === 'running' ? 'running' : 'complete',
+          })
+        }
+      }
+      return visible
     },
   }))
 }

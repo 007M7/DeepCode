@@ -1993,11 +1993,11 @@ async followup( parent: Agent, childId: SessionId, content: ContentBlock[], opti
 async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 
 /**
- * Enumerate the parent's direct continuable children from the live-preferred
- * session corpus without loading or resuming an Agent. Session query supplies
- * lineage, candidate order, event reads, and live state; this service
- * interprets descriptors, status, and per-child diagnostics without consulting
- * Agent registrations, Activations, or providers.
+ * Enumerate the parent's direct session-backed subagents from the
+ * live-preferred session corpus without loading or resuming an Agent. Session
+ * query supplies lineage, candidate order, event reads, and live state; this
+ * service interprets descriptor mode, activity, and per-child diagnostics
+ * without consulting Agent registrations, Activations, or providers.
  *
  * The trace and exact descriptor read receive `signal`; the full event-list
  * read has no signal parameter, so the scan rechecks cancellation around
@@ -2040,7 +2040,7 @@ list(): string[]
  * fulfills; a rejection therefore has no run for the caller to dispose and
  * emits no run lifecycle events.
  * @param name - the provider to use.
- * @param request - child prompt, parent, signal, and optional capabilities.
+ * @param request - child label, prompt, parent, signal, and optional capabilities.
  * @returns the ready holder-owned run.
  */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
@@ -2048,7 +2048,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:147`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:156`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

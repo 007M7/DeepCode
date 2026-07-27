@@ -275,6 +275,7 @@ export class WorkflowExecution {
       let run: ChildHandle
       try {
         run = await this.children.startAgent({
+          label,
           prompt: rawPrompt,
           ...opts.schema !== undefined ? { schema: opts.schema } : {},
           ...opts.provider !== undefined ? { provider: opts.provider } : {},

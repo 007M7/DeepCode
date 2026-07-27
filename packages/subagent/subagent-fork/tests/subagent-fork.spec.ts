@@ -25,8 +25,16 @@ async function mountInvariants(ctx: Context): Promise<void> {
   await ctx.plugin(AgentLoopInvariant)
 }
 
-function start(ctx: Context, provider: string, request: Omit<SubagentStartRequest, 'signal'> & { signal?: AbortSignal }) {
-  return ctx.subagents.start(provider, { signal: request.signal ?? new AbortController().signal, ...request })
+function start(
+  ctx: Context,
+  provider: string,
+  request: Omit<SubagentStartRequest, 'label' | 'signal'> & { label?: string; signal?: AbortSignal },
+) {
+  return ctx.subagents.start(provider, {
+    label: request.label ?? 'child task',
+    signal: request.signal ?? new AbortController().signal,
+    ...request,
+  })
 }
 
 /** A bare `stop` finish that streams no content → the turn ends `completed`

@@ -1,5 +1,5 @@
 {"type":"session","version":0,"id":"33333333-3333-4333-8333-333333333333","createdAt":1789000001000,"cwd":"{{cwd}}","parentSession":"11111111-1111-4111-8111-111111111111","delegationDepth":1}
-{"type":"subagent/descriptor","seq":0,"time":1785544945198,"data":{"version":1,"provider":"spawn","label":"Reply with CHILD_OK","agentProvider":"deepseek-official","agentModel":"deepseek-v4-flash"}}
+{"type":"subagent/descriptor","seq":0,"time":1785544945198,"data":{"version":2,"mode":"continuable","provider":"spawn","label":"Reply with CHILD_OK","agentProvider":"deepseek-official","agentModel":"deepseek-v4-flash"}}
 {"type":"session/end-seed","seq":1,"time":1785544945198,"data":{}}
 {"type":"turn/start","seq":2,"time":1785544945199,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":3,"time":1785544945199,"data":{"content":[{"type":"text","text":"Reply with exactly the word CHILD_OK and nothing else."}],"source":{"kind":"user"},"role":"user","id":"cd28c816-821e-412c-bc7f-404bbb599641"},"surfaceOp":"append"}

@@ -1,7 +1,8 @@
 /**
  * Read-only interpretation of session-query lineage as durable subagent
  * children. The module owns no catalog state and does not consult Activation,
- * Agent-registry, continuation-manager, or provider state.
+ * Agent-registry, continuation-manager, or provider state. A child's
+ * descriptor distinguishes one-shot work from a continuable conversation.
  *
  * @module @deepseek-ai/dsh-subagent
  */
@@ -31,14 +32,15 @@ export type SubagentListEntry =
     readonly id: SessionId
     /** The durable creation label from the child's descriptor. */
     readonly label: string
+    /** Lifecycle policy declared when the child was created. */
+    readonly mode: 'one-shot' | 'continuable'
     /**
-     * Corpus snapshot status: `running` means the logical record is live in
-     * `ctx.sessions`; `complete` means it exists only in persistence and
-     * `send_message` may materialize another Activation. Neither encodes a durable
-     * outcome, and a listed `running` child may still reject delivery as an
-     * ownership conflict.
+     * Corpus snapshot activity: `running` means the logical record is live in
+     * `ctx.sessions`; `inactive` means it exists only in persistence. Neither
+     * encodes a durable outcome, and a continuable child may still reject
+     * delivery as an ownership conflict.
      */
-    readonly status: 'running' | 'complete'
+    readonly activity: 'running' | 'inactive'
   }
   | {
     readonly kind: 'diagnostic'
@@ -54,7 +56,7 @@ export type SubagentListEntry =
   }
 
 /**
- * Interpret one parent's direct session descendants as continuable subagents
+ * Interpret one parent's direct session descendants as session-backed subagents
  * without loading or resuming an Agent.
  * @param ctx - context carrying the optional session-query service.
  * @param parentSessionId - parent session whose direct children are listed.
@@ -108,7 +110,7 @@ async function inspectChild(
   try {
     const records = await runListingQuery(() => query.listEvents(childId), signal)
     // Only the child's own suffix: a fork seed may replay an ancestor's
-    // descriptor without making the fork itself a continuable subagent.
+    // descriptor without making the fork itself a subagent.
     const seedLength = candidate.header.seedLength ?? 0
     const descriptorSeqs = records
       .filter(record => record.seq >= seedLength && record.type === 'subagent/descriptor')
@@ -141,7 +143,8 @@ async function inspectChild(
       kind: 'child',
       id: childId,
       label: descriptor.label,
-      status: candidate.live ? 'running' : 'complete',
+      mode: descriptor.mode,
+      activity: candidate.live ? 'running' : 'inactive',
     }
   } catch (error: unknown) {
     const reason = perChildDiagnosticReason(error, queryRuntime.SessionQueryError)

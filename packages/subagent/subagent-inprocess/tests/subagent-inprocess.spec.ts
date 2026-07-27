@@ -9,7 +9,7 @@ import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentService, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
@@ -35,7 +35,17 @@ async function setup(script: Script, parentOptions: Partial<AgentOptions> = {}) 
 }
 
 function request(parent: Agent, signal = new AbortController().signal) {
-  return { prompt: [{ type: 'text' as const, text: 'child task' }], parent, signal }
+  return {
+    label: 'child task',
+    prompt: [{ type: 'text' as const, text: 'child task' }],
+    parent,
+    signal,
+    descriptor: snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: 'test',
+      label: 'child task',
+    }),
+  }
 }
 
 function text(blocks: readonly { type: string; text?: string }[]): string {

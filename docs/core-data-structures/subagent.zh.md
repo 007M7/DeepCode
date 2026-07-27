@@ -41,9 +41,12 @@ interface SubagentCapabilities {
  * What a caller asks for when starting a ONE-SHOT subagent. The tool layer
  * builds this from the model's `{ description, prompt }` plus its own config;
  * the service validates {@link SubagentCapabilities} against the named provider
- * before dispatching to {@link SubagentProvider.start}.
+ * and resolves the durable descriptor before dispatching to
+ * {@link SubagentProvider.start}.
  */
 interface SubagentStartRequest {
+  /** Short display label persisted with a session-backed child. */
+  readonly label: string
   /** Content delivered as the child's user message. */
   readonly prompt: ContentBlock[]
   /**
@@ -95,7 +98,18 @@ interface SubagentStartRequest {
 
 `signal` 是就绪前后唯一的取消通道。[subagent 组合控制 Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)规定 persona、live 全局工具过滤、绝对深度以及「可见性而非权限」的设计理由。
 
-提供方接收的正是此请求：单次委派不含由服务解析的继续执行状态，因为可继续子 agent 绝不会到达 `SubagentProvider.start()`。
+面向调用方的请求不携带目录格式细节或继续执行状态。`SubagentService.start()` 会在功能检查后解析分离的一次性描述符，再将以下面向提供方的请求传给所选传输；可继续子 agent 绝不会到达 `SubagentProvider.start()`：
+
+```ts type-equiv
+/**
+ * Provider-facing one-shot request after {@link SubagentService.start} resolves
+ * the durable child descriptor.
+ */
+interface ResolvedSubagentStartRequest extends SubagentStartRequest {
+  /** Detached descriptor a session-backed provider persists in the child log. */
+  readonly descriptor: SubagentDescriptorData
+}
+```
 
 ## 可继续子 agent 与激活
 
@@ -200,11 +214,13 @@ interface ContinuableCreateSpec {
 }
 ```
 
-描述符（[descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts) 中的 `SubagentDescriptorData`）会对显式字段建立快照——提供方名称、作为持久化创建 `label` 的委派 `description`、已解析的子 agent `agentOptions.provider`/`model`、可选的 `persona`/`toolFilter`——绝不会对可合并扩展的 `AgentOptions` 对象建立快照，因此无关的扩展值不会破坏继续执行，后续新增组合配置输入则是一次有意的版本更改。它省略 `subagentDepth`（冷恢复以持久化 header 中的 `delegationDepth` 作为单调下界）和 `outputSchema`（单次结果契约，而非持久化组合配置）。继续执行管理器会在任何提供方提供的谱系之后、初始 prompt 获准之前，追加对模型隐藏的 `subagent/descriptor` 事件；`header.seedLength` 仍是 fork 谱系边界，因此描述符查找会读取子 agent 自身的后缀。该事件只进入日志：不含 `surfaceOp`，绝不进入模型历史，并由仅追加日志跨压缩保留。
+描述符（[descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts) 中的 `SubagentDescriptorData`）是每个由会话支撑的 subagent 所使用、按模式判别的持久化身份。两种模式都携带提供方名称和作为持久化创建 `label` 的委派 `description`。`one-shot` 到此为止；`continuable` 还会对已解析的子 agent `agentOptions.provider`／`model` 与可选的 `persona`／`toolFilter` 建立快照，用于冷恢复。它绝不会对可合并扩展的 `AgentOptions` 对象建立快照，因此无关的扩展值不会破坏继续执行，后续新增组合配置输入则是一次有意的版本更改。描述符省略 `subagentDepth`（冷恢复以持久化 header 中的 `delegationDepth` 作为单调下界）和 `outputSchema`（单次运行或 Activation 的结果契约，而非持久化身份）。
+
+本地一次性提供方会在子 agent 的初始轮次内、首次请求前追加描述符。继续执行管理器会在任何提供方提供的谱系之后、初始 prompt 获准之前追加描述符；`header.seedLength` 仍是 fork 谱系边界，因此描述符查找会读取子 agent 自身的后缀。该事件只进入日志：不含 `surfaceOp`，绝不进入模型历史，并由仅追加日志跨压缩保留。格式错误的当前版本描述符属于损坏；本运行时无法对不受支持的版本进行分类。
 
 ## 持久化枚举：`listChildren()` 与 `SubagentListEntry`
 
-`SubagentService.listChildren(parentSessionId)` 从一次 `ctx.sessionQuery.traceSession()` 观测中枚举 parent 的直接可继续 child，而不会加载或恢复任何 Agent。会话谱系的范围比 subagent 身份更广——普通 fork 和一次性 child 都会共享 `parentSession`——因此，child 自身后缀中恰好一个受支持的 `subagent/descriptor` 事件（位于 `seedLength` 之后，避免 fork seed 泄漏祖先描述符）是唯一的 subagent 判别信息。结果是一个按追踪结果中 `createdAt`、再按 id 排列候选顺序的 `SubagentListEntry[]`：有效描述符生成 `child` 条目，其 `status` 是逻辑记录的快照（`running` 表示在 `ctx.sessions` 中存活，`complete` 表示只存在于持久化存储中并可由 `send_message` 恢复）；逐 child 检查失败生成 `diagnostic` 条目（`corrupt`、`unsupported` 或 `unavailable`），因此一个损坏的 sibling 不会隐藏健康 child；缺少描述符则不生成条目。构建初始追踪时的失败会让整个调用失败——只有得到可信候选集后才开始逐 child 隔离。服务将 `sessionQuery` 保持为按 id 继续执行时的可选依赖：缺少该服务时，`listChildren()` 抛出 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`，而面向模型的 `list_agents` 适配器（[dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) 中可单独加载的 `/list-agents` 插件）会在插件加载时要求该服务。枚举不会查询继续执行管理器的 Activation map 或提供方可用性；`send_message` 仍是消息送达时的权威操作，列表中的 `running` child 仍可能因所有权冲突而拒绝投递。
+`SubagentService.listChildren(parentSessionId)` 从一次 `ctx.sessionQuery.traceSession()` 观测中枚举 parent 直接且由会话支撑的 subagent，而不会加载或恢复任何 Agent。会话谱系的范围比 subagent 身份更广——普通 fork 也会共享 `parentSession`——因此，child 自身后缀中恰好一个受支持的 `subagent/descriptor` 事件（位于 `seedLength` 之后，避免 fork seed 泄漏祖先描述符）是唯一的 subagent 判别信息。结果是一个按追踪结果中 `createdAt`、再按 id 排列候选顺序的 `SubagentListEntry[]`：有效描述符生成带有 `mode: 'one-shot' | 'continuable'` 和 `activity: 'running' | 'inactive'` 的 `child` 条目；逐 child 检查失败生成 `diagnostic` 条目（`corrupt`、`unsupported` 或 `unavailable`），因此一个损坏的 sibling 不会隐藏健康 child；缺少描述符则不生成条目。活动状态只表示逻辑记录是否在 `ctx.sessions` 中存活，而不表示结果或可恢复性。UI 等服务消费方可以展示两种模式；面向模型的 `list_agents` 适配器（[dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) 中可单独加载的 `/list-agents` 插件）则只保留可继续条目，并将活动状态映射到现有的 `running`／`complete` 词汇。构建初始追踪时的失败会让整个调用失败——只有得到可信候选集后才开始逐 child 隔离。服务将 `sessionQuery` 保持为按 id 继续执行时的可选依赖：缺少该服务时，`listChildren()` 抛出 `SubagentError`，并携带错误码 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`；列表工具则在插件加载时要求 `ctx.subagents` 与 `ctx.sessionQuery`。枚举不会查询继续执行管理器的 Activation map、Agent 注册表或提供方可用性；`send_message` 仍是消息送达时的权威操作，列表中的运行中可继续 child 仍可能因所有权冲突而拒绝投递。
 
 ## 终态结果：`SubagentResult`
 
@@ -295,7 +311,7 @@ interface SubagentRun {
 }
 ```
 
-本地单次 run 必须在 `start()` fulfill 之前发布一个普通子 agent/会话，将该子会话 id 作为 `SubagentRun.id` 返回，以 `localAgent` 暴露确切的子 agent，并在子 agent 的 `parentSession` header 中记录 `request.parent.session.id`。运行时所有权可以把子 agent 放在 parent、提供方或 root 作用域下。远程提供方则返回 parent 作用域的生命周期 id 与 `localAgent: undefined`。
+本地单次 run 必须在 `start()` fulfill 之前发布一个普通子 agent／会话，将该子会话 id 作为 `SubagentRun.id` 返回，以 `localAgent` 暴露确切的子 agent，在子 agent 的 `parentSession` header 中记录 `request.parent.session.id`，并在子 agent 的初始轮次内、首次请求前追加已解析的描述符。运行时所有权可以把子 agent 放在 parent、提供方或 root 作用域下。远程提供方则返回 parent 作用域的生命周期 id 与 `localAgent: undefined`；由于没有本地 child Session，它不会出现在基于追踪的枚举结果中。
 
 <a id="the-provider-seam-subagentprovider"></a>
 
@@ -323,13 +339,13 @@ interface SubagentProvider {
   /**
    * Establish a ONE-SHOT child and return its handle only after publication.
    * The service has already validated that every requested start-time
-   * capability is supported, so an implementation may assume e.g.
-   * `request.maxDepth` is honorable when present. If setup fails or
-   * `request.signal` aborts before fulfillment, the provider owns and cleans
-   * all partial resources before this promise rejects. Ownership transfers to
-   * the caller only on fulfillment.
+   * capability is supported and resolved `request.descriptor`, so a
+   * session-backed implementation appends that descriptor inside the child's
+   * initial turn. If setup fails or `request.signal` aborts before fulfillment,
+   * the provider owns and cleans all partial resources before this promise
+   * rejects. Ownership transfers to the caller only on fulfillment.
    */
-  start(request: SubagentStartRequest): Promise<SubagentRun>
+  start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
   /**
    * OPTIONAL (continuable-creation capability): contribute the detached
    * creation inputs that distinguish this provider's continuable children —

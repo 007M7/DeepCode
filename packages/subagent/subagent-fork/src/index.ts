@@ -14,9 +14,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
+  ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentProvider,
-  SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
 import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
@@ -65,7 +65,7 @@ class ForkProvider implements SubagentProvider {
 
   constructor(readonly name: string) {}
 
-  start(request: SubagentStartRequest) {
+  start(request: ResolvedSubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
     return startInProcessRun(request, {
       // Only pass a seed when there's a completed turn to inherit; an empty seed

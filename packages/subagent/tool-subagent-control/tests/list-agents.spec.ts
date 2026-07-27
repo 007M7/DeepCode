@@ -90,19 +90,49 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     // Pin the render deterministically past the service: the tool is a thin
     // adapter, so its fixed text forms are what this test pins.
     const entries: SubagentListEntry[] = [
-      { kind: 'child', id: started.childId, label: 'real child', status: 'complete' },
+      {
+        kind: 'child',
+        id: SessionId('one-shot-child'),
+        label: 'finished once',
+        mode: 'one-shot',
+        activity: 'inactive',
+      },
+      {
+        kind: 'child',
+        id: started.childId,
+        label: 'real child',
+        mode: 'continuable',
+        activity: 'inactive',
+      },
+      {
+        kind: 'child',
+        id: SessionId('running-child'),
+        label: 'still working',
+        mode: 'continuable',
+        activity: 'running',
+      },
       { kind: 'diagnostic', id: SessionId('broken-child'), reason: 'corrupt' },
     ]
     ctx.subagents.listChildren = () => Promise.resolve(entries)
     const result = await callTool(ctx, 'list_agents', {}, parent)
     expect(result.isError).toBe(false)
     expect(text(result)).toBe(
-      `${started.childId} [complete] — real child\nbroken-child [diagnostic: corrupt]`,
+      `${started.childId} [complete] — real child\n`
+      + 'running-child [running] — still working\n'
+      + 'broken-child [diagnostic: corrupt]',
     )
   })
 
-  it('lists a real settled child end-to-end with its durable label', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
+  it('lists a real settled continuable child and omits a real one-shot sibling', async () => {
+    const { ctx, parent } = await setup([textResponse('once'), textResponse('done')])
+    const oneShot = await ctx.subagents.start('spawn', {
+      label: 'finished once',
+      prompt: [{ type: 'text', text: 'one-shot task' }],
+      parent,
+      signal: new AbortController().signal,
+    })
+    await oneShot.result
+    await oneShot.dispose()
     const started = await ctx.subagents.startContinuable({
       provider: 'spawn',
       label: 'summarize the doc',

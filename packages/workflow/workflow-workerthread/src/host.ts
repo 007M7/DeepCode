@@ -322,6 +322,7 @@ export class WorkerRun implements WorkflowRun {
     let run: SubagentRun
     try {
       run = await this.subagents.start(this.provider, {
+        label: request.label,
         prompt: [{ type: 'text', text: request.prompt }],
         parent: this.parent,
         signal: this.controller.signal,

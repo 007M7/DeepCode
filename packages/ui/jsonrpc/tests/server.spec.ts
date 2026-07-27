@@ -91,6 +91,7 @@ async function settleSubagent(
   })
   try {
     const run = await ctx.subagents.start(info.provider, {
+      label: 'synthetic child',
       parent,
       prompt: [],
       signal: new AbortController().signal,
@@ -556,11 +557,13 @@ describe('HarnessSdkServer', () => {
       })
 
       const firstRun = await ctx.subagents.start('reused', {
+        label: 'first reused child',
         parent: oldParent.agent,
         prompt: [],
         signal: new AbortController().signal,
       })
       const sameLifetimeRun = await ctx.subagents.start('reused', {
+        label: 'same lifetime child',
         parent: oldParent.agent,
         prompt: [],
         signal: new AbortController().signal,
@@ -580,6 +583,7 @@ describe('HarnessSdkServer', () => {
       })
       currentLocalAgent = newChild.agent
       const secondRun = await ctx.subagents.start('reused', {
+        label: 'second reused child',
         parent: newParent.agent,
         prompt: [],
         signal: new AbortController().signal,
@@ -650,6 +654,7 @@ describe('HarnessSdkServer', () => {
         }),
       })
       const localRun = await ctx.subagents.start('reused-provider', {
+        label: 'local reused child',
         parent: parent.agent,
         prompt: [],
         signal: new AbortController().signal,
@@ -668,6 +673,7 @@ describe('HarnessSdkServer', () => {
         }),
       })
       const remoteRun = await ctx.subagents.start('reused-provider', {
+        label: 'remote reused child',
         parent: parent.agent,
         prompt: [],
         signal: new AbortController().signal,
@@ -750,6 +756,7 @@ describe('HarnessSdkServer', () => {
       // Start before the server subscribes. The terminal payload still carries
       // this run's exact local child without reconstructing it from ids.
       const missedStartRun = await ctx.subagents.start('fork', {
+        label: 'missed start child',
         parent: parentHandle.agent,
         prompt: [],
         signal: new AbortController().signal,

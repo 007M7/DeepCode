@@ -280,6 +280,7 @@ export function apply(ctx: Context, config: Config): void {
 
         const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
         const request = {
+          label: args.description,
           prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
           parent,
           ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},

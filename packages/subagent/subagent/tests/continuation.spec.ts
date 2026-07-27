@@ -201,7 +201,9 @@ describe('SubagentService.startContinuable', () => {
     const descriptor = loaded.events[descriptorIndex] as SessionEvent<'subagent/descriptor'>
     expect(descriptor.data).toEqual({
       version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
       provider: 'spawn',
+      label: 'child task',
       agentProvider: 'mock',
       agentModel: 'mock',
     })
@@ -294,7 +296,9 @@ describe('SubagentService.startContinuable', () => {
 
     expect(descriptor?.data).toEqual({
       version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
       provider: 'spawn',
+      label: 'child task',
     })
     await drainManager(ctx)
   })
@@ -326,7 +330,9 @@ describe('SubagentService.startContinuable', () => {
     expect(child.session.events.find(event => event.type === 'subagent/descriptor')?.data)
       .toEqual({
         version: SUBAGENT_DESCRIPTOR_VERSION,
+        mode: 'continuable',
         provider: 'spawn',
+        label: 'child task',
         toolFilter: { deny: ['noop'] },
       })
     await drainManager(ctx)
@@ -526,8 +532,9 @@ describe('SubagentService.followup residency routing', () => {
 
   it('reports an unresumable child whose persisted log has no supported descriptor', async () => {
     const { ctx, parent } = await setup([textResponse('one shot')])
-    // A ONE-SHOT child persists a log but never seeds a descriptor.
+    // A one-shot child has durable identity but no supported continuation state.
     const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
       prompt: message('one-shot work'),
       parent,
       signal: testSignal,
@@ -774,6 +781,7 @@ describe('continuable durability and teardown', () => {
     ])
     const { ctx, parent } = await setupWith(adapter)
     const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot task',
       prompt: message('one-shot task'),
       parent,
       signal: testSignal,
@@ -1374,6 +1382,7 @@ describe('continuable public surface', () => {
   it('keeps one-shot runs free of a steering capability', async () => {
     const { ctx, parent } = await setup([textResponse('one shot')])
     const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
       prompt: message('one-shot work'),
       parent,
       signal: testSignal,

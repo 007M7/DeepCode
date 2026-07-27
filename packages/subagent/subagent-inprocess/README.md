@@ -11,7 +11,7 @@ This package is the shared run driver for the two in-process providers' one-shot
 The driver follows this sequence:
 
 1. Validate the parent depth and optional absolute `maxDepth`, then derive child depth as parent depth plus one and persist it in the child session header.
-2. Mint a fresh child session id and call `parent.ctx.agents.create` directly, passing the optional fork seed and required request signal into the factory's creation transaction. During the unpublished setup window, install the requested persona, tool restriction, and structured-output runtime.
+2. Mint a fresh child session id and call `parent.ctx.agents.create` directly, passing the optional fork seed and required request signal into the factory's creation transaction. During the unpublished setup window, install the requested persona, tool restriction, structured-output runtime, and a one-shot `agent/step` contribution that appends the resolved `subagent/descriptor` event after the initial `turn/start` and before the first request.
 3. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
 4. Read the child's own last assistant message and latest message-triggered turn reason, excluding the fork seed prefix so a seeded parent message is never mistaken for child output.
 

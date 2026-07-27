@@ -64,6 +64,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     })
 
     const run = await ctx.subagents.start('acp', {
+      label: 'reply pong',
       prompt: [{ type: 'text', text: 'Reply with exactly the word PONG and nothing else. Do not use any tools.' }],
       parent: fakeParent,
       signal: new AbortController().signal,
@@ -95,6 +96,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     })
 
     const run = await ctx.subagents.start('acp', {
+      label: 'write proof file',
       prompt: [{ type: 'text', text:
         'Use the bash tool to write the text ACP_CHILD_WAS_HERE into a file named proof.txt '
         + 'in the current directory. Then reply DONE.' }],

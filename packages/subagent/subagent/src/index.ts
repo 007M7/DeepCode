@@ -41,6 +41,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
+  ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentProvider,
   SubagentRun,
@@ -60,12 +61,14 @@ import type {
 } from './continuation.ts'
 import { listChildren as listSubagentChildren } from './list-children.ts'
 import type { SubagentListEntry } from './list-children.ts'
+import { snapshotSubagentDescriptor } from './descriptor.ts'
 
 export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
 export type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
+  ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentProvider,
   SubagentResult,
@@ -79,7 +82,14 @@ export {
   snapshotSubagentDescriptor,
   SUBAGENT_DESCRIPTOR_VERSION,
 } from './descriptor.ts'
-export type { SubagentDescriptorData, SubagentDescriptorInput } from './descriptor.ts'
+export type {
+  ContinuableSubagentDescriptorData,
+  ContinuableSubagentDescriptorInput,
+  OneShotSubagentDescriptorData,
+  OneShotSubagentDescriptorInput,
+  SubagentDescriptorData,
+  SubagentDescriptorInput,
+} from './descriptor.ts'
 export { seedDescriptorTurn } from './descriptor-seed.ts'
 export { SubagentError } from './error.ts'
 export { settleRun } from './run-settlement.ts'
@@ -224,11 +234,11 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Enumerate the parent's direct continuable children from the live-preferred
-   * session corpus without loading or resuming an Agent. Session query supplies
-   * lineage, candidate order, event reads, and live state; this service
-   * interprets descriptors, status, and per-child diagnostics without consulting
-   * Agent registrations, Activations, or providers.
+   * Enumerate the parent's direct session-backed subagents from the
+   * live-preferred session corpus without loading or resuming an Agent. Session
+   * query supplies lineage, candidate order, event reads, and live state; this
+   * service interprets descriptor mode, activity, and per-child diagnostics
+   * without consulting Agent registrations, Activations, or providers.
    *
    * The trace and exact descriptor read receive `signal`; the full event-list
    * read has no signal parameter, so the scan rechecks cancellation around
@@ -293,7 +303,7 @@ export class SubagentService extends Service {
    * fulfills; a rejection therefore has no run for the caller to dispose and
    * emits no run lifecycle events.
    * @param name - the provider to use.
-   * @param request - child prompt, parent, signal, and optional capabilities.
+   * @param request - child label, prompt, parent, signal, and optional capabilities.
    * @returns the ready holder-owned run.
    */
   async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
@@ -301,7 +311,13 @@ export class SubagentService extends Service {
     this.assertCapabilities(provider, request)
     assertSubagentMaxDepth(request.maxDepth)
     if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
-    return observeRun(this.emitLifecycle, name, request.parent, await provider.start(request))
+    const descriptor = snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: name,
+      label: request.label,
+    })
+    const resolved: ResolvedSubagentStartRequest = { ...request, descriptor }
+    return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))
   }
 
   /**

@@ -49,8 +49,16 @@ function text(blocks: { type: string; text?: string }[]): string {
   return blocks.filter(b => b.type === 'text').map(b => b.text).join('')
 }
 
-function start(ctx: Context, provider: string, request: Omit<SubagentStartRequest, 'signal'> & { signal?: AbortSignal }) {
-  return ctx.subagents.start(provider, { signal: request.signal ?? new AbortController().signal, ...request })
+function start(
+  ctx: Context,
+  provider: string,
+  request: Omit<SubagentStartRequest, 'label' | 'signal'> & { label?: string; signal?: AbortSignal },
+) {
+  return ctx.subagents.start(provider, {
+    label: request.label ?? 'child task',
+    signal: request.signal ?? new AbortController().signal,
+    ...request,
+  })
 }
 
 /** Invoke the child lifecycle effect while its parent-owned setup is still unpublished. */

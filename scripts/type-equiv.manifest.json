@@ -1096,6 +1096,11 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ResolvedSubagentStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
       "symbol": "CoordinatorMessageSource",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },

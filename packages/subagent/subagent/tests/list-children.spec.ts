@@ -98,7 +98,7 @@ function childEvents(descriptor: unknown): SessionEvent[] {
 }
 
 function descriptorPayload(label: string, version = SUBAGENT_DESCRIPTOR_VERSION) {
-  return { version, provider: 'spawn', label }
+  return { version, mode: 'continuable' as const, provider: 'spawn', label }
 }
 
 describe('SubagentService.listChildren', () => {
@@ -121,7 +121,7 @@ describe('SubagentService.listChildren', () => {
     child.append('subagent/descriptor', descriptorPayload('query-only child'))
 
     await expect(ctx.subagents.listChildren(parentId)).resolves.toEqual([
-      { kind: 'child', id: childId, label: 'query-only child', status: 'running' },
+      { kind: 'child', id: childId, label: 'query-only child', mode: 'continuable', activity: 'running' },
     ])
   })
 
@@ -132,13 +132,44 @@ describe('SubagentService.listChildren', () => {
     )
   })
 
-  it('lists a persisted continuable child as complete with its durable label', async () => {
+  it('lists a persisted continuable child as inactive with its durable label', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const childId = await startChild(ctx, parent, 'summarize the doc')
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([
-      { kind: 'child', id: childId, label: 'summarize the doc', status: 'complete' },
+      { kind: 'child', id: childId, label: 'summarize the doc', mode: 'continuable', activity: 'inactive' },
     ])
+  })
+
+  it('lists one-shot and continuable children from the same trace', async () => {
+    const { ctx, parent } = await setup([textResponse('once'), textResponse('again')])
+    const oneShot = await ctx.subagents.start('spawn', {
+      label: 'one-shot child',
+      prompt: [{ type: 'text', text: 'finish once' }],
+      parent,
+      signal: new AbortController().signal,
+    })
+    const oneShotId = oneShot.id
+    await oneShot.result
+    await oneShot.dispose()
+    const continuableId = await startChild(ctx, parent, 'continuable child')
+
+    const entries = await ctx.subagents.listChildren(parent.id)
+    expect(entries).toHaveLength(2)
+    expect(entries).toContainEqual({
+      kind: 'child',
+      id: oneShotId,
+      label: 'one-shot child',
+      mode: 'one-shot',
+      activity: 'inactive',
+    })
+    expect(entries).toContainEqual({
+      kind: 'child',
+      id: continuableId,
+      label: 'continuable child',
+      mode: 'continuable',
+      activity: 'inactive',
+    })
   })
 
   it('accepts a persisted (non-live) parent target after restart', async () => {
@@ -159,7 +190,7 @@ describe('SubagentService.listChildren', () => {
     }, childEvents(descriptorPayload('persisted parent case')))
     const entries = await ctx.subagents.listChildren(coldParent)
     expect(entries).toEqual([
-      { kind: 'child', id: childId, label: 'persisted parent case', status: 'complete' },
+      { kind: 'child', id: childId, label: 'persisted parent case', mode: 'continuable', activity: 'inactive' },
     ])
   })
 
@@ -197,8 +228,12 @@ describe('SubagentService.listChildren', () => {
     live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append('subagent/descriptor', descriptorPayload('live child'))
     const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toContainEqual({ kind: 'child', id: settled, label: 'settled child', status: 'complete' })
-    expect(entries).toContainEqual({ kind: 'child', id: liveId, label: 'live child', status: 'running' })
+    expect(entries).toContainEqual({
+      kind: 'child', id: settled, label: 'settled child', mode: 'continuable', activity: 'inactive',
+    })
+    expect(entries).toContainEqual({
+      kind: 'child', id: liveId, label: 'live child', mode: 'continuable', activity: 'running',
+    })
   })
 
   it('diagnoses duplicate descriptors as corrupt without hiding healthy siblings', async () => {
@@ -217,7 +252,9 @@ describe('SubagentService.listChildren', () => {
     }, events)
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toContainEqual({ kind: 'diagnostic', id: corrupt, reason: 'corrupt' })
-    expect(entries).toContainEqual({ kind: 'child', id: healthy, label: 'healthy sibling', status: 'complete' })
+    expect(entries).toContainEqual({
+      kind: 'child', id: healthy, label: 'healthy sibling', mode: 'continuable', activity: 'inactive',
+    })
   })
 
   it('diagnoses an invalid child event surface as corrupt', async () => {
@@ -244,7 +281,7 @@ describe('SubagentService.listChildren', () => {
     const { ctx, parent } = await setup([])
     const malformed = await authorChild(ctx, '00000000-0000-4000-8000-0000000000ff', {
       parentSession: parent.id,
-    }, childEvents({ version: SUBAGENT_DESCRIPTOR_VERSION, provider: 7 }))
+    }, childEvents({ version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'continuable', provider: 7 }))
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([{ kind: 'diagnostic', id: malformed, reason: 'corrupt' }])
   })
@@ -275,10 +312,15 @@ describe('SubagentService.listChildren', () => {
     const { ctx, parent } = await setup([])
     const foreign = await authorChild(ctx, '00000000-0000-4000-8000-0000000000bb', {
       parentSession: parent.id,
-    }, childEvents({ version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'not-mounted', label: 'orphan provider' }))
+    }, childEvents({
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'not-mounted',
+      label: 'orphan provider',
+    }))
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([
-      { kind: 'child', id: foreign, label: 'orphan provider', status: 'complete' },
+      { kind: 'child', id: foreign, label: 'orphan provider', mode: 'continuable', activity: 'inactive' },
     ])
   })
 
@@ -393,8 +435,8 @@ describe('SubagentService.listChildren', () => {
     }, compactedEvents)
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([
-      { kind: 'child', id: plain, label: 'twin child', status: 'complete' },
-      { kind: 'child', id: compacted, label: 'twin child', status: 'complete' },
+      { kind: 'child', id: plain, label: 'twin child', mode: 'continuable', activity: 'inactive' },
+      { kind: 'child', id: compacted, label: 'twin child', mode: 'continuable', activity: 'inactive' },
     ])
   })
 
@@ -406,7 +448,7 @@ describe('SubagentService.listChildren', () => {
     }, childEvents(descriptorPayload('grandchild')))
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([
-      { kind: 'child', id: childId, label: 'direct child', status: 'complete' },
+      { kind: 'child', id: childId, label: 'direct child', mode: 'continuable', activity: 'inactive' },
     ])
   })
 

@@ -522,11 +522,11 @@ Source: [`packages/core/session/src/types.ts:216`](../packages/core/session/src/
 
 ```ts persistence-catalog
 /**
- * Durable declared composition of a continuable subagent child, appended
- * once by the establishing provider inside the child's initial turn,
- * before its first request. Log-only: it carries no `surfaceOp`, never
- * enters model history, and the append-only log retains it when
- * compaction replaces surface history.
+ * Durable identity and lifecycle mode of a session-backed subagent child,
+ * appended once by the establishing provider inside the child's initial
+ * turn, before its first request. Continuable records also carry their
+ * resumable composition. Log-only: it carries no `surfaceOp`, never enters
+ * model history, and survives compaction.
  */
 'subagent/descriptor': SubagentDescriptorData
 ```
