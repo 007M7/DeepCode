@@ -89,6 +89,22 @@ async function assertPinnedRepository(repository) {
     throw new Error('invalid repository-relative gate-log path')
   }
   assertIdentity(repository.identity, 'repository')
+  const names = repository.relative.split(sep)
+  if (!Array.isArray(repository.components) || repository.components.length !== names.length) {
+    throw new Error('invalid gate-log path-component plan')
+  }
+  for (let index = 0; index < names.length; index += 1) {
+    const component = repository.components[index]
+    if (
+      typeof component !== 'object'
+      || component === null
+      || component.name !== names[index]
+      || !('identity' in component)
+    ) {
+      throw new Error('invalid gate-log path-component plan')
+    }
+    if (component.identity !== null) assertIdentity(component.identity, `path component ${component.name}`)
+  }
   const pinnedMetadata = await stat('.', { bigint: true })
   if (!pinnedMetadata.isDirectory() || !sameIdentity(pinnedMetadata, repository.identity)) {
     throw new Error('gate-log repository identity changed before the helper started')
@@ -101,34 +117,49 @@ async function assertPinnedRepository(repository) {
   ) {
     throw new Error('gate-log repository root is not a real directory')
   }
+  return repository.components
 }
 
-async function enterLogDirectory(relativePath, create) {
+async function enterLogDirectory(components, create) {
   const traversed = []
-  for (const component of relativePath.split(sep)) {
-    if (component === '' || component === '.' || component === '..') {
-      throw new Error(`invalid gate-log path component ${JSON.stringify(component)}`)
+  for (const component of components) {
+    if (component.name === '' || component.name === '.' || component.name === '..') {
+      throw new Error(`invalid gate-log path component ${JSON.stringify(component.name)}`)
     }
-    traversed.push(component)
+    traversed.push(component.name)
     let componentMetadata
+    let created = false
     try {
-      componentMetadata = await lstat(component, { bigint: true })
+      componentMetadata = await lstat(component.name, { bigint: true })
     } catch (error) {
       if (errorCode(error) !== 'ENOENT') throw error
+      if (component.identity !== null) {
+        throw new Error(`gate-log path component disappeared after validation: ${traversed.join('/')}`)
+      }
       if (!create) return undefined
       try {
-        await mkdir(component, { mode: 0o700 })
+        await mkdir(component.name, { mode: 0o700 })
       } catch (mkdirError) {
-        if (errorCode(mkdirError) !== 'EEXIST') throw mkdirError
+        if (errorCode(mkdirError) === 'EEXIST') {
+          throw new Error(`gate-log path component appeared after validation: ${traversed.join('/')}`)
+        }
+        throw mkdirError
       }
-      componentMetadata = await lstat(component, { bigint: true })
+      componentMetadata = await lstat(component.name, { bigint: true })
+      created = true
+    }
+    if (component.identity === null && !created) {
+      throw new Error(`gate-log path component appeared after validation: ${traversed.join('/')}`)
+    }
+    if (component.identity !== null && !sameIdentity(componentMetadata, component.identity)) {
+      throw new Error(`gate-log path component identity changed after validation: ${traversed.join('/')}`)
     }
     const shown = traversed.join('/')
     if (!componentMetadata.isDirectory() || componentMetadata.isSymbolicLink()) {
       throw new Error(`gate-log path component is not a real directory: ${shown}`)
     }
-    const expected = identityOf(componentMetadata)
-    process.chdir(component)
+    const expected = component.identity ?? identityOf(componentMetadata)
+    process.chdir(component.name)
     const pinnedMetadata = await stat('.', { bigint: true })
     if (!pinnedMetadata.isDirectory() || !sameIdentity(pinnedMetadata, expected)) {
       throw new Error(`gate-log path component identity changed before pinning: ${shown}`)
@@ -195,8 +226,8 @@ async function writeLog(request) {
 async function main() {
   const request = await readRequest()
   assertRequest(request)
-  await assertPinnedRepository(request.repository)
-  const directory = await enterLogDirectory(request.repository.relative, request.operation === 'write')
+  const components = await assertPinnedRepository(request.repository)
+  const directory = await enterLogDirectory(components, request.operation === 'write')
   if (directory === undefined) return { removed: [] }
   switch (request.operation) {
     case 'write': {

@@ -25,6 +25,7 @@ import {
   formatOnlyNotice,
   gateDependencyClosure,
   gatePlanForMode,
+  isMainModule,
   listedGatePlan,
   limitGateFailureLog,
   parseCliRequest,
@@ -238,6 +239,15 @@ describe('gate plan inspection and replay', () => {
       scope: 'complete',
       maxWorkers: 7,
     })
+  })
+
+  it.skipIf(process.platform === 'win32')('recognizes a symlinked script entry path', () => {
+    const temporary = temporaryRoot('dsh-run-gates-entry-')
+    const entry = join(temporary, 'run-gates.ts')
+    symlinkSync(join(repositoryRoot, 'scripts/run-gates.ts'), entry)
+
+    expect(isMainModule(entry)).toBe(true)
+    expect(isMainModule(join(temporary, 'missing.ts'))).toBe(false)
   })
 
   it('renders a cross-platform scheduler replay and labels focused evidence', () => {
@@ -463,6 +473,103 @@ describe('gate failure logs', () => {
       }
       expect(readFileSync(join(displacedCache, 'gates/old.log'), 'utf8')).toBe('old private log\n')
     }
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a real-directory ancestor moved into place after validation', async () => {
+    const subjectGate = gate('subject')
+    const subject = plan([subjectGate])
+
+    for (const operation of ['write', 'prune', 'clean'] as const) {
+      const auditRoot = temporaryRoot(`dsh-gate-${operation}-real-swap-`)
+      const repositoryRoot = join(auditRoot, 'repository')
+      const external = join(auditRoot, 'external')
+      const cache = join(repositoryRoot, '.cache')
+      const directory = join(cache, 'gates')
+      const displacedCache = join(repositoryRoot, '.cache-pinned')
+      const externalCache = join(external, 'cache')
+      mkdirSync(directory, { recursive: true })
+      mkdirSync(join(externalCache, 'gates'), { recursive: true })
+      writeFileSync(join(directory, 'old.log'), 'old private log\n')
+      const victim = operation === 'write' ? undefined : join(externalCache, 'gates/victim.log')
+      if (victim !== undefined) writeFileSync(victim, 'keep\n')
+      const swapAncestor = (): void => {
+        renameSync(cache, displacedCache)
+        renameSync(externalCache, cache)
+      }
+
+      let invocation: Promise<unknown>
+      if (operation === 'write') {
+        invocation = writeGateFailureLog(subject, resultFor(subjectGate, 'failed'), {
+          directory,
+          repositoryRoot,
+          retention: 1,
+          unique: operation,
+          platform: 'linux',
+          beforeHelper: swapAncestor,
+        })
+      } else if (operation === 'prune') {
+        invocation = pruneGateLogs(directory, 0, repositoryRoot, swapAncestor)
+      } else {
+        invocation = cleanGateFailureLogs(directory, repositoryRoot, swapAncestor)
+      }
+
+      await expect(invocation).rejects.toThrow('gate-log helper')
+      if (victim === undefined) {
+        expect(readdirSync(join(cache, 'gates'))).toEqual([])
+      } else {
+        expect(readFileSync(join(cache, 'gates/victim.log'), 'utf8')).toBe('keep\n')
+      }
+      expect(readFileSync(join(displacedCache, 'gates/old.log'), 'utf8')).toBe('old private log\n')
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a real directory introduced at a previously missing component', async () => {
+    const auditRoot = temporaryRoot('dsh-gate-missing-real-swap-')
+    const repositoryRoot = join(auditRoot, 'repository')
+    const externalCache = join(auditRoot, 'external-cache')
+    const cache = join(repositoryRoot, '.cache')
+    const directory = join(cache, 'gates')
+    mkdirSync(repositoryRoot)
+    mkdirSync(join(externalCache, 'gates'), { recursive: true })
+    const victim = join(externalCache, 'gates/victim.log')
+    writeFileSync(victim, 'keep\n')
+    const subjectGate = gate('subject')
+
+    const invocation = writeGateFailureLog(plan([subjectGate]), resultFor(subjectGate, 'failed'), {
+      directory,
+      repositoryRoot,
+      retention: 1,
+      unique: 'missing-swap',
+      platform: 'linux',
+      beforeHelper: () => {
+        renameSync(externalCache, cache)
+      },
+    })
+
+    await expect(invocation).rejects.toThrow('gate-log helper')
+    expect(readFileSync(join(cache, 'gates/victim.log'), 'utf8')).toBe('keep\n')
+    expect(readdirSync(join(cache, 'gates'))).toEqual(['victim.log'])
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a repository root replaced after validation', async () => {
+    const auditRoot = temporaryRoot('dsh-gate-root-swap-')
+    const repositoryRoot = join(auditRoot, 'repository')
+    const externalRoot = join(auditRoot, 'external-repository')
+    const displacedRoot = join(auditRoot, 'repository-pinned')
+    const directory = join(repositoryRoot, '.cache/gates')
+    mkdirSync(directory, { recursive: true })
+    mkdirSync(join(externalRoot, '.cache/gates'), { recursive: true })
+    writeFileSync(join(directory, 'old.log'), 'old private log\n')
+    writeFileSync(join(externalRoot, '.cache/gates/victim.log'), 'keep\n')
+
+    const invocation = cleanGateFailureLogs(directory, repositoryRoot, () => {
+      renameSync(repositoryRoot, displacedRoot)
+      renameSync(externalRoot, repositoryRoot)
+    })
+
+    await expect(invocation).rejects.toThrow('gate-log helper')
+    expect(readFileSync(join(repositoryRoot, '.cache/gates/victim.log'), 'utf8')).toBe('keep\n')
+    expect(readFileSync(join(displacedRoot, '.cache/gates/old.log'), 'utf8')).toBe('old private log\n')
   })
 
   it('uses a console-only fallback on Windows before creating a retention directory', async () => {

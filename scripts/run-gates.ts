@@ -7,6 +7,7 @@
  */
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { lstat } from 'node:fs/promises'
 import { availableParallelism } from 'node:os'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
@@ -136,6 +137,16 @@ interface GateLogDirectoryIdentity {
   ino: string
 }
 
+interface GateLogPathComponent {
+  name: string
+  identity: GateLogDirectoryIdentity | null
+}
+
+interface GateLogPathPlan {
+  repositoryIdentity: GateLogDirectoryIdentity
+  pathComponents: GateLogPathComponent[]
+}
+
 type GateLogHelperRequest =
   | { operation: 'write'; filename: string; content: string; retention: number }
   | { operation: 'prune'; retain: number }
@@ -211,9 +222,19 @@ async function main(args: string[]): Promise<number> {
     : 0
 }
 
-function isMainModule(): boolean {
-  const entry = process.argv[1]
-  return entry !== undefined && import.meta.url === pathToFileURL(resolve(entry)).href
+/**
+ * Decide whether this module is the process entry, including through a symlinked path.
+ * @param entry - process entry path to compare with this module.
+ * @returns Whether the entry resolves to this module.
+ */
+export function isMainModule(entry: string | undefined = process.argv[1]): boolean {
+  if (entry === undefined) return false
+  if (import.meta.url === pathToFileURL(resolve(entry)).href) return true
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -1058,9 +1079,7 @@ export async function writeGateFailureLog(
   if (!Number.isSafeInteger(retention) || retention < 1) {
     throw new Error(`run-gates: log retention must be a positive integer, got ${JSON.stringify(retention)}.`)
   }
-  await assertRepoLocalLogPath(repositoryRoot, directory)
-  const repositoryIdentity = await readDirectoryIdentity(repositoryRoot)
-  if (repositoryIdentity === undefined) throw new Error(`run-gates: repository root disappeared: ${repositoryRoot}`)
+  const { pathComponents, repositoryIdentity } = await inspectRepoLocalLogPath(repositoryRoot, directory)
   const timestamp = now.toISOString().replaceAll(/[:.]/g, '-')
   const safeUnique = unique.replaceAll(/[^a-zA-Z0-9-]/g, '')
   if (safeUnique === '') throw new Error('run-gates: failure-log unique suffix is empty after sanitization.')
@@ -1070,6 +1089,7 @@ export async function writeGateFailureLog(
     directory,
     repositoryRoot,
     repositoryIdentity,
+    pathComponents,
     {
       operation: 'write',
       filename,
@@ -1082,24 +1102,37 @@ export async function writeGateFailureLog(
   return resolve(directory, filename)
 }
 
-async function assertRepoLocalLogPath(repositoryRoot: string, target: string): Promise<void> {
+async function inspectRepoLocalLogPath(
+  repositoryRoot: string,
+  target: string,
+): Promise<GateLogPathPlan> {
   const relativeTarget = relative(repositoryRoot, target)
   if (relativeTarget === '' || relativeTarget === '..' || relativeTarget.startsWith(`..${sep}`) || isAbsolute(relativeTarget)) {
     throw new Error(`run-gates: gate-log path must be below the repository root: ${target}`)
   }
 
-  const rootMetadata = await lstat(repositoryRoot)
+  const rootMetadata = await lstat(repositoryRoot, { bigint: true })
   if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) {
     throw new Error(`run-gates: repository root is not a real directory: ${repositoryRoot}`)
   }
+  const components: GateLogPathComponent[] = []
   let current = repositoryRoot
+  let missing = false
   for (const component of relativeTarget.split(sep)) {
     current = resolve(current, component)
+    if (missing) {
+      components.push({ name: component, identity: null })
+      continue
+    }
     let metadata
     try {
-      metadata = await lstat(current)
+      metadata = await lstat(current, { bigint: true })
     } catch (error: unknown) {
-      if (hasErrorCode(error, 'ENOENT')) return
+      if (hasErrorCode(error, 'ENOENT')) {
+        missing = true
+        components.push({ name: component, identity: null })
+        continue
+      }
       throw error
     }
     const shown = relative(repositoryRoot, current).split(sep).join('/')
@@ -1109,6 +1142,11 @@ async function assertRepoLocalLogPath(repositoryRoot: string, target: string): P
     if (!metadata.isDirectory()) {
       throw new Error(`run-gates: gate-log path component is not a directory: ${shown}`)
     }
+    components.push({ name: component, identity: { dev: String(metadata.dev), ino: String(metadata.ino) } })
+  }
+  return {
+    repositoryIdentity: { dev: String(rootMetadata.dev), ino: String(rootMetadata.ino) },
+    pathComponents: components,
   }
 }
 
@@ -1134,6 +1172,7 @@ async function runGateLogHelper(
   directory: string,
   repositoryRoot: string,
   repositoryIdentity: GateLogDirectoryIdentity,
+  pathComponents: GateLogPathComponent[],
   request: GateLogHelperRequest,
   beforeHelper: (() => Promise<void> | void) | undefined,
 ): Promise<GateLogHelperResult> {
@@ -1144,6 +1183,7 @@ async function runGateLogHelper(
       root: repositoryRoot,
       relative: relative(repositoryRoot, directory),
       identity: repositoryIdentity,
+      components: pathComponents,
     },
   })
   const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolveResult, reject) => {
@@ -1181,7 +1221,7 @@ async function runGateLogHelper(
     throw new Error(`run-gates: gate-log helper returned invalid JSON: ${JSON.stringify(result.stdout)}`)
   }
   if (!isGateLogHelperResult(parsed)) throw new Error('run-gates: gate-log helper returned an invalid result.')
-  await assertRepoLocalLogPath(repositoryRoot, directory)
+  await inspectRepoLocalLogPath(repositoryRoot, directory)
   const currentRepositoryIdentity = await readDirectoryIdentity(repositoryRoot)
   if (
     currentRepositoryIdentity === undefined
@@ -1229,10 +1269,15 @@ export async function cleanGateFailureLogs(
   repositoryRoot = root,
   beforeHelper?: () => Promise<void> | void,
 ): Promise<void> {
-  await assertRepoLocalLogPath(repositoryRoot, directory)
-  const repositoryIdentity = await readDirectoryIdentity(repositoryRoot)
-  if (repositoryIdentity === undefined) return
-  await runGateLogHelper(directory, repositoryRoot, repositoryIdentity, { operation: 'clean' }, beforeHelper)
+  const { pathComponents, repositoryIdentity } = await inspectRepoLocalLogPath(repositoryRoot, directory)
+  await runGateLogHelper(
+    directory,
+    repositoryRoot,
+    repositoryIdentity,
+    pathComponents,
+    { operation: 'clean' },
+    beforeHelper,
+  )
 }
 
 /**
@@ -1251,10 +1296,15 @@ export async function pruneGateLogs(
   if (!Number.isSafeInteger(retain) || retain < 0) {
     throw new Error(`run-gates: retained log count must be a non-negative integer, got ${JSON.stringify(retain)}.`)
   }
-  await assertRepoLocalLogPath(repositoryRoot, directory)
-  const repositoryIdentity = await readDirectoryIdentity(repositoryRoot)
-  if (repositoryIdentity === undefined) return
-  await runGateLogHelper(directory, repositoryRoot, repositoryIdentity, { operation: 'prune', retain }, beforeHelper)
+  const { pathComponents, repositoryIdentity } = await inspectRepoLocalLogPath(repositoryRoot, directory)
+  await runGateLogHelper(
+    directory,
+    repositoryRoot,
+    repositoryIdentity,
+    pathComponents,
+    { operation: 'prune', retain },
+    beforeHelper,
+  )
 }
 
 async function attachFailureLog(plan: GatePlan, result: GateResult): Promise<void> {
