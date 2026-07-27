@@ -88,7 +88,6 @@ export function WorkspaceCreateFlow({
   }
 
   const openLocalFolder = (): void => {
-    if (pickingFolder) return
     onClose()
     setModalKind(null)
     setModalError(null)
@@ -109,7 +108,6 @@ export function WorkspaceCreateFlow({
   }
 
   const handleSelect = (id: string): void => {
-    if (pickingFolder) return
     if (id === OPEN_LOCAL_FOLDER) {
       openLocalFolder()
       return

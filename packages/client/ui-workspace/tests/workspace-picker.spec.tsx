@@ -138,6 +138,15 @@ describe('WorkspacePicker', () => {
     await act(async () => { resolve(null); await pending })
   })
 
+  it('reports non-Error native picker failures', async () => {
+    const b = mount([], vi.fn(), vi.fn(async () => { throw 'picker unavailable' }))
+    chooseItem('Open local folder…')
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('picker unavailable')
+    })
+    expect(b.createWorkspace).not.toHaveBeenCalled()
+  })
+
   it('closes a creation modal when the user cancels', () => {
     mount([])
     chooseItem('Create a new workspace')
