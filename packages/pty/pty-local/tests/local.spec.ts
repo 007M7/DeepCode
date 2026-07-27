@@ -39,7 +39,10 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   }
 }
 
-async function harness(mode: 'danger-full-access' | 'workspace-write') {
+async function harness(
+  mode: 'danger-full-access' | 'workspace-write',
+  overrides: { idleSilenceMs?: number; handoffGraceMs?: number; timeoutMs?: number } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-pty-local-'))
   roots.push(root)
   const ctx = new Context()
@@ -51,9 +54,9 @@ async function harness(mode: 'danger-full-access' | 'workspace-write') {
   const fiber = await ctx.plugin(ptyLocal, {
     pollIntervalMs: 10,
     exactProbeAfterMs: 20,
-    idleSilenceMs: 250,
-    handoffGraceMs: 250,
-    timeoutMs: 2000,
+    idleSilenceMs: overrides.idleSilenceMs ?? 250,
+    handoffGraceMs: overrides.handoffGraceMs ?? 250,
+    timeoutMs: overrides.timeoutMs ?? 2_000,
     disposeGraceMs: 500,
     scrollbackLines: 100,
     scrollbackMaxBytes: 32_768,
@@ -64,8 +67,10 @@ async function harness(mode: 'danger-full-access' | 'workspace-write') {
   return { ctx, root, agent, fiber, sandbox: ctx.sandbox as PassthroughSandbox }
 }
 
+// PtySendOperation.append drops output once the operation settles, so this only
+// observes a marker the child prints while the send is still active.
 async function waitForOutput(operation: PtySendOperation, expected: string): Promise<void> {
-  const deadline = Date.now() + 2_000
+  const deadline = Date.now() + 5_000
   let output = ''
   while (!output.includes(expected) && Date.now() < deadline) {
     output += operation.readOutput().delta
@@ -142,7 +147,13 @@ describe('pty-local real shell', () => {
   }, 10_000)
 
   it('cancels a raw-mode foreground process with a real SIGINT', async () => {
-    const { ctx, agent } = await harness('danger-full-access')
+    // A cold `python3` start can stay silent for longer than the 250 ms default
+    // this harness uses, which settles the send as inferred_idle before the
+    // interpreter prints its readiness marker; the marker then reaches only the
+    // scrollback and waitForOutput sees the echoed command line alone. Raise the
+    // silence bound, and the absolute bound above it, so process startup cannot
+    // end the send it belongs to.
+    const { ctx, agent } = await harness('danger-full-access', { idleSilenceMs: 4_000, timeoutMs: 6_000 })
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     const controller = new AbortController()
     const ready = 'RAW_READY'
@@ -165,5 +176,5 @@ describe('pty-local real shell', () => {
     expect(after.viewport).toContain('AFTER_SIGINT')
     expectReadyForNextSend(after.waitReason)
     await ctx.pty.kill(agent, created.sessionId)
-  }, 10_000)
+  }, 20_000)
 })
