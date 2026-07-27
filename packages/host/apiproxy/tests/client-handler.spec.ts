@@ -35,7 +35,11 @@ function scriptedApi(overrides: {
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
     },
-    host: { describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }), ...overrides.host },
+    host: {
+      describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }),
+      pickDirectory: r => ok(r, { path: null }),
+      ...overrides.host,
+    },
     workspace: {
       list: r => ok(r, { items: [] }),
       create: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' }, created: true }),

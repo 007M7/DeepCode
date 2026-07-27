@@ -175,7 +175,7 @@ export interface ConversationInjected {
    * Connect the selected Workspace and open its reusable/new blank session.
    * When a blank session is already current, carry its draft to the target.
    */
-  selectWorkspace(workspaceId: WorkspaceId): void
+  selectWorkspace(workspaceId: WorkspaceId): Promise<void>
 }
 
 /** Business callbacks injected into the strict session content seat. */
