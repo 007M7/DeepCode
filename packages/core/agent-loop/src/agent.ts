@@ -535,25 +535,19 @@ export class ReactLoopAgent implements Agent {
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
 
-    const loggedConfig = session.requestHeader()?.config
-    const initialProvider = this.options.provider ?? ''
-    const initialModel = this.options.model ?? ''
-    const initialConfig: LlmCallConfig = {
-      provider: initialProvider,
-      model: initialModel,
-      ...loggedConfig?.provider === initialProvider
-        && loggedConfig.model === initialModel
-        && loggedConfig.reasoningEffort !== undefined
-        ? { reasoningEffort: loggedConfig.reasoningEffort }
-        : {},
-    }
     // A loop instance starts from its declared route, restoring only an opaque
     // effort owned by that exact model. Later steps fold the config it logged.
-    const seedConfig: LlmCallConfig = deepFreeze(structuredClone(
+    const persistedConfig = session.requestHeader()?.config
+    const route = { provider: this.options.provider ?? '', model: this.options.model ?? '' }
+    const reasoningEffort = persistedConfig?.provider === route.provider
+      && persistedConfig.model === route.model
+      ? persistedConfig.reasoningEffort
+      : undefined
+    const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- a logged instance anchor guarantees the fold
-        ? session.requestHeader()!.config
-        : initialConfig,
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the instance logged the header it now folds
+        ? persistedConfig!
+        : { ...route, ...reasoningEffort === undefined ? {} : { reasoningEffort } },
     ))
     const proposedConfig = await this.loopCtx.waterfall(
       agentCarrier(this), 'agent/request', this, turn, step, signal,
@@ -590,17 +584,10 @@ export class ReactLoopAgent implements Agent {
     }
 
     const request = markAgentLoopRequest(deepFreeze({
-      provider: header.config.provider,
-      model: header.config.model,
-      ...header.config.reasoningEffort !== undefined
-        ? { reasoningEffort: header.config.reasoningEffort }
-        : {},
+      ...header.config,
       messages: boundaryMessages,
       ...header.system !== undefined ? { system: header.system } : {},
       ...header.tools !== undefined ? { tools: header.tools } : {},
-      ...header.config.temperature !== undefined ? { temperature: header.config.temperature } : {},
-      ...header.config.maxTokens !== undefined ? { maxTokens: header.config.maxTokens } : {},
-      ...header.config.stop !== undefined ? { stop: header.config.stop } : {},
       sessionId: session.id,
       signal,
     }))
