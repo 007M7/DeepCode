@@ -115,14 +115,15 @@ describe('command.execute', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
     const value = expectOk(await api.commands.execute(request({ sessionId: agent.id, line: '/goal ship it' }), new AbortController().signal))
-    expect(value).toEqual({ matched: true })
+    expect(value).toMatchObject({ matched: true })
+    expect(value.commandId).toBeTruthy()
     expect(received).toBe(' ship it')
     // Pure admission on the wire: the outcome rides the durably logged
     // lifecycle pair instead of the response.
     const lifecycle = agent.session.events.filter(e => e.type === 'command/run' || e.type === 'command/done')
     expect(lifecycle).toMatchObject([
-      { type: 'command/run', data: { name: 'goal', args: ' ship it' } },
-      { type: 'command/done', data: { kind: 'success', text: `goal:${agent.id}` } },
+      { type: 'command/run', data: { commandId: value.commandId, name: 'goal', args: ' ship it' } },
+      { type: 'command/done', data: { commandId: value.commandId, kind: 'success', text: `goal:${agent.id}` } },
     ])
   })
 

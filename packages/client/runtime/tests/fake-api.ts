@@ -119,7 +119,7 @@ export class FakeApiClient implements IApiClient {
   // skill lists without casts.
   onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>>
     = () => Promise.resolve(ok({ commands: [] }))
-  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean }>>
+  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; commandId?: string }>>
     = () => Promise.resolve(ok({ matched: false }))
   onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
     = () => Promise.resolve(ok({ skills: [] }))

@@ -47,6 +47,19 @@ export type CommandResult =
   | { readonly kind: 'success'; readonly text?: string }
   | { readonly kind: 'error'; readonly text: string }
 
+/**
+ * One settled command execution: the handler's normalized result plus the
+ * lifecycle pairing id minted for its `command/run`/`command/done` records,
+ * so a dispatching surface can correlate the RPC-level acknowledgment with
+ * the flow node those events produce.
+ */
+export interface CommandExecution {
+  /** Pairing id carried by this execution's lifecycle events. */
+  readonly commandId: string
+  /** The handler's normalized outcome. */
+  readonly result: CommandResult
+}
+
 /** Plugin-owned command registration. */
 export interface CommandDefinition {
   /** Lowercase command name without the leading slash. */
@@ -343,13 +356,14 @@ export class CommandService extends Service {
    * @param agent - exact receiving agent.
    * @param line - complete slash-command line.
    * @param signal - cancellation signal owned by the UI request.
-   * @returns a detached result, or `undefined` when syntax or name does not resolve.
+   * @returns the settled execution (result + lifecycle pairing id), or
+   *   `undefined` when syntax or name does not resolve.
    */
   async execute(
     agent: Agent,
     line: string,
     signal: AbortSignal,
-  ): Promise<CommandResult | undefined> {
+  ): Promise<CommandExecution | undefined> {
     const parsed = parseCommand(line)
     if (parsed === undefined) return undefined
     const command = this.view(agent).get(parsed.name)
@@ -379,7 +393,7 @@ export class CommandService extends Service {
       commandId, kind: result.kind,
       ...result.text === undefined ? {} : { text: result.text },
     })
-    return result
+    return Object.freeze({ commandId, result })
   }
 
   /** Mint the next pairing id (monotonic; instance-token-prefixed so a resumed log never repeats one). */

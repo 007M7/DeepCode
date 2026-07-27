@@ -921,9 +921,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         try {
           // Pure admission: the executor's durable command/run + command/done
           // pair (broadcast on the mux stream) carries the outcome; the
-          // response only reports whether the line resolved to a handler.
-          const result = await commands.execute(found.agent, line, signal)
-          return ok(request, { matched: result !== undefined })
+          // response reports whether the line resolved to a handler, plus the
+          // minted pairing id so the issuing client can correlate its request
+          // with the flow node the lifecycle events produce.
+          const execution = await commands.execute(found.agent, line, signal)
+          return ok(request, execution === undefined
+            ? { matched: false }
+            : { matched: true, commandId: execution.commandId })
         } catch (error: unknown) {
           if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
           return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })

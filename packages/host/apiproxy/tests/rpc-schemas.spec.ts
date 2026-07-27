@@ -215,9 +215,12 @@ describe('commands domain schemas', () => {
     expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
     expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
     expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
-    // Pure admission: the value carries only the matched bit (outcomes ride
-    // the logged lifecycle events, never this response).
+    // Pure admission: matched plus the optional lifecycle pairing id
+    // (outcomes ride the logged lifecycle events, never this response).
+    expect(commandExecuteValueSchema.parse({ matched: true, commandId: 'cmd-1' }))
+      .toEqual({ matched: true, commandId: 'cmd-1' })
     expect(commandExecuteValueSchema.parse({ matched: true })).toEqual({ matched: true })
+    expect(() => commandExecuteValueSchema.parse({ matched: true, commandId: '' })).toThrow()
     expect(() => commandExecuteValueSchema.parse({})).toThrow()
   })
 })

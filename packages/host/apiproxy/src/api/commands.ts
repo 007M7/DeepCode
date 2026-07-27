@@ -36,10 +36,12 @@ export interface CommandsApi {
    * when syntax or name does not resolve (the client falls back to its
    * default sink). The handler's outcome does NOT ride the response: the host
    * executor durably logs the lifecycle (`command/run`/`command/done`), which
-   * broadcasts on the mux stream and renders as a persistent flow node. The
-   * signal rides beside the request, never on the wire: the fetch carrier's
-   * request signal cancels the running handler.
+   * broadcasts on the mux stream and renders as a persistent flow node.
+   * `commandId` is present exactly when matched — the minted lifecycle
+   * pairing id, letting the issuing client correlate this acknowledgment
+   * with that flow node. The signal rides beside the request, never on the
+   * wire: the fetch carrier's request signal cancels the running handler.
    */
   execute(request: RpcRequest<{ sessionId: SessionId; line: string }>, signal: AbortSignal):
-  Promise<RpcResponse<{ matched: boolean }>>
+  Promise<RpcResponse<{ matched: boolean; commandId?: string }>>
 }

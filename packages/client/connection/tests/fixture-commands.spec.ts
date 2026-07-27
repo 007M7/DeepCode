@@ -49,7 +49,8 @@ describe('createFixtureApi commands/skills', () => {
     })()
     const response = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line: '/echo hello world' }), signal)
     if (!response.result.ok) throw new Error('execute failed')
-    expect(response.result.value).toEqual({ matched: true })
+    expect(response.result.value).toMatchObject({ matched: true })
+    expect(response.result.value.commandId).toBeTruthy()
     await pump
     const events = frames
       .filter((f): f is { type: string; event: { type: string; data: Record<string, unknown> } } => (f as { type: string }).type === 'session/event')

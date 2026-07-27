@@ -830,7 +830,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const commandId = `fx-cmd-${logOf(id).length}`
         append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
         append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
-        return ok(request, { matched: true as const })
+        return ok(request, { matched: true as const, commandId })
       },
     },
     skills: {

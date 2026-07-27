@@ -96,11 +96,11 @@ describe('CommandService', () => {
     expect(ctx.commands.list(agent).map(item => item.name)).toEqual(['shared'])
     expect(ctx.commands.find(agent, 'shared')?.handler).toBeDefined()
     expect(ctx.commands.list(other).map(item => item.name)).toEqual(['shared'])
-    expect(await ctx.commands.execute(agent, '/shared', new AbortController().signal))
+    expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.result)
       .toEqual({ kind: 'success', text: 'scoped' })
 
     await scope.dispose()
-    expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.text).toBe('global')
+    expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.result.text).toBe('global')
   })
 
   it('removes a registration when its contributing plugin fiber is disposed', async () => {
@@ -176,10 +176,12 @@ describe('CommandService', () => {
     ctx.commands.register({ name: 'run', description: 'Run it', handler: seen })
     const controller = new AbortController()
 
-    const result = await ctx.commands.execute(agent, '/run  untouched ', controller.signal)
+    const execution = await ctx.commands.execute(agent, '/run  untouched ', controller.signal)
 
-    expect(result).toEqual({ kind: 'success', text: 'ok' })
-    expect(Object.isFrozen(result)).toBe(true)
+    expect(execution?.result).toEqual({ kind: 'success', text: 'ok' })
+    expect(execution?.commandId).toBeTruthy()
+    expect(Object.isFrozen(execution)).toBe(true)
+    expect(Object.isFrozen(execution?.result)).toBe(true)
     expect(seen).toHaveBeenCalledWith(expect.objectContaining({
       agent,
       rawInput: '  untouched ',
@@ -271,9 +273,9 @@ describe('CommandService', () => {
       description: 'Denied',
       handler: () => ({ kind: 'error', text: 'not now' }),
     })
-    const result = await ctx.commands.execute(agent, '/denied', new AbortController().signal)
-    expect(result).toEqual({ kind: 'error', text: 'not now' })
-    expect(Object.isFrozen(result)).toBe(true)
+    const execution = await ctx.commands.execute(agent, '/denied', new AbortController().signal)
+    expect(execution?.result).toEqual({ kind: 'error', text: 'not now' })
+    expect(Object.isFrozen(execution?.result)).toBe(true)
 
     ctx.commands.register({
       name: 'silent',
@@ -281,8 +283,8 @@ describe('CommandService', () => {
       handler: () => ({ kind: 'success' }),
     })
     const silent = await ctx.commands.execute(agent, '/silent', new AbortController().signal)
-    expect(silent).toEqual({ kind: 'success' })
-    expect(Object.isFrozen(silent)).toBe(true)
+    expect(silent?.result).toEqual({ kind: 'success' })
+    expect(Object.isFrozen(silent?.result)).toBe(true)
   })
 
   it.each([
@@ -300,7 +302,7 @@ describe('CommandService', () => {
     const { agent } = await mintAgentScope(ctx, 'a')
     ctx.commands.register(command('deploy', 'deployed'))
 
-    await ctx.commands.execute(agent, '/deploy now', new AbortController().signal)
+    const execution = await ctx.commands.execute(agent, '/deploy now', new AbortController().signal)
 
     const lifecycle = lifecycleOf(agent)
     expect(lifecycle).toMatchObject([
@@ -310,6 +312,8 @@ describe('CommandService', () => {
     const ids = lifecycle.map(event => (event.data as { commandId: string }).commandId)
     expect(ids[0]).toBeTruthy()
     expect(ids[0]).toBe(ids[1])
+    // The execution's pairing id is the logged one (RPC-level correlation).
+    expect(execution?.commandId).toBe(ids[0])
     // Zero-step wrap: the pair stays turn-enclosed on an idle log.
     expect(agent.session.events.map(event => event.type)).toEqual([
       'turn/start', 'command/run', 'turn/end',

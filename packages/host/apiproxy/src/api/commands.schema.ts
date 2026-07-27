@@ -32,7 +32,8 @@ export const commandExecuteRequestSchema = z.object({
   line: z.string(),
 }) satisfies z.ZodType<Wire<RequestPayload<'command.execute'>>>
 
-/** command.execute response value: pure admission — outcomes ride the logged lifecycle events, never this response. */
+/** command.execute response value: pure admission — outcomes ride the logged lifecycle events; commandId (present exactly when matched) correlates with them. */
 export const commandExecuteValueSchema = z.object({
   matched: z.boolean(),
+  commandId: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'command.execute'>>>

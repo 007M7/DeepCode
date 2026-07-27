@@ -72,14 +72,14 @@ function domainEvents(session: Session): readonly Session['events'][number][] {
 }
 
 /** Execute `/goal` through the same registry boundary as a UI adapter. */
-async function run(test: Harness, suffix = ''): Promise<NonNullable<Awaited<ReturnType<CommandService['execute']>>>> {
-  const result = await test.ctx.commands.execute(
+async function run(test: Harness, suffix = ''): Promise<NonNullable<Awaited<ReturnType<CommandService['execute']>>>['result']> {
+  const execution = await test.ctx.commands.execute(
     test.agent,
     `/goal${suffix}`,
     new AbortController().signal,
   )
-  if (result === undefined) throw new Error('goal command was not registered')
-  return result
+  if (execution === undefined) throw new Error('goal command was not registered')
+  return execution.result
 }
 
 /** Current exact compare-and-set ref. */
