@@ -269,7 +269,11 @@ function catalogDigest(toolVisible: boolean, skills: SkillSummary[], description
 
 function latestVisibleCatalogDigest(agent: Agent): string | undefined {
   const visible = new Set(agent.session.surface.nodes)
-  for (const event of [...agent.session.events].reverse()) {
+  const events = agent.session.events
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    // The loop bounds prove the read-only event view contains this index.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const event = events[index]!
     if (!visible.has(event.seq)
       || event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
