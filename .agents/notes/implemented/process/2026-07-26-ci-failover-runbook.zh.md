@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[CI](../../../../.github/workflows/ci.yml) 中三个必需的 Linux 工作作业（`node 24 / static`、`node 24 / coverage`、`node 24 / snapshots and artifacts`）以及聚合它们的必需判定作业（`all checks passed`）运行在托管的企业级 32 核池上。当这些托管池发生故障——作业无限排队、企业标签消失或 GitHub 侧容量故障——所有开启的拉取请求都无法合并，而"合并一个修复"这一常规恢复手段本身正被那些无法运行的必需检查死锁。因此故障需要一个仓库管理员无需合并任何代码即可触发的开关。
+[CI](../../../../.github/workflows/ci.yml) 中三个必需的 Linux 工作作业（`node 24 / static`、`node 24 / coverage`、`node 24 / snapshots and artifacts`）以及聚合它们的必需判定作业（`all checks passed`）运行在托管的企业级 32 核池上。当这些托管池发生故障——作业无限排队、企业标签消失或 GitHub 侧容量故障——所有开启的拉取请求都无法合并，而"合并一个修复"这一常规恢复手段本身正被那些无法运行的必需检查死锁。因此故障需要一个任何具备仓库写权限的响应者都能在不合并任何代码的情况下触发的开关。
 
 ## 决策
 
@@ -16,7 +16,7 @@ Status: implemented
 
 `vm-backup`：一台 64 核虚拟机，6 个常驻 systemd 管理的运行器实例。切换前先看 `serial / linux (self-hosted standby)` 最近一次运行：绿色 = 这套环境昨天刚被全量验证过。
 
-### 切换步骤（仓库管理员，约 1 分钟，无需合并）
+### 切换步骤（任何具备写权限的协作者，约 1 分钟，无需合并）
 
 1. 仓库 **Settings → Secrets and variables → Actions → Variables → New repository variable**：名称 `DSH_CI_FAILOVER`，值 `selfhosted`。
 2. 重新触发必需作业，使其重新解析运行器池。已经为托管标签**排队**的作业不会重定向，也无法原地 re-run，因此对于本手册所述的无限排队故障，应取消卡住的运行并 re-run all jobs，或推送一个新提交；“Re-run failed jobs”只有在作业真正失败（而非仍在排队）时才有用。
@@ -28,7 +28,7 @@ Status: implemented
 
 ## 切换期间的容量
 
-6 个常驻实例可承接正常 PR 流量（该池平时唯一的稳态负载是每次 master 推送一个串行热备作业，故障切换时几乎全池可用）。若仍出现排队，用组织级注册 token（组织 Settings → Actions → Runners → New runner）追加注册实例。复制现有 runner 目录时**必须排除身份文件**——`rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/`——再跑 `config.sh`；原样拷贝 `.runner`/`.credentials` 会使 `config.sh` 以 "already configured" 拒绝。`config.sh` 只完成注册，不启动监听进程，因此停在这一步的 runner 处于已注册但离线状态，不增加任何容量。还须安装并启动其服务：`sudo ./svc.sh install <user> && sudo ./svc.sh start`（本池由 systemd 管理；前台运行 `./run.sh` 亦可，但会随 shell 退出而终止）。确认该实例在组织 Settings → Actions → Runners 中显示 Idle 后再计入容量。每个约一分钟。
+6 个常驻实例可承接正常 PR 流量（该池平时唯一的稳态负载是每次 master 推送一个串行热备作业，故障切换时几乎全池可用）。若仍出现排队，用组织级注册 token（组织 Settings → Actions → Runners → New runner）追加注册实例。复制现有 runner 目录时**必须排除身份文件**——`rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/`——再跑 `config.sh`（原样拷贝 `.runner`/`.credentials` 会使其以 "already configured" 拒绝），然后**启动监听器**：`sudo ./svc.sh install ubuntu && sudo ./svc.sh start`。仅注册不会上线；只有启动了服务的 runner 才会增加容量。每个约一分钟。
 
 
 ### 切回
@@ -37,14 +37,14 @@ Status: implemented
 
 ### 信任边界
 
-该变量是写者可管理的仓库状态；`pull_request` 事件本身既不能设置它，也不能让不同的值生效，选择器表达式存在于工作流定义中。需要注意：故障切换期间，`pull_request` 运行执行的是 PR merge 引用自带的工作流定义——抵御不可信代码的边界是仓库成员资格（私有、禁 fork、选择器排除 Dependabot），而非该变量。（运行器侧的组织级 runner group 约束另行跟踪，与本机制互补。）
+该变量是写者可管理的仓库状态；`pull_request` 事件本身既不能设置它，也不能让不同的值生效，选择器表达式存在于工作流定义中。需要注意：故障切换期间，`pull_request` 运行执行的是 PR merge 引用自带的工作流定义——抵御不可信代码的边界是仓库成员资格（私有、禁 fork、选择器排除 Dependabot），而非该变量。关于 runner group 策略的说明：把 runner group 绑定到 master 引用的工作流与本故障切换机制**不兼容**——四个故障切换作业是从 PR merge 引用求值的 `pull_request` 运行，master 绑定的组会让它们持续排队（2026-07-27 实际故障中亲历；当时将组放宽为本仓库全部工作流才疏通了切换）。更严格的运行器侧策略以牺牲 PR 故障切换为代价；当前采用的形态是仓库范围、全工作流的组访问。
 
 ## 曾考虑的替代方案
 
-**通过合并一次工作流改动来切换池。** 否决，因为触发切换的故障状态恰恰是任何 PR 都无法合并的状态：必需检查正是失败的那些。仓库变量是管理员控制的状态，重跑即生效，无需合并。
+**通过合并一次工作流改动来切换池。** 否决，因为触发切换的故障状态恰恰是任何 PR 都无法合并的状态：必需检查正是失败的那些。仓库变量是写者可管理的状态，重跑即生效，无需合并。
 
 **让自托管池长期处于必需路径中。** 否决，因为这是拿托管池的可用性去换自有虚拟机的可用性，只是搬移了单点故障而非增加回退。该变量让托管池保持主路径，自托管池作为一个经过验证、一步即可启用的热备。
 
 ## 后果
 
-从托管池故障中恢复只需一个管理员变量加一次重跑，关键路径上没有合并。代价是要维护第二套运行器拓扑：热备通道在每次 master 推送时都运行它，使故障切换目标永不失效；而 `ci.yml` 中的并发与缓存恢复分支带有一条 `selfhosted` 支路，必须与托管支路保持同步。
+从托管池故障中恢复只需一个变量（任何写者可设）加一次重跑，关键路径上没有合并。代价是要维护第二套运行器拓扑：热备通道在每次 master 推送时都运行它，使故障切换目标永不失效；而 `ci.yml` 中的并发与缓存恢复分支带有一条 `selfhosted` 支路，必须与托管支路保持同步。
