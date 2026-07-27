@@ -168,14 +168,17 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
   // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
-  // todo/write snapshot event feeding the TodoPanel plan strip.
+  // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
+  // in_progress: the tool permits several, so both surfaces must render a
+  // parallel plan rather than the first active item alone.
   const fixtureTodos = [
     { content: '梳理需求', status: 'completed' },
     { content: '实现 fixture 样本', status: 'in_progress' },
+    { content: '跑后台构建', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).

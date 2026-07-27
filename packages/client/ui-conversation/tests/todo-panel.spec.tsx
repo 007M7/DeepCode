@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 /**
- * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status
- * rows, collapse with active hint), its TodoDock adapter (selects the plan off
- * the session snapshot and follows changes), and the todo_write toolview row
- * (progress summary from args, generic fallback on malformed JSON, error badge,
- * keyboard activation).
+ * Todo display acceptance: the shared plan model (counts + the one-line active
+ * hint, which carries `+N` once parallel work marks several items in_progress),
+ * the TodoPanel plan strip (empty-hidden, status rows, collapse with active
+ * hint), its TodoDock adapter (selects the plan off the session snapshot and
+ * follows changes), and the todo_write toolview row (progress summary from
+ * args, generic fallback on malformed JSON, error badge, keyboard activation).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,6 +17,7 @@ import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/clien
 import { TodoRow, todoToolview } from '../src/client/toolviews/todo-row.tsx'
 import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
 import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
+import { planSummary } from '../src/client/contract/todo-plan-model.ts'
 
 afterEach(cleanup)
 
@@ -24,6 +26,43 @@ const LIST: TodoItem[] = [
   { content: '写组件', status: 'in_progress' },
   { content: '补测试', status: 'pending' },
 ]
+
+/** A parallel plan: three tasks running at once (concurrent subagents). */
+const PARALLEL: TodoItem[] = [
+  { content: '搭骨架', status: 'completed' },
+  { content: '写组件', status: 'in_progress' },
+  { content: '跑后台构建', status: 'in_progress' },
+  { content: '读源码', status: 'in_progress' },
+  { content: '补测试', status: 'pending' },
+]
+
+describe('planSummary', () => {
+  it('counts done/total and names the single active item verbatim', () => {
+    expect(planSummary(LIST)).toEqual({ done: 1, total: 3, activeHint: '写组件' })
+  })
+
+  it('suffixes the extra active count when several items are in progress', () => {
+    // Parallel work marks several: naming one and hiding the rest would lose them.
+    expect(planSummary(PARALLEL)).toEqual({ done: 1, total: 5, activeHint: '写组件 +2' })
+  })
+
+  it('has no hint when nothing is in progress', () => {
+    expect(planSummary([{ content: '都完了', status: 'completed' }]))
+      .toEqual({ done: 1, total: 1, activeHint: null })
+  })
+
+  it('has no hint when the first active item carries no usable content (model JSON)', () => {
+    // Unvalidated args: a missing, mistyped, or empty content yields no hint,
+    // even with a second active item that would otherwise supply the count.
+    expect(planSummary([{ status: 'in_progress' }, { content: 'x', status: 'in_progress' }]).activeHint).toBeNull()
+    expect(planSummary([{ content: 42, status: 'in_progress' }]).activeHint).toBeNull()
+    expect(planSummary([{ content: '', status: 'in_progress' }]).activeHint).toBeNull()
+  })
+
+  it('is empty-safe', () => {
+    expect(planSummary([])).toEqual({ done: 0, total: 0, activeHint: null })
+  })
+})
 
 describe('TodoPanel', () => {
   it('renders nothing while the list is empty', () => {
@@ -50,6 +89,19 @@ describe('TodoPanel', () => {
     expect(screen.getByText('写组件')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('shows every parallel active item expanded, and counts the extra ones collapsed', () => {
+    render(<TodoPanel todos={PARALLEL} />)
+    // Expanded: one row per item, all three active ones carrying the ● glyph.
+    const statuses = screen.getAllByRole('listitem').map(li => li.getAttribute('data-status'))
+    expect(statuses.filter(s => s === 'in_progress')).toHaveLength(3)
+    expect(screen.getByText('跑后台构建')).toBeTruthy()
+    expect(screen.getByText('读源码')).toBeTruthy()
+    // Collapsed: the hint reports the other two rather than dropping them.
+    fireEvent.click(screen.getByRole('button', { expanded: true }))
+    expect(screen.queryByRole('list')).toBeNull()
+    expect(screen.getByText('写组件 +2')).toBeTruthy()
   })
 
   it('collapsed header omits the hint when nothing is in progress', () => {
@@ -108,6 +160,11 @@ describe('TodoRow', () => {
     render(<TodoRow {...rowProps(resultNode(ARGS))} />)
     expect(screen.getByText('更新任务清单')).toBeTruthy()
     expect(screen.getByText('1/3 已完成 · 写组件')).toBeTruthy()
+  })
+
+  it('reports the extra active count when the written list runs several tasks', () => {
+    render(<TodoRow {...rowProps(resultNode(JSON.stringify({ todos: PARALLEL })))} />)
+    expect(screen.getByText('1/5 已完成 · 写组件 +2')).toBeTruthy()
   })
 
   it('omits the active clause when no item is in progress and reads running-call args', () => {

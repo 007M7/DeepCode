@@ -5,7 +5,10 @@
 // surfaces: the dedicated TodoRow in the chat flow (keyed toolview, summary
 // derived from the call args) and the TodoPanel plan strip riding the
 // 'conversation.input.dock' slot (fed by ConversationSnapshot.todos, seeded
-// by the tail history page), including the collapse interaction.
+// by the tail history page), including the collapse interaction. The sample
+// plan runs two items in_progress at once, so both surfaces are pinned against
+// a parallel plan — the collapsed one-line hint must account for the second
+// active item instead of naming the first and dropping it.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -143,7 +146,7 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
     })),
   }).toMatchInlineSnapshot(`
     {
-      "panelHeader": "Plan1/3",
+      "panelHeader": "Plan1/4",
       "panelItems": [
         {
           "status": "completed",
@@ -154,11 +157,15 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
           "text": "●实现 fixture 样本",
         },
         {
+          "status": "in_progress",
+          "text": "●跑后台构建",
+        },
+        {
           "status": "pending",
           "text": "○浏览器验收",
         },
       ],
-      "row": "☰更新任务清单1/3 已完成 · 实现 fixture 样本",
+      "row": "☰更新任务清单1/4 已完成 · 实现 fixture 样本 +1",
       "rowState": "ok",
     }
   `)
@@ -179,11 +186,11 @@ it('collapses the plan strip to the in-progress hint and restores it', async () 
     listGone: panel.querySelector('ul') === null,
   }).toMatchInlineSnapshot(`
     {
-      "collapsedHeader": "Plan1/3实现 fixture 样本",
+      "collapsedHeader": "Plan1/4实现 fixture 样本 +1",
       "listGone": true,
     }
   `)
 
   fireEvent.click(header)
-  expect(panel.querySelectorAll('li')).toHaveLength(3)
+  expect(panel.querySelectorAll('li')).toHaveLength(4)
 })

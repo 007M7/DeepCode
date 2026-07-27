@@ -3,12 +3,15 @@
 // no data of its own, hidden while the list is empty. Mounted through the
 // 'conversation.input.dock' slot (QueueDock posture): the dock adapter does
 // the selecting, so the panel takes the plain list and stays framework-free.
+// Several items may be in_progress at once; the collapsed header's one-line
+// hint comes from the shared plan model, which reports the extra active count.
 
 import { useState } from 'react'
 import type { Context } from 'cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TodoItem } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { planSummary } from '../contract/todo-plan-model.ts'
 import css from './TodoPanel.module.css'
 
 export interface TodoPanelProps {
@@ -25,8 +28,7 @@ export function TodoPanel({ todos }: TodoPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
   if (todos.length === 0) return null
 
-  const done = todos.filter(t => t.status === 'completed').length
-  const active = todos.find(t => t.status === 'in_progress')
+  const { done, activeHint } = planSummary(todos)
 
   return (
     <section className={css.root} data-testid="todo-panel" aria-label="任务清单">
@@ -38,8 +40,8 @@ export function TodoPanel({ todos }: TodoPanelProps) {
       >
         <span className={css.title}>Plan</span>
         <span className={css.progress}>{done}/{todos.length}</span>
-        {collapsed && active !== undefined && (
-          <span className={css.activeHint}>{active.content}</span>
+        {collapsed && activeHint !== null && (
+          <span className={css.activeHint}>{activeHint}</span>
         )}
         <span className={css.chevron} aria-hidden>
           {collapsed ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}

@@ -1,7 +1,7 @@
 // todo_write toolview: plan-flavored summary row replacing the generic
 // "Tool call" card, registered into the keyed 'conversation.chat.toolview'
 // hole like the bash sample (a product registration, not a sample). The row
-// summarizes the written list (counts + active item) from the call args; the
+// summarizes the written list (counts + active items) from the call args; the
 // durable list itself renders in the TodoPanel above the composer, so the
 // row stays one line.
 
@@ -10,12 +10,11 @@ import type { Context } from 'cordis'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
 import { toolRowModel } from '../contract/tool-call-model.ts'
+import type { PlanItemLike } from '../contract/todo-plan-model.ts'
+import { planSummary } from '../contract/todo-plan-model.ts'
 import css from './todo-row.module.css'
 
-/** One parsed args item, shape-checked (model JSON: any field may be missing or mistyped). */
-interface TodoWriteItem { content?: unknown; status?: unknown }
-
-function isItem(value: unknown): value is TodoWriteItem {
+function isItem(value: unknown): value is PlanItemLike {
   return typeof value === 'object' && value !== null
 }
 
@@ -32,12 +31,9 @@ function summarize(argsRaw: string): string | null {
   if (typeof parsed !== 'object' || parsed === null) return null
   const todos = (parsed as { todos?: unknown }).todos
   if (!Array.isArray(todos) || !todos.every(isItem)) return null
-  const done = todos.filter(t => t.status === 'completed').length
-  const active = todos.find(t => t.status === 'in_progress')
-  const head = `${done}/${todos.length} 已完成`
-  return typeof active?.content === 'string' && active.content !== ''
-    ? `${head} · ${active.content}`
-    : head
+  const { done, total, activeHint } = planSummary(todos)
+  const head = `${done}/${total} 已完成`
+  return activeHint === null ? head : `${head} · ${activeHint}`
 }
 
 /** One-line plan update row (click opens the raw args in details). Non-ok
