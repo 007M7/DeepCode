@@ -25,13 +25,9 @@ declare module 'cordis' {
   }
 }
 
-/**
- * The single projection type table for the whole chain (host provider, wire
- * block, client cell, React hook). Domain packages merge their key here via
- * declaration merging; values are wire-JSON whole values. How a value is
- * rendered is the slot system's business, never this layer's.
- */
-export interface SessionProjectionMap {}
+import type { SessionProjectionMap } from './types.ts'
+
+export type { SessionProjectionMap } from './types.ts'
 
 /**
  * One domain's host-side contribution: the current whole value of its
