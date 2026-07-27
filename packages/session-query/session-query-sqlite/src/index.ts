@@ -5,7 +5,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync } from 'node:sqlite'
 import { Context, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
@@ -72,6 +72,9 @@ export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
 
+/** SQLite module/handle opening phase. */
+export type OpenAt = 'startup' | 'first-search'
+
 /** Combined session-query configuration backed by SQLite full-text search. */
 export interface Config extends SessionQueryConfig {
   /**
@@ -80,6 +83,8 @@ export interface Config extends SessionQueryConfig {
    * POSIX filesystems; existing modes are preserved.
    */
   path: string
+  /** Open the SQLite module and handle at service activation or the first search. Defaults to `startup`. */
+  openAt?: OpenAt
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode
   /** Page size when a request omits `limit`. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 20. */
@@ -94,6 +99,7 @@ export interface Config extends SessionQueryConfig {
 
 interface ResolvedConfig {
   path: string
+  openAt: OpenAt
   journalMode: JournalMode
   defaultLimit: number
   maxLimit: number
@@ -175,6 +181,7 @@ export class SessionQuerySqlite extends SessionQueryService {
 
   static Config: z<Config> = z.object({
     path: z.string().required(),
+    openAt: z.union(['startup', 'first-search'] as const).default('startup'),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
     defaultLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_DEFAULT_LIMIT),
     maxLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
@@ -191,7 +198,7 @@ export class SessionQuerySqlite extends SessionQueryService {
   readonly config: ResolvedConfig
 
   private readonly _instance = randomUUID()
-  private readonly _ready: Promise<void>
+  private _ready: Promise<void> | undefined
   private _db: DatabaseSync | undefined
   private _persistenceBinding: PersistenceBinding = { identity: Symbol() }
   private _lastPersistenceIdentity: symbol | undefined
@@ -208,7 +215,6 @@ export class SessionQuerySqlite extends SessionQueryService {
     // register `ctx.sessionQuery`; keep that same validated value afterward.
     super(ctx, config = resolveConfig(config))
     this.config = config as ResolvedConfig
-    this._ready = this._open()
     this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
       const binding = { identity: Symbol(), service }
@@ -225,9 +231,9 @@ export class SessionQuerySqlite extends SessionQueryService {
     ctx.effect(() => async () => this.close(), 'sessionQuerySqlite.close')
   }
 
-  /** Open the index before Cordis publishes this combined service as active. */
+  /** Open eagerly only when activation owns the configured readiness boundary. */
   protected async [Service.init](): Promise<void> {
-    await this._ensureReady(undefined)
+    if (this.config.openAt === 'startup') await this._ensureReady(undefined)
   }
 
   override async searchSessions(
@@ -296,10 +302,12 @@ export class SessionQuerySqlite extends SessionQueryService {
   private async _close(): Promise<void> {
     this._closed = true
     await this._tail
-    try {
-      await this._ready
-    } catch {
-      // Opening already closed a partially-created handle; disposal only waits.
+    if (this._ready !== undefined) {
+      try {
+        await this._ready
+      } catch {
+        // Opening already closed a partially-created handle; disposal only waits.
+      }
     }
     this._db?.close()
     this._db = undefined
@@ -315,6 +323,7 @@ export class SessionQuerySqlite extends SessionQueryService {
   }
 
   private async _ensureReady(signal: AbortSignal | undefined): Promise<void> {
+    this._ready ??= this._open()
     try {
       await waitWithAbort(this._ready, signal)
     } catch (error: unknown) {
@@ -946,6 +955,7 @@ function invalidCursor(cause: unknown): SessionQueryError {
 function resolveConfig(config: Config): ResolvedConfig {
   const resolved: ResolvedConfig = {
     path: config.path,
+    openAt: config.openAt ?? 'startup',
     journalMode: config.journalMode ?? 'wal',
     defaultLimit: config.defaultLimit ?? SESSION_QUERY_SQLITE_DEFAULT_LIMIT,
     maxLimit: config.maxLimit ?? SESSION_QUERY_SQLITE_MAX_LIMIT,
@@ -957,6 +967,8 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
   }
+  const openPhases: readonly string[] = ['startup', 'first-search']
+  if (!openPhases.includes(resolved.openAt)) throw invalidConfig('openAt is not supported')
   assertPageLimit('defaultLimit', resolved.defaultLimit)
   assertPageLimit('maxLimit', resolved.maxLimit)
   assertPositiveInteger('snippetChars', resolved.snippetChars)

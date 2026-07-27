@@ -225,7 +225,7 @@ describe('session.search', () => {
     expect(searchSessions.mock.calls[1]?.[0]).toMatchObject({ cursor: 'page-2' })
   })
 
-  it('fails closed after 100 provider pages with distinct continuation cursors', async () => {
+  it('fails closed after 100 provider calls with distinct continuation cursors', async () => {
     const ctx = await baseContext()
     ctx.sessions.create(sid('visible'), { meta: header('visible') })
     let pageNumber = 0
@@ -247,8 +247,151 @@ describe('session.search', () => {
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error).toMatchObject({ code: 'internal' })
-    expect(response.result.error.message).toContain('100-page work budget')
+    expect(response.result.error.message).toContain('100-call work budget')
     expect(searchSessions).toHaveBeenCalledTimes(100)
+  })
+
+  it('restarts a stale continuation from one fresh generation and keeps the visibility snapshot', async () => {
+    const ctx = await baseContext()
+    const oldOnly = hit('old-only', 0)
+    const shared = hit('shared', 1)
+    const freshFirst = hit('fresh-first', 2)
+    const freshLast = hit('fresh-last', 3)
+    for (const item of [oldOnly, shared, freshFirst, freshLast]) {
+      ctx.sessions.create(item.header.id, { meta: item.header })
+    }
+    const late = hit('late-visible', 4)
+    const stale = new SessionQueryError(
+      'provider generation changed',
+      'SESSION_QUERY_STALE_CURSOR',
+    )
+    const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
+      switch (searchSessions.mock.calls.length) {
+        case 1:
+          expect(providerRequest).not.toHaveProperty('cursor')
+          return Promise.resolve({
+            items: [oldOnly, shared],
+            nextCursor: 'old-cursor',
+          })
+        case 2:
+          expect(providerRequest.cursor).toBe('old-cursor')
+          ctx.sessions.create(late.header.id, { meta: late.header })
+          return Promise.reject(stale)
+        case 3:
+          expect(providerRequest).not.toHaveProperty('cursor')
+          return Promise.resolve({
+            items: [freshFirst, shared],
+            nextCursor: 'old-cursor',
+          })
+        case 4:
+          expect(providerRequest.cursor).toBe('old-cursor')
+          return Promise.resolve({ items: [freshLast, late] })
+        default:
+          return Promise.reject(new Error('unexpected provider call'))
+      }
+    })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('stale-restart'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toEqual({
+      ok: true,
+      value: {
+        items: [
+          { sessionId: 'fresh-first', snippet: 'match 2' },
+          { sessionId: 'shared', snippet: 'match 1' },
+          { sessionId: 'fresh-last', snippet: 'match 3' },
+        ],
+        hasMore: false,
+      },
+    })
+    expect(searchSessions).toHaveBeenCalledTimes(4)
+  })
+
+  it('counts continuous stale restarts against the 100-call budget', async () => {
+    const ctx = await baseContext()
+    const partial = hit('partial')
+    ctx.sessions.create(partial.header.id, { meta: partial.header })
+    const stale = new SessionQueryError(
+      'provider generation changed',
+      'SESSION_QUERY_STALE_CURSOR',
+    )
+    const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
+      if (searchSessions.mock.calls.length > 100) {
+        return Promise.reject(new Error('provider was called after the shared budget'))
+      }
+      if (providerRequest.cursor !== undefined) return Promise.reject(stale)
+      return Promise.resolve({
+        items: [partial],
+        nextCursor: `cursor-${searchSessions.mock.calls.length}`,
+      })
+    })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('stale-churn'),
+      new AbortController().signal,
+    )
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('internal')
+    expect(response.result.error.message).toContain('100-call work budget')
+    expect(response.result).not.toHaveProperty('value')
+    expect(searchSessions).toHaveBeenCalledTimes(100)
+  })
+
+  it('gives abort priority over a coincident stale continuation failure', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const controller = new AbortController()
+    const stale = new SessionQueryError(
+      'provider generation changed',
+      'SESSION_QUERY_STALE_CURSOR',
+    )
+    const searchSessions = vi.fn()
+      .mockResolvedValueOnce({ items: [], nextCursor: 'stale-cursor' })
+      .mockImplementationOnce(() => {
+        controller.abort()
+        return Promise.reject(stale)
+      })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('abort-stale'),
+      controller.signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'cancelled' },
+    })
+    expect(searchSessions).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a stale first-page failure', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const searchSessions = vi.fn(() => Promise.reject(new SessionQueryError(
+      'provider generation changed before paging',
+      'SESSION_QUERY_STALE_CURSOR',
+    )))
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('first-page-stale'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'internal' },
+    })
+    expect(response.result).not.toHaveProperty('value')
+    expect(searchSessions).toHaveBeenCalledOnce()
   })
 
   it('rejects an oversized provider page before iterating its items', async () => {
@@ -270,6 +413,61 @@ describe('session.search', () => {
     expect(response.result.error).toMatchObject({ code: 'internal' })
     expect(response.result.error.message).toContain('returned 21 items; maximum is 20')
     expect(iterate).not.toHaveBeenCalled()
+  })
+
+  it('bounds provider snippets to 240 Unicode code points without splitting astral text', async () => {
+    const ctx = await baseContext()
+    const visible = hit('visible')
+    ctx.sessions.create(visible.header.id, { meta: visible.header })
+    const expected = `${'x'.repeat(239)}😀`
+    const overlong = {
+      ...visible,
+      bestMatch: {
+        ...visible.bestMatch,
+        snippet: `${expected}${'y'.repeat(10_000)}`,
+      },
+    }
+    ctx.provide('sessionQuery', {
+      searchSessions: () => Promise.resolve({ items: [overlong] }),
+    } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('bounded-snippet'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'visible', snippet: expected }],
+        hasMore: false,
+      },
+    })
+  })
+
+  it('fails closed when the provider returns a non-string snippet', async () => {
+    const ctx = await baseContext()
+    const visible = hit('visible')
+    ctx.sessions.create(visible.header.id, { meta: visible.header })
+    ctx.provide('sessionQuery', {
+      searchSessions: () => Promise.resolve({
+        items: [{
+          ...visible,
+          bestMatch: { ...visible.bestMatch, snippet: 42 },
+        }],
+      }),
+    } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('malformed-snippet'),
+      new AbortController().signal,
+    )
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('internal')
+    expect(response.result.error.message).toContain('non-string snippet')
+    expect(response.result).not.toHaveProperty('value')
   })
 
   it('inspects only numerically stored items when a compliant page overrides iteration', async () => {

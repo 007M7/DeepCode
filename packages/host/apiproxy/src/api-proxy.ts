@@ -41,8 +41,11 @@ const DEFAULT_MAX_MESSAGES = 50
 /** Product contract: sidebar search returns one bounded page and no cursor. */
 const SESSION_SEARCH_LIMIT = 20
 
-/** Provider work budget: at most 100 pages × 20 hits = 2,000 inspected hits. */
-const SESSION_SEARCH_PROVIDER_PAGE_LIMIT = 100
+/** Provider work budget: at most 100 calls and 2,000 inspected hits. */
+const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
+
+/** Product contract: snippets contain at most 240 Unicode code points. */
+const SESSION_SEARCH_SNIPPET_CODE_POINT_LIMIT = 240
 
 /** Bound cold-log stat fan-out so an aborted search stops launching new work. */
 const COLD_SUMMARY_BATCH_SIZE = 16
@@ -53,6 +56,28 @@ const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/me
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
+}
+
+/** Copy at most the product-visible code-point prefix without splitting a surrogate pair. */
+function boundedSessionSearchSnippet(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('session search provider returned a non-string snippet')
+  }
+  let end = 0
+  for (
+    let count = 0;
+    count < SESSION_SEARCH_SNIPPET_CODE_POINT_LIMIT && end < value.length;
+    count++
+  ) {
+    const first = value.charCodeAt(end)
+    const hasSurrogatePair = first >= 0xD800
+      && first <= 0xDBFF
+      && end + 1 < value.length
+      && value.charCodeAt(end + 1) >= 0xDC00
+      && value.charCodeAt(end + 1) <= 0xDFFF
+    end += hasSurrogatePair ? 2 : 1
+  }
+  return end === value.length ? value : value.slice(0, end)
 }
 
 /**
@@ -648,24 +673,42 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const acceptedIds = new Set<SessionId>()
           const seenCursors = new Set<SessionSearchCursor>()
           let cursor: SessionSearchCursor | undefined
-          let providerPageCount = 0
+          let providerCallCount = 0
           while (authorized.length <= SESSION_SEARCH_LIMIT) {
             if (isAborted(signal)) return cancelled()
-            if (providerPageCount >= SESSION_SEARCH_PROVIDER_PAGE_LIMIT) {
+            if (providerCallCount >= SESSION_SEARCH_PROVIDER_CALL_LIMIT) {
               throw new Error(
-                `session search provider exceeded the ${SESSION_SEARCH_PROVIDER_PAGE_LIMIT}-page work budget`,
+                `session search provider exceeded the ${SESSION_SEARCH_PROVIDER_CALL_LIMIT}-call work budget`,
               )
             }
-            providerPageCount++
-            const page = await sessionQuery.searchSessions({
-              query: request.payload.query,
-              eventFilters: [
-                { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
-                { kind: 'surface', values: ['current'] },
-              ],
-              limit: SESSION_SEARCH_LIMIT,
-              ...cursor === undefined ? {} : { cursor },
-            }, { signal })
+            providerCallCount++
+            const requestedCursor = cursor
+            let page
+            try {
+              page = await sessionQuery.searchSessions({
+                query: request.payload.query,
+                eventFilters: [
+                  { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                  { kind: 'surface', values: ['current'] },
+                ],
+                limit: SESSION_SEARCH_LIMIT,
+                ...requestedCursor === undefined ? {} : { cursor: requestedCursor },
+              }, { signal })
+            } catch (error: unknown) {
+              if (isAborted(signal)) return cancelled()
+              if (
+                requestedCursor !== undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_STALE_CURSOR'
+              ) {
+                authorized.length = 0
+                acceptedIds.clear()
+                seenCursors.clear()
+                cursor = undefined
+                continue
+              }
+              throw error
+            }
             if (isAborted(signal)) return cancelled()
             const providerItemCount = page.items.length
             if (providerItemCount > SESSION_SEARCH_LIMIT) {
@@ -691,10 +734,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 || !MESSAGE_TYPES.has(hit.bestMatch.type)
                 || acceptedIds.has(hit.header.id)
               ) continue
+              const snippet = boundedSessionSearchSnippet(hit.bestMatch.snippet)
               acceptedIds.add(hit.header.id)
               authorized.push({
                 sessionId: hit.header.id,
-                snippet: hit.bestMatch.snippet,
+                snippet,
               })
             }
             const nextCursor = page.nextCursor

@@ -261,6 +261,11 @@ function nodeCompatSmokeGates(): Gate[] {
       'run',
       'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
+    pnpmExec('session-query-lazy-open-smoke', [
+      'vitest',
+      'run',
+      'packages/session-query/session-query-sqlite/tests/lazy-open.compat.spec.ts',
+    ], { label: 'session-query lazy-open smoke' }),
   ]
 }
 

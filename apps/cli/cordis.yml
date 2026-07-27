@@ -89,13 +89,14 @@
   config:
     root: './.sessions'
 
-# Lazy, service-owned content index for session.search. The in-memory database
-# cannot be shared across processes or leak derived files across invocations;
-# the first search reconciles changed live/persisted sessions for this boot.
+# The service activates at boot, while first-search defers the node:sqlite
+# import and in-memory handle so Node 22 startup stays quiet until content
+# search actually uses SQLite. That search then reconciles this boot's sources.
 - id: session-query-sqlite
   name: '@deepseek-ai/dsh-session-query-sqlite'
   config:
     path: ':memory:'
+    openAt: first-search
 
 - id: storage
   name: '@deepseek-ai/dsh-storage'
