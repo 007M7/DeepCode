@@ -11,7 +11,7 @@ import type { Agent, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
+import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
@@ -641,30 +641,51 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           if (isAborted(signal)) return cancelled()
           if (visible.length === 0) return ok(request, { items: [], hasMore: false })
           const visibleIds = new Set(visible.map(item => item.sessionId))
-          const page = await sessionQuery.searchSessions({
-            query: request.payload.query,
-            sessionFilters: [{ kind: 'id', values: [...visibleIds] }],
-            eventFilters: [
-              { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
-              { kind: 'surface', values: ['current'] },
-            ],
-            limit: SESSION_SEARCH_LIMIT,
-          }, { signal })
-          if (isAborted(signal)) return cancelled()
-          // The filters are the authorization boundary. Re-check the complete
-          // provider provenance before emitting its snippet so a backend
-          // regression cannot pair an allowed header with excluded content.
-          const authorized = page.items.filter(hit =>
-            visibleIds.has(hit.header.id)
-            && hit.bestMatch.sessionId === hit.header.id
-            && hit.bestMatch.surface === 'current'
-            && MESSAGE_TYPES.has(hit.bestMatch.type))
+          const authorized: SessionSearchItem[] = []
+          const acceptedIds = new Set<SessionId>()
+          const seenCursors = new Set<SessionSearchCursor>()
+          let cursor: SessionSearchCursor | undefined
+          while (authorized.length <= SESSION_SEARCH_LIMIT) {
+            if (isAborted(signal)) return cancelled()
+            const page = await sessionQuery.searchSessions({
+              query: request.payload.query,
+              eventFilters: [
+                { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                { kind: 'surface', values: ['current'] },
+              ],
+              limit: SESSION_SEARCH_LIMIT,
+              ...cursor === undefined ? {} : { cursor },
+            }, { signal })
+            if (isAborted(signal)) return cancelled()
+            // Host visibility is the authorization boundary. Consume the
+            // provider's globally ranked stream rather than binding every
+            // visible id into one SQLite statement, then re-check complete
+            // provenance before emitting any snippet.
+            for (const hit of page.items) {
+              if (
+                !visibleIds.has(hit.header.id)
+                || hit.bestMatch.sessionId !== hit.header.id
+                || hit.bestMatch.surface !== 'current'
+                || !MESSAGE_TYPES.has(hit.bestMatch.type)
+                || acceptedIds.has(hit.header.id)
+              ) continue
+              acceptedIds.add(hit.header.id)
+              authorized.push({
+                sessionId: hit.header.id,
+                snippet: hit.bestMatch.snippet,
+              })
+              if (authorized.length > SESSION_SEARCH_LIMIT) break
+            }
+            if (authorized.length > SESSION_SEARCH_LIMIT || page.nextCursor === undefined) break
+            if (seenCursors.has(page.nextCursor)) {
+              throw new Error('session search provider repeated a continuation cursor')
+            }
+            seenCursors.add(page.nextCursor)
+            cursor = page.nextCursor
+          }
           return ok(request, {
-            items: authorized.slice(0, SESSION_SEARCH_LIMIT).map(hit => ({
-              sessionId: hit.header.id,
-              snippet: hit.bestMatch.snippet,
-            })),
-            hasMore: page.nextCursor !== undefined || authorized.length > SESSION_SEARCH_LIMIT,
+            items: authorized.slice(0, SESSION_SEARCH_LIMIT),
+            hasMore: authorized.length > SESSION_SEARCH_LIMIT,
           })
         } catch (error: unknown) {
           if (

@@ -12,7 +12,7 @@ Web 侧边栏会展示会话标题及其 Workspace 归属，但无法根据只�
 
 Web 与 headless 共用的组合会使用内存数据库挂载 [`@deepseek-ai/dsh-session-query-sqlite`](../../../../packages/session-query/session-query-sqlite/README.md)。每个服务实例都独占一个连接私有索引，因此并行 CLI 或 Web 调用可维持 SQLite 后端的单一所有者契约，又不会留下进程级派生文件。数据库从空状态启动；每次调用的首次内容查询会惰性对齐实时会话与持久化会话。它仍是与规范 JSONL 持久化相互独立的可丢弃派生索引。
 
-宿主网关通过现有的类型化 RPC 栈公开 `session.search`。它根据 `session.list` 使用的同一组可见摘要推导授权集合，将这些 id 传给 `ctx.sessionQuery.searchSessions`，并将索引匹配限制为当前 surface 中的 `user/message`、`assistant/message` 和 `steering/message` 事件。响应只包含一页，最多 20 个会话 id 及其摘要片段；`hasMore` 会指示 UI 提示用户缩小查询范围，而不是公开分页能力。载体信号会取消已被取代的工作，包括持久化列表枚举和构建可见集合时分批受限执行的冷会话元数据 stat。查询服务缺失或索引、查询失败仍作为业务错误处理，不会修改规范会话存储。
+宿主网关通过现有的类型化 RPC 栈公开 `session.search`。它根据 `session.list` 使用的同一组可见摘要推导授权集合，向 `ctx.sessionQuery.searchSessions` 请求全局排序后的当前 surface `user/message`、`assistant/message` 和 `steering/message` 匹配项，并持续消费提供方分页，直到获得 20 个已授权会话及一个前瞻项，或结果流耗尽。每个命中的会话 id、最佳匹配会话 id、surface 和事件类型都会经过重新校验，其 snippet 才能离开宿主。将可能很大的授权集合排除在 SQLite 绑定之外，可避开可移植变量上限，同时保持全局排序。响应仍只有一个有界页面；`hasMore` 会指示 UI 提示用户缩小查询范围，而不是公开分页能力。载体信号会取消已被取代的工作，包括持久化列表枚举、分批受限执行的冷会话元数据 stat，以及每一页提供方搜索。查询服务缺失或索引、查询失败仍作为业务错误处理，不会修改规范会话存储。
 
 [`WorkspaceBrowser`](../../../../packages/client/ui-workspace/README.md) 有意将元数据搜索与内容搜索保持独立。非空白查询会立即从会话列表中计算不区分大小写的标题和 Workspace 子串匹配，在 250 ms 防抖后发起内容请求，在查询变化时中止前一请求，并忽略陈旧的完成结果。它先按新近程度排列本地匹配，再合并由后端排序且仅匹配内容的结果，按会话 id 去重；无论常规分组模式如何，最终都渲染为扁平列表。每一行显示标题、Workspace，并在存在时显示一行摘要片段。选择某一行只会打开对应会话，并保留查询条件；不会跳转至确切事件。
 

@@ -14,7 +14,7 @@ mux 流会在每个已附加会话的订阅基线之后，以及对应的实时�
 
 Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白——惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
 
-`session.search` 是以 `session.list` 所列会话为范围的有界内容搜索投影。网关仅将这些会话 id 以及当前表层中的 user、assistant 和 steering（中途引导）消息传给可选的 `ctx.sessionQuery` 服务，返回至多 20 个会话／snippet 对和一个提示细化查询的标志位，并转发载体请求信号以支持取消。部署若未挂载该服务，或索引／查询操作失败，都会返回 `internal` 业务错误，以便客户端保留仅基于元数据的匹配项。
+`session.search` 是以 `session.list` 所列会话为范围的有界内容搜索投影。网关向可选的 `ctx.sessionQuery` 服务请求全局排序后的当前 surface user、assistant 和 steering（中途引导）匹配项，对该结果流分页，直到获得至多 20 个可见会话／snippet 对及一个前瞻项，并在返回前依据从列表推导的授权集合重新校验每个命中。将授权集合保留在宿主内存中，可在不削弱可见性或排序的前提下避开有效大型语料库的 SQLite 变量上限。载体请求信号可取消持久化列表枚举、冷会话摘要收集和每一页搜索。部署若未挂载该服务，或索引／查询操作失败，都会返回 `internal` 业务错误，以便客户端保留仅基于元数据的匹配项。
 
 `command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`command.execute` 在宿主侧运行一条斜杠命令行并返回脱耦结果；载体的请求信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
 

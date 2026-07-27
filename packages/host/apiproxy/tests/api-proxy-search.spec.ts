@@ -107,7 +107,6 @@ describe('session.search', () => {
           },
         },
       ],
-      nextCursor: 'more' as never,
     }))
     ctx.provide('sessionQuery', { searchSessions } as never)
     const api = createApiProxy(ctx, defaults)
@@ -119,7 +118,7 @@ describe('session.search', () => {
       ok: true,
       value: {
         items: [{ sessionId: 'cold', snippet: 'the matching answer' }],
-        hasMore: true,
+        hasMore: false,
       },
     })
     expect(searchSessions).toHaveBeenCalledOnce()
@@ -129,7 +128,6 @@ describe('session.search', () => {
     ]
     expect(query).toEqual({
       query: 'matching answer',
-      sessionFilters: [{ kind: 'id', values: ['live', 'cold'] }],
       eventFilters: [
         {
           kind: 'type',
@@ -179,7 +177,6 @@ describe('session.search', () => {
           withBestMatch(2, { type: 'tool/result' }),
           withBestMatch(3, { type: 'steering/message', snippet: 'allowed snippet' }),
         ],
-        nextCursor: 'more',
       }),
     } as never)
 
@@ -192,19 +189,25 @@ describe('session.search', () => {
       ok: true,
       value: {
         items: [{ sessionId: 'visible', snippet: 'allowed snippet' }],
-        hasMore: true,
+        hasMore: false,
       },
     })
   })
 
-  it('enforces the 20-item Host boundary even if a provider overproduces', async () => {
+  it('pages the globally ranked stream until the 20-item Host boundary is known', async () => {
     const ctx = await baseContext()
     const items = Array.from({ length: 21 }, (_, index) => hit(`visible-${index}`, index))
     for (const item of items) {
       ctx.sessions.create(item.header.id, { meta: item.header })
     }
+    const searchSessions = vi.fn()
+      .mockResolvedValueOnce({
+        items: [hit('hidden-ranked-first'), ...items.slice(0, 19)],
+        nextCursor: 'page-2',
+      })
+      .mockResolvedValueOnce({ items: items.slice(19) })
     ctx.provide('sessionQuery', {
-      searchSessions: () => Promise.resolve({ items }),
+      searchSessions,
     } as never)
     const response = await createApiProxy(ctx, defaults).sessions.search(
       request('match'),
@@ -218,6 +221,39 @@ describe('session.search', () => {
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value.items).toHaveLength(20)
     expect(response.result.value.items.at(-1)?.sessionId).toBe('visible-19')
+    expect(searchSessions).toHaveBeenCalledTimes(2)
+    expect(searchSessions.mock.calls[1]?.[0]).toMatchObject({ cursor: 'page-2' })
+  })
+
+  it('keeps visibility sets above SQLite variable limits out of provider bindings', async () => {
+    const ctx = await baseContext()
+    const cold = Array.from(
+      { length: 32_751 },
+      (_, index) => header(`cold-${index}`, `/cold-${index}`),
+    )
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve(cold),
+      locate: () => undefined,
+    } as never)
+    const searchSessions = vi.fn(() => Promise.resolve({
+      items: [hit('cold-32750')],
+    }))
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('large corpus'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'cold-32750', snippet: 'match 0' }],
+        hasMore: false,
+      },
+    })
+    expect(searchSessions).toHaveBeenCalledOnce()
+    expect(searchSessions.mock.calls[0]?.[0]).not.toHaveProperty('sessionFilters')
   })
 
   it('propagates cancellation through visible-session collection and stops cold-summary work', async () => {
