@@ -16,11 +16,11 @@
 
 ## 验证
 
-除 schema 的类型／必填／枚举检查外，`execute` 还会拒绝空或重复的 `content`，以及同时存在多个 `in_progress` 任务的情况（连贯计划最多只有一个活跃任务）。顺序与保持列表最新的纪律由模型根据工具描述负责。
+除 schema 的类型／必填／枚举检查外，`execute` 还会拒绝空或重复的 `content`、同时存在多个 `in_progress` 任务的情况（连贯计划最多只有一个活跃任务），以及 `content`/`status` 之外的任何条目键——扩展条目形状（id、嵌套）会响亮失败而不是被静默压平，保证落日志的快照与模型自认为写入的内容一致。顺序与保持列表最新的纪律由模型根据工具描述负责。
 
 ## 渲染
 
-规范结果为 `{ todos, counts: { pending, inProgress, completed } }`；其 Native 渲染器返回精简的更新确认。工具还会写入完整 `todo/write` 会话事件。UI 订阅事件流，并自行渲染该持久列表；[TUI 应用](../../examples/tui-demo)将其显示为持久计划。
+规范结果为 `{ todos, counts: { pending, inProgress, completed } }`；其 Native 渲染器返回精简的更新确认。工具还会写入完整 `todo/write` 会话事件。UI 订阅事件流，并自行渲染该持久列表：[TUI 应用](../../examples/tui-demo)将其显示为持久计划，[web 客户端](../../client/ui-conversation)则基于 `ConversationSnapshot.todos` 渲染计划横条与专属工具行（[Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md)）。
 
 ## 导出形状
 

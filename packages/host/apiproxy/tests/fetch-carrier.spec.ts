@@ -25,6 +25,12 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
       async history(request) {
+        if (request.payload.sessionId === ('with-todos' as never)) {
+          return {
+            rpcId: request.rpcId,
+            result: { ok: true, value: { events: [], hasMore: false, todos: [{ content: 'current', status: 'in_progress' as const }] } },
+          }
+        }
         return {
           rpcId: request.rpcId,
           result: { ok: false, error: { code: 'session-not-found', message: 'nope', details: { sessionId: request.payload.sessionId } } },
@@ -114,6 +120,12 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await client().sessions.list({})
     expect(response.result).toEqual({ ok: true, value: { items: [] } })
     expect(response.rpcId).toMatch(/[0-9a-f-]{36}/)
+  })
+
+  it('carries the tail-page todos projection through the wire schema (Zod must not strip it)', async () => {
+    const response = await client().sessions.history({ sessionId: 'with-todos' as never })
+    expect(response.result.ok).toBe(true)
+    if (response.result.ok) expect(response.result.value.todos).toEqual([{ content: 'current', status: 'in_progress' }])
   })
 
   it('carries a business error as 200 + error result', async () => {

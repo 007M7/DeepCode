@@ -272,7 +272,7 @@ export class BasicCompactService extends CompactService {
       return this.compactRegion(range.start, range.end, agent, signal)
     }
 
-    const context = await this.ctx.llm.resolveModelContext(target.provider, target.model)
+    const context = (await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)).context
     const targetKey = `${target.provider}/${target.model}`
     if (context === undefined) {
       throw new TargetPressureConfigError(

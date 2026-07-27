@@ -1,8 +1,33 @@
 import type { Context } from 'cordis'
-import { CallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import {
+  CallId,
+  LlmAdapter,
+  ReasoningEffortId,
+  type GenerateOptions,
+  type LlmResolvedModelInfo,
+  type StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+
+const HIGH = ReasoningEffortId('high')
+const OFF = ReasoningEffortId('off')
 
 /** Keyless headless-agent adapter: one real bash call followed by a final answer. */
 class CliMockAdapter extends LlmAdapter {
+  override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return {
+      provider,
+      id: model,
+      name: model,
+      reasoning: {
+        efforts: [
+          { id: OFF, name: 'Off' },
+          { id: HIGH, name: 'High' },
+        ],
+        defaultEffort: HIGH,
+      },
+    }
+  }
+
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const toolResult = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
     if (toolResult === undefined) {
@@ -34,4 +59,8 @@ export const inject = ['llm']
 /** Register the keyless `cli-mock` adapter. */
 export function apply(ctx: Context): void {
   ctx.llm.registerAdapter(['cli-mock'], new CliMockAdapter())
+  ctx.on('agent/request', async (_agent, _turn, step, _config, _signal, next) => {
+    const config = await next()
+    return step === 2 ? { ...config, reasoningEffort: OFF } : config
+  })
 }

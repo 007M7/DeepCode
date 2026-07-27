@@ -13,6 +13,8 @@ import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { todoToolview } from './toolviews/todo-row.tsx'
+import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationSession } from './skeleton/ConversationSession.tsx'
@@ -181,6 +183,12 @@ export function apply(ctx: Context): void {
 
   // The bash sample rides that exact seam, in third-party posture.
   ctx.plugin(bashToolviewSample)
+
+  // The todo_write row rides the same seam (a product registration, not a sample).
+  ctx.plugin(todoToolview)
+
+  // The plan strip rides the input dock above the queue rows (same posture).
+  ctx.plugin(todoDockEntry)
 
   // The read-only queue dock entry (T9 file territory) rides the same
   // registration seam into the input dock declared above.
