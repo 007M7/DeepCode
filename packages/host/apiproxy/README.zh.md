@@ -14,6 +14,8 @@ mux 流会在每个已附加会话的订阅基线之后，以及对应的实时�
 
 Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白：惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
 
+`host.pickDirectory` 会打开一个原生目录选择器并返回选中的路径；用户取消时返回 `null`。宿主实现不经 shell 调用平台工具：macOS 使用 `osascript`，Windows 使用以 STA 模式运行的 PowerShell `FolderBrowserDialog`，Linux 使用 Zenity，并以 KDialog 作为回退。选择器函数可在测试中注入。该方法需等待用户完成操作，是唯一不受默认 30 秒超时限制的一元调用；调用方发出的中止信号和连接中止仍会传播至原生进程。浏览器载体另行将这一特权方法限制为仅接受来自回环地址的同源请求。
+
 `session.history` 按消息边界分页，其尾页（不带 `beforeSeq`）额外携带两项页窗口本身无法提供的会话级数据：进行中局部消息的 chunk 事件，以及 `todos`——整份日志上最后一次 `todo/write` 的整表投影。较早的页面不带 `todos`，因为该投影是会话级而非分页级的；尾页响应缺少该字段意味着整份日志中没有任何 `todo/write`，因此客户端要把缺失字段读作空计划，而不是读作「状态未变」。
 
 `command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`command.execute` 在宿主侧运行一条斜杠命令行并返回脱耦结果；载体的请求信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
@@ -35,3 +37,4 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 - **`respond` 路由已经发布，但待处理交互状态仍属宿主侧工作**：协议形状（POST `/api/respond`、`RpcReceipt`）已经定型；使延迟或重复回答具有明确语义的待处理表位于 `src/api-proxy.ts`，目前仍很精简（只支持问题，不支持审批）。
 - **预留 seam 不进入 `RpcMethodMap`**：`session.fork`、`prompt.mode: 'inject'`、`task.list`、`host.listModels` 和描述字段 `hostInstanceId` 都是已记录的预留项；未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
 - **没有协议版本字段**：客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
+- **Linux 原生选择器依赖桌面工具**：Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；它不会回退到自定义目录浏览器，也不会要求用户手动输入路径。

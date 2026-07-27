@@ -23,6 +23,7 @@ export interface RpcMethodMap {
   'session.prompt': SessionsApi['prompt']
   'session.cancel': SessionsApi['cancel']
   'host.describe': HostApi['describe']
+  'host.pickDirectory': HostApi['pickDirectory']
   'workspace.list': WorkspaceApi['list']
   'workspace.create': WorkspaceApi['create']
   'workspace.rename': WorkspaceApi['rename']

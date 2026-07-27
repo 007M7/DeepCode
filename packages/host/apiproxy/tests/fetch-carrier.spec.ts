@@ -47,6 +47,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async describe(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }
       },
+      async pickDirectory(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
+      },
     },
     workspace: {
       async list(request) {
@@ -108,8 +111,8 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
   }
 }
 
-function client(api: ApiProxy = fakeApi()): InProcessApiClient {
-  return new InProcessApiClient(toFetchHandler(api))
+function client(api: ApiProxy = fakeApi(), timeoutMs?: number): InProcessApiClient {
+  return new InProcessApiClient(toFetchHandler(api), timeoutMs)
 }
 
 async function collect<F>(stream: AsyncIterable<RpcRequest<F>>): Promise<RpcRequest<F>[]> {
@@ -145,6 +148,16 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.host.describe({})).result.ok).toBe(true)
   })
 
+  it('round-trips the native picker without the default unary timeout', async () => {
+    const api = fakeApi()
+    api.host.pickDirectory = async (request) => {
+      await new Promise(resolve => setTimeout(resolve, 15))
+      return { rpcId: request.rpcId, result: { ok: true, value: { path: '/tmp/project' } } }
+    }
+    const response = await client(api, 1).host.pickDirectory({})
+    expect(response.result).toEqual({ ok: true, value: { path: '/tmp/project' } })
+  })
+
   it('round-trips command.list / command.execute / skill.list through the wire form', async () => {
     const c = client()
     const list = await c.commands.list({ sessionId: 's' as never })
@@ -168,6 +181,30 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into host.pickDirectory', async () => {
+    const api = fakeApi()
+    api.host.pickDirectory = async (request, signal) => {
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      }
+      return {
+        rpcId: request.rpcId,
+        result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+      }
+    }
+    const handler = toFetchHandler(api)
+    const controller = new AbortController()
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-picker', method: 'host.pickDirectory', payload: {} })
+    const pending = handler.fetch(new Request('http://x/api/host.pickDirectory', {
+      method: 'POST', body, signal: controller.signal,
+    }))
+    controller.abort()
+    const parsed = await (await pending).json() as { result: { error?: { code: string } } }
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 })
