@@ -2,19 +2,17 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 
 const MINIMUM_GIT = [2, 26, 0]
 const HOOKS_DIRECTORY = 'dsh-hooks'
 const OWNERSHIP_MARKER = '.dsh-lefthook-owned'
-const LEGACY_OWNERSHIP_MARKER_CONTENT = 'deepseek-harness worktree-local lefthook hooks\n'
 const OWNERSHIP_MARKER_VERSION = 1
 const OWNERSHIP_MARKER_OWNER = 'deepseek-harness worktree-local lefthook hooks'
 const INSTALL_LOCK = 'dsh-lefthook-install.lock'
 const INSTALL_LOCK_TIMEOUT_MS = 30_000
 const INSTALL_LOCK_POLL_MS = 50
 const ALLOW_HOOKS_PATH_OVERRIDE = 'DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE'
-const CONDITIONAL_INCLUDE_PATTERN = '^includeif\\..*\\.path$'
 const REPOSITORY_EXTENSION_PATTERN = '^extensions\\.'
 
 function errorCode(error) {
@@ -59,20 +57,15 @@ function stripGitLineTerminator(output) {
     : withoutLineFeed
 }
 
-function fileConfigValues(root, configPath, key) {
+function directFileConfigValues(root, configPath, key) {
   return nulValues(git(
-    ['config', '--file', configPath, '--null', '--get-all', key],
+    ['config', '--file', configPath, '--no-includes', '--null', '--get-all', key],
     root,
     { allowStatuses: [1] },
   ))
 }
 
-function fileConfigEntries(root, configPath, key) {
-  const fields = nulValues(git(
-    ['config', '--file', configPath, '--includes', '--null', '--show-origin', '--get-all', key],
-    root,
-    { allowStatuses: [1] },
-  ))
+function parseFileConfigEntries(fields, key) {
   if (fields.length % 2 !== 0) {
     throw new Error(`git config returned invalid file entries for ${key}`)
   }
@@ -83,15 +76,24 @@ function fileConfigEntries(root, configPath, key) {
   return entries
 }
 
+function includedFileConfigEntries(root, configPath, key) {
+  const fields = nulValues(git(
+    ['config', '--file', configPath, '--includes', '--null', '--show-origin', '--get-all', key],
+    root,
+    { allowStatuses: [1] },
+  ))
+  return parseFileConfigEntries(fields, key)
+}
+
 function splitConfigNameValue(field, pattern) {
   const separator = field.indexOf('\n')
   if (separator < 0) throw new Error(`git config returned an invalid name and value for ${pattern}`)
   return { name: field.slice(0, separator), value: field.slice(separator + 1) }
 }
 
-function fileConfigMatchingEntries(root, configPath, pattern) {
+function directFileConfigMatchingEntries(root, configPath, pattern) {
   const fields = nulValues(git(
-    ['config', '--file', configPath, '--includes', '--null', '--show-origin', '--get-regexp', pattern],
+    ['config', '--file', configPath, '--no-includes', '--null', '--show-origin', '--get-regexp', pattern],
     root,
     { allowStatuses: [1] },
   ))
@@ -101,26 +103,6 @@ function fileConfigMatchingEntries(root, configPath, pattern) {
   const entries = []
   for (let index = 0; index < fields.length; index += 2) {
     entries.push({ origin: fields[index], ...splitConfigNameValue(fields[index + 1], pattern) })
-  }
-  return entries
-}
-
-function scopedConfigMatchingEntries(root, pattern) {
-  const fields = nulValues(git(
-    ['config', '--includes', '--null', '--show-scope', '--show-origin', '--get-regexp', pattern],
-    root,
-    { allowStatuses: [1] },
-  ))
-  if (fields.length % 3 !== 0) {
-    throw new Error(`git config returned invalid scoped entries for ${pattern}`)
-  }
-  const entries = []
-  for (let index = 0; index < fields.length; index += 3) {
-    entries.push({
-      scope: fields[index],
-      origin: fields[index + 1],
-      ...splitConfigNameValue(fields[index + 2], pattern),
-    })
   }
   return entries
 }
@@ -153,7 +135,7 @@ function assertSingle(values, key) {
 
 function worktreeConfigExtensionEnabled(root, commonConfigPath) {
   const extensionText = assertSingle(
-    fileConfigValues(root, commonConfigPath, 'extensions.worktreeConfig'),
+    directFileConfigValues(root, commonConfigPath, 'extensions.worktreeConfig'),
     'extensions.worktreeConfig',
   )
   return extensionText === undefined
@@ -162,7 +144,7 @@ function worktreeConfigExtensionEnabled(root, commonConfigPath) {
 }
 
 function hasDirectConfigEntries(root, configPath) {
-  return git(['config', '--file', configPath, '--null', '--list'], root).stdout !== ''
+  return git(['config', '--file', configPath, '--no-includes', '--null', '--list'], root).stdout !== ''
 }
 
 function registeredWorktreeConfigPaths(commonDirectory) {
@@ -235,74 +217,8 @@ function assertSupportedGit(root) {
   }
 }
 
-function conditionalIncludeTarget(entry, root) {
-  if (isAbsolute(entry.value)) return entry.value
-  const sourcePath = configOriginPath(entry.origin, root)
-  if (sourcePath === undefined) return undefined
-  if (entry.value.startsWith('~/')) {
-    const home = process.env.HOME
-    return home === undefined ? undefined : resolve(home, entry.value.slice(2))
-  }
-  if (entry.value.startsWith('~') || entry.value.startsWith('%(')) return undefined
-  return resolve(dirname(sourcePath), entry.value)
-}
-
-function inspectConditionalConfig(root, configPath, inspect, seen = new Set()) {
-  const identity = normalizedPath(configPath)
-  if (seen.has(identity)) return undefined
-  seen.add(identity)
-  if (!existsSync(configPath)) {
-    return { configPath, detail: 'the included config does not exist and cannot be inspected' }
-  }
-  try {
-    const subject = inspect(configPath)
-    if (subject !== undefined) return { configPath, subject }
-    for (const entry of fileConfigMatchingEntries(root, configPath, CONDITIONAL_INCLUDE_PATTERN)) {
-      const target = conditionalIncludeTarget(entry, root)
-      if (target === undefined) {
-        return { configPath, detail: `the nested include path ${JSON.stringify(entry.value)} cannot be resolved safely` }
-      }
-      const nested = inspectConditionalConfig(root, target, inspect, seen)
-      if (nested !== undefined) return nested
-    }
-    return undefined
-  } catch (error) {
-    return {
-      configPath,
-      detail: `the included config could not be inspected: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
-}
-
-function conditionalIncludeRisk(root, entry, inspect) {
-  const target = conditionalIncludeTarget(entry, root)
-  if (target === undefined) {
-    return { detail: `the include path ${JSON.stringify(entry.value)} cannot be resolved safely` }
-  }
-  return inspectConditionalConfig(root, target, inspect)
-}
-
-function migrationConfigSubject(root, configPath, rejectRepositoryExtensions) {
-  if (rejectRepositoryExtensions) {
-    const extensionEntry = fileConfigMatchingEntries(root, configPath, REPOSITORY_EXTENSION_PATTERN)[0]
-    if (extensionEntry !== undefined) {
-      return `${extensionEntry.name} (${configSource(extensionEntry)})`
-    }
-  }
-  const worktreeEntry = fileConfigEntries(root, configPath, 'core.worktree')[0]
-  if (worktreeEntry !== undefined) return `core.worktree (${configSource(worktreeEntry)})`
-  const trueBareEntry = fileConfigEntries(root, configPath, 'core.bare')
-    .find(entry => parseGitBoolean(entry.value, 'core.bare'))
-  return trueBareEntry === undefined ? undefined : `core.bare=true (${configSource(trueBareEntry)})`
-}
-
-function hooksPathConfigSubject(root, configPath) {
-  const entry = fileConfigEntries(root, configPath, 'core.hooksPath')[0]
-  return entry === undefined ? undefined : `core.hooksPath (${configSource(entry)})`
-}
-
 function planWorktreeConfigMigration(root, commonConfigPath) {
-  const versions = fileConfigValues(root, commonConfigPath, 'core.repositoryFormatVersion')
+  const versions = directFileConfigValues(root, commonConfigPath, 'core.repositoryFormatVersion')
   const versionText = assertSingle(versions, 'core.repositoryFormatVersion')
   const version = Number(versionText)
   if (!Number.isInteger(version) || version < 0) {
@@ -310,7 +226,7 @@ function planWorktreeConfigMigration(root, commonConfigPath) {
   }
 
   if (version === 0) {
-    const extensionEntry = fileConfigMatchingEntries(
+    const extensionEntry = directFileConfigMatchingEntries(
       root,
       commonConfigPath,
       REPOSITORY_EXTENSION_PATTERN,
@@ -325,42 +241,26 @@ function planWorktreeConfigMigration(root, commonConfigPath) {
   }
 
   const extensionEnabled = worktreeConfigExtensionEnabled(root, commonConfigPath)
-
-  if (!extensionEnabled) {
-    for (const entry of fileConfigMatchingEntries(root, commonConfigPath, CONDITIONAL_INCLUDE_PATTERN)) {
-      const risk = conditionalIncludeRisk(
-        root,
-        entry,
-        configPath => migrationConfigSubject(root, configPath, version === 0),
-      )
-      if (risk !== undefined) {
-        const reason = risk.subject ?? risk.detail
-        throw new Error(
-          `cannot enable extensions.worktreeConfig while common conditional include `
-          + `${entry.origin}: ${entry.name}=${JSON.stringify(entry.value)} may provide migration-sensitive config (${reason}); `
-          + 'audit and migrate it, then enable the extension explicitly',
-        )
-      }
-    }
-  }
-
-  const worktreeEntry = fileConfigEntries(root, commonConfigPath, 'core.worktree')[0]
-  if (worktreeEntry !== undefined) {
+  const worktreeText = assertSingle(
+    directFileConfigValues(root, commonConfigPath, 'core.worktree'),
+    'core.worktree',
+  )
+  if (worktreeText !== undefined) {
     throw new Error(
-      `cannot enable extensions.worktreeConfig while core.worktree is in the common config (${configSource(worktreeEntry)}); `
+      `cannot enable extensions.worktreeConfig while core.worktree is in the common config `
+      + `(file:${commonConfigPath}: ${JSON.stringify(worktreeText)}); `
       + 'move it to the main worktree config first',
     )
   }
 
-  const bareEntries = fileConfigEntries(root, commonConfigPath, 'core.bare')
-  const trueBareEntry = bareEntries.find(entry => parseGitBoolean(entry.value, 'core.bare'))
-  if (trueBareEntry !== undefined) {
+  const directBareText = assertSingle(directFileConfigValues(root, commonConfigPath, 'core.bare'), 'core.bare')
+  const directBare = directBareText === undefined ? undefined : parseGitBoolean(directBareText, 'core.bare')
+  if (directBare === true) {
     throw new Error(
-      `cannot enable extensions.worktreeConfig for a common config with core.bare=true (${configSource(trueBareEntry)})`,
+      `cannot enable extensions.worktreeConfig for a common config with core.bare=true `
+      + `(file:${commonConfigPath}: ${JSON.stringify(directBareText)})`,
     )
   }
-  const directBareText = assertSingle(fileConfigValues(root, commonConfigPath, 'core.bare'), 'core.bare')
-  const directBare = directBareText === undefined ? undefined : parseGitBoolean(directBareText, 'core.bare')
 
   return { directBare, extensionEnabled, version }
 }
@@ -487,8 +387,7 @@ function ownershipMarkerContent(hooksPath) {
   })}\n`
 }
 
-function parseOwnershipMarker(content, hooksPath) {
-  if (content === LEGACY_OWNERSHIP_MARKER_CONTENT) return { hooksPath, legacy: true }
+function parseOwnershipMarker(content) {
   let parsed
   try {
     parsed = JSON.parse(content)
@@ -505,7 +404,7 @@ function parseOwnershipMarker(content, hooksPath) {
   ) {
     return undefined
   }
-  return { hooksPath: parsed.hooksPath, legacy: false }
+  return { hooksPath: parsed.hooksPath }
 }
 
 function inspectOwnedHooksDirectory(hooksPath) {
@@ -520,7 +419,7 @@ function inspectOwnedHooksDirectory(hooksPath) {
   }
   const markerStat = lstatSync(markerPath)
   const marker = markerStat.isFile() && !markerStat.isSymbolicLink() && markerStat.nlink === 1
-    ? parseOwnershipMarker(readFileSync(markerPath, 'utf8'), hooksPath)
+    ? parseOwnershipMarker(readFileSync(markerPath, 'utf8'))
     : undefined
   if (marker === undefined) {
     throw new Error(`refusing to overwrite hooks directory with an invalid ownership marker: ${hooksPath}`)
@@ -544,7 +443,7 @@ function ensureOwnedHooksDirectory(hooksPath) {
   mkdirSync(hooksPath, { mode: 0o700 })
   const markerPath = join(hooksPath, OWNERSHIP_MARKER)
   writeFileSync(markerPath, ownershipMarkerContent(hooksPath), { flag: 'wx', mode: 0o600 })
-  return { markerPath, hooksPath, legacy: false }
+  return { markerPath, hooksPath }
 }
 
 function updateOwnershipMarker(markerPath, hooksPath) {
@@ -595,52 +494,6 @@ function configOriginPath(origin, root) {
 function originIsFile(origin, root, configPath) {
   const originPath = configOriginPath(origin, root)
   return originPath !== undefined && normalizedPath(originPath) === normalizedPath(configPath)
-}
-
-function conditionalIncludeSource(entry) {
-  return `${entry.origin}: ${entry.name}=${JSON.stringify(entry.value)}`
-}
-
-function conditionalIncludes(root, worktreeConfigPath) {
-  const entries = scopedConfigMatchingEntries(root, CONDITIONAL_INCLUDE_PATTERN)
-  entries.push(...fileConfigMatchingEntries(root, worktreeConfigPath, CONDITIONAL_INCLUDE_PATTERN)
-    .map(entry => ({ ...entry, scope: 'worktree' })))
-  const unique = new Map()
-  for (const entry of entries) {
-    unique.set(`${entry.scope}\0${entry.origin}\0${entry.name}\0${entry.value}`, entry)
-  }
-  return [...unique.values()]
-}
-
-function assertConditionalHooksPaths(root, worktreeConfigPath) {
-  for (const entry of conditionalIncludes(root, worktreeConfigPath)) {
-    const risk = conditionalIncludeRisk(
-      root,
-      entry,
-      configPath => hooksPathConfigSubject(root, configPath),
-    )
-    if (risk === undefined) continue
-    const reason = risk.subject ?? risk.detail
-    if (entry.scope === 'command' || entry.scope === 'worktree') {
-      throw new Error(
-        `refusing ${entry.scope}-scoped conditional include ${conditionalIncludeSource(entry)}; `
-        + `it may provide a user-owned core.hooksPath (${reason}) and cannot be overridden`,
-      )
-    }
-    if (!['system', 'global', 'local'].includes(entry.scope)) {
-      throw new Error(
-        `refusing conditional include from unsupported ${entry.scope} scope ${conditionalIncludeSource(entry)}; `
-        + `it may provide core.hooksPath (${reason})`,
-      )
-    }
-    if (process.env[ALLOW_HOOKS_PATH_OVERRIDE] !== '1') {
-      throw new Error(
-        `refusing to replace core.hooksPath that may be provided by inherited conditional include `
-        + `${conditionalIncludeSource(entry)} (${reason}). Inspect that include and rerun with `
-        + `${ALLOW_HOOKS_PATH_OVERRIDE}=1 only if it may remain active in other worktrees`,
-      )
-    }
-  }
 }
 
 function refuseInheritedHooksPath(entry) {
@@ -696,7 +549,7 @@ async function main() {
       commonConfigPath,
       worktreeConfigPath,
     )
-    const worktreeEntries = fileConfigEntries(root, worktreeConfigPath, 'core.hooksPath')
+    const worktreeEntries = includedFileConfigEntries(root, worktreeConfigPath, 'core.hooksPath')
     const includedWorktreeEntry = worktreeEntries.find(
       entry => !originIsFile(entry.origin, root, worktreeConfigPath),
     )
@@ -734,8 +587,6 @@ async function main() {
         }
       }
     }
-    assertConditionalHooksPaths(root, worktreeConfigPath)
-
     const migration = planWorktreeConfigMigration(root, commonConfigPath)
     ownedHooksDirectory = ensureOwnedHooksDirectory(hooksPath)
     if (
