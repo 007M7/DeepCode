@@ -6,38 +6,38 @@
  * @see ../.agents/notes/implemented/process/2026-07-27-replayable-gate-plans.md
  */
 import { spawn } from 'node:child_process'
-import { realpathSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { pathToFileURL } from 'node:url'
 
-const MODES = [
-  'ci-primary',
-  'ci-static',
-  'ci-lint',
-  'ci-coverage',
-  'ci-snapshot',
-  'ci-artifacts',
-  'ci-consumers',
-  'ci-windows-blocking',
-  'ci-windows-complete',
-  'ci-windows-observational',
-  'node-compat',
-  'check-all',
-  'doc-sync',
-] as const
+const MODE_SCRIPTS = {
+  'ci-primary': 'check:ci',
+  'ci-static': 'check:ci:static',
+  'ci-lint': 'check:ci:lint',
+  'ci-coverage': 'check:ci:coverage',
+  'ci-snapshot': 'check:ci:snapshot',
+  'ci-artifacts': 'check:ci:artifacts',
+  'ci-consumers': 'check:ci:consumers',
+  'ci-windows-blocking': 'check:ci:windows-blocking',
+  'ci-windows-complete': 'check:ci:windows-complete',
+  'ci-windows-observational': 'check:ci:windows-observational',
+  'node-compat': 'check:node-compat',
+  'check-all': 'check:all',
+  'doc-sync': 'doc-sync',
+} as const
 
 /** A named aggregate exposed by the gate runner. */
-export type Mode = typeof MODES[number]
+export type Mode = keyof typeof MODE_SCRIPTS
+
+const MODES = Object.keys(MODE_SCRIPTS) as Mode[]
 
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
 /** One scheduler-owned environment operation, resolved against inherited values only at spawn time. */
 export type GateEnvironmentOverride =
   | { operation: 'set'; value: string }
-  | { operation: 'unset' }
-  | { operation: 'append'; value: string; separator?: string }
+  | { operation: 'append'; value: string }
 
 /** A command and its dependency metadata inside one gate plan. */
 export interface Gate {
@@ -91,18 +91,13 @@ export interface ResolvedConcurrency {
 }
 
 interface RunRequest {
-  kind: 'run'
   mode: Mode
   list: boolean
   json: boolean
   only?: string
 }
 
-interface ListedEnvironmentOverride {
-  operation: GateEnvironmentOverride['operation']
-  value?: string
-  separator?: string
-}
+type ListedEnvironmentOverride = GateEnvironmentOverride
 
 interface ListedGate {
   id: string
@@ -126,23 +121,10 @@ type GateExecutor = (gate: Gate) => Promise<GateResult>
 type ResultObserver = (result: GateResult) => void
 
 const root = resolve(import.meta.dirname, '..')
-const MODE_SCRIPTS: Record<Mode, string> = {
-  'ci-primary': 'check:ci',
-  'ci-static': 'check:ci:static',
-  'ci-lint': 'check:ci:lint',
-  'ci-coverage': 'check:ci:coverage',
-  'ci-snapshot': 'check:ci:snapshot',
-  'ci-artifacts': 'check:ci:artifacts',
-  'ci-consumers': 'check:ci:consumers',
-  'ci-windows-blocking': 'check:ci:windows-blocking',
-  'ci-windows-complete': 'check:ci:windows-complete',
-  'ci-windows-observational': 'check:ci:windows-observational',
-  'node-compat': 'check:node-compat',
-  'check-all': 'check:all',
-  'doc-sync': 'doc-sync',
+const entry = process.argv[1]
+if (entry !== undefined && import.meta.url === pathToFileURL(resolve(entry)).href) {
+  process.exitCode = await main(process.argv.slice(2))
 }
-
-if (isMainModule()) process.exitCode = await main(process.argv.slice(2))
 
 async function main(args: string[]): Promise<number> {
   const request = parseCliRequest(args)
@@ -172,21 +154,6 @@ async function main(args: string[]): Promise<number> {
   return results.some(result => result.gate.allowFailure !== true && (result.status === 'failed' || result.status === 'skipped'))
     ? 1
     : 0
-}
-
-/**
- * Decide whether this module is the process entry, including through a symlinked path.
- * @param entry - process entry path to compare with this module.
- * @returns Whether the entry resolves to this module.
- */
-export function isMainModule(entry: string | undefined = process.argv[1]): boolean {
-  if (entry === undefined) return false
-  if (import.meta.url === pathToFileURL(resolve(entry)).href) return true
-  try {
-    return import.meta.url === pathToFileURL(realpathSync(entry)).href
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -220,7 +187,7 @@ export function parseCliRequest(args: readonly string[]): RunRequest {
   }
   if (json && !list) throw new Error('run-gates: --json requires --list.')
   if (list && only !== undefined) throw new Error('run-gates: --list and --only are mutually exclusive.')
-  return { kind: 'run', mode, list, json, ...only === undefined ? {} : { only } }
+  return { mode, list, json, ...only === undefined ? {} : { only } }
 }
 
 function parseMode(raw: string | undefined): Mode {
@@ -798,13 +765,8 @@ function listedEnvironment(
 ): Record<string, ListedEnvironmentOverride> {
   if (environment === undefined) return {}
   return Object.fromEntries(Object.entries(environment).sort(([left], [right]) => left.localeCompare(right)).map(([name, override]) => {
-    const value = 'value' in override
-      ? { value: sensitiveEnvironmentName(name) ? '<redacted>' : override.value }
-      : {}
-    const separator = override.operation === 'append' && override.separator !== undefined
-      ? { separator: override.separator }
-      : {}
-    return [name, { operation: override.operation, ...value, ...separator }]
+    const value = sensitiveEnvironmentName(name) ? '<redacted>' : override.value
+    return [name, { operation: override.operation, value }]
   }))
 }
 
@@ -874,15 +836,13 @@ export function formatOnlyNotice(plan: GatePlan, gateId: string): string {
 export function resolveGateEnvironment(gate: Gate, inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const resolved = { ...inherited }
   for (const [name, override] of Object.entries(gate.env ?? {})) {
-    if (override.operation === 'unset') {
-      Reflect.deleteProperty(resolved, name)
-    } else if (override.operation === 'set') {
+    if (override.operation === 'set') {
       resolved[name] = override.value
     } else {
       const current = resolved[name]
       resolved[name] = current === undefined || current === ''
         ? override.value
-        : `${current}${override.separator ?? ' '}${override.value}`
+        : `${current} ${override.value}`
     }
   }
   return resolved

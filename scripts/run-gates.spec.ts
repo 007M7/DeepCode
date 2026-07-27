@@ -1,10 +1,4 @@
-import {
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-} from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -15,7 +9,6 @@ import {
   formatOnlyNotice,
   gateDependencyClosure,
   gatePlanForMode,
-  isMainModule,
   listedGatePlan,
   parseCliRequest,
   replayCommand,
@@ -28,13 +21,9 @@ import {
   type GateResult,
 } from './run-gates.ts'
 
-const temporaryRoots: string[] = []
 const repositoryRoot = join(import.meta.dirname, '..')
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true })
-})
+afterEach(() => vi.unstubAllEnvs())
 
 function gate(id: string, options: Partial<Gate> = {}): Gate {
   return {
@@ -62,12 +51,6 @@ function resultFor(subject: Gate, status: GateResult['status'] = 'passed'): Gate
     exitCode: status === 'passed' ? 0 : 1,
     signalCode: null,
   }
-}
-
-function temporaryRoot(prefix = 'dsh-run-gates-'): string {
-  const root = mkdtempSync(join(tmpdir(), prefix))
-  temporaryRoots.push(root)
-  return root
 }
 
 function withPnpmEntrypoint<T>(action: () => T): T {
@@ -172,10 +155,10 @@ describe('gate plan validation', () => {
 describe('gate plan inspection and replay', () => {
   it('parses package-script separators, list JSON, and focused runs', () => {
     expect(parseCliRequest(['check-all', '--', '--list', '--json'])).toEqual({
-      kind: 'run', mode: 'check-all', list: true, json: true,
+      mode: 'check-all', list: true, json: true,
     })
     expect(parseCliRequest(['check-all', '--only', 'snapshot'])).toEqual({
-      kind: 'run', mode: 'check-all', list: false, json: false, only: 'snapshot',
+      mode: 'check-all', list: false, json: false, only: 'snapshot',
     })
     expect(() => parseCliRequest(['check-all', '--json'])).toThrow('--json requires --list')
     expect(() => parseCliRequest(['pre-push'])).toThrow('expected mode')
@@ -252,15 +235,6 @@ describe('gate plan inspection and replay', () => {
     })
   })
 
-  it.skipIf(process.platform === 'win32')('recognizes a symlinked script entry path', () => {
-    const temporary = temporaryRoot('dsh-run-gates-entry-')
-    const entry = join(temporary, 'run-gates.ts')
-    symlinkSync(join(repositoryRoot, 'scripts/run-gates.ts'), entry)
-
-    expect(isMainModule(entry)).toBe(true)
-    expect(isMainModule(join(temporary, 'missing.ts'))).toBe(false)
-  })
-
   it('renders a cross-platform scheduler replay and labels focused evidence', () => {
     const subject = plan([gate('snapshot')])
     expect(replayCommand(subject, 'snapshot')).toBe('pnpm run check:all -- --only snapshot')
@@ -269,14 +243,13 @@ describe('gate plan inspection and replay', () => {
     )
   })
 
-  it('resolves append, set, and unset operations only when spawning', () => {
+  it('resolves append and set operations only when spawning', () => {
     const resolved = resolveGateEnvironment(gate('subject', {
       env: {
         NODE_OPTIONS: { operation: 'append', value: '--max-old-space-size=8192' },
         MODE: { operation: 'set', value: 'lib' },
-        REMOVE_ME: { operation: 'unset' },
       },
-    }), { NODE_OPTIONS: '--trace-warnings', REMOVE_ME: 'yes', INHERITED: 'kept' })
+    }), { NODE_OPTIONS: '--trace-warnings', INHERITED: 'kept' })
     expect(resolved).toEqual({
       NODE_OPTIONS: '--trace-warnings --max-old-space-size=8192',
       MODE: 'lib',
