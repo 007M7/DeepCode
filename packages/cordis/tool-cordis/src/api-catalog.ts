@@ -823,6 +823,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'telemetry',
+    summary: 'The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis\' standard behavior.',
+    methods: [
+      {
+        signature: 'abstract emit(record: TelemetryRecord): void',
+        jsDoc: '/**\n * See {@link TelemetryBackend.emit} — the seam declaration is the contract\'s one home.\n * @param record - the logical record to report; owned by the backend after the call.\n */',
+      },
+      {
+        signature: 'flush?(): void',
+        jsDoc: '/** See {@link TelemetryBackend.flush}. */',
+      },
+      {
+        signature: 'abstract shutdown(): Promise<void>',
+        jsDoc: '/**\n * See {@link TelemetryBackend.shutdown}.\n * @returns resolves when the backend\'s pipeline has quiesced.\n */',
+      },
+    ],
+  },
+  {
     key: 'tokenMeter',
     summary: 'Replay owner for one service-wide estimator and isolated per-session folds.',
     methods: [
@@ -1260,6 +1278,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'system-prompt/change\'(): void',
     jsDoc: '/**\n * Emitted when any prompt provider changes. This registry notification is\n * unfiltered because a global change affects every scope.\n * @mode emit\n */',
     summary: 'Emitted when any prompt provider changes.',
+  },
+  {
+    name: 'telemetry/record',
+    mode: 'waterfall',
+    signature: '\'telemetry/record\'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord',
+    jsDoc: '/**\n * Transform one outbound record before it reaches the backend. This\n * waterfall is the seam\'s redaction extension point. It ships NO rules\n * of its own: the\n * innermost `next()` passes the record through unchanged, and with no\n * listener mounted records reach the backend as captured, so exported\n * data is exactly as clean as the rules a deployment mounts. Listeners\n * stack by transforming `next()`\'s return value; returning without\n * `next()` replaces everything beneath. Dispatched synchronously on the\n * capture hot path inside the coordinator\'s containment: a throwing\n * listener withholds that one record (fail-closed) and never reaches the\n * agent loop. Redaction applies to the exported copy only; the canonical\n * session log is never rewritten.\n * @param record - the candidate record, already the coordinator\'s own deep\n *   copy; listeners return a (possibly new) record and must not mutate it.\n * @mode waterfall\n */',
+    summary: 'Transform one outbound record before it reaches the backend.',
   },
   {
     name: 'tools/change',
@@ -1987,7 +2012,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -2376,6 +2401,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TaskStatus',
     declaration: 'export type TaskStatus = \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';',
+  },
+  {
+    name: 'TelemetryRecord',
+    declaration: 'export interface TelemetryRecord {\n    channel: \'ledger\' | \'ops\';\n    time: number;\n    severity: TelemetrySeverity;\n    attributes: Record<string, string | number>;\n    body: unknown;\n}',
+  },
+  {
+    name: 'TelemetrySeverity',
+    declaration: 'export type TelemetrySeverity = \'info\' | \'warn\' | \'error\';',
   },
   {
     name: 'TerminalCallView',
