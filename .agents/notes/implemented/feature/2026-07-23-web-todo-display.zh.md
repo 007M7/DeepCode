@@ -18,7 +18,7 @@ Status: implemented
 
 ### TodoPanel：长驻列表作为一条常驻横条
 
-面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry`，QueueDock 同款姿势：`inject: ['slots', 'conversation']` 载序 seam，`order: -1` 排在队列条上方），空列表时隐藏，可折叠——折叠态以进行中项作为单行提示；✓/●/○ 字形与 TUI plan 面板一致。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
+面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry`，QueueDock 同款姿势：`inject: ['slots', 'conversation']` 载序 seam，`order: -1` 排在队列条上方），空列表时隐藏，可折叠为标题加 `"<已完成>/<总数> tasks · <n> in progress"` 的表头（折叠态不再附带进行中条目正文）。状态图标为 figma todo 套件（绿色勾选环／蓝色渐隐环／虚线未开始环），卡片使用 tip 表面（`--dsw-specific-tip`、14px 圆角、`width: calc(100% - 88px)`／`max-width: 776px` 居中；InputBar 顶部 6px 内边距是到输入卡的间距）。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
 
 ### TodoRow：经 keyed toolview slot 的逐调用行
 

@@ -244,4 +244,37 @@ describe('Host Workspace increments', () => {
     abort.abort()
     expect(await next).toMatchObject({ done: true })
   })
+
+  it('deletes the registration, keeps its session and folder, and streams one removal', async () => {
+    const { api, ctx } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ name: 'delete-me' }))).workspace
+    const sessionId = SessionId('session-kept-after-workspace-delete')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const removed = nextHostFrame(stream)
+    expectOk(await api.workspace.delete(request({ workspaceId: workspace.workspaceId })))
+    expect(await removed).toMatchObject({
+      payload: { type: 'host/workspace-removed', workspaceId: workspace.workspaceId },
+    })
+    expect(expectOk(await api.workspace.list(request({}))).items).toEqual([])
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
+    expect(ctx.agents.get(sessionId)).toBeDefined()
+    expect(existsSync(workspace.path)).toBe(true)
+
+    const missing = await api.workspace.delete(request({ workspaceId: workspace.workspaceId }))
+    expect(missing.result).toMatchObject({
+      ok: false,
+      error: { code: 'workspace-not-found', details: { workspaceId: workspace.workspaceId } },
+    })
+
+    const reregistered = expectOk(await api.workspace.create(request({ path: workspace.path }))).workspace
+    expect(reregistered.workspaceId).not.toBe(workspace.workspaceId)
+    expect(reregistered.path).toBe(workspace.path)
+    expect(reregistered.sessionIds).toEqual([])
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
+    abort.abort()
+  })
 })
