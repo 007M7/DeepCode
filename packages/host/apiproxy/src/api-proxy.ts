@@ -630,10 +630,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             limit: SESSION_SEARCH_LIMIT,
           }, { signal })
           if (isAborted(signal)) return cancelled()
-          // The id filter is the authorization boundary. Re-check the provider
-          // projection before emitting it so a backend regression cannot leak
-          // a session that `session.list` withheld.
-          const authorized = page.items.filter(hit => visibleIds.has(hit.header.id))
+          // The filters are the authorization boundary. Re-check the complete
+          // provider provenance before emitting its snippet so a backend
+          // regression cannot pair an allowed header with excluded content.
+          const authorized = page.items.filter(hit =>
+            visibleIds.has(hit.header.id)
+            && hit.bestMatch.sessionId === hit.header.id
+            && hit.bestMatch.surface === 'current'
+            && MESSAGE_TYPES.has(hit.bestMatch.type))
           return ok(request, {
             items: authorized.slice(0, SESSION_SEARCH_LIMIT).map(hit => ({
               sessionId: hit.header.id,

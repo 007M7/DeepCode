@@ -160,6 +160,43 @@ describe('session.search', () => {
     expect(searchSessions).not.toHaveBeenCalled()
   })
 
+  it('rejects snippets whose provider provenance violates the Host filters', async () => {
+    const ctx = await baseContext()
+    const visible = hit('visible')
+    ctx.sessions.create(visible.header.id, { meta: visible.header })
+    const withBestMatch = (
+      index: number,
+      bestMatch: Partial<SessionSearchHit['bestMatch']>,
+    ): SessionSearchHit => {
+      const base = hit('visible', index)
+      return { ...base, bestMatch: { ...base.bestMatch, ...bestMatch } }
+    }
+    ctx.provide('sessionQuery', {
+      searchSessions: () => Promise.resolve({
+        items: [
+          withBestMatch(0, { sessionId: sid('hidden') }),
+          withBestMatch(1, { surface: 'shadowed' }),
+          withBestMatch(2, { type: 'tool/result' }),
+          withBestMatch(3, { type: 'steering/message', snippet: 'allowed snippet' }),
+        ],
+        nextCursor: 'more',
+      }),
+    } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('match'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'visible', snippet: 'allowed snippet' }],
+        hasMore: true,
+      },
+    })
+  })
+
   it('enforces the 20-item Host boundary even if a provider overproduces', async () => {
     const ctx = await baseContext()
     const items = Array.from({ length: 21 }, (_, index) => hit(`visible-${index}`, index))
