@@ -143,19 +143,19 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
     })),
   }).toMatchInlineSnapshot(`
     {
-      "panelHeader": "Plan1/3",
+      "panelHeader": "To-dos1/3 tasks · 1 in progress",
       "panelItems": [
         {
           "status": "completed",
-          "text": "✓梳理需求",
+          "text": "梳理需求",
         },
         {
           "status": "in_progress",
-          "text": "●实现 fixture 样本",
+          "text": "实现 fixture 样本",
         },
         {
           "status": "pending",
-          "text": "○浏览器验收",
+          "text": "浏览器验收",
         },
       ],
       "row": "☰更新任务清单1/3 已完成 · 实现 fixture 样本",
@@ -164,7 +164,7 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
   `)
 })
 
-it('collapses the plan strip to the in-progress hint and restores it', async () => {
+it('collapses the plan strip to the count summary and restores it', async () => {
   boot()
   await openFixtureSession()
 
@@ -179,7 +179,7 @@ it('collapses the plan strip to the in-progress hint and restores it', async () 
     listGone: panel.querySelector('ul') === null,
   }).toMatchInlineSnapshot(`
     {
-      "collapsedHeader": "Plan1/3实现 fixture 样本",
+      "collapsedHeader": "To-dos1/3 tasks · 1 in progress",
       "listGone": true,
     }
   `)
