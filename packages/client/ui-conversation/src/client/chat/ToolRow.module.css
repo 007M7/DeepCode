@@ -6,11 +6,34 @@
   flex-direction: column;
 }
 
+/* Row sweep mask (running signal): the row content itself is the medium —
+   an animated mask band modulates the alpha of everything in the row
+   (glyphs, icon, dot), so the light reads as passing THROUGH the content,
+   not behind it. The mask is ALWAYS mounted with the band parked off-screen
+   (-50% = past the right edge; tiled copies sit outside the view too), so
+   at rest it is a no-op. Running only adds the position animation. On exit
+   the animation drops and `transition: mask-position` carries the band from
+   its animated position onward off-screen right (before-change style
+   includes animation effects per css-transitions-1) — the sweep finishes
+   instead of snapping. */
 .row {
   display: flex;
   align-items: center;
   height: 24px;
   min-width: 0;
+  mask-image: linear-gradient(100deg, #000 30%, rgba(0, 0, 0, 0.35) 50%, #000 70%);
+  mask-size: 200% 100%;
+  mask-position: -50% 0;
+  transition: mask-position 1.6s ease-out;
+}
+
+.root[data-state='running'] .row {
+  animation: dsh-tool-row-sweep 2.2s linear infinite;
+}
+
+@keyframes dsh-tool-row-sweep {
+  from { mask-position: 150% 0; }
+  to { mask-position: -50% 0; }
 }
 
 /* Clickable rows keep only the cursor affordance — no hover fill. */
@@ -20,6 +43,7 @@
 }
 
 .leading {
+  position: relative; /* .chevronHover overlay anchor */
   flex: none;
   width: 16px;
   height: 16px;
@@ -62,22 +86,29 @@ button.leading {
   color: var(--dsw-alias-label-secondary);
 }
 
-/* Hover preview on expandable rows: the idle tool icon yields to a down
-   chevron before the row is opened. */
+/* Hover preview on expandable rows: the idle tool icon crossfades (100ms)
+   into a down chevron before the row is opened. The chevron overlays the
+   icon cell absolutely so both can stay mounted for the opacity transition. */
 .iconIdle {
   display: inline-flex;
+  opacity: 1;
+  transition: opacity 100ms ease;
 }
 
 .chevronHover {
-  display: none;
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  transition: opacity 100ms ease;
 }
 
 .row:hover .iconIdle {
-  display: none;
+  opacity: 0;
 }
 
 .row:hover .chevronHover {
-  display: inline-flex;
+  opacity: 1;
 }
 
 .title {

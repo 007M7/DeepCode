@@ -1,5 +1,8 @@
 /* Bash toolview: same geometry/tokens as ToolRow (figma Bash · description). */
 
+/* Row sweep mask — same masked in-flight signal and exit-glide contract as
+   ToolRow (mask always mounted, band parked off-screen; running only adds
+   the animation; the transition finishes the sweep on exit). */
 .root {
   display: flex;
   align-items: center;
@@ -7,6 +10,19 @@
   min-width: 0;
   cursor: pointer;
   border-radius: 6px;
+  mask-image: linear-gradient(100deg, #000 30%, rgba(0, 0, 0, 0.35) 50%, #000 70%);
+  mask-size: 200% 100%;
+  mask-position: -50% 0;
+  transition: mask-position 1.6s ease-out;
+}
+
+.root[data-state='running'] {
+  animation: dsh-bash-row-sweep 2.2s linear infinite;
+}
+
+@keyframes dsh-bash-row-sweep {
+  from { mask-position: 150% 0; }
+  to { mask-position: -50% 0; }
 }
 
 .leading {

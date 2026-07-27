@@ -59,6 +59,40 @@ export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick }: {
   )
 }
 
+/**
+ * The soft blue backdrop ellipse (figma 313:14109). Rendered by the hero
+ * owner (ConversationRoot), not HeroShell, so it can center on the input
+ * card; the owner's className supplies all positioning.
+ * @param props.className - positioning class from the owner.
+ * @returns the blurred-ellipse svg element.
+ */
+export function HeroGlow({ className }: { className?: string }) {
+  // Stable filter id so multiple hero mounts do not collide in the DOM.
+  const glowFilterId = `empty-glow-${useId().replace(/:/g, '')}`
+  return (
+    <svg className={className} viewBox="0 0 1051 468" fill="none" aria-hidden="true">
+      <defs>
+        <filter
+          id={glowFilterId}
+          x="0"
+          y="0"
+          width="1051"
+          height="468"
+          filterUnits="userSpaceOnUse"
+          colorInterpolationFilters="sRGB"
+        >
+          <feFlood floodOpacity="0" result="BackgroundImageFix" />
+          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+          <feGaussianBlur stdDeviation="50" result="effect1_foregroundBlur" />
+        </filter>
+      </defs>
+      <g filter={`url(#${glowFilterId})`}>
+        <ellipse cx="525.5" cy="234" rx="425.5" ry="134" fill="#6187D8" fillOpacity="0.08" />
+      </g>
+    </svg>
+  )
+}
+
 /** Hero chrome props. The workspace row rides the InputBar accessory hole, not here. */
 export interface HeroShellProps {
   /** Overlay content after the stack (modals). */
@@ -66,13 +100,12 @@ export interface HeroShellProps {
 }
 
 /**
- * Render the hero chrome (headline + glow; no composer, no workspace row).
+ * Render the hero chrome (headline only; no glow, no composer, no workspace
+ * row — the glow is the owner's {@link HeroGlow}).
  * @param props - see {@link HeroShellProps}.
  * @returns the centered hero element tree.
  */
 export function HeroShell({ children }: HeroShellProps) {
-  // Stable filter id so multiple hero mounts do not collide in the DOM.
-  const glowFilterId = `empty-glow-${useId().replace(/:/g, '')}`
   return (
     <div className={css.root}>
       <div className={css.stack}>
@@ -82,29 +115,6 @@ export function HeroShell({ children }: HeroShellProps) {
           Let&apos;s start building
         </div>
         <div className={css.body}>
-          {/* figma 313:14109: soft ellipse behind workspace + composer; width
-              tracks the card (glow asset 1051 vs design card 776) so blur
-              scales in userSpace with it. */}
-          <svg className={css.glow} viewBox="0 0 1051 468" fill="none" aria-hidden="true">
-            <defs>
-              <filter
-                id={glowFilterId}
-                x="0"
-                y="0"
-                width="1051"
-                height="468"
-                filterUnits="userSpaceOnUse"
-                colorInterpolationFilters="sRGB"
-              >
-                <feFlood floodOpacity="0" result="BackgroundImageFix" />
-                <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
-                <feGaussianBlur stdDeviation="50" result="effect1_foregroundBlur" />
-              </filter>
-            </defs>
-            <g filter={`url(#${glowFilterId})`}>
-              <ellipse cx="525.5" cy="234" rx="425.5" ry="134" fill="#6187D8" fillOpacity="0.1" />
-            </g>
-          </svg>
           {/* The resident composer (rendered by ConversationRoot at its stable
               tree position; the workspace row rides its accessory hole) is
               CSS-positioned into this gap during the hero phase — see

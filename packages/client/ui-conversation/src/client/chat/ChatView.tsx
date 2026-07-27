@@ -149,6 +149,38 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
   )
 })
 
+/** Turn loader: one row of four 2.5px pixels (half a notch above the StateDot
+ *  2px cell, same blue) chasing left to right with a stepped trail — flat
+ *  keyframe holds, no tweening, no rotation. Phase offsets come from
+ *  per-rect animation-delay. */
+const LOADER_CELLS = [0, 5, 10, 15] as const
+
+function TurnDots() {
+  return (
+    <svg
+      className={css.turnDots}
+      width="17.5"
+      height="2.5"
+      viewBox="0 0 17.5 2.5"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+    >
+      {LOADER_CELLS.map((x, index) => (
+        <rect
+          key={x}
+          className={css.turnDotCell}
+          x={x}
+          y="0"
+          width="2.5"
+          height="2.5"
+          /* Negative delay phases the chase so every cell animates from mount. */
+          style={{ animationDelay: `${(index - LOADER_CELLS.length) * 250}ms` }}
+        />
+      ))}
+    </svg>
+  )
+}
+
 /** The streaming partial, isolated so chunk batches re-render only this tail.
  *  onGrow lets the scroll owner follow content the parent never re-renders for. */
 function StreamingTail({ useSession, onGrow }: {
@@ -169,6 +201,7 @@ function StreamingTail({ useSession, onGrow }: {
  */
 export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
+  const running = useSession(s => s.running)
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
   const pending = useSession(s => s.pending)
@@ -314,6 +347,9 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
             </div>
           )}
           {pending.map(item => <PendingCard key={item.key} item={item} />)}
+          {/* Turn-level loading signal: rides the whole running turn (first-token
+              wait, tool execution, streaming) so it never flickers per step. */}
+          {running && <TurnDots />}
         </div>
       </div>
       <StatsLine useSession={useSession} />

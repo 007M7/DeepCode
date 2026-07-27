@@ -12,9 +12,9 @@ import css from './bash-sample.module.css'
 
 function leadingFor(state: ToolRowState) {
   switch (state) {
-    case 'running': return <StateDot state="ongoing" />
     case 'error': return <StateDot state="error" />
     case 'stopped': return <StateDot state="warning" />
+    // Running keeps the icon — the row sweep carries the in-flight signal.
     default: return <IconApiOutline14 size={14} />
   }
 }

@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
-import { HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
+import { HeroGlow, HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import { DisabledInputBar } from './DisabledInputBar.tsx'
 import css from './ConversationRoot.module.css'
 
@@ -46,7 +46,11 @@ export function ConversationRoot({
     }
   }, [pendingWorkspaceId, sessionWorkspace?.workspaceId, workspaces.phase, pendingWorkspace])
 
-  const hero = sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))
+  // While a session is still replaying (loading + blank) the hero/docked
+  // choice is unknowable — render the composer hidden instead of flashing
+  // the centered hero and snapping to the docked bar (or vice versa).
+  const settling = sessionId !== undefined && composerPhase === 'blank' && openState === 'loading'
+  const hero = sessionId === undefined || (composerPhase === 'blank' && openState === 'open')
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
@@ -91,7 +95,10 @@ export function ConversationRoot({
     </div>
   )
 
-  const inputBar = sessionId === undefined
+  // The placeholder chip ("Choose workspace") and the inert input travel
+  // together: a blank session whose workspace vanished (deleted from the
+  // sidebar) reverts to the same disabled bar as the initial no-session state.
+  const inputBar = sessionId === undefined || (hero && chipTitle === undefined)
     ? <DisabledInputBar />
     : renderSlot('conversation.composer.bar', {
       variant: hero ? 'hero' : 'composer',
@@ -103,6 +110,7 @@ export function ConversationRoot({
 
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
+      {hero && <HeroGlow className={css.heroGlow} />}
       {hero && <HeroShell />}
       {hero && heroWorkspaceRow}
       {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
@@ -112,7 +120,7 @@ export function ConversationRoot({
   )
 
   return (
-    <div className={css.root} data-phase={hero ? 'hero' : 'active'}>
+    <div className={css.root} data-phase={settling ? 'settling' : hero ? 'hero' : 'active'}>
       {/* Mounted for every real session, hero included: ConversationSession
           renders no chrome while blank but owns the draft-persistence mirror
           bind — unmounting it in the hero would lose pre-first-send text on

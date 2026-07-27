@@ -125,12 +125,12 @@ describe('ToolRow', () => {
     expect(view.getByText('List files')).toBeTruthy()
   })
 
-  it('running and error states replace the icon with a StateDot', () => {
+  it('running keeps the icon (row sweep carries the signal); error swaps in a StateDot', () => {
     const runningView = render(<ToolRow {...rowProps} state="running" />)
-    expect(runningView.queryByTestId('tool-icon')).toBeNull()
+    expect(runningView.queryByTestId('tool-icon')).not.toBeNull()
     expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
     const errorView = render(<ToolRow {...rowProps} state="error" />)
-    expect(errorView.queryByTestId('tool-icon')).toBeNull()
+    expect(errorView.container.querySelector('[data-testid="tool-icon"]')).toBeNull()
   })
 
   it('non-expandable rows render a passive leading slot', () => {

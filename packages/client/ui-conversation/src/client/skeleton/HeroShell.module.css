@@ -41,8 +41,9 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
-/* Workspace row sits 12px above the input card (figma y80 → y112). Glow is
-   centered on this block so it stays under the picker + InputBar together. */
+/* Workspace row sits 12px above the input card (figma y80 → y112). The blue
+   glow lives with the owner (ConversationRoot .heroGlow) so it can center on
+   the input card. */
 .body {
   position: relative;
   display: flex;
@@ -52,19 +53,7 @@
   overflow: visible;
 }
 
-/* Design input 776 → glow SVG 1051×468 (ellipse 851×268 + blur pad). */
-.glow {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: 0;
-  width: calc(100% * 1051 / 776);
-  aspect-ratio: 1051 / 468;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-.body > :not(.glow) {
+.body > * {
   position: relative;
   z-index: 1;
 }
