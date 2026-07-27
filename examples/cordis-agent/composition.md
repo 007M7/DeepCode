@@ -3,7 +3,7 @@
 
 # Cordis Agent App Composition
 
-The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its own runtime and mount/unmount plugins into it.
+The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its current-process runtime and mount or unmount in-memory temporary Plugins.
 
 ```mermaid
 flowchart LR

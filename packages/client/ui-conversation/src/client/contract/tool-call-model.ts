@@ -36,6 +36,16 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   write: 'write',
   edit: 'edit',
   run_code: 'code',
+  cordis_inspect: 'read',
+  cordis_mount: 'code',
+  cordis_unmount: 'others',
+}
+
+/** Tool-owned titles that refine a generic row variant without replacing it. */
+const TOOL_TITLES: Record<string, string> = {
+  cordis_inspect: 'Inspect',
+  cordis_mount: 'Mount temporary Plugin',
+  cordis_unmount: 'Unmount temporary Plugin',
 }
 
 /**
@@ -130,12 +140,15 @@ export function toolRowModel(toolName: string, block: ToolCallBlock): ToolRowMod
     : block.error?.code === 'interrupted' ? 'stopped'
       : block.isError ? 'error' : 'ok'
   const base = argsRaw === '' ? block.callId : deriveSummary(variant, argsRaw)
+  const toolTitle = TOOL_TITLES[toolName]
   // Others keeps the static "Tool call" title (figma literal); the real tool
-  // name rides the mutable summary slot so no information is lost.
-  const summary = variant === 'others' && toolName !== '' ? `${toolName} · ${base}` : base
+  // name rides the mutable summary slot unless the tool owns a specific title.
+  const summary = variant === 'others' && toolName !== '' && toolTitle === undefined
+    ? `${toolName} · ${base}`
+    : base
   return {
     variant,
-    title: VARIANT_TITLES[variant],
+    title: toolTitle ?? VARIANT_TITLES[variant],
     summary,
     body: deriveBody(variant, argsRaw),
     state,
