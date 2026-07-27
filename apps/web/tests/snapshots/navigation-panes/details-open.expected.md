@@ -1,3 +1,5 @@
 - text: bash
 - button "关闭详情"
-- text: "Input { \"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\" } Output NAVIGATION_OK"
+- text: Input
+- code: "{ \"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\" }"
+- text: Output NAVIGATION_OK

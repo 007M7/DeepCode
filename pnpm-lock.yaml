@@ -134,6 +134,9 @@ importers:
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../../packages/client/runtime
+      '@deepseek-ai/dsh-client-ui-command':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-command
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../../packages/client/ui-conversation
@@ -155,6 +158,15 @@ importers:
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: workspace:^
         version: link:../../packages/client/ui-sidebar
+      '@deepseek-ai/dsh-client-ui-skill':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-skill
+      '@deepseek-ai/dsh-client-ui-slash':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-slash
+      '@deepseek-ai/dsh-client-ui-subagent':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-subagent
       '@deepseek-ai/dsh-client-ui-theme':
         specifier: workspace:^
         version: link:../../packages/client/ui-theme
@@ -167,6 +179,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:^
         version: link:../../packages/code-runtime/code-runtime-worker
+      '@deepseek-ai/dsh-commands':
+        specifier: workspace:^
+        version: link:../../packages/ui/commands
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:^
         version: link:../../packages/compact/compact-basic
@@ -197,6 +212,9 @@ importers:
       '@deepseek-ai/dsh-paths':
         specifier: workspace:^
         version: link:../../packages/util/paths
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:^
+        version: link:../../packages/plan/plan-mode
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../packages/core/session
@@ -843,6 +861,43 @@ importers:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
+  packages/client/ui-command:
+    dependencies:
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
+    devDependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../connection
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: workspace:^
+        version: link:../ui-conversation
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../ui-primitives
+      '@deepseek-ai/dsh-client-ui-slash':
+        specifier: workspace:^
+        version: link:../ui-slash
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+
   packages/client/ui-conversation:
     dependencies:
       clsx:
@@ -858,6 +913,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: workspace:^
         version: link:../ui-primitives
+      '@deepseek-ai/dsh-client-ui-slash':
+        specifier: workspace:^
+        version: link:../ui-slash
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -1106,6 +1164,52 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1
 
+  packages/client/ui-skill:
+    devDependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../connection
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-slash':
+        specifier: workspace:^
+        version: link:../ui-slash
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/client/ui-slash:
+    dependencies:
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
+    devDependencies:
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+
   packages/client/ui-slots:
     devDependencies:
       '@deepseek-ai/dsh-invariants':
@@ -1114,6 +1218,24 @@ importers:
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/client/ui-subagent:
+    devDependencies:
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-slash':
+        specifier: workspace:^
+        version: link:../ui-slash
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
@@ -2425,6 +2547,9 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
         version: link:../../util/brand
+      '@deepseek-ai/dsh-commands':
+        specifier: workspace:^
+        version: link:../../ui/commands
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -2437,6 +2562,9 @@ importers:
       '@deepseek-ai/dsh-session-title':
         specifier: workspace:^
         version: link:../../session-title/session-title
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools

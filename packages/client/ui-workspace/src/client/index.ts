@@ -1,8 +1,9 @@
 /**
  * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
- * and WorkspacePicker fills the conversation empty-state hole. Both read real
- * Host Workspaces through the global useWorkspaces hook. Export discipline:
+ * and WorkspacePicker fills the conversation hero's picker hole
+ * (`conversation.hero.workspace` — both hero forms). Both read real Host
+ * Workspaces through the global useWorkspaces hook. Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -33,7 +34,9 @@ export const inject = ['slots', 'sessions', 'workspaces']
  */
 export function apply(ctx: ClientContext): void {
   const browserInjected = (): WorkspaceBrowserInjected => ({
-    startSession: (workspaceId, prompt) => { ctx.workspaces.startSession(workspaceId, prompt) },
+    // Explicit group actions keep their target; unscoped New Session rides
+    // the runtime's shared action (recent-Workspace projection inside).
+    startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
@@ -60,10 +63,10 @@ export function apply(ctx: ClientContext): void {
         ),
       },
       {
-        name: 'conversation.empty.workspace' as const,
+        name: 'conversation.hero.workspace' as const,
         component: WorkspacePicker,
         register: () => ctx.slots.register(
-          { name: 'conversation.empty.workspace', inject: pickerInjected },
+          { name: 'conversation.hero.workspace', inject: pickerInjected },
           WorkspacePicker,
         ),
       },

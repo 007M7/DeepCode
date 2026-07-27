@@ -15,6 +15,8 @@ export interface SessionListEntry {
   title?: string
   updatedAt: number
   running: boolean
+  /** Empty-log bit mirrored from the summary; lists hide blank sessions (filtering stays with the consumer). */
+  blank: boolean
   parentSessionId?: SessionId
   cwd?: string
   /** Lineage indent depth: root = 0; the UI just multiplies by the indent width. */

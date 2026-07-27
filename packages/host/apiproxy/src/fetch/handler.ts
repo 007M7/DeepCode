@@ -28,6 +28,8 @@ import {
   workspaceListRequestSchema,
   workspaceRenameRequestSchema,
 } from '../api/workspace.schema.ts'
+import { commandExecuteRequestSchema, commandListRequestSchema } from '../api/commands.schema.ts'
+import { skillListRequestSchema } from '../api/skills.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -35,11 +37,13 @@ import {
  * payload type — a schema pasted onto the wrong row is a type error, not a runtime surprise.
  * Schemas anchor to the Wire<> widening (the repo-wide exactOptionalPropertyTypes accommodation
  * documented on Wire); the dispatch point carries the one Wire→exact cast.
+ * Every invoke receives the carrier Request's signal; methods whose contract
+ * declares a signal parameter (command.execute) forward it, the rest ignore it.
  */
 type UnaryRoutes = {
   [K in keyof RpcMethodMap]: {
     schema: z.ZodType<Wire<RequestPayload<K>>>
-    invoke(api: ApiProxy, request: RpcRequest<RequestPayload<K>>): Promise<RpcResponse<ResponseValue<K>>>
+    invoke(api: ApiProxy, request: RpcRequest<RequestPayload<K>>, signal: AbortSignal): Promise<RpcResponse<ResponseValue<K>>>
   }
 }
 
@@ -54,6 +58,9 @@ const UNARY_ROUTES: UnaryRoutes = {
   'workspace.create': { schema: workspaceCreateRequestSchema, invoke: (api, r) => api.workspace.create(r) },
   'workspace.rename': { schema: workspaceRenameRequestSchema, invoke: (api, r) => api.workspace.rename(r) },
   'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
+  'command.list': { schema: commandListRequestSchema, invoke: (api, r) => api.commands.list(r) },
+  'command.execute': { schema: commandExecuteRequestSchema, invoke: (api, r, signal) => api.commands.execute(r, signal) },
+  'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */
@@ -89,14 +96,16 @@ function fullResponse(narrow: RpcResponse<unknown>): Response {
 // K appears once in the signature but ties the UNARY_ROUTES[K] row lookup to its own
 // schema/invoke pairing; a union parameter degrades the row to an uninvokable intersection.
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
-async function handleUnary<K extends keyof RpcMethodMap>(api: ApiProxy, method: K, message: ClientRequest): Promise<Response> {
+async function handleUnary<K extends keyof RpcMethodMap>(
+  api: ApiProxy, method: K, message: ClientRequest, signal: AbortSignal,
+): Promise<Response> {
   const route = UNARY_ROUTES[method]
   const payload = route.schema.safeParse(message.payload)
   if (!payload.success) {
     return errorResponse(message.rpcId, { code: 'bad-request', message: `invalid payload for ${method}`, details: { issues: payload.error.issues } })
   }
   try {
-    return fullResponse(await route.invoke(api, { rpcId: message.rpcId, payload: payload.data }))
+    return fullResponse(await route.invoke(api, { rpcId: message.rpcId, payload: payload.data }, signal))
   } catch (error: unknown) {
     // The impl never throws business errors; reaching here means the implementation itself crashed — 500, carrier layer.
     return new Response(`handler failure: ${String(error)}`, { status: 500 })
@@ -201,7 +210,7 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       if (message.method !== method) {
         return errorResponse(message.rpcId, { code: 'bad-request', message: `method "${message.method}" does not match path "${method}"`, details: { issues: [] } })
       }
-      return handleUnary(api, method, message)
+      return handleUnary(api, method, message, req.signal)
     },
   }
 }
