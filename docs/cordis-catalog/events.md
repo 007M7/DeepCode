@@ -96,7 +96,7 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:419`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:423`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -227,16 +227,20 @@ Handle a model-request failure after its failed step has closed but before the f
  * @param step - the failed step number.
  * @param error - the original model-request failure.
  * @param failure - serializable facts normalized at the final adapter boundary.
+ * @param priorFailures - immutable failures that already authorized another
+ * retry turn in this consecutive sequence.
+ * @param retryPolicy - immutable policy of the adapter registration that served
+ * the failed request, or `undefined` if no final adapter served it.
  * @param signal - the turn abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
+'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:377`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:381`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -283,7 +287,7 @@ One drain chain reached its terminal turn: that turn's `turn/end` is already com
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:406`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:410`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -353,7 +357,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:392`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:396`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -544,7 +548,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:53`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:56`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -725,7 +729,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:139`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -742,7 +746,7 @@ A provider became resolvable in the registry.
 
 Types: [SubagentProvider](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:113`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:114`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -757,7 +761,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:119`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:120`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -779,7 +783,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:130`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:131`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

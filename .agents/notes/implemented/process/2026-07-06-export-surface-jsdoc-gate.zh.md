@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[Cordis JSDoc 完整性门禁](2026-07-04-cordis-jsdoc-completeness-gate.md)使得 Cordis 表面上的参数和返回值不可能缺少文档——`interface Events` 成员和 `ctx.<key>` 服务类——但这只是插件作者所导入内容的一小部分。AGENTS.md 中的规则「每个导出（以及非显而易见的方法）都必须有解释语义的 JSDoc」在其他地方只能靠评审以行文方式检查，而且没有任何机制要求普通导出函数带 `@param`/`@returns`。采纳时的一次调查发现 34 个包（package）中有 203 个文档不完整的模块级导出：seam 相关辅助函数（`runBash`、`readForEdit`、`htmlToMarkdown`）、格式编解码器、完全无文档的接口和类型别名——恰恰是 IDE 消费方悬停查看的那些名称。
+[Cordis JSDoc 完整性门禁](../../archived/process/2026-07-04-cordis-jsdoc-completeness-gate.md)使得 Cordis 表面上的参数和返回值不可能缺少文档——`interface Events` 成员和 `ctx.<key>` 服务类——但这只是插件作者所导入内容的一小部分。AGENTS.md 中的规则「每个导出（以及非显而易见的方法）都必须有解释语义的 JSDoc」在其他地方只能靠评审以行文方式检查，而且没有任何机制要求普通导出函数带 `@param`/`@returns`。采纳时的一次调查发现 34 个包（package）中有 203 个文档不完整的模块级导出：seam 相关辅助函数（`runBash`、`readForEdit`、`htmlToMarkdown`）、格式编解码器、完全无文档的接口和类型别名——恰恰是 IDE 消费方悬停查看的那些名称。
 
 ## 决策
 

@@ -27,6 +27,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../sdk/sdk-protocol"
+    },
+    {
       "path": "../../subagent/subagent"
     },
     {

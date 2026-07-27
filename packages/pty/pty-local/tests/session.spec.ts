@@ -88,7 +88,7 @@ function config(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
   return {
     backendType: 'shell', shellPath: '/bin/bash', shellArgs: [], rows: 24, cols: 80,
     scrollbackLines: 10, scrollbackMaxBytes: 128, maxReadBytes: 64,
-    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 50, timeoutMs: 100,
+    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 50, handoffGraceMs: 10, timeoutMs: 100,
     disposeGraceMs: 20,
     ...overrides,
   }
@@ -304,6 +304,27 @@ describe('LocalPtySession readiness and output', () => {
     inspector.pgid = 456
     await vi.advanceTimersByTimeAsync(10)
     expect(settled).toBe(true)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
+  it('holds the idle fallback for the configured handoff grace, not one poll', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config({ handoffGraceMs: 40 }))
+    await initialize(session, terminal)
+
+    const operation = session.startSend({ text: 'run', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    inspector.pgid = 789
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    // One poll past the silence bound would already have settled inferred_idle.
+    await vi.advanceTimersByTimeAsync(70)
+    expect(settled).toBe(false)
+
+    inspector.pgid = 456
+    await vi.advanceTimersByTimeAsync(10)
     expect((await operation.done).waitReason).toBe('stdin_read')
   })
 
