@@ -89,14 +89,13 @@
   config:
     root: './.sessions'
 
-# Lazy, process-owned content index for session.search. Opening the database
-# at boot does not scan logs; the first search reconciles changed
-# live/persisted sessions. The pid prevents concurrent dsh processes in the
-# same cwd from sharing one unsupported SQLite owner path.
+# Lazy, service-owned content index for session.search. The in-memory database
+# cannot be shared across processes or leak derived files across invocations;
+# the first search reconciles changed live/persisted sessions for this boot.
 - id: session-query-sqlite
   name: '@deepseek-ai/dsh-session-query-sqlite'
   config:
-    path: !!js "'./.sessions/session-query-' + process.pid + '.db'"
+    path: ':memory:'
 
 - id: storage
   name: '@deepseek-ai/dsh-storage'

@@ -1052,9 +1052,9 @@ Requires: `sessions`
 /** Combined session-query configuration backed by SQLite full-text search. */
 export interface Config extends SessionQueryConfig {
   /**
-   * Dedicated derived-index path; `:memory:` is supported for tests. Missing
-   * directories and database files are created owner-only on POSIX filesystems;
-   * existing modes are preserved.
+   * Dedicated derived-index path; `:memory:` is supported for ephemeral
+   * indexes. Missing directories and database files are created owner-only on
+   * POSIX filesystems; existing modes are preserved.
    */
   path: string
   /** SQLite journal mode. Defaults to `wal`. */
