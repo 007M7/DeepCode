@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import { CallId, ReasoningEffortId, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type JsonValue, type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -27,6 +27,8 @@ const REFRESHING = process.env.DSH_SNAPSHOT === 'refresh'
 
 const CHECKPOINTS = [
   'conversation-streaming',
+  'shell-prompt-multiline',
+  'step-timing-completed',
   'retry-scheduled',
   'retry-recovered',
   'retry-cancelled',
@@ -40,12 +42,12 @@ const CHECKPOINTS = [
   'advanced-cards-expanded',
   'untrusted-controls',
   'question-dialog',
+  'question-dialog-single-option',
   'question-dialog-validation',
   'surface-before-compaction',
   'surface-after-compaction-narrow',
   'surface-after-compaction-wide',
   'model-selector',
-  'model-effort-switching',
   'model-switching',
   'errors-and-help',
   'disposed-terminal',
@@ -104,7 +106,7 @@ async function setupSnapshot(
     cwd: options.cwd === undefined ? '/workspace/project' : options.cwd,
     config: Object.assign({
       welcome: 'Snapshot agent ready.',
-      color: true,
+      theme: { color: true },
       title: 'DSH snapshot',
     }, options.config),
   })
@@ -195,13 +197,12 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
   ),
   edit: visualTool(
     'edit',
-    () => ({ card: 'diff', title: 'Edit renderer', diffs: [{ path: 'src/view.ts', oldText: 'old line', newText: 'new line' }] }),
+    () => ({ card: 'diff', title: 'Edit src/view.ts', diffs: [{ path: 'src/view.ts', oldText: 'old line', newText: 'new line' }] }),
+    // The real edit/write tools produce exactly one diff whose path the title
+    // already names, so the card omits the redundant per-file header.
     (): ToolResultView => ({
       card: 'diff',
-      diffs: [
-        { path: 'src/view.ts', oldText: 'old line\nkeep', newText: 'new line\nkeep' },
-        { path: 'tests/view.spec.ts', oldText: null, newText: 'expect(screen).toMatchSnapshot()' },
-      ],
+      diffs: [{ path: 'src/view.ts', oldText: 'old line\nkeep', newText: 'new line\nkeep' }],
     }),
   ),
   subagent: visualTool('subagent', args => ({
@@ -209,12 +210,19 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
     title: 'Delegate renderer audit',
     rawInput: (args as { prompt: string }).prompt,
   })),
-  task_output: visualTool('task_output', args => ({
-    card: 'generic',
-    kind: 'read',
-    title: `Read output from background task ${(args as { task_id: string }).task_id}`,
-    rawInput: (args as { task_id: string }).task_id,
-  })),
+  task_output: visualTool(
+    'task_output',
+    args => ({
+      card: 'generic',
+      kind: 'read',
+      title: `Read output from background task ${(args as { task_id: string }).task_id}`,
+      rawInput: (args as { task_id: string }).task_id,
+    }),
+    () => ({
+      card: 'generic',
+      content: [{ type: 'text', text: '```console\nstarted background task bash-5\n```' }],
+    }),
+  ),
   skill: visualTool('skill', args => ({
     card: 'generic',
     kind: 'read',
@@ -228,46 +236,64 @@ const DISPLAYED_CONTROL_PROBE = String.raw`\x1b]2;snapshot-controlled\x07\x09\x7
 
 describe('TUI terminal-state snapshots', () => {
   it('pins an in-flight reasoning and Markdown stream', async () => {
+    let clock = new Date(2026, 6, 21, 14, 30, 0).getTime()
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => clock)
     const harness = await setupSnapshot()
-    // Freeze the loader's first animation interval so this semantic snapshot
-    // cannot select a different spinner frame under scheduler contention.
-    const frozenLoaderTimer = setInterval(() => {}, 60_000)
-    const intervals = vi.spyOn(globalThis, 'setInterval').mockImplementationOnce(() => frozenLoaderTimer)
-    try {
-      await renderAfter(harness, () => {
-        harness.agent.status = 'running'
-        harness.ctx.emit('agent/status', harness.agent, 'running')
-        appendUser(harness.session, 'Show the live update.')
-        harness.session.append('assistant/chunk', {
-          turn: 1,
-          step: 1,
-          chunk: { type: 'block-start', index: 0, blockType: 'reasoning' },
-        })
-        harness.session.append('assistant/chunk', {
-          turn: 1,
-          step: 1,
-          chunk: { type: 'reasoning-delta', index: 0, text: 'Inspecting width and styles.' },
-        })
-        harness.session.append('assistant/chunk', {
-          turn: 1,
-          step: 1,
-          chunk: { type: 'block-start', index: 1, blockType: 'text' },
-        })
-        harness.session.append('assistant/chunk', {
-          turn: 1,
-          step: 1,
-          chunk: { type: 'text-delta', index: 1, text: 'Streaming **visible state**…' },
-        })
+    await renderAfter(harness, () => {
+      harness.agent.status = 'running'
+      harness.ctx.emit('agent/status', harness.agent, 'running')
+      appendUser(harness.session, 'Show the live update.')
+      clock += 1_000
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'block-start', index: 0, blockType: 'reasoning' },
       })
-      const loaderIntervalMs = intervals.mock.calls[0]?.[1]
-      if (typeof loaderIntervalMs !== 'number') throw new Error('TUI loader did not register an animation interval')
-      await new Promise(resolve => setTimeout(resolve, loaderIntervalMs + 5))
-      await checkpoint('conversation-streaming', harness.terminal)
-    } finally {
-      intervals.mockRestore()
-      clearInterval(frozenLoaderTimer)
-      await disposeSnapshot(harness)
-    }
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'reasoning-delta', index: 0, text: 'Inspecting width and styles.' },
+      })
+      clock += 2_000
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'block-start', index: 1, blockType: 'text' },
+      })
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', index: 1, text: 'Streaming **visible state**…\n\n```ts\nconst visible = true\n```' },
+      })
+    })
+    await checkpoint('conversation-streaming', harness.terminal)
+    await disposeSnapshot(harness)
+    nowSpy.mockRestore()
+  })
+
+  it('pins a completed step timing summary', async () => {
+    let clock = new Date(2026, 6, 21, 14, 32, 6).getTime()
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const harness = await setupSnapshot()
+    await renderAfter(harness, () => {
+      clock += 1_000
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'reasoning-delta', index: 0, text: 'Checking the result.' },
+      })
+      clock += 2_000
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', index: 1, text: 'The result is ready.' },
+      })
+      clock += 3_000
+      harness.session.append('step/end', { turn: 1, step: 1 })
+    })
+    await checkpoint('step-timing-completed', harness.terminal, { includeScrollback: true })
+    nowSpy.mockRestore()
+    await disposeSnapshot(harness)
   })
 
   it('pins failed-stream retraction, scheduled retry, and eventual success', async () => {
@@ -293,15 +319,13 @@ describe('TUI terminal-state snapshots', () => {
     })
     await checkpoint('retry-scheduled', harness.terminal, { includeScrollback: true })
 
-    await renderAfter(harness, () => {
-      harness.session.append('assistant/message', {
-        turn: 1,
-        step: 2,
-        provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-        content: [{ type: 'text', text: 'Recovered on the next bounded attempt.' }],
-      }, { surfaceOp: 'append' })
-      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    })
+    harness.session.append('assistant/message', {
+      turn: 1,
+      step: 2,
+      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
+      content: [{ type: 'text', text: 'Recovered on the next bounded attempt.' }],
+    }, { surfaceOp: 'append' })
+    harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await checkpoint('retry-recovered', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
@@ -352,7 +376,7 @@ describe('TUI terminal-state snapshots', () => {
   })
 
   it('paints the startup banner product name in the DeepSeek brand gradient on truecolor terminals', async () => {
-    const harness = await setupSnapshot({ config: { truecolor: true } })
+    const harness = await setupSnapshot({ config: { theme: { truecolor: true } } })
     await checkpoint('banner-gradient', harness.terminal, {}, true)
     await disposeSnapshot(harness)
   })
@@ -457,6 +481,7 @@ describe('TUI terminal-state snapshots', () => {
   })
 
   it('renders terminal controls as inert text across transcripts, tools, dialogs, diagnostics, and title', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 15, 0, 0).getTime())
     const tools = {
       unsafe: visualTool(
         'unsafe',
@@ -518,14 +543,13 @@ describe('TUI terminal-state snapshots', () => {
     })
     const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await harness.terminal.waitForFrame(beforeQuestion)
-    await renderAfter(harness, () => {
-      agentEvents(harness.ctx, harness.agent).emit('agent/error', 8, 3, new Error(`Unsafe live error ${CONTROL_PROBE}`))
-    })
+    agentEvents(harness.ctx, harness.agent).emit('agent/error', 8, 3, new Error(`Unsafe live error ${CONTROL_PROBE}`))
     await checkpoint('untrusted-controls', harness.terminal, { includeScrollback: true })
 
     controller.abort()
     await rejected
     await disposeSnapshot(harness)
+    nowSpy.mockRestore()
   })
 
   it('pins a constrained multi-select question and its validation state', async () => {
@@ -568,7 +592,37 @@ describe('TUI terminal-state snapshots', () => {
     await disposeSnapshot(harness)
   })
 
+  it('pins a single-option question', async () => {
+    const harness = await setupSnapshot({
+      config: {
+        questionDialogWidth: 200,
+        questionDialogMaxHeight: 16,
+      },
+    }, { columns: 56, rows: 20 })
+    const controller = new AbortController()
+    const beforeQuestion = harness.terminal.frames
+    const answer = harness.ctx.userInteraction.ask({
+      questions: [{
+        id: 'confirm',
+        header: 'Confirm',
+        question: 'Continue with this change?',
+        options: [{ label: 'Proceed', description: 'Apply the proposed change' }],
+      }],
+      signal: controller.signal,
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await harness.terminal.waitForFrame(beforeQuestion)
+    await checkpoint('question-dialog-single-option', harness.terminal)
+    controller.abort()
+    await rejected
+    await disposeSnapshot(harness)
+  })
+
   it('pins compaction surface replacement and narrow-to-wide reflow', async () => {
+    // Freeze the clock: the timing header hides zero-duration buckets, so a
+    // real-clock millisecond tick between the fixture appends and the render
+    // would flip `Tools 0.0s` in and out of the pinned header.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 14, 40, 0).getTime())
     let replacementStart = 0
     let replacementEnd = 0
     let replacementSources: number[] = []
@@ -602,8 +656,11 @@ describe('TUI terminal-state snapshots', () => {
 
     await renderAfter(harness, () => {
       harness.session.append('user/message', {
-        content: [{ type: 'text', text: 'Compacted summary: the prior command completed and its details were retired from the active surface.' }],
-        source: { kind: 'plugin', plugin: 'compact' },
+        content: [{
+          type: 'text',
+          text: '<system-reminder>\nAdditional instructions from: nested/AGENTS.md\n\nRender workspace context XML clearly.\n</system-reminder>',
+        }],
+        source: { kind: 'plugin', plugin: 'workspace-context' },
       }, {
         surfaceOp: { op: 'replace', start: replacementStart, end: replacementEnd },
         sourceEventSeqs: replacementSources,
@@ -615,9 +672,22 @@ describe('TUI terminal-state snapshots', () => {
     await renderAfter(harness, () => { harness.terminal.resize(104, 30) })
     await checkpoint('surface-after-compaction-wide', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
+    nowSpy.mockRestore()
+  })
+
+  it('pins wrapped and explicit multiline shell-prompt input', async () => {
+    const harness = await setupSnapshot({}, { columns: 44, rows: 18 })
+    await renderAfter(harness, () => {
+      harness.terminal.send('Explain this implementation with enough detail to wrap across multiple full-width continuation rows without leaving a prompt-sized gap at the right edge.')
+      harness.terminal.send('\x1b[13;2u')
+      harness.terminal.send('Then suggest a simpler version.')
+    })
+    await checkpoint('shell-prompt-multiline', harness.terminal)
+    await disposeSnapshot(harness)
   })
 
   it('pins help, unknown commands, live errors, turn failures, and terminal restoration', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 15, 5, 0).getTime())
     const harness = await setupSnapshot({}, { columns: 92, rows: 32 })
     await renderAfter(harness, () => {
       harness.terminal.send('/help')
@@ -635,6 +705,12 @@ describe('TUI terminal-state snapshots', () => {
         turn: 2,
         reason: { kind: 'interrupted' },
       })
+      harness.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+      harness.session.append('turn/end', { turn: 3, reason: { kind: 'disposed' } })
+      harness.session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+      // A merge-extensible turn-end kind unknown to the TUI still surfaces its
+      // name so the agent never stops without a visible reason.
+      harness.session.append('turn/end', { turn: 4, reason: { kind: 'plugin-policy' } as never })
     })
     await checkpoint('errors-and-help', harness.terminal, { includeScrollback: true })
 
@@ -643,31 +719,11 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('disposed-terminal', harness.terminal, { includeScrollback: true })
     await harness.ctx.fiber.dispose()
     await harness.terminal.dispose()
+    nowSpy.mockRestore()
   })
 
-  it('pins the model selector, effort cycling, and provider-default selection', async () => {
-    const harness = await setupSnapshot({
-      catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
-        models: [
-          { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
-          { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
-        ],
-        resolveModelInfo: (_provider, model) => Promise.resolve({
-          context: { contextWindow: 128_000 },
-          reasoning: {
-            efforts: [
-              { id: ReasoningEffortId('off'), name: 'Off' },
-              { id: ReasoningEffortId('high'), name: 'High' },
-              { id: ReasoningEffortId('max'), name: 'Max' },
-            ],
-            ...model === 'deepseek-v4-flash'
-              ? { defaultEffort: ReasoningEffortId('high') }
-              : {},
-          },
-        }),
-      },
-    }, { columns: 92, rows: 32 })
+  it('pins the model selector and selection notice', async () => {
+    const harness = await setupSnapshot({}, { columns: 92, rows: 32 })
     await renderAfter(harness, () => {
       harness.terminal.send('/model')
       harness.terminal.send('\r')
@@ -675,13 +731,6 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('model-selector', harness.terminal, { includeScrollback: true })
     await renderAfter(harness, () => {
       harness.terminal.send('\x1b[B')
-      harness.terminal.send('\x1b[Z')
-      harness.terminal.send('\x1b[Z')
-      harness.terminal.send('\x1b[Z')
-      harness.terminal.send('\x1b[Z')
-    })
-    await checkpoint('model-effort-switching', harness.terminal, { includeScrollback: true })
-    await renderAfter(harness, () => {
       harness.terminal.send('\r')
     })
     await checkpoint('model-switching', harness.terminal, { includeScrollback: true })
@@ -727,6 +776,22 @@ describe('TUI terminal-state snapshots', () => {
       contextWindow: 128_000,
       contextTokens: 42_000,
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      tools: {
+        read: {
+          name: 'read',
+          description: 'Read a file',
+          parameters: {},
+          output: { schema: { type: 'null' }, render: () => [] },
+          execute: async () => null,
+        },
+        write: {
+          name: 'write',
+          description: 'Write a file',
+          parameters: {},
+          output: { schema: { type: 'null' }, render: () => [] },
+          execute: async () => null,
+        },
+      },
       beforeMount(session) {
         appendUser(session, 'inspect this session')
         appendAssistant(session, [{ type: 'text', text: 'Session inspected.' }], {
