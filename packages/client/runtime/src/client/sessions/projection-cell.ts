@@ -8,21 +8,17 @@
  * (useProjection) happens in web-react.
  */
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import { Notifier } from './notifier.ts'
 
-/**
- * The single projection type table, typed end to end (host provider, wire
- * block, client cell, React hook). Domain packages merge their keys in.
- *
- * TODO(gui): switch to `import type { SessionProjectionMap } from
- * '@deepseek-ai/dsh-session-projection'` (pure type-only edge) once the host
- * interface package lands; this placeholder is structurally identical and
- * exists only because the two bases are built in parallel. No second
- * client-side "views" table — one map end to end (user ruling, RFC
- * Alternatives).
- */
-export interface SessionProjectionMap {}
+// The single projection type table, typed end to end (host provider, wire
+// block, client cell, React hook) — the interface package's pure-type outlet
+// (`/types`, zero imports), never the package root: the root's dsh-agent →
+// dsh-session chain would drag the host `Context.sessions` merge into the
+// client program (one program must not hold both sides). No second
+// client-side "views" table (user ruling, RFC Alternatives).
+export type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 
 /**
  * Minimal validating-schema face (zod-compatible: `ZodType<T>` satisfies it

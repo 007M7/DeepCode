@@ -15,9 +15,9 @@ import { SessionsService } from '../src/client/sessions/service.ts'
 import { FakeApiClient, ok } from './fake-api.ts'
 import { entries, plainTurn } from './event-script.ts'
 
-// Test-domain key merged into the (placeholder) projection map: a whole-value
-// marker list, the smallest last-wins shape.
-declare module '../src/client/sessions/projection-cell.ts' {
+// Test-domain key merged into the projection map (the interface package's
+// pure-type outlet): a whole-value marker list, the smallest last-wins shape.
+declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'test/marks': { marks: string[] }
   }
