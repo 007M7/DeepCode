@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-06-20-remove-agent-boundary-mirror-events.md: cde4d00fd2b677cf935b286b063f2c6952a5a98c
-2026-06-20-remove-agent-boundary-mirror-events.zh.md: 188ea0ca95539bebe864685ed8c4073e4d2014d4
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md
+2026-06-20-remove-agent-boundary-mirror-events.md: 24ac1e32667eb325044f4df583cde509421af3de
+2026-06-20-remove-agent-boundary-mirror-events.zh.md: c7bf4fe9cc9ff50deb99527530ee0256fca10cb3
