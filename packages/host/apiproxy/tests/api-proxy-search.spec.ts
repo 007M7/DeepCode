@@ -220,6 +220,40 @@ describe('session.search', () => {
     expect(response.result.value.items.at(-1)?.sessionId).toBe('visible-19')
   })
 
+  it('propagates cancellation through visible-session collection and stops cold-summary work', async () => {
+    const ctx = await baseContext()
+    const controller = new AbortController()
+    const cold = Array.from({ length: 32 }, (_, index) => header(`cold-${index}`, `/cold-${index}`))
+    const list = vi.fn((signal?: AbortSignal) => {
+      expect(signal).toBe(controller.signal)
+      return Promise.resolve(cold)
+    })
+    let locateCalls = 0
+    ctx.provide('sessionPersistence', {
+      list,
+      locate: () => {
+        locateCalls++
+        controller.abort()
+        return undefined
+      },
+    } as never)
+    const searchSessions = vi.fn()
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('cancel-during-visibility'),
+      controller.signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'cancelled' },
+    })
+    expect(list).toHaveBeenCalledOnce()
+    expect(locateCalls).toBe(1)
+    expect(searchSessions).not.toHaveBeenCalled()
+  })
+
   it('maps missing composition, query cancellation, and provider failure', async () => {
     const missingCtx = await baseContext()
     missingCtx.sessions.create(sid('visible'), { meta: header('visible') })

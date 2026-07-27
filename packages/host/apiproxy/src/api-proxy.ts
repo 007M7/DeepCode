@@ -41,6 +41,9 @@ const DEFAULT_MAX_MESSAGES = 50
 /** Product contract: sidebar search returns one bounded page and no cursor. */
 const SESSION_SEARCH_LIMIT = 20
 
+/** Bound cold-log stat fan-out so an aborted search stops launching new work. */
+const COLD_SUMMARY_BATCH_SIZE = 16
+
 /** Surface message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
 
@@ -170,15 +173,22 @@ function summarize(session: Session, running: boolean): SessionSummary {
  * updatedAt is the log file's mtime; backends without a per-session file
  * (locate() undefined) fall back to the header's createdAt.
  */
-async function summarizeCold(persistence: SessionPersistence, meta: SessionHeader): Promise<SessionSummary> {
+async function summarizeCold(
+  persistence: SessionPersistence,
+  meta: SessionHeader,
+  signal?: AbortSignal,
+): Promise<SessionSummary> {
+  signal?.throwIfAborted()
   let updatedAt = meta.createdAt
   const location = persistence.locate(meta)
+  signal?.throwIfAborted()
   if (location !== undefined) {
     try {
       updatedAt = (await stat(location.path)).mtimeMs
     } catch {
       // The log vanished between list() and stat() (concurrent cleanup); createdAt stands in.
     }
+    signal?.throwIfAborted()
   }
   return {
     sessionId: meta.id,
@@ -575,16 +585,27 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * Attached sessions come from memory; servable cold sessions merge from
    * persistence, and the final order is newest-first.
    */
-  async function listVisibleSessionSummaries(): Promise<SessionSummary[]> {
+  async function listVisibleSessionSummaries(signal?: AbortSignal): Promise<SessionSummary[]> {
+    signal?.throwIfAborted()
     const items = ctx.sessions.list().map((session) => {
       const agent = ctx.agents.get(session.id)
       return summarize(session, agent?.status === 'running')
     })
+    signal?.throwIfAborted()
     const attached = new Set(items.map(item => item.sessionId))
     const persistence = ctx.get('sessionPersistence')
     if (persistence !== undefined) {
-      const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-      items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+      const cold = (await persistence.list(signal))
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+      signal?.throwIfAborted()
+      for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
+        signal?.throwIfAborted()
+        const batch = cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
+        items.push(...await Promise.all(
+          batch.map(meta => summarizeCold(persistence, meta, signal)),
+        ))
+        signal?.throwIfAborted()
+      }
     }
     items.sort((a, b) => b.updatedAt - a.updatedAt)
     return items
@@ -616,7 +637,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         try {
-          const visible = await listVisibleSessionSummaries()
+          const visible = await listVisibleSessionSummaries(signal)
           if (isAborted(signal)) return cancelled()
           if (visible.length === 0) return ok(request, { items: [], hasMore: false })
           const visibleIds = new Set(visible.map(item => item.sessionId))
