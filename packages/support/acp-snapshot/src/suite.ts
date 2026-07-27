@@ -519,28 +519,234 @@ function preservePackedMemberTimes(
   row.data.dt = gaps
 }
 
+/** Whether a parsed JSON value is a non-array object. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Reuse existing leaves whose normalized values equal the fresh values.
+ * Objects merge by key; arrays merge only when their positions still align.
+ */
+function preserveNormalizedVolatiles(
+  fresh: unknown,
+  existing: unknown,
+  normalizedFresh: unknown,
+  normalizedExisting: unknown,
+  stringMappings: ReadonlyMap<string, string>,
+): unknown {
+  if (
+    Array.isArray(fresh)
+    && Array.isArray(existing)
+    && Array.isArray(normalizedFresh)
+    && Array.isArray(normalizedExisting)
+  ) {
+    if (
+      fresh.length !== existing.length
+      || fresh.length !== normalizedFresh.length
+      || fresh.length !== normalizedExisting.length
+    ) return fresh
+    return fresh.map((value, index) => preserveNormalizedVolatiles(
+      value,
+      existing[index],
+      normalizedFresh[index],
+      normalizedExisting[index],
+      stringMappings,
+    ))
+  }
+  if (
+    isRecord(fresh)
+    && isRecord(existing)
+    && isRecord(normalizedFresh)
+    && isRecord(normalizedExisting)
+  ) {
+    return Object.fromEntries(Object.entries(fresh).map(([key, value]) => [
+      key,
+      Object.hasOwn(existing, key)
+        && Object.hasOwn(normalizedFresh, key)
+        && Object.hasOwn(normalizedExisting, key)
+        ? preserveNormalizedVolatiles(
+          value,
+          existing[key],
+          normalizedFresh[key],
+          normalizedExisting[key],
+          stringMappings,
+        )
+        : value,
+    ]))
+  }
+  if (
+    typeof fresh === 'string'
+    && typeof existing === 'string'
+    && typeof normalizedFresh === 'string'
+    && normalizedFresh === normalizedExisting
+  ) {
+    return stringMappings.get(JSON.stringify([normalizedFresh, fresh])) === existing
+      ? existing
+      : fresh
+  }
+  return Object.is(normalizedFresh, normalizedExisting) ? existing : fresh
+}
+
+/** Normalize one aligned record with the same contract used by fixture comparison. */
+function normalizedRefreshRecord(
+  record: Record<string, unknown>,
+  context: NormalizeContext,
+): Record<string, unknown> {
+  return JSON.parse(normalizeSessionLog(`${JSON.stringify(record)}\n`, context)) as Record<string, unknown>
+}
+
+/**
+ * Add normalized-equivalent string replacements to a bijection.
+ * Structural differences are fresh-owned and therefore contribute no mapping.
+ */
+function collectNormalizedStringMappings(
+  fresh: unknown,
+  existing: unknown,
+  normalizedFresh: unknown,
+  normalizedExisting: unknown,
+  forward: Map<string, string>,
+  reverse: Map<string, string>,
+): boolean {
+  if (
+    Array.isArray(fresh)
+    && Array.isArray(existing)
+    && Array.isArray(normalizedFresh)
+    && Array.isArray(normalizedExisting)
+  ) {
+    if (
+      fresh.length !== existing.length
+      || fresh.length !== normalizedFresh.length
+      || fresh.length !== normalizedExisting.length
+    ) return true
+    return fresh.every((value, index) => collectNormalizedStringMappings(
+      value,
+      existing[index],
+      normalizedFresh[index],
+      normalizedExisting[index],
+      forward,
+      reverse,
+    ))
+  }
+  if (
+    isRecord(fresh)
+    && isRecord(existing)
+    && isRecord(normalizedFresh)
+    && isRecord(normalizedExisting)
+  ) {
+    return Object.entries(fresh).every(([key, value]) =>
+      !Object.hasOwn(existing, key)
+      || !Object.hasOwn(normalizedFresh, key)
+      || !Object.hasOwn(normalizedExisting, key)
+      || collectNormalizedStringMappings(
+        value,
+        existing[key],
+        normalizedFresh[key],
+        normalizedExisting[key],
+        forward,
+        reverse,
+      ))
+  }
+  if (
+    typeof fresh !== 'string'
+    || typeof existing !== 'string'
+    || typeof normalizedFresh !== 'string'
+    || normalizedFresh !== normalizedExisting
+    || fresh === existing
+  ) return true
+  const freshKey = JSON.stringify([normalizedFresh, fresh])
+  const existingKey = JSON.stringify([normalizedFresh, existing])
+  const mappedExisting = forward.get(freshKey)
+  const mappedFresh = reverse.get(existingKey)
+  if (
+    mappedExisting !== undefined && mappedExisting !== existing
+    || mappedFresh !== undefined && mappedFresh !== fresh
+  ) return false
+  forward.set(freshKey, existing)
+  reverse.set(existingKey, fresh)
+  return true
+}
+
+/**
+ * Build a log-wide bijection for normalized-equivalent strings.
+ * Any unexplained record mismatch or conflicting replacement disables reuse.
+ */
+function normalizedStringMappings(
+  records: Record<string, unknown>[],
+  freshRecords: Record<string, unknown>[],
+  existingRecords: Record<string, unknown>[],
+  freshContext: NormalizeContext,
+  existingContext: NormalizeContext,
+): Map<string, string> | undefined {
+  const forward = new Map<string, string>()
+  const reverse = new Map<string, string>()
+  let existingIndex = 0
+  for (let recordIndex = 0; recordIndex < records.length; recordIndex++) {
+    const record = records[recordIndex] as Record<string, unknown>
+    const existingRecord = existingRecords[existingIndex]
+    const memberCount = packedTimes(record)?.length ?? 1
+    if (record.type === 'session/title' && existingRecord?.type !== 'session/title') continue
+    if (memberCount > 1) {
+      const existingMembers = existingRecords.slice(existingIndex, existingIndex + memberCount)
+      if (
+        existingMembers.length !== memberCount
+        || existingMembers.some(member => member.type !== 'assistant/chunk')
+      ) return undefined
+    } else {
+      if (existingRecord === undefined || existingRecord.type !== record.type) return undefined
+      if (!collectNormalizedStringMappings(
+        record,
+        existingRecord,
+        normalizedRefreshRecord(freshRecords[recordIndex] as Record<string, unknown>, freshContext),
+        normalizedRefreshRecord(existingRecord, existingContext),
+        forward,
+        reverse,
+      )) return undefined
+    }
+    existingIndex += memberCount
+  }
+  return existingIndex === existingRecords.length ? forward : undefined
+}
+
 /**
  * Rewrite a fresh replay-produced log so repeated refreshes do not churn
  * volatile fixture fields. Meaningful event payloads come from `fresh`; the
- * existing fixture lends session ids, cwd, creation times, logical event
- * times, and hook durations where the record shape still matches. Packed
- * timing envelopes expand for alignment, so packing does not shift later
- * records; fresh fragment arrays remain authoritative.
+ * existing fixture lends normalized-equivalent values, including ids, paths,
+ * creation/event times, spill locators, and hook durations, only when the
+ * complete record layout aligns and volatile strings form a consistent
+ * bijection. Ambiguous layouts or mappings keep fresh strings. Packed timing
+ * envelopes expand for alignment, so packing does not shift later records;
+ * fresh semantic values and fragment arrays remain authoritative.
  *
  * @param fresh The newly harvested session JSONL.
  * @param existing The committed fixture JSONL being refreshed.
  * @param replacements Cross-log literal replacements from {@link refreshFixtureReplacements}.
+ * @param freshContext The harvested run's ids, cwd, and every cwd alias.
  * @returns The stabilized JSONL content to write back.
  */
-export function stabilizeRefreshLog(fresh: string, existing: string, replacements: FixtureReplacement[]): string {
+export function stabilizeRefreshLog(
+  fresh: string,
+  existing: string,
+  replacements: FixtureReplacement[],
+  freshContext: NormalizeContext,
+): string {
+  const freshRecords = parseJsonlRecords(fresh)
   let stable = fresh
   for (const { from, to } of replacements) stable = stable.split(from).join(to)
   const existingRecords = logicalRecords(parseJsonlRecords(existing))
   const records = parseJsonlRecords(stable)
+  const existingContext = fixtureContext(existing)
+  const stringMappings = normalizedStringMappings(
+    records,
+    freshRecords,
+    existingRecords,
+    freshContext,
+    existingContext,
+  )
   let existingIndex = 0
   let previousEventTime: unknown
   for (let i = 0; i < records.length; i++) {
-    const record = records[i] as Record<string, unknown>
+    let record = records[i] as Record<string, unknown>
     const existingRecord = existingRecords[existingIndex]
     const memberCount = packedTimes(record)?.length ?? 1
     const insertedTitle = record.type === 'session/title' && existingRecord?.type !== 'session/title'
@@ -549,6 +755,21 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
       if (typeof previousEventTime !== 'number') throw new Error('acp-snapshot: inserted title has no preceding event time')
       record.time = previousEventTime
     } else {
+      if (
+        stringMappings !== undefined
+        && memberCount === 1
+        && existingRecord !== undefined
+        && existingRecord.type === record.type
+      ) {
+        record = preserveNormalizedVolatiles(
+          record,
+          existingRecord,
+          normalizedRefreshRecord(freshRecords[i] as Record<string, unknown>, freshContext),
+          normalizedRefreshRecord(existingRecord, existingContext),
+          stringMappings,
+        ) as Record<string, unknown>
+        records[i] = record
+      }
       preservePackedMemberTimes(record, existingRecords.slice(existingIndex, existingIndex + memberCount))
       preserveFixtureVolatiles(record, existingRecord)
       existingIndex += memberCount
@@ -668,12 +889,12 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ]
           const primary = (result.sessionLogs[0] as HarvestedLog).content
           await writeFile(join(dir, outputFixtureFiles[0] as string), scrub(
-            REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements) : primary,
+            REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements, ctx) : primary,
           ))
           for (let i = 1; i < result.sessionLogs.length; i++) {
             const child = (result.sessionLogs[i] as HarvestedLog).content
             await writeFile(join(dir, outputFixtureFiles[i] as string), scrub(
-              REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements) : child,
+              REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements, ctx) : child,
             ))
           }
           if (RECORDING) {
