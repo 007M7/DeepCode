@@ -151,6 +151,13 @@ export class SessionsService {
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
   private readonly manager: SessionManager
+  /**
+   * Atomic current-session provide projection: selection changes and
+   * provider-roster changes publish through this one source (the renderer
+   * host's `sessions.provide` feed), so a roster change under a stable
+   * current id republishes the bundle instead of stranding mounted entries.
+   */
+  readonly currentProvide: HostObservable<SessionMaybeProvideInfo>
 
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
@@ -167,6 +174,10 @@ export class SessionsService {
   private readonly providers: SessionProvideDescriptor[] = []
   /** Static no-session projection, rebuilt only when the provider roster changes. */
   private maybeInfo: SessionMaybeProvideInfo
+  /** Latest published {@link SessionsService.currentProvide} bundle (identity comparison dedupes republish). */
+  private currentProvideSnapshot: SessionMaybeProvideInfo
+  /** currentProvide subscribers (plain cell: bundles hold live Session sources, so no store freeze may touch them). */
+  private readonly currentProvideListeners = new Set<() => void>()
   /**
    * The staged session id — follows `list.current` exactly, holding its last
    * defined value across masked gaps (a transiently absent selection blanks
@@ -198,7 +209,11 @@ export class SessionsService {
     // dedicated code path. Safe to run synchronously inside the store notify:
     // the follower writes no list state — session.open()'s synchronous prefix
     // touches only session-side state and its own microtask-batched notifier.
-    this.list.subscribe(() => { this.followCurrent() })
+    // The current-provide projection follows the same current writes.
+    this.list.subscribe(() => {
+      this.followCurrent()
+      this.projectCurrentProvide()
+    })
     // The runtime's own contribution comes first: useSession rides the same
     // provide channel every plugin uses (no renderer special case).
     this.providers.push({
@@ -206,6 +221,14 @@ export class SessionsService {
       resolve: binding => ({ hooks: { session: binding.session } }),
     })
     this.maybeInfo = this.materializeMaybeProvideInfo()
+    this.currentProvideSnapshot = this.maybeInfo
+    this.currentProvide = {
+      getSnapshot: () => this.currentProvideSnapshot,
+      subscribe: (fn) => {
+        this.currentProvideListeners.add(fn)
+        return () => { this.currentProvideListeners.delete(fn) }
+      },
+    }
     rootCtx.reflect.provide('sessions', this, undefined)
   }
 
@@ -238,6 +261,20 @@ export class SessionsService {
     for (const record of this.scopes.values()) {
       record.provideInfo = this.materializeProvideInfo(record.binding)
     }
+    this.projectCurrentProvide()
+  }
+
+  /**
+   * Publish the current selection's provide bundle when it changed. Bundles
+   * are identity-stable per (scope, roster) materialization, so an identity
+   * compare is exact; synchronous notify — both call sites (list.subscribe,
+   * provide()) already sit behind their own batching or registration edges.
+   */
+  private projectCurrentProvide(): void {
+    const next = this.maybeProvideInfo(this.list.getSnapshot().current)
+    if (next === this.currentProvideSnapshot) return
+    this.currentProvideSnapshot = next
+    for (const fn of [...this.currentProvideListeners]) fn()
   }
 
   /** Build the static no-session kit and reject duplicate declared names. */
@@ -404,11 +441,11 @@ export class SessionsService {
   }
 
   /**
-   * Resolve the render-layer standard-props bundle (SessionProvider's feed
-   * through the renderer host; ctx never enters the render layer). Pure
-   * resolution — render-safe: SessionProvider calls this during render, so no
-   * staging, no window side effects (StrictMode double-invokes and concurrent
-   * discarded passes must stay free).
+   * Resolve one session's render-layer standard-props bundle (ctx never
+   * enters the render layer; the renderer subscribes to
+   * {@link SessionsService.currentProvide}). Pure resolution — render-safe:
+   * no staging, no window side effects (StrictMode double-invokes and
+   * concurrent discarded passes must stay free).
    * @param id - session id.
    * @returns the provide info, or undefined for a session neither listed nor already scoped.
    */

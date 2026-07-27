@@ -195,6 +195,60 @@ describe('cell (render-layer session kit)', () => {
     expect(b.svc.provideInfo('ghost')).toBeUndefined()
   })
 
+  it('currentProvide follows selection: absent projection ↔ definite bundle, notified on each move', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    const absent = b.svc.currentProvide.getSnapshot()
+    expect(absent.sessionId).toBeUndefined()
+    expect(Object.hasOwn(absent.hooks, 'session')).toBe(true)
+    const notified = vi.fn()
+    b.svc.currentProvide.subscribe(notified)
+    b.svc.open(sid('s1'))
+    expect(b.svc.currentProvide.getSnapshot()).toBe(b.svc.provideInfo('s1'))
+    expect(notified).toHaveBeenCalledTimes(1)
+    b.svc.open(sid('s2'))
+    expect(b.svc.currentProvide.getSnapshot()).toBe(b.svc.provideInfo('s2'))
+    expect(notified).toHaveBeenCalledTimes(2)
+    b.svc.clear()
+    await Promise.resolve() // clearSelection projects through the manager notifier
+    expect(b.svc.currentProvide.getSnapshot().sessionId).toBeUndefined()
+  })
+
+  it('a provider roster change under a stable current id republishes the bundle', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.open(sid('s1'))
+    const before = b.svc.currentProvide.getSnapshot()
+    const notified = vi.fn()
+    b.svc.currentProvide.subscribe(notified)
+    const source = { getSnapshot: () => 'live', subscribe: () => () => {} }
+    const dispose = b.svc.provide({
+      hooks: ['extra'],
+      props: ['marker'],
+      resolve: () => ({ hooks: { extra: source }, props: { marker: 7 } }),
+    })
+    const added = b.svc.currentProvide.getSnapshot()
+    expect(added).not.toBe(before)
+    expect(added).toMatchObject({ sessionId: 's1', props: { marker: 7 } })
+    expect(added.hooks['extra']).toBe(source)
+    expect(notified).toHaveBeenCalledTimes(1)
+    dispose()
+    const removed = b.svc.currentProvide.getSnapshot()
+    expect(removed).not.toBe(added)
+    expect(Object.hasOwn(removed.hooks, 'extra')).toBe(false)
+    expect(notified).toHaveBeenCalledTimes(2)
+  })
+
+  it('an unsubscribed currentProvide listener stops receiving notifications', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    const notified = vi.fn()
+    const off = b.svc.currentProvide.subscribe(notified)
+    off()
+    b.svc.open(sid('s1'))
+    expect(notified).not.toHaveBeenCalled()
+  })
+
   it('provideInfo()/binding() are pure resolution: no staging, no deferred sweep', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
