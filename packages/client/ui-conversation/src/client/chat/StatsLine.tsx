@@ -53,7 +53,7 @@ export function deriveStats(nodes: ConversationSnapshot['nodes']): UsageTotals {
 export interface StatsLineProps { useSession: SnapshotSelectorHook<ConversationSnapshot> }
 
 export const StatsLine = memo(function StatsLine({ useSession }: StatsLineProps) {
-  const nodes = useSession((s) => s.nodes)
+  const nodes = useSession(s => s.nodes)
   const stats = useMemo(() => deriveStats(nodes), [nodes])
   if (stats.steps === 0) return null
   const parts: string[] = []

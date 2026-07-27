@@ -52,7 +52,7 @@ export function ToolRow({
   const open = expanded && expandable
   const rowExpands = expandable && expandOnRowClick
   const toggleExpand = () => {
-    setExpanded((v) => !v)
+    setExpanded(v => !v)
   }
   const toggleFromLeading = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
