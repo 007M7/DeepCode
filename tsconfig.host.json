@@ -67,6 +67,8 @@
     { "path": "./packages/session-title/session-title-llm" },
     { "path": "./packages/session-title/session-title-first-message-llm" },
     { "path": "./packages/session-title/session-title-all-messages-llm" },
+    { "path": "./packages/telemetry/session-telemetry" },
+    { "path": "./packages/telemetry/session-telemetry-otel" },
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },
     { "path": "./packages/ui/commands" },
