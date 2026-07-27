@@ -28,7 +28,7 @@ Status: implemented
 
 ## 切换期间的容量
 
-6 个常驻实例可承接正常 PR 流量（该池平时唯一的稳态负载是每次 master 推送一个串行热备作业，故障切换时几乎全池可用）。若仍出现排队，用组织级注册 token（组织 Settings → Actions → Runners → New runner）追加注册实例。复制现有 runner 目录时**必须排除身份文件**——`rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/`——再跑 `config.sh`；原样拷贝 `.runner`/`.credentials` 会使 `config.sh` 以 "already configured" 拒绝。每个约一分钟。
+6 个常驻实例可承接正常 PR 流量（该池平时唯一的稳态负载是每次 master 推送一个串行热备作业，故障切换时几乎全池可用）。若仍出现排队，用组织级注册 token（组织 Settings → Actions → Runners → New runner）追加注册实例。复制现有 runner 目录时**必须排除身份文件**——`rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/`——再跑 `config.sh`（原样拷贝 `.runner`/`.credentials` 会使其以 "already configured" 拒绝），然后**启动监听器**：`sudo ./svc.sh install ubuntu && sudo ./svc.sh start`。仅注册不会上线；只有启动了服务的 runner 才会增加容量。每个约一分钟。
 
 
 ### 切回

@@ -28,7 +28,7 @@ Each of the three required Linux worker jobs — and the `all checks passed` ver
 
 ## Capacity during failover
 
-Six always-on instances absorb normal PR traffic (the pool's steady-state load is one serial standby job per master push, so failover capacity is effectively the full pool). If queues still build, register additional instances with an org registration token (org Settings → Actions → Runners → New runner). Clone an existing runner directory **excluding its identity files** — `rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/` — then run `config.sh`; copying `.runner`/`.credentials` verbatim makes `config.sh` refuse with "already configured". About a minute per instance.
+Six always-on instances absorb normal PR traffic (the pool's steady-state load is one serial standby job per master push, so failover capacity is effectively the full pool). If queues still build, register additional instances with an org registration token (org Settings → Actions → Runners → New runner). Clone an existing runner directory **excluding its identity files** — `rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/` — then run `config.sh` (copying `.runner`/`.credentials` verbatim makes it refuse with "already configured"), and **start the listener**: `sudo ./svc.sh install ubuntu && sudo ./svc.sh start`. Registration alone leaves the runner offline; only a started service adds capacity. About a minute per instance.
 
 
 ### Switch back
