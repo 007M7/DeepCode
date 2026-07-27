@@ -67,7 +67,7 @@ interface LlmFailure {
 - **每个提供方 HTTP 请求都携带应用归属头。** 适配器发送 `attributionHeaders()`（见下文）作为 `User-Agent` 基线，并通过协议级测试加以证明（mock 服务器断言收到的 header，或对基于库的适配器使用库的 header 钩子）。
 - **回放状态归适配器所有。** 成功的 `finish` 可以携带重建提供方原生响应所需的无损 JSON 状态。除非 `agent/step-result` listener 改写了内容，否则循环会将其与组装后的 assistant 消息一起存储。后续请求中，仅当历史提供方与目标提供方当前注册到完全相同的适配器实例时，`LlmService` 才会传递该状态。该适配器负责校验状态并拥有所有跨模型或跨提供方转换；其他适配器只会收到提供方无关的内容与 provenance，不会收到私有状态。
 
-该契约由两个有意保持独立的实现锁定：`dsh-llm-deepseek`（手写 fetch/SSE（Server-Sent Events））和 `dsh-llm-pi-ai`（通过 `@earendil-works/pi-ai` 实现的通用多提供方适配器）。基于库的适配器覆盖 finish 分片错误路径，而传输边界测试证明每个空闲 watchdog 都会停止其实际请求。
+该契约由两个有意保持独立的实现锁定：`dsh-llm-deepseek`（直接 fetch，SSE（Server-Sent Events）分帧经由 `eventsource-parser`）和 `dsh-llm-pi-ai`（通过 `@earendil-works/pi-ai` 实现的通用多提供方适配器）。基于库的适配器覆盖 finish 分片错误路径，而传输边界测试证明每个空闲 watchdog 都会停止其实际请求。
 
 ## `AppIdentity`：应用归属
 
@@ -179,8 +179,8 @@ interface PreparedLlmCall {
 /**
  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
  * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
- * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The hand-rolled
- * DeepSeek and pi-ai adapters intentionally exercise this contract through different internals.
+ * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The direct-fetch
+ * DeepSeek and library-backed pi-ai adapters intentionally exercise this contract through different internals.
  */
 declare abstract class LlmAdapter {
   /**
