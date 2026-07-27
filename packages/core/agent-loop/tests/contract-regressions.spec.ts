@@ -4,7 +4,7 @@ import LlmService, { CallId, MessageSource, ProviderRequestId, StreamChunk } fro
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type InboxPlacement } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { ReactLoopAgent } from '../src/agent.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -500,9 +500,11 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
 
     const queuedSources: MessageSource[] = []
     const queuedShapes: string[][] = []
-    ctx.on('agent/inbox/enqueue', (_agent, message) => {
+    const placements: InboxPlacement[] = []
+    ctx.on('agent/inbox/enqueue', (_agent, message, placement) => {
       queuedSources.push(message.source)
       queuedShapes.push(Object.keys(message).sort())
+      placements.push(placement)
     })
 
     send(agent, 'go') // no explicit source → default {kind:'user'} must be visible
@@ -516,6 +518,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       ['content', 'id', 'source'],
       ['content', 'id', 'source'],
     ])
+    expect(placements).toEqual(['queued', 'steering'])
     // The drain appends the durable steering/message with the caller's source
     // intact — the log, not a transient emit, is where consumers read it.
     const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.source] : [])

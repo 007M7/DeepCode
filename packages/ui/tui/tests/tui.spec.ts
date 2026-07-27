@@ -1384,7 +1384,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as unknown as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' } })
+    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' } }, 'queued')
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -1474,7 +1474,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A live event before the turn runs has no status controller to move.
     const idle = await setup()
     // Inbox notifications do not affect the status phase while idle.
-    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' } })
+    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' } }, 'queued')
     idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
     await tick()
     expect(idle.terminal.output).not.toContain('Executing tools')

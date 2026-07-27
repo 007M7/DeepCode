@@ -29,10 +29,14 @@ export interface AgentOptions {
 /**
  * Which inbox queue a {@link Agent.send} item joins:
  * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
- * - `next-step` — the item joins the active turn between steps as steering,
- *   or, when no turn is active, is promoted per its `wakeup` flag.
+ * - `next-step` — during prompt admission or an open turn, the item stages for
+ *   the next safe step boundary; otherwise it is promoted per its `wakeup`
+ *   flag.
  */
 export type SendTarget = 'next-turn' | 'next-step'
+
+/** Resolved inbox placement reported when an accepted message is enqueued. */
+export type InboxPlacement = 'queued' | 'steering'
 
 /**
  * Options for the unified {@link Agent.send} primitive over the
@@ -153,12 +157,13 @@ export interface Agent {
    * - `next-turn` queues an item that becomes the sole ordinary message of its
    *   own FIFO-ordered turn; `wakeup:true` wakes a
    *   parked driver, while `wakeup:false` queues without waking.
-   * - `next-step` with `wakeup:true` submits steering into the active turn
-   *   (idle falls back to a woken `next-turn`).
+   * - `next-step` with `wakeup:true` stages steering during prompt admission
+   *   or an open turn; outside that window it falls back to a woken
+   *   `next-turn`.
    * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: an open turn stages it for the next safe log
-   *   position, while an idle injection appends it immediately without opening
-   *   a turn.
+   *   without running the model: admission or an open turn stages it for the
+   *   next safe log position, while an injection outside that window appends
+   *   immediately without opening a turn.
    * @param input - model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
@@ -189,12 +194,13 @@ export interface Agent {
   followup(input: UserMessageData): AgentMessageId
 
   /**
-   * Submit steering into the running turn — the `next-step`/wakeup preset of
-   * {@link send}. An open turn records it at the next steering checkpoint before
-   * a request or stop decision. If the turn fails before that boundary, the
-   * remainder stays staged without waking the agent; retry or a later prompt
-   * takes it. Idle steering falls back to a woken follow-up turn, while
-   * cancellation or disposal may discard pending steering.
+   * Submit steering during prompt admission or an open turn — the
+   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
+   * checkpoint before a request or stop decision. If the activity fails before
+   * that boundary, the remainder stays staged without waking the agent; retry
+   * or a later prompt takes it. Outside that window steering falls back to a
+   * woken follow-up turn, while cancellation or disposal may discard pending
+   * steering.
    * @param input - steering content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
@@ -202,9 +208,9 @@ export interface Agent {
 
   /**
    * Append model-facing context without running the model — the
-   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
-   * at the next safe log position; an idle injection appends immediately
-   * without opening a turn.
+   * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
+   * stages it at the next safe log position; outside that window it appends
+   * immediately without opening a turn.
    * @param input - injected context and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
@@ -253,13 +259,16 @@ declare module 'cordis' {
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
-     * An item entered the queued or steering inbox.
+     * An item entered the queued or steering inbox. `placement` is the
+     * acceptance-time routing result; listeners must not reconstruct it from
+     * later agent or session state.
      * @param agent - the owning agent.
      * @param message - accepted content, source, and correlation identity.
+     * @param placement - resolved queued or steering placement.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
+    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage, placement: InboxPlacement): void
     /**
      * The driver claimed one item out of the inbox: a queued item at a turn
      * boundary, or steering drained between steps. Fires after the item leaves

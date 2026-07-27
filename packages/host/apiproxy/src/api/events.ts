@@ -69,10 +69,12 @@ export type MuxFrame =
    * host replays the current queue snapshot for every attached session (same
    * refresh-recovery baseline as pending questions); queue clearing on cancel
    * has no dedicated frame — clients fold it from the status flip.
-   * source carries the prompt's rpcId when the message came over this wire
-   * (the client's provisional-echo reconciliation key).
+   * `steering` is the host's acceptance-time queue classification and remains
+   * authoritative in reconnect snapshots. `source` carries the prompt's rpcId
+   * when the message came over this wire (the client's provisional-echo
+   * reconciliation key).
    */
-  | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource }
+  | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
   | { type: 'stream/error'; error: RpcError }
 
 /**

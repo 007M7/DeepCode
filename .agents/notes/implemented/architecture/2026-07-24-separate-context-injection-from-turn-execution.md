@@ -1,6 +1,6 @@
 # Agent Note: Separate context injection from turn execution
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-07-24-separate-context-injection-from-turn-execution.zh.md)
 
@@ -14,7 +14,7 @@ Idle `inject()` exposes a second mismatch. Injection does not request model exec
 
 `HookContext` also names its producer rather than its role. The value may come from a native plugin, a hook bridge, prompt admission, or tool post-processing. Its stable meaning is simply additional model-facing context with provenance.
 
-## Proposal
+## Decision
 
 Make `inject()` the only caller-facing operation for adding supplementary model-facing input, and define a turn exclusively as one execution of the model loop.
 
@@ -42,7 +42,7 @@ Caller-driven injection and hook-produced additional context deliberately have d
 
 Cross-session references follow the ordinary composition: the host prepares the snapshot, injects it with session-reference provenance, then sends or steers the readable direct prompt. The target log contains two simple messages, so later source mutation cannot change replay and transcript consumers do not need a prompt envelope. This supersedes the attachment mechanism in the [cross-session reference decision](../../implemented/feature/2026-07-21-cross-session-references.md) while retaining its snapshot and trust-boundary rules.
 
-This proposal preserves the caller-owned framing decision from [unwrapped injected content](../../implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md), the one-item turn rule from [one send, one turn](../../implemented/simplification/2026-07-17-one-send-one-turn.md), and narrows the [turn-enclosure decision](../../implemented/architecture/2026-06-15-turn-enclosure-invariant.md) so turns enclose execution rather than every session event.
+This decision preserves the caller-owned framing decision from [unwrapped injected content](../simplification/2026-07-20-unwrap-injected-content-envelopes.md), the one-item turn rule from [one send, one turn](../simplification/2026-07-17-one-send-one-turn.md), and narrows the [turn-enclosure decision](2026-06-15-turn-enclosure-invariant.md) so turns enclose execution rather than every session event.
 
 ## Alternatives considered
 
@@ -56,7 +56,7 @@ This proposal preserves the caller-owned framing decision from [unwrapped inject
 
 **Let hooks call `inject()` directly instead of returning additional contexts.** Direct injection would erase the extension point's admission ownership: a listener could append context before a downstream listener blocks the operation. Returning `additionalContexts` keeps the waterfall result authoritative while sharing the same post-admission outbox path.
 
-## Acceptance criteria
+## Verification
 
 - `SendOptions` and steering inbox records contain no attached contexts; `agent/queued` reports only the retained message and steering facts.
 - `UserMessageData` replaces `HookContext` across prompt interception, tool execution, hook bridges, guards, and context producers.
@@ -66,7 +66,7 @@ This proposal preserves the caller-owned framing decision from [unwrapped inject
 - Blocked prompt admission opens no turn and appends neither the prompt nor hook-produced additional contexts; independently injected caller context remains.
 - Unit, persistence/resume, invariant, ACP/TUI replay, and keyless assembled-application snapshots cover the new event order and durability semantics.
 
-## Risks
+## Consequences
 
 - Allowing one surface event outside turns weakens a simple invariant and may expose hidden assumptions in persistence scanning, crash repair, forking, compaction, and session queries.
 - Consecutive user-role messages replace one baked prompt message; provider adapters and cache behavior must accept and preserve that ordering.

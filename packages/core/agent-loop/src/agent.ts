@@ -17,6 +17,7 @@ import type {
   Agent,
   CancelOptions,
   AgentInterruptReason,
+  InboxPlacement,
   AgentOptions,
   AgentStatus,
   SettleReason,
@@ -51,6 +52,8 @@ export class ReactLoopAgent implements Agent {
 
   /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
+  /** Whether next-step input belongs to the current admission or open turn. */
+  private acceptingNextStep = false
   /** Abort owner for the current admission or turn. */
   private abort: AbortController | undefined
   /** Coalesced retry capability scoped to the active request-error waterfall. */
@@ -96,7 +99,7 @@ export class ReactLoopAgent implements Agent {
     const { target, wakeup } = options
     const id = AgentMessageId(randomUUID())
     if (target === 'next-step' && !wakeup) {
-      if (this.turnOpen) {
+      if (this.acceptingNextStep) {
         this.outbox.push({ content, source })
         return id
       }
@@ -104,19 +107,19 @@ export class ReactLoopAgent implements Agent {
       return id
     }
 
-    const steering = target === 'next-step' && this.turnOpen
+    const placement: InboxPlacement = target === 'next-step' && this.acceptingNextStep ? 'steering' : 'queued'
     const message: AgentMessage = {
       id,
       content,
       source,
     }
-    if (steering) {
+    if (placement === 'steering') {
       this.outbox.push(message)
     } else {
       this.queued.push({ message, wakeup })
     }
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message)
-    if (!steering && wakeup) this.kick()
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message, placement)
+    if (placement === 'queued' && wakeup) this.kick()
     return id
   }
 
@@ -212,6 +215,7 @@ export class ReactLoopAgent implements Agent {
 
     const admission = new AbortController()
     this.abort = admission
+    this.acceptingNextStep = true
     // Claimed admission is part of the running interval: it is cancellable
     // activity, so observers (and their cancel routing) must see it.
     if (!this.busy) {
@@ -253,6 +257,7 @@ export class ReactLoopAgent implements Agent {
       // still owns the slot here and releasing it unconditionally is exact.
       this.abort = undefined
       if (admitted === undefined) {
+        this.acceptingNextStep = false
         // A synchronously aborted admission would otherwise publish idle
         // inside send()'s own synchronous extent, before any post-send
         // subscriber could observe the transition.
@@ -279,6 +284,7 @@ export class ReactLoopAgent implements Agent {
     if (this.abort !== undefined) throw new Error(`agent "${this.id}" is already running`)
     const controller = new AbortController()
     this.abort = controller
+    this.acceptingNextStep = true
     if (!this.busy) {
       this.busy = true
       emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
@@ -384,6 +390,7 @@ export class ReactLoopAgent implements Agent {
       // Every step-close happens before this point on both success and
       // failure paths (step(), the request-failed branch, the catch), so the
       // finally owes only the turn boundary.
+      this.acceptingNextStep = false
       try {
         if (this.turnOpen) {
           // Re-entrant turn/end listeners must route new input to a later turn.

@@ -4,7 +4,7 @@ import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent, type PromptDecision, type SessionStartSource } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type InboxPlacement, type PromptDecision, type SessionStartSource } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -162,6 +162,95 @@ describe('agent/prompt-submit', () => {
     expect(log.some(e => e.type === 'user/message')).toBe(false)
     expect(log.some(e => e.type === 'step/start')).toBe(false)
     expect(reasons).toEqual([])
+  })
+
+  it('stages inject and steer during admission for the admitted turn', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('admission-outbox'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<PromptDecision>()
+    const placements: InboxPlacement[] = []
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+    ctx.on('agent/inbox/enqueue', (subject, _message, placement) => {
+      if (subject === agent) placements.push(placement)
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'admitted prompt')
+    await entered.promise
+    expect(agent.status).toBe('running')
+    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+
+    agent.inject({
+      content: [{ type: 'text', text: 'attached context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    agent.steer({ content: [{ type: 'text', text: 'admission steering' }], source: { kind: 'user' } })
+    expect(events(agent).some(event => event.type === 'user/message')).toBe(false)
+    expect(placements).toEqual(['queued', 'steering'])
+
+    decision.resolve({ kind: 'allow' })
+    await idle
+
+    const staged = events(agent).filter(event =>
+      event.type === 'turn/start' || event.type === 'user/message' || event.type === 'steering/message')
+    expect(staged.map(event => event.type)).toEqual([
+      'turn/start',
+      'user/message',
+      'user/message',
+      'steering/message',
+    ])
+    expect(staged[1]?.type === 'user/message' && staged[1].data.content)
+      .toEqual([{ type: 'text', text: 'admitted prompt' }])
+    expect(staged[2]?.type === 'user/message' && staged[2].data.content)
+      .toEqual([{ type: 'text', text: 'attached context' }])
+    expect(staged[3]?.type === 'steering/message' && staged[3].data.content)
+      .toEqual([{ type: 'text', text: 'admission steering' }])
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('admitted prompt')
+    expect(request).toContain('attached context')
+    expect(request).toContain('admission steering')
+  })
+
+  it('keeps admission-time outbox input staged when admission is blocked', async () => {
+    const adapter = new MockAdapter([textResponse('retried')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('blocked-admission-outbox'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<PromptDecision>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+
+    const blockedIdle = waitForIdle(ctx, agent)
+    send(agent, 'blocked prompt')
+    await entered.promise
+    agent.inject({
+      content: [{ type: 'text', text: 'staged context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    agent.steer({ content: [{ type: 'text', text: 'staged steering' }], source: { kind: 'user' } })
+    decision.resolve({ kind: 'block', reason: 'policy' })
+    await blockedIdle
+
+    expect(events(agent)).toEqual([])
+    expect(adapter.requests).toEqual([])
+
+    const retryIdle = waitForIdle(ctx, agent)
+    agent.retry()
+    await retryIdle
+
+    const staged = events(agent).filter(event =>
+      event.type === 'user/message' || event.type === 'steering/message')
+    expect(staged.map(event => event.type)).toEqual(['user/message', 'steering/message'])
+    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('blocked prompt')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged context')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged steering')
   })
 
   it('adjacent blocked and allowed prompts keep independent turn outcomes', async () => {

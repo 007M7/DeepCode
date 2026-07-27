@@ -108,11 +108,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
-  /** Whether a turn is open on the live stream — set on turn/start, cleared on
-   *  turn/end. A session/queued frame arriving while this is true joined the
-   *  steering FIFO; the host no longer stamps steering on the frame, so the
-   *  client derives it from the same ordered turn boundaries the host saw. */
-  private turnOpen = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
    * synchronously before prompt()'s first await, never reset — the blank →
@@ -342,12 +337,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     switch (frame.type) {
       case 'session/event': {
         this.retireQueued(frame.event)
-        // Track turn-open state AFTER retirement (a message turn/start first
-        // claims its queued entry, then opens the turn), so a later queued
-        // frame is stamped steering iff a turn is open — the host no longer
-        // stamps it on the frame.
-        if (frame.event.type === 'turn/start') this.turnOpen = true
-        else if (frame.event.type === 'turn/end') this.turnOpen = false
         this.acceptLiveEvent(frame.event, frame.view)
         return
       }
@@ -357,7 +346,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         const key = 'rpcId' in frame.source ? String(frame.source.rpcId) : `f:${rpcId}`
         this.queued.push({
           row: { key, preview: queuePreviewOf(frame.content) },
-          steering: this.turnOpen,
+          steering: frame.steering,
           sourceJson: JSON.stringify(frame.source),
         })
         this.queueRev++

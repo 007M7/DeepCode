@@ -380,7 +380,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * `agent/inbox/dequeue` OR `agent/inbox/discard` (the inbox contract), so
    * the mirror needs no consumption heuristics or sweeps beyond disposal.
    */
-  const queuedMirror = new Map<SessionId, Map<AgentMessageId, AgentMessage>>()
+  const queuedMirror = new Map<SessionId, Map<AgentMessageId, { message: AgentMessage; steering: boolean }>>()
   ctx.effect(() => {
     const retire = (agent: Agent, id: AgentMessageId): void => {
       const entries = queuedMirror.get(agent.id)
@@ -389,11 +389,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       if (entries.size === 0) queuedMirror.delete(agent.id)
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage, placement) => {
         let entries = queuedMirror.get(agent.id)
-        if (entries === undefined) queuedMirror.set(agent.id, entries = new Map<AgentMessageId, AgentMessage>())
-        entries.set(message.id, message)
-        broadcast({ type: 'session/queued', sessionId: agent.id, content: message.content, source: message.source })
+        if (entries === undefined) {
+          entries = new Map<AgentMessageId, { message: AgentMessage; steering: boolean }>()
+          queuedMirror.set(agent.id, entries)
+        }
+        const steering = placement === 'steering'
+        entries.set(message.id, { message, steering })
+        broadcast({
+          type: 'session/queued',
+          sessionId: agent.id,
+          content: message.content,
+          source: message.source,
+          steering,
+        })
       }),
       ctx.on('agent/inbox/dequeue', (agent: Agent, message: AgentMessage) => {
         retire(agent, message.id)
@@ -929,7 +939,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // queue view from these alone.
         for (const [sessionId, entries] of queuedMirror) {
           for (const entry of entries.values()) {
-            queue.push(frame({ type: 'session/queued', sessionId, content: entry.content, source: entry.source }))
+            queue.push(frame({
+              type: 'session/queued',
+              sessionId,
+              content: entry.message.content,
+              source: entry.message.source,
+              steering: entry.steering,
+            }))
           }
         }
         // Per-session open-call table for result-view pairing. Bounded by the

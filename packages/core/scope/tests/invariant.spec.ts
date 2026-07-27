@@ -41,7 +41,7 @@ describe('scoped-dispatch invariants', () => {
       'agent/created': [agent],
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
-      'agent/inbox/enqueue': [agent, { id: AgentMessageId('m'), content: [], source: { kind: 'user' } }],
+      'agent/inbox/enqueue': [agent, { id: AgentMessageId('m'), content: [], source: { kind: 'user' } }, 'queued'],
       'agent/inbox/dequeue': [agent, { id: AgentMessageId('m'), content: [], source: { kind: 'user' } }],
       'agent/inbox/discard': [agent, []],
       'agent/cancel-requested': [agent, { kind: 'user' }],

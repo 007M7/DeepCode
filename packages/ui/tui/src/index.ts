@@ -2907,10 +2907,8 @@ export function createTuiChat(
       agent.followup({ content, source: { kind: 'user' } })
       return
     }
-    // Idle: the snapshot rides the prompt's own admission transaction
-    // (PromptDecision.additionalContexts), so a blocking hook discards the
-    // prompt and its attached context together instead of stranding the
-    // snapshot in history for the next unrelated prompt.
+    // Idle: the snapshot rides the prompt's admission transaction so a
+    // blocking hook discards both together.
     let cleanedUp = false
     const cleanup = (): void => {
       // Each trigger detaches both listeners, so a second call needs a

@@ -258,20 +258,20 @@ describe('session/queued frames', () => {
 
     const queued = inboxMessage('m-1', 'queued prompt')
     const steering = inboxMessage('m-2', 'queued prompt')
-    ctx.emit('agent/inbox/enqueue', agent, queued)
-    ctx.emit('agent/inbox/enqueue', agent, steering)
+    ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, steering, 'steering')
 
     const liveFrames = (await liveCollected).filter(f => f.type === 'session/queued')
     expect(liveFrames).toEqual([
-      { type: 'session/queued', sessionId: agent.id, content: queued.content, source: { kind: 'user' } },
-      { type: 'session/queued', sessionId: agent.id, content: steering.content, source: { kind: 'user' } },
+      { type: 'session/queued', sessionId: agent.id, content: queued.content, source: { kind: 'user' }, steering: false },
+      { type: 'session/queued', sessionId: agent.id, content: steering.content, source: { kind: 'user' }, steering: true },
     ])
 
     // A fresh mux connection replays the still-pending entries as its baseline.
     const replay = new AbortController()
     const replayFrames = await collect<MuxFrame>(
       api.events.mux({ rpcId: RpcId('t-mux-replay'), payload: {} }, replay.signal), 3, replay)
-    expect(replayFrames.filter(f => f.type === 'session/queued')).toHaveLength(2)
+    expect(replayFrames.filter(f => f.type === 'session/queued')).toEqual(liveFrames)
   })
 
   it('retires mirror entries on their terminal dequeue', async () => {
@@ -280,8 +280,8 @@ describe('session/queued frames', () => {
     const agent = stubAgent(ctx)
     const queued = inboxMessage('m-3', 'x')
     const steering = inboxMessage('m-4', 'x', 'r-1')
-    ctx.emit('agent/inbox/enqueue', agent, queued)
-    ctx.emit('agent/inbox/enqueue', agent, steering)
+    ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, steering, 'steering')
     ctx.emit('agent/inbox/dequeue', agent, queued)
     ctx.emit('agent/inbox/dequeue', agent, steering)
 
@@ -297,8 +297,8 @@ describe('session/queued frames', () => {
     const agent = stubAgent(ctx)
     const doomed = inboxMessage('m-5', 'doomed')
     const survivor = inboxMessage('m-6', 'survivor')
-    ctx.emit('agent/inbox/enqueue', agent, doomed)
-    ctx.emit('agent/inbox/enqueue', agent, survivor)
+    ctx.emit('agent/inbox/enqueue', agent, doomed, 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, survivor, 'queued')
     ctx.emit('agent/inbox/discard', agent, [doomed])
 
     const abort = new AbortController()

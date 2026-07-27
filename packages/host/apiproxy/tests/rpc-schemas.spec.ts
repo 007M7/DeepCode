@@ -248,8 +248,8 @@ describe('events frame schemas', () => {
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
-      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } },
-      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' } },
+      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' }, steering: false },
+      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' }, steering: true },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
@@ -270,7 +270,8 @@ describe('events frame schemas', () => {
 
   it('rejects a queued frame missing its members', () => {
     expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' } })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: {} })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: { kind: 'user' } })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: {}, steering: false })).toThrow()
   })
 
   it('accepts every host frame branch', () => {
