@@ -6,11 +6,11 @@ Status: implemented
 
 ## 问题
 
-[CI](../../../../.github/workflows/ci.yml) 中三个必需的 Linux 作业（`node 24 / static`、`node 24 / coverage`、`node 24 / snapshots and artifacts`）运行在托管的企业级 32 核池上。当这些托管池发生故障——作业无限排队、企业标签消失或 GitHub 侧容量故障——所有开启的拉取请求都无法合并，而"合并一个修复"这一常规恢复手段本身正被那些无法运行的必需检查死锁。因此故障需要一个仓库管理员无需合并任何代码即可触发的开关。
+[CI](../../../../.github/workflows/ci.yml) 中三个必需的 Linux 工作作业（`node 24 / static`、`node 24 / coverage`、`node 24 / snapshots and artifacts`）以及聚合它们的必需判定作业（`all checks passed`）运行在托管的企业级 32 核池上。当这些托管池发生故障——作业无限排队、企业标签消失或 GitHub 侧容量故障——所有开启的拉取请求都无法合并，而"合并一个修复"这一常规恢复手段本身正被那些无法运行的必需检查死锁。因此故障需要一个仓库管理员无需合并任何代码即可触发的开关。
 
 ## 决策
 
-三个必需的 Linux 作业各自通过仓库变量 `DSH_CI_FAILOVER` 解析运行器池。变量不存在（正常）时它们运行在托管企业池上；由仓库管理员设为 `selfhosted` 时，三者全部切换到公司自有的自托管 `vm-backup` 池，coverage 与 snapshot 的并发降到共享虚拟机上限，并跳过托管路径的 pnpm 缓存恢复。这个开关是仅限管理员的仓库状态而非一次合并，因此在所有检查都是红色时仍然有效。自有池的就绪状态由 `serial / linux (self-hosted standby)` 通道持续验证——每次 master 推送都在其上运行完整的未分片聚合流程。
+三个必需的 Linux 工作作业——以及 `all checks passed` 判定作业（若不随切换，即使全部工作作业通过，它仍会滞留在故障池的队列中）——各自通过仓库变量 `DSH_CI_FAILOVER` 解析运行器池。变量不存在（正常）时它们运行在托管企业池上；由仓库管理员设为 `selfhosted` 时，四者全部切换到公司自有的自托管 `vm-backup` 池，coverage 与 snapshot 的并发降到共享虚拟机上限，并跳过托管路径的 pnpm 缓存恢复。这个开关是仅限管理员的仓库状态而非一次合并，因此在所有检查都是红色时仍然有效。自有池的就绪状态由 `serial / linux (self-hosted standby)` 通道持续验证——每次 master 推送都在其上运行完整的未分片聚合流程。
 
 ### 自有池是什么
 
@@ -20,7 +20,7 @@ Status: implemented
 
 1. 仓库 **Settings → Secrets and variables → Actions → Variables → New repository variable**：名称 `DSH_CI_FAILOVER`，值 `selfhosted`。
 2. 重新触发必需作业，使其重新解析运行器池。已经为托管标签**排队**的作业不会重定向，也无法原地 re-run，因此对于本手册所述的无限排队故障，应取消卡住的运行并 re-run all jobs，或推送一个新提交；“Re-run failed jobs”只有在作业真正失败（而非仍在排队）时才有用。
-3. 切换到此完成。故障切换状态下工作流还会自动：把 `DSH_COVERAGE_MAX_WORKERS` 降为 12、`DSH_SNAPSHOT_MAX_CONCURRENCY` 降为 16（共享虚拟机的争抢上限），并跳过托管路径的 pnpm 缓存恢复（虚拟机的持久 store 直接提供热安装）。
+3. 切换到此完成。故障切换状态下工作流还会自动：把 `DSH_COVERAGE_MAX_WORKERS` 降为 8、`DSH_SNAPSHOT_MAX_CONCURRENCY` 降为 12（按 6 个常驻实例定容：最坏 6 × 8 = 48 个覆盖率工作进程对 64 核）（共享虚拟机的争抢上限），并跳过托管路径的 pnpm 缓存恢复（虚拟机的持久 store 直接提供热安装）。
 
 ### 切换期间的容量
 

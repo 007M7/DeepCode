@@ -44,6 +44,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'dsh-enterprise-ubuntu-latest-32core-test' }}
     name: node 24 / static
@@ -60,7 +61,7 @@ jobs:
       # compression and upload on the paid latency-critical path. Skipped
       # under failover — see the coverage lane's identical rationale.
       - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER != 'selfhosted'
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -98,6 +99,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'dsh-enterprise-ubuntu-24-04-32core-test' }}
     name: node 24 / coverage
@@ -107,7 +109,7 @@ jobs:
       # across six always-on runner instances, and the timing-sensitive
       # process suites have documented aggregate-contention failures.
       # 8 × 6 instances = 48 workers worst case on 64 cores.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && '8' || '24' }}
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '24' }}
       DSH_GATE_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
@@ -118,7 +120,7 @@ jobs:
       # serves warm installs directly, and this hosted-path restore would
       # spend ~52 s pulling ~180 MB into a path pnpm never reads there.
       - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER != 'selfhosted'
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -151,6 +153,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'dsh-enterprise-ubuntu-latest-32core-test' }}
     name: node 24 / snapshots and artifacts
@@ -161,7 +164,7 @@ jobs:
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
       DSH_PUBLINT_CONCURRENCY: '8'
       # Failover halves snapshot concurrency for the shared 64-core VM.
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && '12' || '32' }}
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -177,7 +180,7 @@ jobs:
 
       # Skipped under failover — see the coverage lane's identical rationale.
       - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER != 'selfhosted'
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -773,6 +776,7 @@ jobs:
     # queued forever on the failed pool.
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'dsh-enterprise-ubuntu-latest-32core-test' }}
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]

@@ -6,11 +6,11 @@ English | [中文](2026-07-26-ci-failover-runbook.zh.md)
 
 ## Problem
 
-The three required Linux jobs in [CI](../../../../.github/workflows/ci.yml) (`node 24 / static`, `node 24 / coverage`, `node 24 / snapshots and artifacts`) run on the hosted enterprise 32-core pools. When those pools degrade — jobs queue indefinitely, the enterprise labels vanish, or GitHub-side capacity fails — every open pull request becomes unmergeable, and the ordinary recovery of merging a fix is itself deadlocked behind the very required checks that cannot run. An outage therefore needs a switch a repository admin can throw without merging anything.
+The three required Linux worker jobs in [CI](../../../../.github/workflows/ci.yml) (`node 24 / static`, `node 24 / coverage`, `node 24 / snapshots and artifacts`) and the required verdict job that aggregates them (`all checks passed`) run on the hosted enterprise 32-core pools. When those pools degrade — jobs queue indefinitely, the enterprise labels vanish, or GitHub-side capacity fails — every open pull request becomes unmergeable, and the ordinary recovery of merging a fix is itself deadlocked behind the very required checks that cannot run. An outage therefore needs a switch a repository admin can throw without merging anything.
 
 ## Decision
 
-Each of the three required Linux jobs resolves its runner pool through the `DSH_CI_FAILOVER` repository variable. Unset (normal), they run on the hosted enterprise pools. Set to `selfhosted` by a repository admin, all three retarget onto the in-house self-hosted `vm-backup` pool, coverage and snapshot concurrency drop to shared-VM bounds, and the hosted-path pnpm cache restores are skipped. The switch is admin-only repository state, not a merge, so it works while every check is red. The in-house pool's readiness is continuously re-proven by the `serial / linux (self-hosted standby)` lane, which runs the complete unsharded aggregate on every master push.
+Each of the three required Linux worker jobs — and the `all checks passed` verdict job, which would otherwise stay queued on the failed pool even after every worker passed — resolves its runner pool through the `DSH_CI_FAILOVER` repository variable. Unset (normal), they run on the hosted enterprise pools. Set to `selfhosted` by a repository admin, all four retarget onto the in-house self-hosted `vm-backup` pool, coverage and snapshot concurrency drop to shared-VM bounds, and the hosted-path pnpm cache restores are skipped. The switch is admin-only repository state, not a merge, so it works while every check is red. The in-house pool's readiness is continuously re-proven by the `serial / linux (self-hosted standby)` lane, which runs the complete unsharded aggregate on every master push.
 
 ### What the in-house pool is
 
@@ -20,7 +20,7 @@ Each of the three required Linux jobs resolves its runner pool through the `DSH_
 
 1. Repository **Settings → Secrets and variables → Actions → Variables → New repository variable**: name `DSH_CI_FAILOVER`, value `selfhosted`.
 2. Retrigger the required jobs so they re-resolve their pool. Jobs already **queued** for the hosted labels do not retarget and cannot be re-run in place, so for the documented indefinite-queue outage, cancel the stuck run and re-run all jobs, or push a new commit; "Re-run failed jobs" only helps once a job has actually failed rather than queued.
-3. That is the entire switch. Under failover the workflow also, automatically: halves `DSH_COVERAGE_MAX_WORKERS` to 12 and `DSH_SNAPSHOT_MAX_CONCURRENCY` to 16 (shared-VM contention bounds), and skips the hosted-path pnpm cache restores (the VM's persistent store serves warm installs).
+3. That is the entire switch. Under failover the workflow also, automatically: drops `DSH_COVERAGE_MAX_WORKERS` to 8 and `DSH_SNAPSHOT_MAX_CONCURRENCY` to 12 (sized for six always-on instances: worst case 6 × 8 = 48 coverage workers on the 64-core VM) (shared-VM contention bounds), and skips the hosted-path pnpm cache restores (the VM's persistent store serves warm installs).
 
 ### Capacity during failover
 
