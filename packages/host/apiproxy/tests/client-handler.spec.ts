@@ -30,7 +30,19 @@ function scriptedApi(overrides: {
     sessions: {
       list: r => ok(r, { items: [] }),
       create: r => ok(r, { sessionId: sid('s-new') }),
-      history: r => ok(r, { events: [], hasMore: false }),
+      history: r => ok(r, {
+        events: [],
+        hasMore: false,
+        modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      }),
+      models: r => ok(r, {
+        current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        groups: [],
+        failures: [],
+      }),
+      selectModel: r => ok(r, {
+        selected: { provider: r.payload.provider, model: r.payload.model },
+      }),
       prompt: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,

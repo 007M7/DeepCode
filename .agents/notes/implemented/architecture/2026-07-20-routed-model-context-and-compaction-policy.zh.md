@@ -16,7 +16,7 @@ Status: implemented
 
 `LlmAdapter.resolveModel(provider, model, signal?)` 返回一条精确路由的聚合元数据，其中可选的 `LlmModelContext` 位于 `context` 字段下。`LlmService.resolveModelInfo()` 选择已注册的路由所属方，验证 `contextWindow` 为正整数，并返回分离的元数据。该查询独立于 `listModels()`：不在目录中的动态模型也可以拥有容量元数据，而缺少 `context` 只表示适配器无法描述容量。
 
-手写 DeepSeek 适配器允许每个已配置模型提供可选 `contextWindow`，并支持适配器级 `defaultContextWindow`。精确模型容量优先；未提供容量的模型项与未列出的透传 id 会继承适配器默认值，若默认值也不存在则省略 `context`。两个内置模型项都公开精确的 128,000 token 容量。pi-ai 适配器从同一个目录描述符解析容量，该描述符也用于权威解析请求模型。
+手写 DeepSeek 适配器允许每个已配置模型提供可选 `contextWindow`，并支持适配器级 `defaultContextWindow`。精确模型容量优先；未提供容量的模型项与未列出的透传 id 会继承适配器默认值，若默认值也不存在则省略 `context`。两个内置模型项都公开精确的 256,000 token 容量。pi-ai 适配器从同一个目录描述符解析容量，该描述符也用于权威解析请求模型。
 
 ### Token 计量保持模型无关
 

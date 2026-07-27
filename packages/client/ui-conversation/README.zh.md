@@ -4,7 +4,7 @@
 
 会话领域：骨架（标题栏／标签页／编辑器／空状态）、聊天视图（分组步骤摘要流、流式尾部隔离、统计行、逐工具行 slot 及一个 bash 示例注册方与 todo 行）、输入区 dock（队列行加 todo 计划条）、最小详情面板、按 scope 寻址的 ConversationService。契约：api-contracts v3 §7 加 slot 终端设计（store seat／props share）。
 
-无会话主视觉区会渲染来自 Session 列表投影的前端 Session Intent；没有真实 Workspace 时，还会包含其前端 Workspace Intent。它声明 `conversation.empty.workspace`，ui-workspace 会在此注册侧边栏所用的同一选择器。WorkspacesService 启动跨对象流程；每个 Workspace 或 Session 对象拥有自身的物化。Session 在发布期间保持身份，并保留任何仍需连接或交付的提示词；ConversationRoot 读取该 `pendingPrompt`，其来源是 `useSession`，再通过 scope 内的 ConversationService 编辑或重试。
+常驻会话壳会跨无会话与会话状态切换而保留。没有当前会话时，它会渲染禁用输入栏；其根作用域的 `conversation.hero.workspace` slot 承载 Workspace 选择器。选择 Workspace 会连接或复用由 Host 拥有的空白会话，并在不替换会话壳的情况下打开该会话。空白会话与活跃会话渲染相同的输入区主体；InputHub 则在 Workspace 切换间携带草稿，并将草稿镜像到会话 store。
 
 视图环本身就是 slot：会话注册声明 `'conversation.view'` 列表 slot（Session scope），并将其列在 `children` 表中；ConversationRoot 通过 renderSlot share 渲染活跃配置项（`only: <active id>`）；视图标签页从环账本的注册选项（`id`／`order`／`label`）投影而来。聊天视图是该包自身的环配置项；其他插件（ui-trajectory）通过普通的 `ctx.slots.register` 贡献标签页。先前包内的视图注册表（`registerView`／`ViewEntry`／`ConversationViewMap` 及 chrome 附加表）已退役，逐视图 chrome 则被拆入视图组件自身。
 
@@ -14,7 +14,9 @@
 
 todo 两个面就是在该形状上的两个注册项，都是普通注册方插件，`inject: ['slots', 'conversation']`。`TodoRow` 占用 `'conversation.chat.toolview'` 的 `todo_write` key，摘要该次调用「试图写入」的内容（从其 args 解析出 `<已完成>/<总数> 已完成 · <进行中条目>`；模型 JSON 残缺或形状不对时回落到通用摘要；非 ok 执行状态保留通用状态点，使被取消的调用绝不读成一次已完成的更新）。`TodoDock` 以 `order: -1` 占用 `'conversation.input.dock'` 列表 slot（位于队列行之上），是常驻的计划条：它从会话快照中选取 `todos` 并渲染 `TodoPanel`，后者接收纯列表，在列表为空时自我隐藏，折叠时收成标题加 `"<已完成>/<总数> tasks · <n> in progress"` 的表头（状态图标为 figma 的勾选／进行中／虚线未开始一组）。选取由 dock 适配器负责，因此面板保持为其 props 的纯函数；常驻列表放在此处而非行内，行才能保持单行。输入区 composer 链隐藏的一切（例如 ui-question 对 `conversation.composer` 的接管）也会隐藏整个 dock，包括这条计划条。
 
-逐 Session UI 状态（选择、普通编辑器草稿、活跃视图）位于已声明的聊天 store（`stores.ts` `createChatStore`）中：apply 构造一个 handle，并将其传给会话、聊天视图和详情注册，因此 Session slot 每个 Session 共享一个实例（选择由聊天视图写入、详情读取），框架拥有实例生命周期与草稿持久化。前端 Session Intent 来自 Session 列表投影；发布后，任何保留的提示词都来自该 Session 的会话快照。组件保持纯粹：框架标准工具包（Session scope 下的 `useSession`／`sessionId`，以及全局 `useSessions`／`useWorkspaces`）和 store 表层（`useStore`／`actions`）会从注册声明自动到达；inject factory 为运行时 Session 操作、发送／停止、标签页、详情和分页贡献普通数据与回调。
+逐 Session UI 状态中的选择与活跃视图位于已声明的聊天 store（`stores.ts` `createChatStore`）中；InputHub 拥有输入区状态机，并将草稿镜像到该 store 以便持久化。apply 将同一个 store handle 传给严格限定于会话的子树、聊天视图和详情注册，因此每个会话内共享一个实例，框架拥有其生命周期。组件保持纯粹：框架标准工具包提供 `useSession`／`sessionId`、全局 `useSessions`／`useWorkspaces`，以及输入状态机的 `useInput`／`inputActions`；store 表层与 inject factory 提供其余状态和回调。
+
+输入栏为 `'conversation.input.plan'` 和 `'conversation.input.model'` 声明会话作用域的单实例 seat，并为 overlay、dock、left 和 right 输入扩展声明列表 slot。InputBar 将模型 seat 渲染在 pending 指示器与发送／停止按钮之前。各功能包拥有相应控件及其状态；ui-conversation 提供放置位置、`locked` owner prop 和标准 slot share。常驻无会话壳使用 `DisabledInputBar`，因此不会分发任何会话作用域的控件 seat。
 
 `src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件（骨架、聊天行）与 store factory 保持内部状态，只能通过 apply 的 slot 注册到达页面（测试通过 `./src/*` 子路径获取它们）。
 
