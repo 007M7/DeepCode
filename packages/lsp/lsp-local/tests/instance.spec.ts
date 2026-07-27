@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +6,6 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-local'
 import { encodeMessage } from '@deepseek-ai/dsh-lsp-local'
 import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
-import { escalateProcessTree } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { InstanceSpec } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { LspProviderQuery, LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -45,7 +44,6 @@ function makeInstance(
     initializationOptions: { init: true },
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
-    pipeDrainGraceMs: 200,
     shutdownTimeoutMs: 200,
     killGraceMs: 200,
     ...overrides,
@@ -75,7 +73,6 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     initializationOptions: null,
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
-    pipeDrainGraceMs: 150,
     shutdownTimeoutMs: 150,
     killGraceMs: 150,
     ...overrides,
@@ -258,14 +255,6 @@ describe('LspInstance query and abort', () => {
 })
 
 describe('LspInstance disposal', () => {
-  it('escalates only when the process tree survives its grace period', () => {
-    const forceKill = vi.fn()
-    escalateProcessTree(false, forceKill)
-    expect(forceKill).toHaveBeenCalledOnce()
-    escalateProcessTree(true, forceKill)
-    expect(forceKill).toHaveBeenCalledOnce()
-  })
-
   it('lets a server finish protocol exit before signal escalation', async () => {
     const marker = join(root, 'graceful-exit.log')
     const instance = makeInstance({

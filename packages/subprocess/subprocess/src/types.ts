@@ -183,16 +183,10 @@ export interface SubprocessHandle {
   /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Send one signal to the process tree, Node-style — no escalation, no
-   * timers. A no-op after the outcome has settled (the pid may be reused).
-   * @param signal - the signal to deliver (default `SIGTERM`; Windows
-   *   force-terminates the tree for any value).
-   */
-  kill(signal?: NodeJS.Signals): void
-  /**
    * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
-   * (Windows force-terminates immediately). Idempotent; also triggered by the
-   * spec's abort signal.
+   * (Windows force-terminates immediately) — the seam's only termination
+   * verb. Idempotent, a no-op once the tree is gone (the pid may be reused),
+   * and also triggered by the spec's abort signal.
    */
   terminate(): void
   /**

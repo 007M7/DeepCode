@@ -21,7 +21,6 @@ class StubSubprocessService extends SubprocessService {
       stderr: undefined,
       collected,
       done: Promise.resolve({ exitCode: 0, signal: null }),
-      kill: () => {},
       terminate: () => {},
       waitForExit: () => Promise.resolve(true),
     }
@@ -40,7 +39,6 @@ describe('SubprocessService seam', () => {
     })
     expect(handle.pid).toBe(1)
     expect(handle.collected.stdout!.readFrom(0)).toEqual({ text: '', nextOffset: 0, lossy: false })
-    handle.kill()
     handle.terminate()
     await expect(handle.waitForExit()).resolves.toBe(true)
     const outcome = await handle.done

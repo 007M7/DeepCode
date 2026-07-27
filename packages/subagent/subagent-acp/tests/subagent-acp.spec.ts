@@ -181,7 +181,6 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
       stderr: undefined,
       collected: {},
       done: new Promise(() => {}),
-      kill: () => {},
       terminate: () => {},
       waitForExit: (signal?: AbortSignal) => new Promise((resolve) => {
         signal?.addEventListener('abort', () => { resolve(false) }, { once: true })

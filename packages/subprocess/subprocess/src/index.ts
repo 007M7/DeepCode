@@ -100,11 +100,11 @@ declare module 'cordis' {
  *   readers never consume one another's output; lossy reads report truncation
  *   and the spill file holding the complete stream when one exists. Piped
  *   streams are handed to the caller raw and never buffered here.
- * - {@link SubprocessHandle.kill} signals without escalation, and
- *   {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
- *   SIGTERM→grace→SIGKILL — both tree-scoped on every platform.
- *   {@link SubprocessHandle.waitForExit} observes whole-tree liveness, so a
- *   consumer-owned teardown ladder can hold each tier on real quiescence.
+ * - {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
+ *   SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every
+ *   platform. {@link SubprocessHandle.waitForExit} observes whole-tree
+ *   liveness, so a consumer-owned teardown ladder can hold each tier on real
+ *   quiescence.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
  */

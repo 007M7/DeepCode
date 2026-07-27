@@ -285,8 +285,6 @@ class LocalLspProvider implements LspProvider {
       initializationOptions: this.config.initializationOptions,
       maxMessageBytes: this.config.maxMessageBytes,
       maxStderrBytes: this.config.maxStderrBytes,
-      // Exit observation must never be slower than the escalation it feeds.
-      pipeDrainGraceMs: this.config.killGraceMs,
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       killGraceMs: this.config.killGraceMs,
     }

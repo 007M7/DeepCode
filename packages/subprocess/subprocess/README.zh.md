@@ -9,7 +9,7 @@
 - `spawn(spec)` 立即返回一个实时句柄；`done` 在进程关闭时以退出事实 resolve（`SubprocessOutcome` 不携带输出，也不携带原因分类），仅在 spawn 层面失败时 reject。
 - spec 完全显式（argv、cwd、按流划分的 stdio 处置方式（disposition）、宽限期），因为随部署变化的默认值属于调用方 seam 的配置，而不属于某个隐藏的进程管理器默认值（`dsh-bash` 的 request/spec 拆分是这条规则的所属模板）。`argv` 绝不经过 shell 解释；需要 shell 的消费方自行传入 `['bash', '-c', command]`。
 - stdio 按流采用 Node 形状：`'pipe'` 把原始流交给调用方做自己的协议分帧（LSP 的 JSON-RPC、ACP（Agent Client Protocol）的 ndjson），`'inherit'` 直通父进程描述符以承载诊断输出，收集模式（collect）`{ maxBytes, spill? }` 则缓冲一段有界尾部，外加可选的完整流 spill 文件。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；偏移量滑出内存尾部窗口的读取标记为 `lossy`，并在 spill 文件存在时指向它。收集到的输出在结算后仍可读取。
-- 终止在每个平台上都以进程树为范围（POSIX 用 detached 进程组并以直接子进程回退；Windows 用 `taskkill /T`）：`kill(signal)` 以 Node 风格只发送一个信号，结算后为空操作；`terminate()`（以及 spec 的 abort 信号）执行 SIGTERM→宽限期→SIGKILL 升级；`waitForExit(signal?)` 观察整棵进程树的存活状态，使消费方自有的拆卸阶梯能在真正完全停稳后才进入下一层。管理器只响应中止，但绝不判定原因（deadline、拆卸阶梯与原因分类归调用方所有）。
+- 终止在每个平台上都以进程树为范围（POSIX 用 detached 进程组并以直接子进程回退；Windows 用 `taskkill /T`）：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级（幂等，也由 spec 的 abort 信号驱动，进程树消亡后为空操作）；`waitForExit(signal?)` 观察整棵进程树的存活状态，使消费方自有的拆卸阶梯能在真正完全停稳后才进入下一层。管理器只响应中止，但绝不判定原因（deadline、拆卸阶梯与原因分类归调用方所有）。
 - `scrubbedParentEnv()` / `SENSITIVE_ENV_PATTERN` 是唯一一份共享的凭据清除定义：环境中形似凭据的名称与 `DSH_*` 名称都会被丢弃，显式 `env` 在清除之后合并（有意转发的键会保留下来），`dshEnv` 则经由自身带校验的通道携带当前 harness 事实；`splitEnvChannels()` 把消费方配置中单一的混合 env 映射按这两条通道切分（lsp-local 的服务器配置与 ACP 后端只暴露一个映射，而配置的 `DSH_*` 事实必须走受管通道，普通通道会拒绝它）。无法把 spawn 路由到该服务的调用点（node-pty 后端、由 SDK 管理的传输层）改为导入凭据清除函数。
 - 服务自身的 dispose（资源释放）会终止所有仍在运行的受管进程并等待其退出。
 

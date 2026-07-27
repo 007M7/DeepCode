@@ -386,11 +386,12 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     }
   }
 
-  const kill = (sig: NodeJS.Signals = 'SIGTERM'): void => {
-    // Guard on TREE liveness, not outcome settlement: a TERM-trapping helper
-    // can outlive the settled direct child and must stay signalable, while a
-    // fully-dead tree (possible pid reuse) must not be re-signalled from a
-    // caller's finally block.
+  // The escalation's tier primitive (not on the handle — terminate() is the
+  // only consumer-facing termination verb). Guards on TREE liveness, not
+  // outcome settlement: a TERM-trapping helper can outlive the settled direct
+  // child and must stay signalable, while a fully-dead tree (possible pid
+  // reuse) must not be re-signalled by a later tier.
+  const kill = (sig: NodeJS.Signals): void => {
     if (!treeAlive()) return
     signalTree(platform, pid, sig, child, taskkill)
   }
@@ -398,15 +399,13 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const terminate = (): void => {
     if (graceTimer !== undefined) return // escalation already in flight
     if (!treeAlive()) return
-    signalTree(platform, pid, 'SIGTERM', child, taskkill)
+    kill('SIGTERM')
     // The escalation must survive direct-child settlement — the leader dying
     // does not mean the tree died — so settle does not clear this timer, and
-    // it re-probes tree liveness before force-killing. It stays ref'd: the
-    // pending SIGKILL is a commitment, and a parent exiting before it fires
-    // would orphan a trapped survivor. Self-bounds at graceMs.
-    graceTimer = setTimeout(() => {
-      if (treeAlive()) signalTree(platform, pid, 'SIGKILL', child, taskkill)
-    }, spec.graceMs)
+    // kill() re-probes tree liveness before force-killing. It stays ref'd:
+    // the pending SIGKILL is a commitment, and a parent exiting before it
+    // fires would orphan a trapped survivor. Self-bounds at graceMs.
+    graceTimer = setTimeout(() => { kill('SIGKILL') }, spec.graceMs)
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
@@ -475,7 +474,6 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       ...stderrCollector !== undefined ? { stderr: stderrCollector } : {},
     },
     done,
-    kill,
     terminate,
     waitForExit,
   }
