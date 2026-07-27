@@ -15,9 +15,10 @@ export const name = 'client-ui-theme-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: a token-sheet registry whose apply() flips one body
- * attribute — it emits no cordis events; registration/apply/current behavior
- * is asserted directly by this package's behavior specs.
+ * No runtime invariant: the theme registry publishes immutable snapshots on
+ * its own `theme/change` event synchronously with the setter/registry
+ * mutation in the same service — snapshot/event agreement is asserted
+ * directly by this package's behavior specs.
  */
 const install: InvariantInstaller = () => {}
 

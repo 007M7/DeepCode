@@ -1,6 +1,8 @@
 # @deepseek-ai/dsh-host-apiproxy
 
-The ApiProxy front layer every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser) and the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side). Host assembly lives in `dsh-host-runtime`.
+English | [中文](README.zh.md)
+
+The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model, workspaceRoot?}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves. The shipped core composition lives in [`apps/cli/cordis.yml`](../../../apps/cli/cordis.yml).
 
 ## Contract layer (`/api`)
 
@@ -10,7 +12,9 @@ The layering/protocol decisions are recorded in the [GUI layering and RPC protoc
 
 The mux stream projects the latest log-backed title as a validated `session/title` control frame after each attached-session subscription baseline and immediately after the corresponding live raw title event. This projection does not add titles to `session.list`; cold sessions remain metadata-only there until opening or resuming attaches their logs.
 
-Session model routing is a session-domain contract. `session.history` returns the selected `modelTarget`, `session.models` returns that target with provider-grouped advisory model metadata and provider-local lookup failures, and `session.selectModel` replaces the target selected for the next prompt-assembly boundary. Catalog membership is not validation: a registered provider may accept an unlisted model, while an unregistered provider returns `model-unavailable`.
+Workspace and Session lists are separate reconnect baselines. `workspace.create` creates a unique name or adopts an existing directory, `session.create` accepts an optional preallocated Session id, and `host/workspace-changed` plus `host/session-added` carry committed increments in either arrival order. `SessionSummary.blank` and the `host/session-added` frame carry the derived zero-events bit: clients hide blank sessions and reuse them per workspace, flip blank on the first `host/session-status(running:true)`, and treat `session.list` as the reconnect authority; cold summaries are never blank because lazy persistence keeps never-appended sessions out of `list()`.
+
+The `command.*` and `skill.*` domains expose the host command registry and skill catalog to clients. Every method addresses one session's agent by `sessionId` (a served session always has an Agent; `command.*` resumes cold sessions through the same path as `session.*`, while `skill.list` resolves the project root from the session header without touching the Agent registry). `command.execute` runs a slash-command line host-side and returns a detached result; the carrier's request signal cancels the running handler. `host/commands-changed` is the catalog invalidation frame: clients refetch `command.list` instead of diffing.
 
 ## Carrier layer (`/client` + root)
 
@@ -26,6 +30,6 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **`respond` routing is shipped, but pending-interaction state is host-side work** — the wire shape (POST `/api/respond`, `RpcReceipt`) is final; the pending table that makes late/duplicate answers meaningful lives in `dsh-host-runtime` and is still a stub there.
+- **`respond` routing is shipped, but pending-interaction state is host-side work** — the wire shape (POST `/api/respond`, `RpcReceipt`) is final; the pending table that makes late/duplicate answers meaningful lives in `src/api-proxy.ts` and is still minimal (questions only, no approvals).
 - **Reserved seams stay out of `RpcMethodMap`** — `session.fork`, `prompt.mode: 'inject'`, `task.list`, `host.listModels`, and a describe `hostInstanceId` are documented reservations; an unknown method fails loud at envelope parse rather than getting a not-implemented code.
 - **No protocol version field** — client and host ship together; `host.describe` gains a version negotiation field only when an independently released client exists.

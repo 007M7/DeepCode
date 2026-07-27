@@ -1,0 +1,92 @@
+# Agent Note: Keyless browser e2e lane for the web GUI
+
+Status: implemented
+
+English | [中文](2026-07-24-web-gui-browser-e2e-lane.zh.md)
+
+## Problem
+
+The web GUI ships as a real assembled chain — chromium page → client plugin bundles → HTTP unary RPC + two SSE streams → `toFetchHandler`/apiproxy → the host agent loop, tools, and JSONL persistence — and no test exercised that chain keylessly and deterministically. The [GUI testing system](../process/2026-07-20-gui-testing-system.md) covers tier 1 (wire isomorphism in node), tier 2 (object-layer state machines), and tier-3 smokes, but the keyless smoke drives `FixtureApiClient` — no host, no wire, no agent loop — while the full-chain smoke needs `DEEPSEEK_API_KEY` and a live model, so it is nondeterministic and self-skips in keyless CI. The snapshot philosophy of [docs/testing.md](../../../../docs/testing.md) — record once with a key, replay forever keyless, refresh on format churn — already covers the ACP, headless `stream-json`, and TUI transcript surfaces; the web surface was the one assembled product shape without it. The gap is exactly where the two confirmed GUI P0s hid: the wire carriage chain the fixture client short-circuits.
+
+## Decision
+
+`pnpm run test:web` carries a keyless, deterministic browser e2e lane under `apps/web/tests/`: recorded session-log fixtures replay through `@deepseek-ai/dsh-llm-replay` against the real in-process web composition, with normalized aria goldens for user-visible states and in-process assertions for durable world state. The supporting product contracts are `dsh-llm-replay` pacing, consumption checks, and validated indexed override patches; cross-package `dsh-llm` failures retain validated provider facts through own data properties; and the shipped web composition mounts `llm-retry` for transient model failures.
+
+### Scaffold: `apps/web/tests/scaffold.ts`
+
+A plain shared-fixture module (the [testing-policy sanctioned shape](../../../../docs/testing.md)), not a package: the gate-worthy logic — replay derivation, session parsing, log scrubbing, persistence — lives in the gated packages `dsh-llm-replay`, `dsh-acp-snapshot`, and `dsh-session-persistence-jsonl`; what remains is boot wiring and browser glue, and chromium-driving code cannot hold per-file 100% coverage on the browserless coverage runners.
+
+`launchWebScaffold()` boots the real web composition from the shipped `apps/cli/cordis.yml` through the vendored Loader's include mechanism — the same tree and mechanism `AppCLIEntry` drives for `dsh web`. Divergences ride include patches over that tree, the ACP `cordis.snapshot.yml` pattern expressed in-process: temp `persistenceRoot`, `workspace-context` disabled (recorded fixtures must not embed this repo's AGENTS.md), `session-title-llm` disabled (its fire-and-forget title call would race the loop for the session's replay cursor), the webserver row pinned to port 0 with the built dist, and in keyless modes `llm-deepseek` disabled. A patch id that stops matching a row fails the boot sweep loudly instead of drifting. The boot runs `chdir`'d to the temp workspace so the api-gateway's `process.cwd()` session default, tool cwds, and fixtures agree; the `dsh web` bin's own glue (argv, profile json, AppCLIEntry) stays held by the keyless CLI smokes in `smoke-real.e2e.ts`. Setup rollback and ordinary close both dispose the Cordis tree before removing the two owned temp roots, attempt every cleanup independently, and report cleanup failures without masking the setup failure.
+
+Keyless model displacement is the disabled adapter row plus `installLlmReplay` filling the open seam on the settled root ctx in providers-catalog mode — never catch-all: with the adapter row disabled no adapter exists, so catch-all would leave `resolveModelContext` unroutable and `compact-basic`'s post-step pressure check would warn every step instead of being provably inert (the published 128k `contextWindow` keeps it inert for small fixtures). The direct install rather than an inserted replay plugin row is deliberate: it returns the `ReplayHandle` the teardown consumption check needs. A scenario with no fixture leaves the seam empty, so a stray stream fails loud with NO_ADAPTER.
+
+`seedSession()` seeds cold sessions through the real persistence API — a throwaway `Context` mounting `SessionStore` + `SessionPersistenceJsonl` against the host's root, `create()` + `append()`, one `utimes` backdate for deterministic sidebar order (the `semantic-checkpoint.snapshot.ts` precedent) — never raw file writes, so the seeder knows nothing of bucket hashing, filename encoding, or compression, and the host's zstd default needs no boot knob. Seeds are validated at seed time (parseable, ending in `turn/end` — an open final turn would be mutated by resume's crash repair).
+
+### Determinism rules
+
+The barrier stack for replay-mode browser assertions is, in order: (1) host-side `await agent.whenIdle()` under a timeout, keyed off the in-process `turn/end` — the idle flip follows the persistence flush, so one await covers turn completion and durability; (2) browser settled poll (streaming detached, final text visible). Record-mode log harvest runs after `whenIdle()` and before scaffold disposal while the live session remains available. An in-process `turn/end` listener alone is a wrong barrier (it fires before the SSE frame reaches the browser and before the fsync); file polling is banned (slow on NFS, superseded by `whenIdle`); `networkidle` is banned outright (never resolves while an SSE stream is open).
+
+No single-shot transient-DOM assertions: every hop from replay yield to React commit can coalesce chunks, so sampling `[data-streaming]` is a race by construction. Streaming incrementality is asserted from the persisted `assistant/chunk` events (model-visible ⟺ logged makes the log the authoritative proof). `dsh-llm-replay`'s opt-in `paceMs` (default absent = burst) is a realism knob so the browser observes genuinely incremental SSE; correctness never leans on it, and abort during a pace wait cancels promptly.
+
+Every scenario fails on any pageerror and on the client's connection-loss/gap-repair console warnings: the reconnect machine plus history resync would otherwise self-heal a dead SSE path and the suite would certify a broken wire. Scaffold `close()` calls the `ReplayHandle.assertConsumed()` teardown check (every recorded script bound, every cursor drained), converting silent underruns and shifted bindings into crisp diagnostics. No vitest retry on the lane; one chromium per file, fresh context per scenario, one host per scenario; viewport pinned; interaction selectors anchor on roles, `data-*` attributes, and visible text, while the frame and conversation-region captures use the existing CSS-module local-name anchors.
+
+### Expected outputs
+
+Scenarios with a stable owning region commit a normalized `ariaSnapshot()` for each distinct user-visible state; cross-region workspace-management states instead use semantic DOM assertions plus authoritative host-state checks. UUID, cwd, workspace basename, and duration volatility collapse to stable tokens; captures poll until consecutive normalized reads agree. Role and text anchors remain semantic guards around the reviewable goldens and own cross-region states directly. World-state assertions use root-context session events rather than a second committed log golden because the ACP, headless, and TUI suites already pin the persisted-log surface through the same loop and persistence. `refresh` is the sole golden writer; a missing replay golden fails with the regeneration command.
+
+The typecheck plane split is structural: the host scaffold, its support module, and every web spec that boots or inspects the host composition are excluded from the client-registered `apps/web` project and included file-by-file in `tsconfig.host.json`. One program cannot hold both sides of the Cordis `Context` merges.
+
+### Modes and fixtures
+
+`DSH_SNAPSHOT` selects replay (default, keyless), record (with key), or refresh (keyless). Prompting specs separate drive steps shared by all modes from replay/refresh assertions; record mode drives the live composer, harvests the in-memory session header and events, scrubs request headers, and tokenizes run-local session, cwd, and RPC identities. A follow-up keyless refresh regenerates aria goldens. Each prompt is checked against its fixture's recorded `user/message`, and each scenario directory has a closed inventory whose JSONL files are scrub fixed points. Web fixtures scrub headers everywhere and pin no header class; see Deferred.
+
+### Coverage contract
+
+The lane covers three behavior families. Live-turn scenarios pin ordinary tool execution, cancellation, non-retryable failure, transient retry, resident questions, and mid-turn steering; synchronization uses durable events, `whenIdle()`, or an explicit replay marker rather than delays. Cold-history scenarios seed through the real persistence API and cover history rendering, sidebar search, trajectory and waterfall views, and tool details without model calls. Browser-lifecycle scenarios cover first-send workspace materialization, reload recovery, layout persistence, theme and locale preferences, and workspace create/rename/view operations. Each family asserts the browser surface and the authoritative host state; a stray model call or under-consumed fixture fails teardown.
+
+### CI stance
+
+The lane ships gate-exempt inside `pnpm run test:web`, exactly as that config's header records. Adding chromium to CI would reverse the "no browser infrastructure in CI" premise in the [GUI testing note](../process/2026-07-20-gui-testing-system.md) and therefore requires its own Agent Note cross-linked from there, staged as a non-required job first with measured promotion criteria (consecutive green runs, wall time, zero-retry flake budget, runner browser-cache strategy). `TODO(ci-browser)` marks the seam. Scenarios are POSIX-oriented (the lane is not in the Windows matrix).
+
+## Prior art
+
+Surveyed AI-chat/agent web UIs and mocking layers (LibreChat, vercel/ai-chatbot + AI SDK, lobe-chat, open-webui, OpenHands, Chainlit, continue, cline, langfuse, gradio/streamlit; Playwright HAR/route, MSW, Polly/nock, WireMock, aimock). The dominant proven architecture for apps that own their backend is an in-process fake/replay model behind the real backend seam with everything downstream real (LibreChat's `LIBRECHAT_TEST_RUN_HOOK` fake model; ai-chatbot's `MockLanguageModelV3` + `simulateReadableStream`; continue's scripted mock provider classes) — which is what `dsh-llm-replay` already is. Browser-level SSE interception cannot exercise incremental rendering (`route.fulfill` delivers the whole body at once; playwright#33564) and leaves the server SSE stack untested, so projects use it only for edge cases. Chunk pacing as a fixture parameter recurs everywhere (LibreChat 10ms default with slow profiles; ai-chatbot 500ms); real models in CI rot (open-webui's suite grew 120-second timeouts, was disabled, then deleted); sessions are seeded at the persistence layer with controlled timestamps (LibreChat inserts backdated Mongo documents; langfuse seeds its DB). No surveyed project replays a recorded agent-event log through the real backend for UI tests — the closest are provider-level recorded fixtures (aimock) and frontend-level socket history emission (OpenHands MSW) — so the session-log-as-fixture design goes one step beyond prior art along the axis this repo's model-visible ⟺ logged invariant makes natural.
+
+## Alternatives considered
+
+**Browser-network SSE interception (`page.route`).** Rejected: `route.fulfill` cannot stream, so incremental token rendering is unexercisable and the server-side SSE/backpressure/close path — where both confirmed P0s hid — goes untested.
+
+**Mock HTTP provider at `DEEPSEEK_BASE_URL`.** Rejected as the lane's mechanism (kept for the one existing workspace-probe smoke): fixtures become hand-authored OpenAI SSE byte scripts, a second fixture format that drifts from the session-log format the rest of the repo records and replays; the adapter's real HTTP path is with-key e2e's job.
+
+**Growing the `?fixture` client.** Rejected: tier separation — `FixtureApiClient` exists to test the client shell without a server; everything below the client API seam stays untested by construction.
+
+**Placeholder `DEEPSEEK_API_KEY` + replay interception instead of disabling the adapter row.** Rejected despite zero composition change and two in-tree precedents: it satisfies `llm-deepseek`'s fail-loud key check with a lie and leaves a dead adapter mounted-but-intercepted; the disabled row (the ACP overlay's move) is honest keylessness and fails loud at the earliest resolvable point.
+
+**A `packages/support/web-snapshot` package with a `defineWebSnapshotSuite` factory.** Rejected: chromium-driving source cannot honestly hold per-file 100% coverage on browserless coverage runners, and the scenario-specific interactions have not produced a stable browser-free contract beyond the helpers already exported from gated packages and the local scaffold. Reconsider when a second web-shaped consumer or demonstrably repeated lifecycle code establishes that contract.
+
+**A committed normalized-session-log golden as a second expected surface.** Rejected: the log surface is pinned by the ACP/headless/TUI suites through the same loop and persistence; here it would double refresh cost and re-test lower tiers. Inline world-state assertions on root-context events keep the world-verification duty.
+
+**Spawning the `dsh web` bin with a `DSH_SNAPSHOT` replay branch.** Rejected: it needs a test-only replay branch plus environment plumbing in the shipped CLI. The in-process scaffold already loads the same `apps/cli/cordis.yml`; only argv, profile JSON, and `AppCLIEntry` glue remain outside it, and the keyless CLI smokes cover those paths.
+
+**Changing the wire protocol for testability.** Rejected: the contract already has a first-class keyless isomorphic seam (`InProcessApiClient(toFetchHandler(api))`), the per-event unbatched SSE is exactly what makes replay observable in a browser, and testing a wire we no longer ship would invert the tier's purpose.
+
+**Real-model browser tests as the keyless lane.** Rejected: nondeterministic by construction; the surveyed cautionary case (open-webui) grew unbounded timeouts and was deleted. The with-key W5 smoke stays as the live-model complement.
+
+**A client `data-dsh-busy` settled signal.** Deferred: the host-side `whenIdle` barrier plus stable DOM polls cover the current scenarios. Reconsider after the first settled-poll flake or when a required state is not observable in the DOM.
+
+## Testing
+
+`pnpm run test:web` runs the lane keylessly. `DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` records a prompting scenario against the live model, and `DSH_SNAPSHOT=refresh` rewrites aria goldens keylessly. `dsh-llm-replay` unit coverage pins pacing, cancellation, consumption diagnostics, sidecar validation, indexed replacement, and the single append position.
+
+## Deferred
+
+- **Web header-class pin**: web fixtures tokenize `{{system}}`/`{{tools}}` everywhere and no scenario pins the web composition's prompt/tool schemas (`TODO(web-header-pin)` — the scaffold `recordFixture` JSDoc marks it). Following the TUI scrub-everywhere precedent; revisit when the web assembly's header diverges from the repl composition it mirrors.
+- **CI browser provisioning**: reversal of the no-browser-in-CI ruling, staged criteria above (`TODO(ci-browser)`).
+- **Follow-up-prompt-after-resume scenario**: the history/live stitch path over the real wire; add as its own scenario when that code changes or regresses.
+- **Web error surface**: the client consumes no `agent/error` frames and a pre-chunk failure freezes no partial, so a non-retryable provider failure renders no error copy — the user sees the send simply stop. The AUTH scenario pins the current contract (no crash, composer recovers, turn logged `error`) and `FIXME(web-error-surface)` marks where visible error text gets asserted once the UI grows an error rendering.
+- **Composer steering gesture**: the input locks while running (stop-or-wait), so the steering scenario steers over the wire from the page; `TODO(web-steer-composer)` upgrades the drive step to a real composer gesture when the product grows one.
+- **Drag session reorder**: `workspace.insertSessionBefore` has no browser scenario; it needs two sessions materialized in one workspace plus synthesized HTML5 drag events. Add it when that surface changes or regresses. The inert session Rename/Fork/Delete and workspace Delete menu rows get scenarios when they gain behavior.
+
+## Consequences
+
+The web surface gains its record-once/replay-forever tier: the real chromium → SSE → apiproxy → loop → tools → persistence chain runs keylessly in ~10-30s, deterministic across repeat runs, with fixtures owned and re-recordable by the lane itself. Costs accepted: every intentional conversation-UI change ends with a keyless `DSH_SNAPSHOT=refresh` (golden churn is reviewed diff, anchors keep semantic green); the aria format is Playwright-owned — the one committed snapshot format the repo does not control — so playwright version bumps must be deliberate bump-and-refresh commits (the dependency floats `^1.49.0` in `apps/web/package.json`; pin exactly if churn bites); replay's first-call-order binding constrains scenarios to one prompting session each, with the consumption assertion as the tripwire; `compact-basic` shares the session's replay cursor and stays inert only under the published 128k catalog window; and the lane guards regressions only where it runs (locally, `test:web`) until the CI reversal is separately decided.

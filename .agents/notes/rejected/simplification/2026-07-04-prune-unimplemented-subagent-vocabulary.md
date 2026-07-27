@@ -2,6 +2,8 @@
 
 Status: rejected — the deferred capability vocabulary (`outputSchema`/`structured`, `toolFilter`, `sendMessage`/`resume`) is intentionally reserved surface: the seam advertises the full intended contract ahead of its implementations by design, so providers and consumers grow into a stable shape rather than re-negotiating it per capability. The consumer-evidence analysis below records the decision-time state.
 
+English | [中文](2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md)
+
 ## Problem
 
 The [subagent seam](../../implemented/feature/2026-06-21-subagent-capability-seam.md) shipped a two-tier capability design: start-time capability flags checked by the service, and optional runtime methods on `SubagentRun`. Three start-time features and both optional runtime methods have zero implementations and zero callers:
@@ -17,9 +19,9 @@ Remove `outputSchema`/`structured`, `toolFilter`, `sendMessage`, and `resume` fr
 
 **Keep** `depthLimit`/`maxDepth` and capability checks. The in-process backend enforces the limit, although the shipping tool does not yet set it. Recursion is a known seam risk, so the appropriate follow-up is to supply a tool default rather than delete working enforcement.
 
-Adjacent surface examined and deliberately left alone: `SubagentService.getProvider()`/`list()` have test-harness consumers only, but the [prune-dead-seam-methods implementation note](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md) records precisely this shape being removed from the bash executor and reverted — a test harness IS a consumer for a one-line accessor over an already-tracked map. `SubagentRunEndInfo.lastAssistantMessage` is a recorded keep (the [subagent-observe-enrich Agent Note](../../implemented/feature/2026-06-30-subagent-observe-enrich.md)'s review dropped `agentType` and kept it deliberately, as the only final-message channel for out-of-process children); its currently-unwired bridge forwarding is a gap to close or a consumer to document, not surface for this Agent Note to cut.
+Adjacent surface examined and deliberately left alone: `SubagentService.getProvider()`/`list()` have test-harness consumers only, but the [prune-dead-seam-methods implementation note](../../archived/simplification/2026-06-20-prune-dead-seam-methods.md) records precisely this shape being removed from the bash executor and reverted — a test harness IS a consumer for a one-line accessor over an already-tracked map. `SubagentRunEndInfo.lastAssistantMessage` is a recorded keep (the [subagent-observe-enrich Agent Note](../../archived/feature/2026-06-30-subagent-observe-enrich.md)'s review dropped `agentType` and kept it deliberately, as the only final-message channel for out-of-process children); its currently-unwired bridge forwarding is a gap to close or a consumer to document, not surface for this Agent Note to cut.
 
-This is the seam-vocabulary echo of [prune dead methods from the persistence seam](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md): members every implementation must declare for nobody — weaker even, since here zero implementations exist.
+This is the seam-vocabulary echo of [prune dead methods from the persistence seam](../../archived/simplification/2026-06-20-prune-dead-seam-methods.md): members every implementation must declare for nobody — weaker even, since here zero implementations exist.
 
 ## Alternatives considered
 

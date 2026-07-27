@@ -8,7 +8,7 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
@@ -27,7 +27,7 @@ async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: str
     await ctx.plugin(SessionPersistenceJsonl, { root: sessionRoot, compression: 'none' })
   }
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(TaskService)
+  await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   await ctx.plugin(ToolBash, dshHome === undefined ? {} : { dshHome })
@@ -109,7 +109,7 @@ describe('bash tool through the agent loop', () => {
     const location = ctx.sessionPersistence.locate(agent.session.header)
     expect(location?.kind).toBe('jsonl')
 
-    agent.send([{ type: 'text', text: 'inspect the current session' }])
+    agent.followup([{ type: 'text', text: 'inspect the current session' }])
     await waitForIdle(ctx, agent)
 
     const result = findEvent(events(agent), 'tool/result')
@@ -128,7 +128,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-fg'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'run echo integration-ok' }])
+    agent.followup([{ type: 'text', text: 'run echo integration-ok' }])
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
@@ -160,7 +160,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-exit'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'run exit 9' }])
+    agent.followup([{ type: 'text', text: 'run exit 9' }])
     await waitForIdle(ctx, agent)
 
     const toolResult = findEvent(events(agent), 'tool/result')
@@ -168,8 +168,8 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(toolResult)).toContain('[exit code: 9]')
   })
 
-  it('background: start ack → completion notice as context/message → task_output collects it', async () => {
-    // The task id is deterministic (a fresh TaskService counts per kind from 1),
+  it('background: start ack → completion notice as user/message → task_output collects it', async () => {
+    // The task id is deterministic (a fresh LocalTaskService counts per kind from 1),
     // so the script can name `bash-1` without threading a generated id.
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'bash', { command: 'echo bg-ok', description: 'test command', run_in_background: true }),
@@ -180,7 +180,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-bg'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'run echo bg-ok in the background' }])
+    agent.followup([{ type: 'text', text: 'run echo bg-ok in the background' }])
     await waitForIdle(ctx, agent)
 
     const firstResult = findEvent(events(agent), 'tool/result')
@@ -188,17 +188,19 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(firstResult)).toBe('started background task bash-1')
 
     // The task settles on its own; the tool-tasks notice listener injects a
-    // durable context/message into the owning agent's session (settlement may
-    // race turn end, so poll for it).
-    await pollUntil(() => events(agent).some(event => event.type === 'context/message'))
-    const notice = findEvent(events(agent), 'context/message')
+    // durable plugin-sourced user/message into the owning agent's session
+    // (settlement may race turn end, so poll for it).
+    const isNotice = (e: SessionEvent): e is SessionEvent<'user/message'> =>
+      e.type === 'user/message' && e.data.source.kind === 'plugin'
+    await pollUntil(() => events(agent).some(isNotice))
+    const notice = events(agent).find(isNotice)!
     expect(notice.data.content.some(
       block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
     )).toBe(true)
     expect(notice.data.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
 
     // The next turn collects the output through the generic task tool.
-    agent.send([{ type: 'text', text: 'collect it' }])
+    agent.followup([{ type: 'text', text: 'collect it' }])
     await waitForIdle(ctx, agent)
     const readResult = findEvent(events(agent), 'tool/result', 'last')
     expect(readResult.data.isError).toBe(false)

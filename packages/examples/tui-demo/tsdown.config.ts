@@ -1,14 +1,14 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * tui-demo ships two entries: the plugin (`index`) and the CLI `bin`
- * (`bin`), the latter referenced by package.json `bin`/`exports["./bin"]`.
- * The root tsdown builds only `lib/types/index.js`, so this override adds
- * `lib/types/bin.js`. Declarations come from `tsc -b` (dts: false),
- * matching every package.
+ * tui-demo ships the plugin (`index`) and its invariant companion; the CLI
+ * front door is `dsh` (apps/cli), which mounts this bundle through its config.
+ * The root tsdown builds only `lib/types/index.js`, so this override adds the
+ * invariant entry. Declarations come from `tsc -b` (dts: false), matching
+ * every package.
  */
 export default defineConfig({
-  entry: ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/bin.js'],
+  entry: ['lib/types/index.js', 'lib/types/invariant.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

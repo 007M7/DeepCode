@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-agent-spine-demo
 
+English | [中文](README.zh.md)
+
 The **default executor-less, UI-less agent spine** as ONE Cordis bundle plugin. It loads the fixed set of services every harness agent needs, including the local skill provider, and forwards the loop's `agents` list as its own config — so an app package composes a working agent by adding only a front door and the swappable backends.
 
 Read this package for the whole plugin tree and its composition order.
@@ -22,7 +24,7 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-tool-goal        optional model-facing goal controls
 @deepseek-ai/dsh-goal-session     optional same-session goal-round driver
 @deepseek-ai/dsh-llm-retry        bounded transient request retry policy
-@deepseek-ai/dsh-tasks            generic background-task registry
+@deepseek-ai/dsh-tasks-local      generic background-task registry
 @deepseek-ai/dsh-invariants       configurable invariant registry service
 @deepseek-ai/dsh-session/invariant
 @deepseek-ai/dsh-agent/invariant
@@ -45,7 +47,7 @@ The spine is everything COMMON to every front door. The swappable and front-door
 - **model-backed session-title providers** — the bundle mounts the fallback service with overridable example limits (5 words, 40 fallback bytes, 80 accepted-title bytes); a leaf may opt into exactly one first-message or all-messages LLM provider.
 - **the bash executor** — the bundle ships `tool-bash` (the consumer schema); the leaf provides `ctx.bash` (`bash-local` or a sandboxed impl).
 - **non-local skill providers** — the bundle ships the skill registry, the local filesystem provider, and the `skill` tool; deployments can add other providers such as embedded or remote catalogs as siblings.
-- **presentation + per-app infra** — the terminal TUI or ACP front door and `hmr`. These form the coupled front-door cluster that the app packages ([`dsh-tui-demo`](../tui-demo/README.md), [`dsh-acp-demo`](../acp-demo/README.md)) bake in. `timer` is in the spine because it is common and stdout-silent; front doors own stdout and remain outside.
+- **front-door + per-app infra** — the terminal TUI or ACP automation transport and `hmr`. App packages ([`dsh-tui-demo`](../tui-demo/README.md), [`dsh-acp-demo`](../acp-demo/README.md)) own those choices. `timer` is in the spine because it is common and stdout-silent; front doors own stdout and remain outside.
 
 This is the [interface/implementation/consumer seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) raised to the composition level: the bundle owns the shared spine, the leaf owns the backends, the app package owns the front door.
 
@@ -63,7 +65,7 @@ For example, `{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/
 
 ## Why a code bundle, not a shared YAML include
 
-A YAML include can deduplicate config but cannot own a bin or provide front-door defaults. App packages make stdout-safe ACP wiring the default, though a leaf can still add an unsafe logger. Bundle children register services in the root isolate-keyed store, so injected leaf siblings see them without load-order coupling.
+A YAML include can deduplicate config but cannot own a bin or provide front-door defaults. The ACP app package makes protocol-pure stdout wiring the default, though a leaf can still add an unsafe logger. Bundle children register services in the root isolate-keyed store, so injected leaf siblings see them without load-order coupling.
 
 The bounded retry policy may repeat a transiently failed request in a new numbered step. Retry status and failed partial chunks stay outside model history, each provider attempt can still incur billing, front doors derive usage across every logged step, and the reconstructed request preserves the prior prefix for provider cache reuse.
 

@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-llm-replay
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
@@ -22,7 +22,11 @@ import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
   | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string }
-  | { kind: 'hang' }
+  | {
+    kind: 'hang'
+    /** Optional marker written after the prefix chunks are consumed and before the stream waits for cancellation. */
+    readyFile?: string
+  }
 
 /** One model exposed by a replay-only provider catalog. */
 export interface ReplayModelConfig {
@@ -42,7 +46,7 @@ export interface ReplayProviderConfig {
   id: string
   /** Selector label; defaults to {@link id}. */
   name?: string
-  /** Advisory models exposed to clients such as ACP editors. */
+  /** Advisory models exposed to replay scenarios that exercise discovery. */
   models?: ReplayModelConfig[]
 }
 
@@ -55,10 +59,11 @@ export interface ReplayConfig {
    */
   file: string
   /**
-   * Optional `ReplayEntry[]` sidecar that REPLACES the derived script for the
-   * PRIMARY session. Used by the two single-session scenarios not expressible as
-   * `assistant/chunk` (pure throw-before-chunk, cancel/hang). Absent for normal
-   * and nested scenarios.
+   * Optional sidecar for the PRIMARY session: a bare `ReplayEntry[]` replaces
+   * the derived script; `{ patches }` keeps it and swaps the named call
+   * indexes ({@link ReplayOverrideDoc}). Used by single-session scenarios not
+   * expressible as `assistant/chunk` (throw-before-chunk, cancel/hang,
+   * injected transient failures). Absent for normal and nested scenarios.
    */
   overrideFile?: string
   /**
@@ -74,6 +79,32 @@ export interface ReplayConfig {
    * by tests that do not need discovery.
    */
   providers?: ReplayProviderConfig[]
+  /**
+   * Optional per-chunk pacing delay in milliseconds: each replayed chunk waits
+   * this long before yielding, so a downstream transport (e.g. the web SSE
+   * mux observed by a browser) sees genuinely incremental delivery. A realism
+   * knob only — correctness must never depend on it. Absent or `0` keeps
+   * today's synchronous burst yield. Must be a non-negative finite integer;
+   * aborting mid-wait cancels the stream like any other abort.
+   */
+  paceMs?: number
+}
+
+/**
+ * Handle returned by {@link installLlmReplay}: removal plus the end-of-run
+ * consumption check that turns silent fixture underruns (a scenario that
+ * issued fewer calls than recorded, or never bound a recorded child script)
+ * into a crisp diagnostic at teardown.
+ */
+export interface ReplayHandle {
+  /** Remove the registered adapter or waterfall listener (HMR safety). Freestanding closure — safe to destructure. */
+  dispose(this: void): void
+  /**
+   * Throw unless every recorded script was bound to a live session and every
+   * bound cursor consumed its full entry list. Call at scenario teardown.
+   * Freestanding closure — safe to destructure.
+   */
+  assertConsumed(this: void): void
 }
 
 /**
@@ -170,26 +201,157 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
 }
 
 /**
- * Build the replay script for the PRIMARY session: the sidecar override if
- * present, otherwise the script derived from the recorded session JSONL.
- * Fail-loud if the JSONL fixture is missing (the scenario was never recorded) —
- * never silently returns an empty script, so a coverage hole can't masquerade
- * as a passing replay.
+ * One positional patch in an augmentation sidecar: replaces the derived
+ * entry at call index `at` (0-based) with `entry`, or appends when `at`
+ * equals the derived length (an extra recorded-after-the-fact call, e.g. the
+ * retry attempt following an injected transient throw).
+ */
+export interface ReplayOverridePatch {
+  /** 0-based call index into the derived script; == length appends. */
+  at: number
+  /** The replacement (or appended) entry at that call position. */
+  entry: ReplayEntry
+}
+
+/**
+ * Override sidecar document: either a whole-script replacement (a
+ * bare `ReplayEntry[]`) or the augmentation form `{ patches }`, which keeps
+ * the JSONL-derived script and swaps only the named call indexes — the shape
+ * for "turn N errors, everything else replays as recorded".
+ */
+export type ReplayOverrideDoc = ReplayEntry[] | { patches: ReplayOverridePatch[] }
+
+const REPLAY_CHUNK_TYPES = new Set<StreamChunk['type']>([
+  'block-start',
+  'text-delta',
+  'reasoning-delta',
+  'tool-call-delta',
+  'block-end',
+  'usage',
+  'finish',
+])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+}
+
+function invalidOverride(file: string, location: string, detail: string): never {
+  throw new Error(`llm-replay: invalid override ${file}: ${location} ${detail}`)
+}
+
+function readChunks(value: unknown, file: string, location: string): StreamChunk[] {
+  if (!Array.isArray(value)) invalidOverride(file, location, 'chunks must be an array')
+  for (const [index, chunk] of value.entries()) {
+    if (!isRecord(chunk)
+      || typeof chunk['type'] !== 'string'
+      || !REPLAY_CHUNK_TYPES.has(chunk['type'] as StreamChunk['type'])) {
+      invalidOverride(file, `${location}.chunks[${index}]`, 'must have a known StreamChunk type')
+    }
+  }
+  return value as StreamChunk[]
+}
+
+function readReplayEntry(value: unknown, file: string, location: string): ReplayEntry {
+  if (!isRecord(value)) invalidOverride(file, location, 'must be an object')
+  switch (value['kind']) {
+    case 'chunks': {
+      if (!hasExactKeys(value, ['kind', 'chunks'])) invalidOverride(file, location, 'has invalid chunks-entry fields')
+      return { kind: 'chunks', chunks: readChunks(value['chunks'], file, location) }
+    }
+    case 'throw': {
+      if (!hasExactKeys(value, ['kind', 'chunks', 'message', 'code'])) {
+        invalidOverride(file, location, 'has invalid throw-entry fields')
+      }
+      if (typeof value['message'] !== 'string' || value['message'].length === 0) {
+        invalidOverride(file, location, 'message must be a non-empty string')
+      }
+      if (typeof value['code'] !== 'string' || value['code'].length === 0) {
+        invalidOverride(file, location, 'code must be a non-empty string')
+      }
+      return {
+        kind: 'throw',
+        chunks: readChunks(value['chunks'], file, location),
+        message: value['message'],
+        code: value['code'],
+      }
+    }
+    case 'hang': {
+      const readyFile = value['readyFile']
+      const keys = readyFile === undefined ? ['kind'] : ['kind', 'readyFile']
+      if (!hasExactKeys(value, keys)) invalidOverride(file, location, 'has invalid hang-entry fields')
+      if (readyFile !== undefined && (typeof readyFile !== 'string' || readyFile.length === 0)) {
+        invalidOverride(file, location, 'readyFile must be a non-empty string')
+      }
+      return { kind: 'hang', ...(readyFile === undefined ? {} : { readyFile }) }
+    }
+    default:
+      return invalidOverride(file, location, `has unknown kind ${JSON.stringify(value['kind'])}`)
+  }
+}
+
+function readOverrideDoc(value: unknown, file: string): ReplayOverrideDoc {
+  if (Array.isArray(value)) return value.map((entry, index) => readReplayEntry(entry, file, `entry ${index}`))
+  if (!isRecord(value) || !hasExactKeys(value, ['patches']) || !Array.isArray(value['patches'])) {
+    return invalidOverride(file, 'document', 'must be a ReplayEntry[] or { patches: [...] }')
+  }
+  return {
+    patches: value['patches'].map((value, index): ReplayOverridePatch => {
+      const location = `patch ${index}`
+      if (!isRecord(value) || !hasExactKeys(value, ['at', 'entry'])) {
+        return invalidOverride(file, location, 'must contain exactly at and entry')
+      }
+      const at = value['at']
+      if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0) {
+        return invalidOverride(file, location, 'at must be a non-negative safe integer')
+      }
+      return { at, entry: readReplayEntry(value['entry'], file, `${location}.entry`) }
+    }),
+  }
+}
+
+/**
+ * Load the PRIMARY session's replay script: the sidecar override when present
+ * (whole-script replacement or `{ patches }` augmentation over the derived
+ * script), else the script derived from the session JSONL (fail-loud when the
+ * fixture is missing).
  * @param config - the fixture paths; only `file` and `overrideFile` are consulted.
- * @returns the primary session's replay entries.
+ * @returns the resolved primary-session script.
  */
 export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
   if (config.overrideFile !== undefined && existsSync(config.overrideFile)) {
-    const parsed: unknown = JSON.parse(readFileSync(config.overrideFile, 'utf8'))
-    if (!Array.isArray(parsed)) {
-      throw new Error(`llm-replay: override is not a JSON array: ${config.overrideFile}`)
+    const doc = readOverrideDoc(JSON.parse(readFileSync(config.overrideFile, 'utf8')) as unknown, config.overrideFile)
+    if (Array.isArray(doc)) return doc
+    const script = deriveScriptFromFile(config.file)
+    const derivedLength = script.length
+    const seenIndexes = new Set<number>()
+    for (const patch of doc.patches) {
+      if (patch.at > derivedLength) {
+        throw new Error(
+          `llm-replay: override patch index ${String(patch.at)} out of range `
+          + `(derived script has ${derivedLength} call(s); == length appends): ${config.overrideFile}`,
+        )
+      }
+      if (seenIndexes.has(patch.at)) {
+        throw new Error(`llm-replay: duplicate override patch index ${patch.at}: ${config.overrideFile}`)
+      }
+      seenIndexes.add(patch.at)
+      script[patch.at] = patch.entry
     }
-    return parsed as ReplayEntry[]
+    return script
   }
-  if (!existsSync(config.file)) {
-    throw new Error(`llm-replay: fixture not found: ${config.file} — run \`pnpm run test:snapshot:record\` first`)
+  return deriveScriptFromFile(config.file)
+}
+
+/** Derive the primary script from the session JSONL, failing loud on a missing fixture. */
+function deriveScriptFromFile(file: string): ReplayEntry[] {
+  if (!existsSync(file)) {
+    throw new Error(`llm-replay: fixture not found: ${file} — run \`pnpm run test:snapshot:record\` first`)
   }
-  return deriveReplayScript(parseSessionLog(readFileSync(config.file, 'utf8')))
+  return deriveReplayScript(parseSessionLog(readFileSync(file, 'utf8')))
 }
 
 /**
@@ -277,12 +439,32 @@ class ReplayAdapter extends LlmAdapter {
   }
 }
 
+/**
+ * Wait `paceMs` between chunk yields, aborting the wait (and the stream) the
+ * moment the signal fires — a paced replay must cancel as promptly as a burst
+ * one.
+ */
+function paceDelay(paceMs: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, paceMs)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new Error('aborted'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /** Yield a recorded stream back, honoring abort like a real adapter. */
-async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined): AsyncIterable<StreamChunk> {
+async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined, paceMs: number): AsyncIterable<StreamChunk> {
   switch (entry.kind) {
     case 'chunks':
       for (const chunk of entry.chunks) {
         if (signal?.aborted) throw new Error('aborted')
+        if (paceMs > 0) await paceDelay(paceMs, signal)
         yield chunk
       }
       return
@@ -293,6 +475,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
       // mid-stream STREAM_CLOSED after partial chunks).
       for (const chunk of entry.chunks) {
         if (signal?.aborted) throw new Error('aborted')
+        if (paceMs > 0) await paceDelay(paceMs, signal)
         yield chunk
       }
       throw new LlmError(entry.message, entry.code)
@@ -301,15 +484,15 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
       // chunk, then wait for abort and surface it as the consumer expects.
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: 'partial' }
+      if (entry.readyFile !== undefined) writeFileSync(entry.readyFile, '')
       await new Promise<void>((_resolve, reject) => {
         if (signal?.aborted) { reject(new Error('aborted')); return }
         signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
       })
       /* v8 ignore next -- unreachable: the hang promise only ever rejects (on abort), never resolves; control never reaches here */
       return
+    /* v8 ignore next -- sidecar entries are validated before they reach the closed local union. */
     default:
-      // Closed local union: an unknown kind means malformed (hand-edited or
-      // drifted) sidecar data — fail loud with a runtime diagnostic.
       return assertNever(entry, 'llm-replay replay entry')
   }
 }
@@ -319,14 +502,17 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
  * next ordered recorded script, then advances its own cursor synchronously at
  * invocation time; calls without `sessionId` share one anonymous session. A
  * non-empty provider catalog registers a routed replay adapter; otherwise a
- * catch-all waterfall intercepts requests. Returns the effect disposer for
- * HMR-safe removal.
+ * catch-all waterfall intercepts requests.
  *
  * @param ctx - the context whose LLM service receives the replay route or waterfall.
  * @param config - the resolved fixture paths (env-var defaulting is `apply`'s job).
- * @returns the disposer that removes the registered adapter or listener.
+ * @returns the {@link ReplayHandle} carrying the disposer and the teardown consumption check.
  */
-export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void {
+export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHandle {
+  const paceMs = config.paceMs ?? 0
+  if (!Number.isInteger(paceMs) || paceMs < 0) {
+    throw new Error(`llm-replay: paceMs must be a non-negative integer, got ${String(config.paceMs)}`)
+  }
   const scripts = loadSessionScripts(config)
   // Live-session → its bound script + cursor. A new live session id claims the
   // next not-yet-bound script (scripts are in bind order); `nextScript` is the
@@ -370,14 +556,31 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      yield* replayEntry(entry, options.signal)
+      yield* replayEntry(entry, options.signal, paceMs)
     })()
   }
   const providers = config.providers ?? []
-  if (providers.length > 0) {
-    return ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
+  const dispose = providers.length > 0
+    ? ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
+    : ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
+  return {
+    dispose,
+    assertConsumed(): void {
+      const problems: string[] = []
+      if (nextScript < scripts.length) {
+        problems.push(`${scripts.length - nextScript} recorded script(s) never bound to a live session`)
+      }
+      for (const [key, state] of bound) {
+        if (state.cursor < state.entries.length) {
+          const who = key === ANON ? 'the anonymous session' : `session ${key}`
+          problems.push(`${who} consumed ${state.cursor}/${state.entries.length} recorded call(s)`)
+        }
+      }
+      if (problems.length > 0) {
+        throw new Error(`llm-replay: fixture not fully consumed — ${problems.join('; ')}; the scenario drove fewer model calls than recorded`)
+      }
+    },
   }
-  return ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
 }
 
 export const name = 'llm-replay'
@@ -397,6 +600,8 @@ export interface Config {
   childFiles?: string[]
   /** Optional replay-only provider catalog; absent or empty selects catch-all waterfall replay. */
   providers?: ReplayProviderConfig[]
+  /** Optional per-chunk pacing delay in ms (see {@link ReplayConfig.paceMs}); absent keeps burst yield. */
+  paceMs?: number
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -413,5 +618,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     ...overrideFile !== undefined && overrideFile.length > 0 ? { overrideFile } : {},
     ...childFiles.length > 0 ? { childFiles } : {},
     ...config.providers !== undefined ? { providers: config.providers } : {},
+    ...config.paceMs !== undefined ? { paceMs: config.paceMs } : {},
   })
 }

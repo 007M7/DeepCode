@@ -85,18 +85,29 @@ function captureHost(bench: Bench, children?: object): SlotRendererHost {
   })
   bench.erased.register({ name: 'root', ...(children !== undefined ? { children } : {}) }, C)
   bench.ctx.reflect.provide('sessions', fakeSessions())
+  bench.ctx.reflect.provide('workspaces', fakeWorkspaces())
   bench.erased.renderSlot('root', {})
   if (host === undefined) throw new Error('renderer never received the host')
   return host
 }
 
-/** Minimal sessions face for the host seam (list observable + cell). */
+/** Minimal independent Workspace list source for the renderer host seam. */
+function fakeWorkspaces() {
+  const state = { items: [], phase: 'ready' as const }
+  return { list: { getSnapshot: () => state, subscribe: () => () => undefined } }
+}
+
+/** Minimal sessions face for the host seam (list observable + provide bundle). */
 function fakeSessions() {
   const state = { ids: [], byId: {}, current: undefined as string | undefined }
   return {
     list: { getSnapshot: () => state, subscribe: () => () => undefined },
-    cell: (id: string) => (id === 'known'
-      ? { sessionId: id, session: { getSnapshot: () => undefined, subscribe: () => () => undefined } }
+    provideInfo: (id: string) => (id === 'known'
+      ? {
+        sessionId: id,
+        hooks: { session: { getSnapshot: () => undefined, subscribe: () => () => undefined } },
+        props: {},
+      }
       : undefined),
   }
 }
@@ -190,8 +201,17 @@ describe('renderer install seam', () => {
     bench.erased.install({ renderRoot })
     bench.erased.register({ name: 'root' }, C)
     bench.ctx.reflect.provide('sessions', fakeSessions())
+    bench.ctx.reflect.provide('workspaces', fakeWorkspaces())
     expect(bench.erased.renderSlot('root', {})).toBe('tree')
     expect(renderRoot).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails before rendering when the Workspace object layer is absent', async () => {
+    const bench = await boot()
+    bench.erased.install({ renderRoot: () => null })
+    bench.erased.register({ name: 'root' }, C)
+    bench.ctx.reflect.provide('sessions', fakeSessions())
+    expect(() => bench.erased.renderSlot('root', {})).toThrow(/workspaces service mounted/)
   })
 })
 
@@ -212,13 +232,19 @@ describe('host face', () => {
     expect(host.entriesOf('t.host')).toHaveLength(0)
   })
 
-  it('exposes sessions list/current/cell (current riding the list snapshot)', async () => {
+  it('exposes sessions list/current/provideInfo (current riding the list snapshot)', async () => {
     const bench = await boot()
     const host = captureHost(bench)
     expect(host.sessions.list.getSnapshot()).toMatchObject({ ids: [] })
     expect(host.sessions.current.getSnapshot()).toBeUndefined()
-    expect(host.sessions.cell('known')).toMatchObject({ sessionId: 'known' })
-    expect(host.sessions.cell('ghost')).toBeUndefined()
+    expect(host.sessions.provideInfo('known')).toMatchObject({ sessionId: 'known' })
+    expect(host.sessions.provideInfo('ghost')).toBeUndefined()
+  })
+
+  it('exposes the independent Workspace list source', async () => {
+    const bench = await boot()
+    const host = captureHost(bench)
+    expect(host.workspaces.list.getSnapshot()).toEqual({ items: [], phase: 'ready' })
   })
 })
 
@@ -315,6 +341,7 @@ describe('entry-unload cascade', () => {
       renderRoot: (h: SlotRendererHost) => { host = h; return 'rendered' },
     })
     bench.ctx.reflect.provide('sessions', fakeSessions())
+    bench.ctx.reflect.provide('workspaces', fakeWorkspaces())
     // The declarer here is NOT the root occupant: root stays occupied by a
     // separate entry so disposing the declarer only kills its children.
     const disposeRoot = bench.erased.register({ name: 'root' }, C)

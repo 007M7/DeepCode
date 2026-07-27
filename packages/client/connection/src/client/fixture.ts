@@ -9,8 +9,8 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
-  ToolCallView, ToolEventView, ToolResultView,
+  RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId } from './api.ts'
@@ -76,7 +76,7 @@ function buildAlphaLog(): SessionEvent[] {
       })
     }
     if (turn % 9 === 4) {
-      push({ type: 'context/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
+      push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
     }
     push({ type: 'step/start', data: { turn, step: 0 } })
     const withTool = turn % 5 === 2
@@ -124,6 +124,49 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 64: one run_code turn with three logged sub-dispatches — the Code
+  // Mode acceptance surface (parent code row + nested native-identical rows,
+  // including an isError sub-call and a bash sub-call that must hit the same
+  // keyed registration a top-level bash row uses).
+  {
+    const turn = 64
+    const callId = `fx-call-${turn}`
+    const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
+      + 'const demo = await tools.read({ path: "notes/demo.txt" })\n'
+      + 'await tools.read({ path: "notes/missing.txt" }).catch(() => "tolerated")\n'
+      + 'return { listing, demo }'
+    const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
+    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：run_code 样本。`), source: { kind: 'user' } } })
+    push({ type: 'step/start', data: { turn, step: 0 } })
+    push({
+      type: 'assistant/message', surfaceOp: 'append',
+      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+    })
+    push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'run_code', arguments: args } })
+    const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
+      push({
+        type: 'tool/code-dispatch-start',
+        data: { parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
+      })
+      push({
+        type: 'tool/code-dispatch',
+        data: {
+          parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
+          arguments: dispatchArgs, isError, content: [{ type: 'text', text: resultText }],
+        },
+      })
+    }
+    dispatchPair(1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt\nnew-demo.txt')
+    dispatchPair(2, 'read', { path: 'notes/demo.txt' }, 'hello fixture\n')
+    dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
+    push({
+      type: 'tool/result', surfaceOp: 'append',
+      data: { turn, step: 0, callId, content: text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), isError: false },
+    })
+    push({ type: 'step/end', data: { turn, step: 0 } })
+    push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
+  }
   return events as unknown as SessionEvent[]
 }
 
@@ -242,6 +285,20 @@ interface StreamConn<F> {
   push(envelope: RpcRequest<F>): void
 }
 
+/** Deterministic fixture branches used by keyless Web assembly tests. */
+export interface FixtureOptions {
+  /** Start with no real Workspace or Session. */
+  empty?: boolean
+  /** Reject every prompt before appending its user event. */
+  rejectPrompt?: boolean
+  /** Publish the Session but fail its Workspace account write. */
+  failWorkspaceAttach?: boolean
+  /** Publish and frame the Session, then throw instead of returning create. */
+  dropSessionCreateResponse?: boolean
+  /** Order of the two successful create frames. */
+  createFrameOrder?: 'session-first' | 'workspace-first'
+}
+
 /** Inbox pump shared by both stream generators (FrameQueue pattern: ONE abort listener hung
  *  outside the loop — a per-iteration {once:true} listener never fires for non-final rounds and
  *  piles up for the stream's lifetime, audit C5). breakNow force-ends the stream without the
@@ -286,22 +343,34 @@ class FxInbox<F> implements StreamConn<F> {
 
 /**
  * In-memory fake host: fx-alpha carries history and replay scripts; fx-beta is fx-alpha's child session (lineage indent material).
+ * @param options - fixture branches for empty state and failure timing.
  * @returns an ApiProxy backed entirely by in-memory state — no host process, no network.
  */
-export function createFixtureApi(): ApiProxy {
-  const sessions: SessionSummary[] = [
-    { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, cwd: '/tmp/fixture' },
+export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
+  // The resident fixture sessions all carry history, so none of them is blank.
+  const sessions: SessionSummary[] = options.empty ? [] : [
+    { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, blank: false, cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, blank: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
-  const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
-    session.sessionId,
-    { provider: 'deepseek', model: 'deepseek-v4-flash' },
-  ]))
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
+  let attachedSessions = options.empty ? 0 : 1
+  // Workspace entities mirroring the host registry: the fixture sessions all
+  // live under one workspace, whose account carries them in attach order.
+  const wid = (raw: string): WorkspaceId => raw as WorkspaceId
+  const fixtureEpoch = new Date(Date.now() - 300_000).toISOString()
+  const workspaces: WorkspaceView[] = options.empty ? [] : [{
+    workspaceId: wid('fx-ws-fixture'),
+    path: '/tmp/fixture',
+    title: 'fixture',
+    sessionIds: [sid('fx-alpha'), sid('fx-beta'), sid('fx-gamma')],
+    createdAt: fixtureEpoch,
+    updatedAt: fixtureEpoch,
+  }]
+  let nextWorkspace = 1
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
   /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
@@ -359,6 +428,16 @@ export function createFixtureApi(): ApiProxy {
   }
 
   const summaryOf = (id: SessionId): SessionSummary | undefined => sessions.find(s => s.sessionId === id)
+  /** Shared session guard for sessionId-addressed catalog routes: the error
+   *  response when the session is unknown, undefined when it exists. */
+  const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined => {
+    if (summaryOf(request.payload.sessionId) !== undefined) return undefined
+    return err<{ sessionId: SessionId }, never>(request, {
+      code: 'session-not-found',
+      message: `no session ${request.payload.sessionId}`,
+      details: { sessionId: request.payload.sessionId },
+    })
+  }
   const setRunning = (id: SessionId, running: boolean): void => {
     const summary = summaryOf(id)
     if (summary === undefined || summary.running === running) return
@@ -468,13 +547,72 @@ export function createFixtureApi(): ApiProxy {
   return {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
-      create: (request) => {
+      create: async (request) => {
+        const workspace = request.payload.workspaceId === undefined
+          ? undefined
+          : workspaces.find(w => w.workspaceId === request.payload.workspaceId)
+        if (request.payload.workspaceId !== undefined && workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${request.payload.workspaceId}`,
+            details: { workspaceId: request.payload.workspaceId },
+          })
+        }
+        const cwd = workspace?.path ?? request.payload.cwd ?? '/tmp/fixture'
+        const requestedId = request.payload.sessionId
+        const attachWorkspace = (sessionId: SessionId): void => {
+          /* v8 ignore next -- callers enter only when a target Workspace exists. */
+          if (workspace === undefined || workspace.sessionIds.includes(sessionId)) return
+          workspace.sessionIds = [sessionId, ...workspace.sessionIds]
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        const attachFailure = (
+          sessionId: SessionId,
+          workspaceId: WorkspaceId,
+        ): Promise<RpcResponse<{ sessionId: SessionId }>> => err(request, {
+          code: 'workspace-attach-failed' as const,
+          message: `fixture rejected Workspace attachment for ${sessionId}`,
+          details: { sessionId, workspaceId },
+        })
+        if (requestedId !== undefined) {
+          const existing = summaryOf(requestedId)
+          if (existing !== undefined) {
+            if (existing.cwd !== cwd) {
+              return err(request, {
+                code: 'session-conflict',
+                message: `session ${requestedId} already uses ${existing.cwd ?? 'no cwd'}`,
+                details: { sessionId: requestedId, requestedCwd: cwd, ...existing.cwd === undefined ? {} : { existingCwd: existing.cwd } },
+              })
+            }
+            if (workspace !== undefined && !workspace.sessionIds.includes(requestedId)) {
+              if (options.failWorkspaceAttach) return attachFailure(requestedId, workspace.workspaceId)
+              attachWorkspace(requestedId)
+            }
+            return ok(request, { sessionId: requestedId })
+          }
+        }
         const created: SessionSummary = {
-          sessionId: sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, cwd: '/tmp/fixture',
+          sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek', model: 'deepseek-v4-flash' })
-        emitHost({ type: 'host/session-added', sessionId: created.sessionId })
+        attachedSessions += 1
+        const emitSession = (): void => {
+          // Mirrors the host: the frame fires at creation, so blank is constantly true.
+          emitHost({ type: 'host/session-added', sessionId: created.sessionId, blank: true, cwd })
+        }
+        if (workspace !== undefined && options.failWorkspaceAttach) {
+          emitSession()
+          return attachFailure(created.sessionId, workspace.workspaceId)
+        }
+        if (workspace !== undefined && options.createFrameOrder === 'workspace-first') {
+          attachWorkspace(created.sessionId)
+          emitSession()
+        } else {
+          emitSession()
+          if (workspace !== undefined) attachWorkspace(created.sessionId)
+        }
+        if (options.dropSessionCreateResponse) throw new Error('fixture: dropped session.create response after publication')
         return ok(request, { sessionId: created.sessionId })
       },
       history: async (request) => {
@@ -486,36 +624,7 @@ export function createFixtureApi(): ApiProxy {
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, {
-          ...page,
-          modelTarget: modelTargets.get(request.payload.sessionId)
-            ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
-        })
-      },
-      models: request => ok(request, {
-        current: modelTargets.get(request.payload.sessionId)
-          ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
-        groups: [
-          {
-            id: 'deepseek',
-            name: 'DeepSeek',
-            models: [
-              { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', description: '快速响应' },
-              { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', description: '复杂任务' },
-            ],
-          },
-          {
-            id: 'openai',
-            name: 'OpenAI',
-            models: [{ id: 'gpt-5', name: 'GPT-5' }],
-          },
-        ],
-        failures: [],
-      }),
-      selectModel: (request) => {
-        const selected = { provider: request.payload.provider, model: request.payload.model }
-        modelTargets.set(request.payload.sessionId, selected)
-        return ok(request, { selected })
+        return ok(request, page)
       },
       prompt: (request) => {
         const { sessionId: id, mode, content } = request.payload
@@ -523,7 +632,16 @@ export function createFixtureApi(): ApiProxy {
         if (summary === undefined) {
           return err(request, { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
         }
+        if (options.rejectPrompt) {
+          return err(request, {
+            code: 'agent-busy',
+            message: 'fixture: prompt rejected before acceptance',
+            details: { reason: 'fixture-prompt-rejection' },
+          })
+        }
         summary.updatedAt = Date.now()
+        // First accepted prompt appends events: the summary stops being blank.
+        summary.blank = false
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         if (mode === 'steer' && replays.has(id)) {
           // Steering: insert a steering message into the current turn; the replay continues.
@@ -542,9 +660,7 @@ export function createFixtureApi(): ApiProxy {
           turn,
           userText === 'render markdown'
             ? MARKDOWN_FIXTURE
-            : userText === 'report model'
-              ? `当前模型：${modelTargets.get(id)?.provider ?? 'unknown'}/${modelTargets.get(id)?.model ?? 'unknown'}`
-              : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
+            : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
         return ok(request, { accepted: true as const })
       },
@@ -560,7 +676,127 @@ export function createFixtureApi(): ApiProxy {
       },
     },
     host: {
-      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),
+      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
+    },
+    workspace: {
+      list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
+      create: (request) => {
+        const { path, name } = request.payload
+        const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
+        const existing = workspaces.find(w => w.path === target)
+        if (existing !== undefined) return ok(request, { workspace: { ...existing }, created: false })
+        const now = new Date().toISOString()
+        const created: WorkspaceView = {
+          workspaceId: wid(`fx-ws-${nextWorkspace++}`),
+          path: target,
+          title: name ?? target.split('/').filter(Boolean).at(-1) ?? target,
+          sessionIds: [],
+          createdAt: now,
+          updatedAt: now,
+        }
+        workspaces.unshift(created)
+        emitHost({ type: 'host/workspace-changed', workspace: { ...created } })
+        return ok(request, { workspace: { ...created }, created: true })
+      },
+      rename: (request) => {
+        const { workspaceId, title } = request.payload
+        const workspace = workspaces.find(w => w.workspaceId === workspaceId)
+        if (workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        const trimmed = title.trim()
+        if (trimmed !== workspace.title) {
+          if (workspaces.some(w => w.workspaceId !== workspaceId && w.title === trimmed)) {
+            return err(request, {
+              code: 'workspace-name-conflict',
+              message: `workspace name '${trimmed}' is already in use`,
+              details: { name: trimmed },
+            })
+          }
+          workspace.title = trimmed
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { workspace: { ...workspace } })
+      },
+      insertSessionBefore: (request) => {
+        const { workspaceId, sessionId, beforeSessionId } = request.payload
+        const workspace = workspaces.find(w => w.workspaceId === workspaceId)
+        if (workspace === undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        if (!workspace.sessionIds.includes(sessionId)
+          || (beforeSessionId !== undefined && !workspace.sessionIds.includes(beforeSessionId))) {
+          return err(request, {
+            code: 'workspace-move-invalid',
+            message: `session or anchor is not accounted by workspace ${workspaceId}`,
+            details: { workspaceId, sessionId, ...beforeSessionId === undefined ? {} : { beforeSessionId } },
+          })
+        }
+        const without = workspace.sessionIds.filter(id => id !== sessionId)
+        const at = beforeSessionId === undefined ? without.length : without.indexOf(beforeSessionId)
+        const sessionIds = [...without.slice(0, at), sessionId, ...without.slice(at)]
+        if (!sessionIds.every((id, index) => id === workspace.sessionIds[index])) {
+          workspace.sessionIds = sessionIds
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { workspace: { ...workspace } })
+      },
+    },
+    commands: {
+      // The catalog mirrors one session's effective view (every fixture
+      // session has an agent, like the real host).
+      list: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          commands: [
+            { name: 'compact', description: 'fixture：压缩当前会话上下文' },
+            { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
+            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+          ],
+        })
+      },
+      execute: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const line = request.payload.line.trim()
+        const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
+        const name = match?.[1]
+        if (name === 'compact' || name === 'echo') {
+          return ok(request, {
+            matched: true as const,
+            result: { kind: 'success' as const, text: name === 'echo' ? (match?.[2] ?? '') : 'fixture：已压缩（假动作）' },
+          })
+        }
+        if (name === 'goal-fixture') {
+          return ok(request, {
+            matched: true as const,
+            result: { kind: 'success' as const, text: `fixture：goal 已设置（${request.payload.sessionId}）` },
+          })
+        }
+        return ok(request, { matched: false as const })
+      },
+    },
+    skills: {
+      list: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          skills: [
+            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
+          ],
+        })
+      },
     },
     events: {
       async *mux(_request, signal) {
@@ -642,7 +878,12 @@ export function createFixtureApi(): ApiProxy {
  * to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
  */
 export class FixtureApiClient extends AbstractApiClient {
-  private readonly api = createFixtureApi()
+  private readonly api: ApiProxy
+
+  constructor() {
+    super()
+    this.api = createFixtureApi(fixtureOptionsFromLocation())
+  }
 
   protected doFetch(): Promise<Response> {
     throw new Error('FixtureApiClient overrides all protocol paths; doFetch must be unreachable')
@@ -667,11 +908,17 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.list': return this.api.sessions.list(request)
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
-      case 'session.models': return this.api.sessions.models(request)
-      case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
+      case 'workspace.list': return this.api.workspace.list(request)
+      case 'workspace.create': return this.api.workspace.create(request)
+      case 'workspace.rename': return this.api.workspace.rename(request)
+      case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
+      case 'command.list': return this.api.commands.list(request)
+      // The in-memory execute never blocks, so a never-aborting signal is faithful here.
+      case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
+      case 'skill.list': return this.api.skills.list(request)
     }
   }
 
@@ -714,5 +961,18 @@ export class FixtureApiClient extends AbstractApiClient {
   override async respond(message: ClientResponse): Promise<RpcReceipt> {
     this.onEnvelope(message)
     return this.api.respond(message)
+  }
+}
+
+/** Browser query mapping; direct unit callers pass FixtureOptions explicitly. */
+function fixtureOptionsFromLocation(): FixtureOptions {
+  if (typeof location === 'undefined') return {}
+  const query = new URLSearchParams(location.search)
+  return {
+    empty: query.get('fixture') === 'empty',
+    rejectPrompt: query.get('fixturePrompt') === 'reject',
+    failWorkspaceAttach: query.get('fixtureAttach') === 'fail',
+    dropSessionCreateResponse: query.get('fixtureSessionCreate') === 'drop-response',
+    createFrameOrder: query.get('fixtureFrames') === 'workspace-first' ? 'workspace-first' : 'session-first',
   }
 }

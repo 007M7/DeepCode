@@ -1,5 +1,7 @@
 # dsh-llm
 
+English | [中文](README.zh.md)
+
 Provider-neutral LLM vocabulary and abstract service. This package defines the canonical language spoken by the agent loop, session logs, and every plugin.
 
 ## Service: `LlmService` (ctx key: `llm`)
@@ -54,6 +56,7 @@ Every product adapter sends application identity on provider HTTP requests. `att
 - `errorChain(value)` — renders a thrown value with its full `cause` chain and AggregateError members for diagnostic surfaces (UI notices, logger lines, durable `turn/end` messages), so transport wrappers like undici's `TypeError: fetch failed` surface the underlying `ECONNREFUSED`/DNS/TLS detail instead of masking it. Rendering only — route on `code`, never by parsing the result.
 - `CONTEXT_WINDOW_EXCEEDED_CODE` — the provider-neutral code both DeepSeek adapters use when a request exceeds the model context window, regardless of thrown-HTTP versus in-band finish delivery. `isContextWindowExceededError(detail)` is their shared conservative classifier for OpenAI-compatible provider detail.
 - `QUOTA_EXCEEDED_CODE` — the non-transient provider-neutral code for exhausted account quota, balance, credits, budget, or usage limits. `isQuotaExceededError(detail)` keeps those failures distinct from request-rate limits.
+- `EMPTY_RESPONSE_CODE` — the provider-neutral code both adapters use for a degenerate provider completion: a terminal `stop` that carried no content blocks at all. Classified as an error finish (not a successful empty message) because the attempt produced nothing durable; `dsh-llm-retry` retries it by default.
 
 ### Real adapters
 
@@ -70,8 +73,8 @@ Pass-through; the registry preserves the assembled request prefix, while the sel
 ## Known Limitations and Deferred Work
 
 - **No default retry/caching/rate-limit policy ships in this service** — `llm/stream` remains a single-attempt call-wrapper seam; the agent loop separately offers proven model-request failures to `agent/request-error`, whose default preserves the original failure. `@deepseek-ai/dsh-llm-retry` is an optional policy plugin loaded by the shared example spine.
-- **`GenerateOptions` sampling is `temperature`/`maxTokens`/`stop` only** — no `tool_choice`, `top_p`, or penalty fields; the vocabulary grows when a producer lands ([dropped inert knobs](../../../.agents/notes/implemented/simplification/2026-07-04-drop-inert-request-knobs.md)).
-- **Producer-gated variants stay out until produced** — `prefill`, per-tool `strict`, block `cache` hints, and the `agent` message-source variant were pruned as producerless ([Agent Note](../../../.agents/notes/implemented/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)).
+- **`GenerateOptions` sampling is `temperature`/`maxTokens`/`stop` only** — no `tool_choice`, `top_p`, or penalty fields; the vocabulary grows when a producer lands ([dropped inert knobs](../../../.agents/notes/archived/simplification/2026-07-04-drop-inert-request-knobs.md)).
+- **Producer-gated variants stay out until produced** — `prefill`, per-tool `strict`, block `cache` hints, and the `agent` message-source variant were pruned as producerless ([Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)).
 - **`BlockAssembler` handles core block kinds only** — a plugin-added block type whose stream is never closed by `block-end` makes `blocks()` throw.
 - **`APP_IDENTITY.url` names a repository that does not exist yet** — `FIXME`: creating the public `deepseek-ai/deepseek-harness-sdk` repo gates the first release.
 - **`GenerateOptions.sessionId` is a locally-declared brand** — importing dsh-session's `SessionId` would cycle; a future ids-owning package would dissolve the workaround.

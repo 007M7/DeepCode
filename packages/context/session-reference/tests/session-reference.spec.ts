@@ -23,9 +23,12 @@ class TestSessionQueryService extends SessionQueryService {
   }
 
   override searchEvents(
-    ..._args: Parameters<SessionQueryService['searchEvents']>
+    ...args: Parameters<SessionQueryService['searchEvents']>
   ): ReturnType<SessionQueryService['searchEvents']> {
-    return Promise.resolve({ items: [] })
+    return this.readSurface(args[0].sessionId).then(surface => ({
+      session: surface.session,
+      items: [],
+    }))
   }
 }
 
@@ -75,7 +78,7 @@ function appendConversation(session: Session): void {
     { surfaceOp: 'append' },
   )
   session.append(
-    'context/message',
+    'user/message',
     { content: [{ type: 'text', text: 'workspace secret' }], source: { kind: 'plugin', plugin: 'workspace' } },
     { surfaceOp: 'append' },
   )

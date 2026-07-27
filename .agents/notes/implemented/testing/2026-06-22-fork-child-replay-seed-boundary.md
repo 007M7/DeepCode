@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-22-fork-child-replay-seed-boundary.zh.md)
+
 ## Problem
 
 The [per-session snapshot replay Agent Note](2026-06-22-subagent-snapshot-replay.md) made the snapshot tier express a nested-agent shape: a parent plus one recorded log per in-process subagent, each replayed as its own script keyed by calling session. It noted (§ Scope, final bullet) that a fork snapshot was "a trivial future addition, not a gap in the keying." That was wrong about a fork child specifically — not the keying, but the *script derivation*.
@@ -33,7 +35,7 @@ The SQLite layout containing `seed_length`, `source_event_seqs`, and `surface_op
 
 `dsh-llm-replay`'s `parseSessionHeader` now also reads `seedLength` (absent ⇒ 0), and `loadSessionScripts` derives a child's entries from `parseSessionLog(text).slice(seedLength)` — the events at or after the boundary, i.e. the child's own model calls. For a spawn child `seedLength` is 0 and this is a no-op, so spawn scenarios are byte-for-byte unchanged.
 
-This closes the routing correctness gap, and two recorded fork scenarios exercise it end to end — see [Record fork and mixed spawn+fork snapshot scenarios](2026-06-22-fork-snapshot-scenarios.md).
+This closes the routing correctness gap, and two recorded fork scenarios exercise it end to end — see [Record fork and mixed spawn+fork snapshot scenarios](../../archived/testing/2026-06-22-fork-snapshot-scenarios.md).
 
 ## Alternatives considered
 

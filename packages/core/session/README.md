@@ -1,5 +1,7 @@
 # dsh-session
 
+English | [中文](README.zh.md)
+
 Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (an ordered projection of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
 
 The optional `@deepseek-ai/dsh-session/invariant` companion registers this package's relational trace checks with `ctx.invariants`: monotonic sequence numbers, turn/step enclosure, and same-step tool call/result pairing. It replays existing sessions when loaded or reloaded; storage validation, snapshotting, freezing, provenance, and surface acceptance remain always-on responsibilities of the root session package.
@@ -50,7 +52,7 @@ Durable values need one accepted representation, not a check followed by a secon
 
 ### Chunk-row storage codec (`chunk-rows.ts`)
 
-Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/chunk` lines whose JSON envelopes dwarf their payloads. `packChunkRuns(events)` packs each run of ≥3 consecutive same-block delta chunks into one storage row — `text-chunks`, `reasoning-chunks`, or `tool-call-chunks` (bare slash-less tags: storage vocabulary, not `SessionEventMap` members) — and `decodeStorageRecord(value)` expands a parsed line back into its exact events (`seq0`/`time0` + per-member `dt` gaps reconstruct every `seq`/`time`). The encoder whitelists exact shapes and stores anything unrecognized verbatim; the decoder validates row-tagged values and throws on malformation. Owned here so the JSONL backend and the fixture readers (`dsh-llm-replay`, `dsh-acp-snapshot`) share one codec; the write-side switch is the backend's `packChunks` config.
+Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/chunk` lines whose JSON envelopes dwarf their payloads. `packChunkRuns(events)` packs each run of ≥3 consecutive same-block delta chunks into one storage row — `text-chunks`, `reasoning-chunks`, or `tool-call-chunks` (bare slash-less tags: storage vocabulary, not `SessionEventMap` members) — and `decodeStorageRecord(value)` expands a parsed line back into its exact events (`seq0`/`time0` + per-member `dt` gaps reconstruct every `seq`/`time`). The encoder whitelists exact shapes and stores anything unrecognized verbatim; the decoder validates row-tagged values and throws on malformation. Owned here so the JSONL backend and the fixture readers (`dsh-llm-replay`, `dsh-acp-snapshot`) share one codec; the backend's default-enabled `packChunks` config controls writes only.
 
 ### Surface types
 
@@ -64,7 +66,7 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 
 `request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-`context/message` renders its `content` verbatim as a user-role message, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`. A `user/message` or `steering/message` with prompt-prefix context keeps the exact combined model bytes in `content` and stores a model-hidden `envelope` containing the direct `displayContent` and prefix context source/metadata descriptors. `displayPromptContent()` selects the human-facing prompt without changing derived history.
+A `user/message` renders its `content` verbatim as a user-role message whether it is a direct human prompt (`user` source), a synthetic injection (`plugin`/`goal` source), or an admitted goal round — `source` is the only channel that tells them apart. It may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`. A `user/message` or `steering/message` with prompt-prefix context keeps the exact combined model bytes in `content` and stores a model-hidden `envelope` containing the direct `displayContent` and prefix context source/metadata descriptors. `displayPromptContent()` selects the human-facing prompt without changing derived history.
 
 `tool/result` persists the model-facing content, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message. This preserves the existing event shape and does not change `SESSION_FORMAT_VERSION`.
 
@@ -99,7 +101,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 #### What the model sees
 
-The model receives projections of `user/message`, `assistant/message`, `tool/result`, `context/message`, and `steering/message` surface entries verbatim: each is a user- or assistant-role message carrying its content blocks unchanged. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+The model receives projections of `user/message`, `assistant/message`, `tool/result`, and `steering/message` surface entries verbatim: each is a user- or assistant-role message carrying its content blocks unchanged. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
 #### Token effect
 

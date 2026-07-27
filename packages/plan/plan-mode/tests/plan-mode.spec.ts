@@ -95,7 +95,7 @@ function header(session: Session): void {
 
 function noticeTexts(session: Session): string[] {
   return session.events
-    .filter(event => event.type === 'context/message')
+    .filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     .map(event => (event.data as { content: { type: string; text?: string }[] }).content.map(block => block.text ?? '').join(''))
 }
 
@@ -752,7 +752,7 @@ describe('exit_plan_mode', () => {
     const result = await ctx.tools.execute({
       callId: CallId(`call-exit-${++callCounter}`),
       name: RUN_CODE_NAME,
-      arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })` },
+      arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })`, description: 'Submit the plan for review' },
       signal: new AbortController().signal,
       agent,
     })

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-10-session-query-service.zh.md)
+
 ## Problem
 
 Session history exists in two places: current `SessionStore` objects and an optional persistence backend. Consumers that need exact inspection would otherwise duplicate live-versus-persisted precedence, persistence lifecycle handling, raw-event surface classification, relationship tracing, and defensive cloning. Durable state can lag the live log between checkpoints, so persistence alone is not a truthful current source.
@@ -10,7 +12,7 @@ Full-text search is related but materially larger. Putting provider coordination
 
 ## Decision
 
-`@deepseek-ai/dsh-session-query` owns the single abstract `ctx.sessionQuery` service over one logical corpus. It concretely implements `listSessions()`, provider-independent `filterSessions(filters)`, `listEvents(sessionId)`, `filterEvents(sessionId, filters)`, bounded `readEvent(request)`, `traceSession(sessionId)`, and `traceEvent(request)`, while concrete backends implement its two full-text methods. The [unified service decision](../architecture/2026-07-23-unified-session-query-service.md) owns that topology, the [SQLite search decision](2026-07-10-sqlite-session-query-provider.md) owns search behavior, and the [tracing decision](2026-07-13-session-query-tracing.md) owns lineage and event-relationship semantics.
+`@deepseek-ai/dsh-session-query` owns the single abstract `ctx.sessionQuery` service over one logical corpus. It concretely implements `listSessions()`, provider-independent `filterSessions(filters)`, `listEvents(sessionId)`, `filterEvents(sessionId, filters)`, bounded `readEvent(request)`, `traceSession(sessionId)`, and `traceEvent(request)`, while concrete backends implement its two full-text methods. The [unified service decision](../../archived/architecture/2026-07-23-unified-session-query-service.md) owns that topology, the [SQLite search decision](2026-07-10-sqlite-session-query-provider.md) owns search behavior, and the [tracing decision](2026-07-13-session-query-tracing.md) owns lineage and event-relationship semantics.
 
 The service observes the optional `ctx.sessionPersistence` binding dynamically but retains no persisted cache or invalidation listener. Each cross-corpus list asks the active backend for authoritative metadata, then overlays a fresh live-store list. Matching ids become one `SessionRecord`: the live header wins and `live`/`persisted` independently report source availability. Immutable header disagreement is `SESSION_QUERY_SOURCE_CONFLICT`.
 

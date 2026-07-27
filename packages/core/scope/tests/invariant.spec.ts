@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Events } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import * as ScopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -42,7 +42,9 @@ describe('scoped-dispatch invariants', () => {
       'agent/created': [agent],
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
-      'agent/queued': [agent, [], { source: { kind: 'user' }, contexts: [], steering: false }],
+      'agent/inbox/enqueue': [agent, { id: AgentMessageId('m'), content: [], source: { kind: 'user' }, contexts: [], steering: false, wakeup: true }],
+      'agent/inbox/dequeue': [agent, { id: AgentMessageId('m'), content: [], source: { kind: 'user' }, contexts: [], steering: false, wakeup: true }],
+      'agent/inbox/discard': [agent, []],
       'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
       'agent/pre-step': [agent, 1, 1, signal],
@@ -61,6 +63,7 @@ describe('scoped-dispatch invariants', () => {
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
       ['goal/changed', [agent, { operation: 'create', ref: { id: 'goal-a', revision: 1 } }]],
       ['system-prompt/assemble', [[], { scope: agent }]],
+      ['tools/code-dispatch-log', [{ exec: { callId: 'c', name: 't', arguments: {} }, agent, subCallId: 'c:code:1', name: 't', isError: false, content: [] }, () => Promise.resolve([])]],
       ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
       ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],

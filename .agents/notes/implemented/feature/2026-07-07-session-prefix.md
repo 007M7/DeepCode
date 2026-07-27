@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-07-session-prefix.zh.md)
+
 ## Problem
 
 A plugin often owns a session-stable opener the model must always see — a skills catalog, an AGENTS.md digest, a workspace baseline. Before this seam the harness offered two homes, and both are wrong for that content. The system prompt is one rendered string: message-shaped content (a user-role `<system-reminder>` envelope, a multi-message primer) does not fit it, and providers weight conversation messages differently from system text. Durable history (`agent.inject()`, a `context/message` at session start) makes the opener permanent: every `deriveMessages()` consumer replays it, the compaction retention walk owns it, forks bake it in stale, and a resume cannot refresh it — a catalog captured at session birth outlives the world it described.
@@ -22,7 +24,7 @@ Because composition runs before the boundary snapshot, a composing listener's se
 
 ## Testing
 
-[Interception tests](../../../../packages/core/agent-loop/tests/interception.spec.ts) pin compose-once reuse without changed headers, prepend order, empty-prefix omission, immutability, composition before pre-step, and the prefix on the routed header; [cancellation tests](../../../../packages/core/agent-loop/tests/cancel.spec.ts) pin discard and recomposition. Session, invariant, token-meter, and compaction tests cover header round trips, request reconstruction, and durable prefix-aware pressure accounting. Snapshot normalization preserves prefix counts, while the [pinned-header scenario](../testing/2026-07-06-pin-request-header-content-in-one-scenario.md) owns content and the default example remains prefix-free. The provider-independent seam needs no dedicated e2e; the with-key [request-cache e2e](../../../../packages/core/agent-loop/tests/request-cache.e2e.ts) covers its cache economics.
+[Interception tests](../../../../packages/core/agent-loop/tests/interception.spec.ts) pin compose-once reuse without changed headers, prepend order, empty-prefix omission, immutability, composition before pre-step, and the prefix on the routed header; [cancellation tests](../../../../packages/core/agent-loop/tests/cancel.spec.ts) pin discard and recomposition. Session, invariant, token-meter, and compaction tests cover header round trips, request reconstruction, and durable prefix-aware pressure accounting. Snapshot normalization preserves prefix counts, while the [pinned-header scenario](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md) owns content and the default example remains prefix-free. The provider-independent seam needs no dedicated e2e; the with-key [request-cache e2e](../../../../packages/core/agent-loop/tests/request-cache.e2e.ts) covers its cache economics.
 
 ## Alternatives considered
 

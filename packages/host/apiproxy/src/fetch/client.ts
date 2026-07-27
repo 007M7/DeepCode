@@ -23,6 +23,14 @@ import {
   sessionPromptValueSchema,
   sessionSelectModelValueSchema,
 } from '../api/sessions.schema.ts'
+import {
+  workspaceCreateValueSchema,
+  workspaceInsertSessionBeforeValueSchema,
+  workspaceListValueSchema,
+  workspaceRenameValueSchema,
+} from '../api/workspace.schema.ts'
+import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
+import { skillListValueSchema } from '../api/skills.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -52,6 +60,19 @@ export interface IApiClient {
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
   }
+  workspace: {
+    list(payload: RequestPayload<'workspace.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.list'>>>
+    create(payload: RequestPayload<'workspace.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.create'>>>
+    rename(payload: RequestPayload<'workspace.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.rename'>>>
+    insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
+  }
+  commands: {
+    list(payload: RequestPayload<'command.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'command.list'>>>
+    execute(payload: RequestPayload<'command.execute'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'command.execute'>>>
+  }
+  skills: {
+    list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
+  }
   events: {
     mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
     host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>>
@@ -73,6 +94,13 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.prompt': sessionPromptValueSchema,
   'session.cancel': sessionCancelValueSchema,
   'host.describe': hostDescribeValueSchema,
+  'workspace.list': workspaceListValueSchema,
+  'workspace.create': workspaceCreateValueSchema,
+  'workspace.rename': workspaceRenameValueSchema,
+  'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
+  'command.list': commandListValueSchema,
+  'command.execute': commandExecuteValueSchema,
+  'skill.list': skillListValueSchema,
 }
 
 /** Default unary timeout (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -259,6 +287,22 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly host: IApiClient['host'] = {
     describe: (payload, signal) => this.callUnary('host.describe', payload, signal),
+  }
+
+  readonly workspace: IApiClient['workspace'] = {
+    list: (payload, signal) => this.callUnary('workspace.list', payload, signal),
+    create: (payload, signal) => this.callUnary('workspace.create', payload, signal),
+    rename: (payload, signal) => this.callUnary('workspace.rename', payload, signal),
+    insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
+  }
+
+  readonly commands: IApiClient['commands'] = {
+    list: (payload, signal) => this.callUnary('command.list', payload, signal),
+    execute: (payload, signal) => this.callUnary('command.execute', payload, signal),
+  }
+
+  readonly skills: IApiClient['skills'] = {
+    list: (payload, signal) => this.callUnary('skill.list', payload, signal),
   }
 
   readonly events: IApiClient['events'] = {

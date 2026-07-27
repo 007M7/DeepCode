@@ -1,14 +1,8 @@
-/**
- * SessionProvider (framework-wired render prop, slot terminal design §7) plus
- * the two internal channels the render machinery shares: the renderer host
- * context (written once by createSlotRenderer's root) and the per-session
- * binding context (written here, read by session-scope outlets). Both
- * contexts are in-package machinery — they are NOT exported from the package
- * index; business components see zero React contexts.
- */
+/** Internal React bindings for the renderer host and active session provide bundle. */
 import { createContext, useContext, type ReactNode } from 'react'
 import type {
-  HostObservable, SessionCell, SlotRendererHost, SnapshotSelectorHook,
+  HostObservable, MaybeSnapshotSelectorHook, SessionMaybeProvideInfo, SessionProvideInfo,
+  SlotRendererHost, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { bindSnapshotSelector } from './bind.ts'
 
@@ -20,7 +14,7 @@ import { bindSnapshotSelector } from './bind.ts'
  */
 export class SlotAssemblyError extends Error {}
 
-/** Renderer host channel: written by createSlotRenderer's root element (in-package machinery only). */
+/** In-package renderer host context. */
 export const HostContext = createContext<SlotRendererHost | null>(null)
 
 /**
@@ -34,18 +28,24 @@ export function useHost(): SlotRendererHost {
   return host
 }
 
-/** Per-session binding channel for the subtree under SessionProvider (in-package machinery only). */
-const BindingContext = createContext<SessionCell | null>(null)
+const BindingContext = createContext<SessionMaybeProvideInfo | null>(null)
+
+/** Read the current-session-optional bundle supplied at the root. */
+export function useSessionMaybeProvideInfo(): SessionMaybeProvideInfo {
+  const info = useContext(BindingContext)
+  if (!info) throw new SlotAssemblyError('session-aware slot rendered outside the root binding provider')
+  return info
+}
 
 /**
- * Read the enclosing session cell; throws outside a SessionProvider subtree
- * (session slots must not render without a session).
- * @returns the enclosing cell.
+ * Read the enclosing session provide bundle; throws outside a SessionProvider
+ * subtree (session slots must not render without a session).
+ * @returns the enclosing bundle.
  */
-export function useSessionCell(): SessionCell {
-  const cell = useContext(BindingContext)
-  if (!cell) throw new SlotAssemblyError('session slot rendered outside SessionProvider')
-  return cell
+export function useSessionProvideInfo(): SessionProvideInfo {
+  const info = useSessionMaybeProvideInfo()
+  if (info.sessionId === undefined) throw new SlotAssemblyError('strict session slot rendered without a session')
+  return info as SessionProvideInfo
 }
 
 /**
@@ -65,6 +65,36 @@ export function observableHook<T>(source: HostObservable<T>): SnapshotSelectorHo
 }
 const hookCache = new WeakMap<object, unknown>()
 
+const absentSource: HostObservable<undefined> = {
+  getSnapshot: () => undefined,
+  subscribe: () => () => {},
+}
+
+/** Bind a source that disappears with the current session to an optional selector hook. */
+export function maybeObservableHook<T>(source: HostObservable<T> | undefined): MaybeSnapshotSelectorHook<T> {
+  if (source !== undefined) return observableHook(source)
+  return useAbsentSnapshot as MaybeSnapshotSelectorHook<T>
+}
+
+function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S, b: S) => boolean): S | undefined {
+  return observableHook(absentSource)(() => undefined)
+}
+
+/**
+ * Root-level binding provider. It follows current selection without a key, so
+ * session-maybe entries retain their React identity while the context value
+ * moves between absent and definite session bundles.
+ */
+export function SessionMaybeProvider({ children }: { children: ReactNode }) {
+  const host = useHost()
+  const id = observableHook(host.sessions.current)((s) => s)
+  return (
+    <BindingContext.Provider value={host.sessions.maybeProvideInfo(id)}>
+      {children}
+    </BindingContext.Provider>
+  )
+}
+
 /** SessionProvider surface: render-prop body plus the no-session branch. */
 export interface SessionProviderProps {
   /** No-session body (also covers a current id whose session cannot be resolved). */
@@ -75,19 +105,18 @@ export interface SessionProviderProps {
 
 /**
  * Framework-wired session area: subscribes to the host's current-session
- * source (design fiat ① — selection authority lives with runtime sessions),
- * resolves the session cell, and remounts the body under key={sessionId} so
- * a session switch rebuilds the whole session subtree. Ids speak plain
- * string at this dependency-inverted layer; branding lands on the component
- * props seam (PropsRuntime).
+ * source, resolves the session cell, and remounts the body under
+ * `key={sessionId}` so a session switch rebuilds the session subtree. This
+ * dependency-inverted layer uses plain string ids; `PropsRuntime` applies the
+ * branded type at the component boundary.
  */
 export function SessionProvider({ empty, children }: SessionProviderProps) {
   const host = useHost()
   const id = observableHook(host.sessions.current)((s) => s)
-  const cell = id === undefined ? undefined : host.sessions.cell(id)
-  if (id === undefined || cell === undefined) return <>{empty?.() ?? null}</>
+  const info = id === undefined ? undefined : host.sessions.provideInfo(id)
+  if (id === undefined || info === undefined) return <>{empty?.() ?? null}</>
   return (
-    <BindingContext.Provider value={cell} key={id}>
+    <BindingContext.Provider value={info} key={id}>
       {children(id)}
     </BindingContext.Provider>
   )

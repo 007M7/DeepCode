@@ -3,7 +3,7 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { GoalErrorCode, GoalId as GoalIdType } from './types.ts'
 
-/** Version of the goal change metadata embedded in `context/message`. */
+/** Version of the goal change metadata embedded in a round-zero `user/message`. */
 export const GOAL_CHANGE_VERSION = 1
 
 /**

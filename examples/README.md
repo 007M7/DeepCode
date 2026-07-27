@@ -1,6 +1,8 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks swappable backends, loads one app package, and may add optional product tools. The composition and boot glue live in [`@deepseek-ai/dsh-tui-demo`](../packages/examples/tui-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle. There is no `start.ts`; the `demo:*` scripts invoke each app package's bin.
+English | [中文](README.zh.md)
+
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks swappable backends, loads one app package, and may add optional product tools. The composition and boot glue live in [`@deepseek-ai/dsh-tui-demo`](../packages/examples/tui-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle. There is no `start.ts`; the terminal `demo:*` scripts boot through the [`dsh`](../apps/cli/README.md) CLI (which mounts the `tui-demo` bundle), and the headless/ACP scripts invoke the `cli-demo`/`acp-demo` bins.
 
 ## headless-agent
 
@@ -26,8 +28,8 @@ Run with: `pnpm run demo:cordis` (needs `DEEPSEEK_API_KEY`). See [cordis-agent/R
 
 ## acp-agent
 
-An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) app — drive it from Zed or any other ACP client. It owns the ACP keyless snapshot suite.
+An agent exposed as an **Agent Client Protocol (ACP)** automation server over JSON-RPC stdio, via [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo). Programmatic clients create fresh sessions, send text prompts, consume committed assistant text, answer one-shot permission requests, and cancel work. It owns the ACP keyless snapshot suite.
 
-Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
+Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the protocol and snapshot-test contracts.
 
-The default `cordis.yml` composes [`@deepseek-ai/dsh-plan-mode`](../packages/plan/plan-mode), [`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local), [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox), [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval), and [`@deepseek-ai/dsh-permission`](../packages/ui/permission). A capable client gets a `default` / `plan` mode picker plus one independent `Permissions` select: plan adds model guidance and the reviewed `exit_plan_mode` crossing without changing enforcement, while `workspace-write` confines bash to the configured workspace and asks before a wider retry. See [acp-agent/README.md](acp-agent/README.md#plan-mode) for the plan-review and elicitation flow.
+The default `cordis.yml` composes [`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local), [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox), and [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval). `workspace-write` confines bash and filesystem mutations to each session workspace; a wider retry becomes a one-shot machine permission request over ACP.

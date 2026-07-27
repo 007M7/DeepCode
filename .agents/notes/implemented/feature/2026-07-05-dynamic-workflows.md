@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-05-dynamic-workflows.zh.md)
+
 ## Problem
 
 The harness can delegate ONE task to ONE child (`dsh-tool-subagent`), but work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — forces the model to orchestrate turn by turn: every intermediate result lands in the parent context, the plan lives nowhere durable, and coordination costs a model round-trip per step. Claude Code ships this capability as [dynamic workflows](https://code.claude.com/docs/en/workflows): the model writes a JavaScript orchestration script, a runtime executes it, and the script — not the conversation — holds the loop, the branching, and the intermediate results.
@@ -58,7 +60,7 @@ Worker-side logic runs through an in-process `MessageChannel` so V8 coverage mea
 - **Nested `workflow()`**, **token `budget`**, and the `effort`/`isolation`/`agentType` agent options (each rejects loud with a message naming it deferred).
 - **An overall run wall-clock timeout** — cancellation always frees the caller (result settles within the grace), so a cap on total run time is a policy knob for the background redesign, not a correctness need here.
 - **Engine hardening beyond worker threads**: an isolated-vm or separate-process engine behind the same seam (actual sandboxing; memory limits).
-- **ACP progress UI** over the `workflow/*` events (a `/workflows`-style view); the events exist for it.
+- **Human-interface progress UI** over the `workflow/*` events (a `/workflows`-style view); the events exist for it.
 - **ACP-backend structured output** and **`toolFilter`** (both still capability-gated `false`).
 
 ## Alternatives considered

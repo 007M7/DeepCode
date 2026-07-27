@@ -47,6 +47,8 @@ const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
   name: string
+  /** Deployment environment for this scenario's subprocess. */
+  env?: NodeJS.ProcessEnv
   /** Whether the scenario drives at least one model turn (so a JSONL expected output applies). */
   hasModelTurn: boolean
   /**
@@ -69,12 +71,13 @@ export interface Scenario {
   recorded: boolean
   /**
    * Whether replay is driven by a hand-written `replay.override.json` sidecar
-   * (a `ReplayEntry[]` that REPLACES the script derived from `session.jsonl`)
-   * — the throw/hang cases chunks cannot express. The fixture guard requires
-   * the sidecar exactly when this is set: the harness forwards the file purely
-   * on existence, so an unregistered stray sidecar would silently replace the
-   * derived script — the guard fails loud on either mismatch. Defaults to
-   * false (replay derives from the fixture's `assistant/chunk` events).
+   * (a `ReplayOverrideDoc` that replaces or patches the script derived from
+   * `session.jsonl`) — the throw/hang cases chunks cannot express. The fixture
+   * guard requires the sidecar exactly when this is set: the harness forwards
+   * the file purely on existence, so an unregistered stray sidecar would
+   * silently alter the derived script. The guard fails loud on either
+   * mismatch. Defaults to false (replay derives from the fixture's
+   * `assistant/chunk` events).
    */
   overridden?: boolean
   /**
@@ -604,6 +607,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           agent,
           mode: childMode,
           fixtureFile: join(dir, 'session.jsonl'),
+          ...scenario.env !== undefined ? { env: scenario.env } : {},
           ...existsSync(overrideFile) ? { overrideFile } : {},
           // In REPLAY, forward the recorded child fixtures so each subagent session
           // replays from its own script. In RECORD they are harvested, not read.
@@ -629,6 +633,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             ...result.sessionLogs.map(l => l.id),
           ],
           cwd: result.cwd,
+          cwdAliases: result.cwdAliases,
         }
 
         // Record writes live model fixtures; keyless refresh writes every comparable replayed

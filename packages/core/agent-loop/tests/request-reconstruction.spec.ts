@@ -41,7 +41,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 /** Assert `previous` is a strict value-prefix of `current`. */
@@ -118,7 +118,7 @@ describe('request stability across the loop', () => {
       preStep()
       const session = agent.session
       const nodes = session.surface.nodes
-      session.append('context/message', {
+      session.append('user/message', {
         content: [{ type: 'text', text: '[summary of turn 1]' }],
         source: { kind: 'plugin', plugin: 'test-compact' },
       }, {
@@ -180,7 +180,7 @@ describe('request stability across the loop', () => {
     const first = adapter.requests[0]!
     // The inject landed in the log after the boundary: not in THIS request…
     expect(first.messages.some(m => m.content.some(b => b.type === 'text' && b.text.includes('[late context]')))).toBe(false)
-    expect(agent.session.events.some(e => e.type === 'context/message')).toBe(true)
+    expect(agent.session.events.some(e => e.type === 'user/message' && e.data.source.kind === 'plugin')).toBe(true)
 
     send(agent, 'second')
     await waitForIdle(ctx, agent)

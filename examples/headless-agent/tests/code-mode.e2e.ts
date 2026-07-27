@@ -19,7 +19,7 @@ import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
@@ -85,7 +85,7 @@ function runCode(harness: Context, code: string, signal: AbortSignal = testToolS
   return harness.tools.execute({
     callId: CallId(`keyless-code-${++keylessCall}`),
     name: RUN_CODE_NAME,
-    arguments: { code },
+    arguments: { code, description: 'Run the e2e program' },
     signal,
   })
 }
@@ -112,7 +112,7 @@ async function typedCodeModeHarness(): Promise<Context> {
 /** Keyless real-worker harness with the task-owned bash lifecycle. */
 async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
   const harness = await typedCodeModeHarness()
-  await harness.plugin(TaskService)
+  await harness.plugin(LocalTaskService)
   await harness.plugin(ToolTasks, {})
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
@@ -311,7 +311,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     ctx = await codeModeHarness(workdir)
     const agent = ctx.agentLoop.create(SessionId('e2e-code-mode'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.send([{
+    agent.followup([{
       type: 'text',
       text: 'Using one run_code program: run `echo alpha-7` with the bash tool, run `echo beta-9` with the bash tool, '
         + 'then write both outputs joined by a plus sign into combined.txt (bash heredoc or redirect), '
@@ -363,7 +363,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
 
-    handle.agent.send([{
+    handle.agent.followup([{
       type: 'text',
       text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
     }])
@@ -372,7 +372,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     const events: SessionEvent[] = [...handle.agent.session.events]
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')
     const outerResult = events.find(event => event.type === 'tool/result')
-    const workspaceContext = events.find(event => event.type === 'context/message'
+    const workspaceContext = events.find(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
       && typeof event.data.meta === 'object'
       && event.data.meta !== null
       && !Array.isArray(event.data.meta)

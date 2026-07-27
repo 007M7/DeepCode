@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService, { PtyBackendCleanupError, PtyError, PtySessionId } from '@deepseek-ai/dsh-pty'
 import type {
@@ -27,9 +27,11 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     session: new Session(id),
     status: 'idle',
     ctx: scopeFiber.ctx,
-    send() {},
-    steer() {},
-    inject() {},
+    followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject: () => AgentMessageId('stub'),
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

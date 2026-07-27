@@ -1,21 +1,19 @@
-// Session: wraps every contract call that needs a sessionId + all conversation state for this
-// session (design §A.2/§A.9/§D.2/§D.3). Instances are resident (ruling 2): never destroyed once
-// created, they keep consuming mux frames in the background; React connects directly via
-// subscribe/getSnapshot.
+// Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
+import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, ModelTarget, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, SessionModels, ToolEventView,
+  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
+  SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  ConversationNode, ConversationSnapshot, ModelSelectionSnapshot, OpenState, PromptError,
-  RunningToolCall,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
+  PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -23,14 +21,45 @@ import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
 
-/** Messages per page (F.4 ledger: promote to Config at graduation; every call site references this constant). */
+/** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
+/** Manager-owned observers of a Session object's local state edges. */
+export interface SessionOptions {
+  /**
+   * First ACCEPTED prompt on a blank session (fires at most once, on the
+   * prompt RPC's success response): the manager mirrors the blank→false flip
+   * into its list row so the session surfaces without waiting for a host
+   * frame. Acceptance is the flip point because it proves the user message
+   * is in the host log; a rejected first prompt keeps the session blank
+   * (hidden, still reusable by connectWorkspace).
+   */
+  onEngaged?(session: Session): void
+}
+
+/** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
+const QUEUE_PREVIEW_CHARS = 200
+
+/** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
+interface QueuedEntry {
+  row: QueuedMessage
+  steering: boolean
+  /** JSON-serialized MessageSource (steering retirement matches by source, the host-mirror precedent). */
+  sourceJson: string
+}
+
+/** Single-line queue-row preview: text blocks flattened, non-text as tags, capped by code point. */
+function queuePreviewOf(content: readonly ContentBlock[]): string {
+  const flat = content
+    .map(block => (block.type === 'text' ? block.text : `[${block.type}]`))
+    .join(' ').replace(/\s+/g, ' ').trim()
+  const chars = Array.from(flat)
+  return chars.length > QUEUE_PREVIEW_CHARS ? `${chars.slice(0, QUEUE_PREVIEW_CHARS).join('')}…` : flat
+}
+
 /**
- * Per-session state owner: event window + fold + partial, snapshot out via
- * subscribe/getSnapshot (see the web client architecture RFC). Bare source
- * only (store migration): the React machinery binds the per-cell useSession
- * hook at its own seam — no selector hook member lives on the data layer.
+ * Owns a session's event window, derived conversation state, and observable
+ * snapshot. React bindings remain outside this data layer.
  */
 export class Session implements ObservableSnapshot<ConversationSnapshot> {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
@@ -55,8 +84,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
   private frozenNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
-  // Revision counters + caches backing the snapshot's reference-stability contract (§A.9.4/§C.2,
-  // audit S5): buildSnapshot reuses the previous array when the revision is unchanged, so
+  // Revision counters preserve array identity when derived content is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
   // tool card and pending card). Mutation sites bump the matching revision. partial needs no
   // counter — PartialAccumulator.toPartial already returns a cached reference when unchanged.
@@ -64,26 +92,33 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
+  /** Inbox mirror (session/queued frames + mux-open baseline). Queue frames never hit history,
+   *  so this is stream-only state: reconnect clears it and the fresh baseline re-populates. */
+  private queued: QueuedEntry[] = []
+  private queueRev = 0
+  private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
+  /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
+   *  copy-on-write the per-parent array so published snapshot references never mutate. */
+  private codeDispatches = new Map<string, readonly CodeSubCall[]>()
+  private dispatchesRev = 0
+  private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
+  /**
+   * Sticky send marker, private input of the composerPhase derivation: set
+   * synchronously before prompt()'s first await, never reset — the blank →
+   * engaging edge of the phase machine (see ComposerPhase).
+   */
+  private promptAttempted = false
+  /** Empty-log mirror (see ConversationSnapshot.blank); monotone false once flipped. */
+  private blankBit = false
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
-  private modelSelection: ModelSelectionSnapshot = {
-    current: null,
-    groups: [],
-    failures: [],
-    status: 'idle',
-    error: null,
-  }
-  /** Latest model-directory/selection operation; stale responses drop all writes. */
-  private modelGeneration = 0
-  /** Failed selection target; null means the retryable operation is a directory refresh. */
-  private modelRetryTarget: ModelTarget | null = null
-  /** Buffer for live events arriving while open/resync is in flight (stitched by seq once history lands, §D.3). */
+  /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
-  /** Gap-repair (resync-lite) in flight: acceptLiveEvent detours to liveBuffer until the tail page lands (audit S3). */
+  /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
   private stitching = false
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
@@ -92,9 +127,44 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
   })
+  /**
+   * Agent-scoped cordis context, bound once by SessionsService when it
+   * mints the scope (the client mirror of the host Agent's loopCtx). The
+   * Session dispatches its own scoped events through it; undefined means
+   * unbound (bare object-layer construction) or already pruned — both skip
+   * dispatch-dependent behavior rather than fail.
+   */
+  private actx: Context | undefined
 
-  constructor(readonly sessionId: SessionId, private readonly api: IApiClient) {
+  /**
+   * @param sessionId - Host session identity (client sessions are always Host-born).
+   * @param api - shared wire client.
+   * @param options - optional manager-owned state observers.
+   */
+  constructor(
+    readonly sessionId: SessionId,
+    private readonly api: IApiClient,
+    private readonly options: SessionOptions = {},
+  ) {
     this.snapshotCache = this.buildSnapshot()
+  }
+
+  /**
+   * Bind the Agent-scoped context minted by SessionsService (single write;
+   * a second bind is a wiring error and throws). Direction stays one-way at
+   * the seam: consumers still reach the Session via `sessions.sessionOf`,
+   * while the Session holds its own dispatch point (host Agent.loopCtx
+   * mirror).
+   * @param actx - the agent's scoped context.
+   */
+  bindScope(actx: Context): void {
+    if (this.actx !== undefined) throw new Error(`session ${this.sessionId} already has a bound scope`)
+    this.actx = actx
+  }
+
+  /** Release the bound scope at prune time (a later rebind accompanies a freshly minted scope). */
+  unbindScope(): void {
+    this.actx = undefined
   }
 
   // ---- Operations ----
@@ -108,6 +178,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   async prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>> {
     this.promptError = null
     this.lastAgentError = null
+    // Synchronous, before the first await: the blank → engaging edge must be
+    // visible on the session area's very first frame when a caller sends
+    // ahead of navigation (first-send flow).
+    this.promptAttempted = true
     this.notifier.markDirty()
     let result: RpcResult<{ accepted: true }>
     try {
@@ -117,6 +191,18 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
     if (!result.ok) {
       this.promptError = { op: 'send', error: result.error }
+      this.notifier.markDirty()
+      return result
+    }
+    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt has logged
+    // its user/message on the host (events.length > 0 is fact, not
+    // optimism), while a rejected first prompt must keep the session blank
+    // — the client-side blank mirror only ever lowers, so flipping early on
+    // a failure would surface the session forever and strip its
+    // connectWorkspace reuse eligibility against the host's authority.
+    if (this.blankBit) {
+      this.blankBit = false
+      this.options.onEngaged?.(this)
       this.notifier.markDirty()
     }
     return result
@@ -138,102 +224,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
-  }
-
-  /**
-   * Refresh the advisory provider/model directory. Independent provider
-   * failures remain in a successful snapshot; whole-request failures preserve
-   * the last usable groups and current target.
-   * @returns the model-directory RPC result.
-   */
-  async refreshModels(): Promise<RpcResult<SessionModels>> {
-    const generation = ++this.modelGeneration
-    this.modelRetryTarget = null
-    this.modelSelection = {
-      ...this.modelSelection,
-      status: 'loading',
-      error: null,
-    }
-    this.notifier.markDirty()
-    let result: RpcResult<SessionModels>
-    try {
-      result = (await this.api.sessions.models({ sessionId: this.sessionId })).result
-    } catch (error: unknown) {
-      result = transportError(error)
-    }
-    if (generation !== this.modelGeneration) return result
-    this.modelSelection = result.ok
-      ? {
-        current: result.value.current,
-        groups: result.value.groups,
-        failures: result.value.failures,
-        status: 'ready',
-        error: null,
-      }
-      : {
-        ...this.modelSelection,
-        status: 'error',
-        error: result.error,
-      }
-    this.notifier.markDirty()
-    return result
-  }
-
-  /**
-   * Select the complete route for this session. The host snapshots it at the
-   * next prompt-assembly boundary, so running work keeps its assembled target.
-   * @param target - Provider and provider-owned model id.
-   * @returns the selection RPC result.
-   */
-  async selectModel(target: ModelTarget): Promise<RpcResult<{ selected: ModelTarget }>> {
-    const generation = ++this.modelGeneration
-    this.modelRetryTarget = target
-    this.modelSelection = {
-      ...this.modelSelection,
-      status: 'selecting',
-      error: null,
-    }
-    this.notifier.markDirty()
-    let result: RpcResult<{ selected: ModelTarget }>
-    try {
-      result = (await this.api.sessions.selectModel({
-        sessionId: this.sessionId,
-        provider: target.provider,
-        model: target.model,
-      })).result
-    } catch (error: unknown) {
-      result = transportError(error)
-    }
-    if (generation !== this.modelGeneration) return result
-    if (result.ok) this.modelRetryTarget = null
-    this.modelSelection = result.ok
-      ? {
-        ...this.modelSelection,
-        current: result.value.selected,
-        status: 'ready',
-        error: null,
-      }
-      : {
-        ...this.modelSelection,
-        status: 'error',
-        error: result.error,
-      }
-    this.notifier.markDirty()
-    return result
-  }
-
-  /**
-   * Repeat the operation that produced the visible model error.
-   * A failed selection retains its exact target; directory failures refresh.
-   * @returns Whether a model selection succeeded; directory retries return false.
-   */
-  async retryModelOperation(): Promise<boolean> {
-    const target = this.modelRetryTarget
-    if (target === null) {
-      await this.refreshModels()
-      return false
-    }
-    return (await this.selectModel(target)).ok
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -290,6 +280,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  in-flight open first — its history request rode the dead connection and must not settle
    *  the fresh generation into 'error' (audit S4). */
   async resync(): Promise<void> {
+    // The queue mirror is NOT cleared here: onConnected (which drives resync)
+    // races the mux frames — the fresh generation's baseline may have landed
+    // already, and the host never resends it. The mirror re-baselines on the
+    // session/subscribed frame instead (same stream as the queue snapshot
+    // that follows it, so ordering is guaranteed).
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
@@ -338,12 +333,35 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
     switch (frame.type) {
       case 'session/event': {
+        this.retireQueued(frame.event)
         this.acceptLiveEvent(frame.event, frame.view)
+        return
+      }
+      case 'session/queued': {
+        // Row key: the enqueueing prompt's rpcId when it rode this wire (the
+        // provisional-echo reconciliation key); otherwise the frame envelope id.
+        const key = 'rpcId' in frame.source ? String(frame.source.rpcId) : `f:${rpcId}`
+        this.queued.push({
+          row: { key, preview: queuePreviewOf(frame.content) },
+          steering: frame.steering,
+          sourceJson: JSON.stringify(frame.source),
+        })
+        this.queueRev++
+        this.notifier.markDirty()
         return
       }
       case 'session/subscribed': {
         this.subscribedLastSeq = frame.lastSeq
-        return // pure baseline bookkeeping, no visible change
+        // New mux-generation baseline: the host pushes this session's queue
+        // snapshot AFTER the subscribed frame on the same stream, so the
+        // stale mirror clears here — race-free against onConnected/resync
+        // timing (clearing there could wipe a baseline that already landed).
+        if (this.queued.length > 0) {
+          this.queued = []
+          this.queueRev++
+          this.notifier.markDirty()
+        }
+        return
       }
       case 'approval/requested': {
         const { type: _type, sessionId: _sid, ...payload } = frame
@@ -380,8 +398,37 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @param running - the new running state.
    */
   handleRunning(running: boolean): void {
+    // Leave-running sweep (host queuedMirror precedent): discard paths (cancel,
+    // terminal steering drop) have no per-entry frame, so ANY not-running signal
+    // with a nonempty mirror clears it — checked before the equality return so a
+    // stale replay on an already-idle session still sweeps.
+    if (!running && this.queued.length > 0) {
+      this.queued = []
+      this.queueRev++
+      this.notifier.markDirty()
+    }
+    // Turn-start conversion: a blank session never runs, so the first
+    // running:true proves another端's first message landed (设计稿 2.2).
+    if (running && this.blankBit) {
+      this.blankBit = false
+      this.notifier.markDirty()
+    }
     if (this.running === running) return
     this.running = running
+    this.notifier.markDirty()
+  }
+
+  /**
+   * Blank-bit relay from the authoritative summary source (list baseline and
+   * the session-added frame). Monotone: once any signal (local first send,
+   * running flip, an earlier summary) cleared it, a stale true never
+   * re-blanks.
+   * @param blank - the summary's derived empty-log bit.
+   */
+  handleBlank(blank: boolean): void {
+    if (blank === this.blankBit) return
+    if (blank && (this.promptAttempted || this.running)) return
+    this.blankBit = blank
     this.notifier.markDirty()
   }
 
@@ -400,8 +447,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.notifier.markDirty()
   }
 
-  /** Instance-eviction hook, reserved no-op (design §F.6): resident instances are never destroyed
-   *  in v1; an eviction policy lands here (unsubscribe, drop buffers) without touching call sites. */
+  /** No-op because session instances remain resident. */
   dispose(): void {}
 
   // ---- 私有 ----
@@ -426,7 +472,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.openError = null
     this.notifier.markDirty()
     try {
-      let modelGeneration = this.modelGeneration
       let { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       if (generation !== this.openGeneration) return
       if (!result.ok) {
@@ -434,24 +479,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(
-        result.value.events,
-        result.value.hasMore,
-        modelGeneration === this.modelGeneration ? result.value.modelTarget : undefined,
-      )
+      this.installWindow(result.value.events, result.value.hasMore)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
-        modelGeneration = this.modelGeneration
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) {
-          this.installWindow(
-            result.value.events,
-            result.value.hasMore,
-            modelGeneration === this.modelGeneration ? result.value.modelTarget : undefined,
-          )
-        }
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore)
       }
       this.openState = 'open'
     } catch (error) {
@@ -469,30 +503,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
    *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean, modelTarget?: ModelTarget): void {
+  private installWindow(entries: HistoryEntry[], hasMore: boolean): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
-    if (modelTarget !== undefined) {
-      const current = this.modelSelection.current
-      if (
-        current === null
-        || current.provider !== modelTarget.provider
-        || current.model !== modelTarget.model
-        || this.modelSelection.error !== null
-      ) {
-        this.modelRetryTarget = null
-        this.modelSelection = {
-          ...this.modelSelection,
-          current: modelTarget,
-          status: this.modelSelection.groups.length > 0 ? 'ready' : 'idle',
-          error: null,
-        }
-      }
-    }
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -537,16 +554,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.stitching) return
     this.stitching = true
     const generation = this.openGeneration
-    const modelGeneration = this.modelGeneration
     try {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(
-          result.value.events,
-          result.value.hasMore,
-          modelGeneration === this.modelGeneration ? result.value.modelTarget : undefined,
-        )
+        this.installWindow(result.value.events, result.value.hasMore)
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
@@ -555,9 +567,89 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
+  /** Consumption-event retirement, mirroring the host queuedMirror rules: a message-triggered
+   *  turn/start claims the oldest non-steering entry; a steering/message drains the oldest
+   *  steering entry with the same source (loop-authored steering matches nothing and drops none). */
+  private retireQueued(event: SessionEvent): void {
+    if (this.queued.length === 0) return
+    let index = -1
+    if (event.type === 'turn/start') {
+      if (event.data.trigger.kind !== 'message') return
+      index = this.queued.findIndex(entry => !entry.steering)
+    } else if (event.type === 'steering/message') {
+      const source = JSON.stringify(event.data.source)
+      index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
+    } else {
+      return
+    }
+    if (index < 0) return
+    this.queued.splice(index, 1)
+    this.queueRev++
+    this.notifier.markDirty()
+  }
+
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
+    // the host-side dsh-tools plugin whose types cannot enter the client
+    // program (its host Context merges collide with the client's), so this
+    // wire consumer narrows them structurally — the same posture as every
+    // other cross-wire event payload.
+    if ((event.type as string) === 'tool/code-dispatch-start') {
+      // A started sub-dispatch enters the index as a RunningToolCall — the
+      // exact shape a native in-flight call renders from — under its parent
+      // run_code callId; it never joins the surface flow.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+      }
+      const running: CodeSubCall = {
+        callId: data.subCallId, name: data.name,
+        argsRaw: JSON.stringify(data.arguments),
+        turn: 0, step: 0, time: event.time, callView: null,
+      }
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      this.codeDispatches.set(data.parentCallId, [...siblings, running])
+      this.dispatchesRev++
+      return
+    }
+    if ((event.type as string) === 'tool/code-dispatch') {
+      // Settlement replaces the running entry in place (same array position,
+      // so parallel sub-calls keep their start order) with the
+      // ToolResultNode form; a settle with no observed start (history window
+      // cut mid-pair, or a pre-start-event log) appends directly.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+        isError: boolean
+        content: ContentBlock[]
+      }
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      const at = siblings.findIndex(sub => sub.callId === data.subCallId)
+      const started = at === -1 ? undefined : siblings[at]
+      const settled: CodeSubCall = {
+        kind: 'tool-result', seq: event.seq, time: event.time,
+        callId: data.subCallId,
+        call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
+        // Duration source: the paired start's time when observed; null =
+        // unknown (settle-only window), matching the native tool-result
+        // contract so views never present a fabricated zero duration.
+        callTime: started === undefined ? null : started.time,
+        content: data.content, isError: data.isError,
+        callView: null, resultView: null,
+      }
+      this.codeDispatches.set(
+        data.parentCallId,
+        at === -1 ? [...siblings, settled] : siblings.map((sub, index) => (index === at ? settled : sub)),
+      )
+      this.dispatchesRev++
+      return
+    }
     switch (event.type) {
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
@@ -576,7 +668,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       case 'tool/call': {
         this.openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
-          turn: event.data.turn, step: event.data.step,
+          turn: event.data.turn, step: event.data.step, time: event.time,
           callView: view?.for === 'call' ? view.view : null,
         })
         this.callsRev++
@@ -597,7 +689,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
             this.frozenNodes.push({
-              kind: 'assistant', seq: event.seq - 0.9, turn: this.partial.turn, step: this.partial.step,
+              kind: 'assistant', seq: event.seq - 0.9, time: event.time,
+              turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
             this.frozenRev++
@@ -611,8 +704,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
           this.frozenNodes.push({
-            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, callId,
+            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
+            callId,
             call: { name: call.name, argsRaw: call.argsRaw },
+            callTime: call.time,
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })
@@ -634,6 +729,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.callsRev++
     this.frozenNodes = []
     this.frozenRev++
+    this.codeDispatches = new Map()
+    this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -666,22 +763,50 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
+    if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
+      this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
+    }
+    if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
+      this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
+    }
+    const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
       nodes,
       foldDegraded: degraded,
-      partial: this.partial?.toPartial() ?? null,
+      partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
+      codeDispatches: this.dispatchesCache.value,
+      queue: this.queueCache.value,
       running: this.running,
+      composerPhase: derivePhase(
+        nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
+        this.promptAttempted,
+      ),
       removed: this.removed,
       openState: this.openState,
       openError: this.openError,
       hasMore: this.hasMore,
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
+      blank: this.blankBit,
       lastAgentError: this.lastAgentError,
-      modelSelection: this.modelSelection,
     }
   }
+}
+
+/**
+ * The composerPhase judgment — the single site that knows the predicate
+ * (consumers switch on the result, never re-derive). Monotone per session
+ * object: `hasContent` only grows within a window and `promptAttempted` is
+ * sticky, so blank → engaging → active never steps back; a failed first
+ * prompt stays engaging (retry semantics — see ComposerPhase).
+ * @param hasContent - any conversation material exists (nodes, partial, running turn, pending waits).
+ * @param promptAttempted - a prompt was initiated on this session object.
+ * @returns the derived phase.
+ */
+function derivePhase(hasContent: boolean, promptAttempted: boolean): ComposerPhase {
+  if (hasContent) return 'active'
+  return promptAttempted ? 'engaging' : 'blank'
 }

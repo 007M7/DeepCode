@@ -15,12 +15,6 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../../vendor/loader"
-    },
-    {
-      "path": "../../ui/app-boot"
-    },
-    {
       "path": "../../core/agent"
     },
     {

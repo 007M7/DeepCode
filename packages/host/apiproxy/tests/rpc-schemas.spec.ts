@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RpcId } from '../src/api/rpc.ts'
+import { RpcId, transportError } from '../src/api/rpc.ts'
 import {
   clientRequestSchema, clientResponseSchema, rpcErrorSchema, rpcIdSchema, rpcMessageSchema,
   rpcReceiptSchema, rpcResultSchema, serverRequestSchema, serverResponseSchema,
@@ -8,11 +8,21 @@ import { z } from 'zod'
 import {
   contentBlockSchema, sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
-  sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
-  sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
-  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
+  sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionPromptRequestSchema,
+  sessionPromptValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
+import {
+  workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
+  workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
+  workspaceListRequestSchema, workspaceListValueSchema,
+  workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
+} from '../src/api/workspace.schema.ts'
+import {
+  commandDescriptorSchema, commandExecuteRequestSchema, commandExecuteValueSchema,
+  commandListRequestSchema, commandListValueSchema,
+} from '../src/api/commands.schema.ts'
+import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
@@ -27,16 +37,24 @@ describe('RpcId', () => {
   })
 })
 
+describe('transportError', () => {
+  it('folds Error and non-Error throws into the internal error branch', () => {
+    expect(transportError(new Error('wire down'))).toEqual({ ok: false, error: { code: 'internal', message: 'wire down', details: {} } })
+    expect(transportError('raw')).toMatchObject({ ok: false, error: { code: 'internal', message: 'raw' } })
+  })
+})
+
 describe('rpcErrorSchema', () => {
   it('accepts every code branch with its required details', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
     expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
-    expect(rpcErrorSchema.parse({
-      code: 'model-unavailable',
-      message: 'm',
-      details: { provider: 'p', model: 'm' },
-    }).code).toBe('model-unavailable')
+    expect(rpcErrorSchema.parse({ code: 'session-conflict', message: 'm', details: { sessionId: 's', requestedCwd: '/a', existingCwd: '/b' } }).code).toBe('session-conflict')
+    expect(rpcErrorSchema.parse({ code: 'workspace-attach-failed', message: 'm', details: { sessionId: 's', workspaceId: 'w' } }).code).toBe('workspace-attach-failed')
+    expect(rpcErrorSchema.parse({ code: 'workspace-not-found', message: 'm', details: { workspaceId: 'w' } }).code).toBe('workspace-not-found')
+    expect(rpcErrorSchema.parse({ code: 'workspace-invalid-path', message: 'm', details: { path: '/x' } }).code).toBe('workspace-invalid-path')
+    expect(rpcErrorSchema.parse({ code: 'workspace-name-conflict', message: 'm', details: { name: 'x' } }).code).toBe('workspace-name-conflict')
+    expect(rpcErrorSchema.parse({ code: 'workspace-move-invalid', message: 'm', details: { workspaceId: 'w', sessionId: 's' } }).code).toBe('workspace-move-invalid')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
@@ -90,8 +108,10 @@ describe('sessions domain schemas', () => {
   it('validates ids, summaries, and the event passthrough envelope', () => {
     expect(sessionIdSchema.parse('s1')).toBe('s1')
     expect(() => sessionIdSchema.parse('')).toThrow()
-    expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false })).toMatchObject({ sessionId: 's1' })
-    expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: true, parentSessionId: 'p', cwd: '/x' }).cwd).toBe('/x')
+    expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false, blank: true })).toMatchObject({ sessionId: 's1', blank: true })
+    expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: true, blank: false, parentSessionId: 'p', cwd: '/x' }).cwd).toBe('/x')
+    // blank is mandatory: a summary without it fails the parse.
+    expect(() => sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false })).toThrow()
     const event = sessionEventSchema.parse({ type: 'user/message', seq: 0, time: 1, data: { any: true } })
     expect(event).toMatchObject({ type: 'user/message' })
     expect(() => sessionEventSchema.parse({ type: 'user/message', seq: -1, time: 1, data: {} })).toThrow()
@@ -102,42 +122,13 @@ describe('sessions domain schemas', () => {
     expect(sessionListRequestSchema.parse({ cursor: 'c' }).cursor).toBe('c')
     expect(sessionListValueSchema.parse({ items: [] }).items).toEqual([])
     expect(sessionCreateRequestSchema.parse({ cwd: '/w' }).cwd).toBe('/w')
+    // The refine's both-sides branch: workspaceId alone passes, workspaceId+cwd rejects.
+    expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).sessionId).toBe('s1')
+    expect(() => sessionCreateRequestSchema.parse({ workspaceId: 'w1', cwd: '/w' })).toThrow(/not both/)
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
-    expect(sessionHistoryValueSchema.parse({
-      events: [],
-      hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-    }).hasMore).toBe(false)
-    expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
-    expect(sessionModelsValueSchema.parse({
-      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-      groups: [{
-        id: 'deepseek',
-        name: 'DeepSeek',
-        models: [{
-          id: 'deepseek-v4-flash',
-          name: 'DeepSeek V4 Flash',
-          description: 'fast',
-          unlisted: true,
-        }],
-      }],
-      failures: [{ id: 'broken', name: 'Broken', message: 'offline' }],
-    }).groups[0]?.models[0]?.id).toBe('deepseek-v4-flash')
-    expect(sessionSelectModelRequestSchema.parse({
-      sessionId: 's1',
-      provider: 'deepseek',
-      model: 'deepseek-v4-pro',
-    }).model).toBe('deepseek-v4-pro')
-    expect(sessionSelectModelValueSchema.parse({
-      selected: { provider: 'deepseek', model: 'deepseek-v4-pro' },
-    }).selected.model).toBe('deepseek-v4-pro')
-    expect(() => sessionSelectModelRequestSchema.parse({
-      sessionId: 's1',
-      provider: '',
-      model: 'm',
-    })).toThrow()
+    expect(sessionHistoryValueSchema.parse({ events: [], hasMore: false }).hasMore).toBe(false)
     const prompt = sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
     expect(prompt.mode).toBe('queue')
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
@@ -157,6 +148,88 @@ describe('host domain schemas', () => {
   })
 })
 
+describe('workspace domain schemas', () => {
+  const view = {
+    workspaceId: 'w1', path: '/p', title: 'p', sessionIds: ['s1'],
+    createdAt: '2026-07-25T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
+  }
+
+  it('validates ids, the view row, and list request/value', () => {
+    expect(workspaceIdSchema.parse('w1')).toBe('w1')
+    expect(() => workspaceIdSchema.parse('')).toThrow()
+    expect(workspaceViewSchema.parse(view).sessionIds).toEqual(['s1'])
+    expect(() => workspaceViewSchema.parse({ ...view, sessionIds: 's1' })).toThrow()
+    expect(workspaceListRequestSchema.parse({})).toEqual({})
+    expect(workspaceListValueSchema.parse({ items: [view] }).items).toHaveLength(1)
+  })
+
+  it('create requires exactly one of path/name (both refine arms)', () => {
+    expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
+    expect(workspaceCreateRequestSchema.parse({ name: 'n' }).name).toBe('n')
+    expect(() => workspaceCreateRequestSchema.parse({})).toThrow(/exactly one/)
+    expect(() => workspaceCreateRequestSchema.parse({ path: '/p', name: 'n' })).toThrow(/exactly one/)
+    expect(workspaceCreateValueSchema.parse({ workspace: view, created: false }).created).toBe(false)
+  })
+
+  it('rename requires a non-blank title (both refine arms)', () => {
+    expect(workspaceRenameRequestSchema.parse({ workspaceId: 'w1', title: 'new' }).title).toBe('new')
+    expect(() => workspaceRenameRequestSchema.parse({ workspaceId: 'w1', title: '  ' })).toThrow(/non-blank/)
+    expect(workspaceRenameValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
+  })
+
+  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
+    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
+    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
+  })
+})
+
+describe('commands domain schemas', () => {
+  it('validates the catalog request/value pair', () => {
+    expect(commandListRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    // The wire is session-addressed only: a sessionId-less payload fails.
+    expect(() => commandListRequestSchema.parse({})).toThrow()
+    expect(commandListValueSchema.parse({ commands: [] }).commands).toEqual([])
+    const value = commandListValueSchema.parse({ commands: [
+      { name: 'plan', description: 'Toggle plan mode' },
+      { name: 'goal', description: 'Set the goal', input: { hint: '<goal>' } },
+    ] })
+    expect(value.commands[1]?.input?.hint).toBe('<goal>')
+    expect(commandDescriptorSchema.parse({ name: 'x', description: 'd' }).input).toBeUndefined()
+    expect(() => commandDescriptorSchema.parse({ name: '', description: 'd' })).toThrow()
+    expect(() => commandDescriptorSchema.parse({ name: 'x', description: 'd', input: {} })).toThrow()
+  })
+
+  it('validates the execute request/value pair with both matched branches', () => {
+    expect(commandExecuteRequestSchema.parse({ sessionId: 's1', line: '/plan off' }).line).toBe('/plan off')
+    // Both members are mandatory: dropping either fails the parse.
+    expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
+    expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
+    expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
+    const matched = commandExecuteValueSchema.parse({ matched: true, result: { kind: 'success', text: 'done' } })
+    expect(matched.result?.kind).toBe('success')
+    expect(commandExecuteValueSchema.parse({ matched: true, result: { kind: 'error', text: 'bad' } }).result?.kind).toBe('error')
+    expect(() => commandExecuteValueSchema.parse({ matched: true, result: { kind: 'other' } })).toThrow()
+  })
+})
+
+describe('skills domain schemas', () => {
+  it('validates the list request/value pair', () => {
+    expect(skillListRequestSchema.parse({ sessionId: 's1' })).toEqual({ sessionId: 's1' })
+    // The wire is session-addressed only: a sessionId-less payload fails.
+    expect(() => skillListRequestSchema.parse({})).toThrow()
+    expect(skillListValueSchema.parse({ skills: [] }).skills).toEqual([])
+    const value = skillListValueSchema.parse({ skills: [
+      { name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing' },
+      { name: 'bare', description: 'No guidance' },
+    ] })
+    expect(value.skills[0]?.whenToUse).toBe('when committing')
+    expect(value.skills[1]?.whenToUse).toBeUndefined()
+    expect(() => skillEntrySchema.parse({ name: '', description: 'd' })).toThrow()
+  })
+})
+
 describe('events frame schemas', () => {
   it('accepts every mux frame branch', () => {
     const frames = [
@@ -167,6 +240,8 @@ describe('events frame schemas', () => {
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
+      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' }, steering: false },
+      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' }, steering: true },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
@@ -185,13 +260,20 @@ describe('events frame schemas', () => {
     expect(() => muxFrameSchema.parse({ type: 'question/requested', sessionId: 's', questions: [] })).toThrow()
   })
 
+  it('rejects a queued frame missing its members', () => {
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [{ type: 'text' }], source: { kind: 'user' } })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' }, steering: false })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: {}, steering: false })).toThrow()
+  })
+
   it('accepts every host frame branch', () => {
     const frames = [
-      { type: 'host/session-added', sessionId: 's', parentSessionId: 'p' },
-      { type: 'host/session-added', sessionId: 's' },
+      { type: 'host/session-added', sessionId: 's', blank: true, parentSessionId: 'p' },
+      { type: 'host/session-added', sessionId: 's', blank: true },
       { type: 'host/session-removed', sessionId: 's' },
       { type: 'host/session-status', sessionId: 's', running: true },
       { type: 'host/agent-error', sessionId: 's', message: 'boom' },
+      { type: 'host/commands-changed' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })

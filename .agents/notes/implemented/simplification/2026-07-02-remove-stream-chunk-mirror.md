@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-02-remove-stream-chunk-mirror.zh.md)
+
 ## Problem
 
 The loop records every model token delta as a durable `assistant/chunk` session event AND emitted a parallel live `agent/stream-chunk` Cordis event carrying the identical data. In `packages/core/agent-loop/src/loop.ts` the two sat one line apart:
@@ -25,7 +27,7 @@ The premise the deferral hinged on is settled: chunk persistence is authoritativ
 
 Remove `agent/stream-chunk` from the agent event taxonomy. The token stream is read off `session/event` as `assistant/chunk`, the same feed persistence and replay already use — `session/event` is the single live transcript stream (assistant chunks, turn/step boundaries, tool activity, todos).
 
-**Consumers.** The only production consumer that mattered — the ACP bridge (`dsh-acp`), the real editor-facing streaming surface — already renders `assistant/chunk` off `session/event`, never `agent/stream-chunk`, so it is unaffected. The stdio UI (`dsh-ui-stdio`, a disposable test REPL) was the sole live consumer; it already had a `session/event` listener (from the boundary migration), so its chunk rendering folded into that listener as an `assistant/chunk` case. Consolidating to one listener also removed a latent hazard: the `inReasoning` dim-SGR flag was previously shared across two separate listeners (`agent/stream-chunk` and `session/event`), so a chunk and a boundary racing on it had no defined order; a single listener over the append order makes the interleaving deterministic.
+**Consumers.** Persistence, replay, and interactive renderers consume the authoritative session stream directly. The [automation-only ACP bridge](2026-07-23-acp-automation-only-protocol.md) emits committed `assistant/message` text rather than raw chunks, so it needs neither event. No production consumer requires an `Agent`-first token mirror.
 
 ## Scope
 
@@ -33,7 +35,7 @@ Removed: `agent/stream-chunk`.
 
 Not touched:
 - `assistant/chunk` (the durable session event) — the authoritative token stream, kept exactly as-is. This Agent Note removes the LIVE MIRROR, not the persistence (the persistence-removal proposal was separately rejected — see above).
-- `agent/steering` — not touched by THIS decision (a control signal, not the token stream). Its durable twin is `steering/message`, and the mirror emit was removed by its own follow-up: [Remove the `agent/steering` mirror emit](2026-07-04-remove-agent-steering-mirror.md).
+- `agent/steering` — not touched by THIS decision (a control signal, not the token stream). Its durable twin is `steering/message`, and the mirror emit was removed by its own follow-up: [Remove the `agent/steering` mirror emit](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md).
 - `agent/status`, `agent/error`, `agent/created`/`agent/disposed`, `agent/queued`, `agent/session-start` — lifecycle/control events that are not transcript data and have no durable duplicate.
 
 ## Alternatives considered

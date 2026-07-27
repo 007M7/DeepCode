@@ -26,22 +26,30 @@ async function bench() {
   const listStore = createSnapshotStore<SessionListState>({
     ids: [ROOT, CHILD],
     byId: {
-      [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', running: false, updatedAt: 1 },
-      [CHILD]: { id: CHILD, title: 'C', displayTitle: 'C', parentId: ROOT, running: false, updatedAt: 2 },
+      [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', running: false, blank: false, updatedAt: 1 },
+      [CHILD]: { id: CHILD, title: 'C', displayTitle: 'C', parentId: ROOT, running: false, blank: false, updatedAt: 2 },
     },
     current: undefined,
+    phase: 'ready',
   } as SessionListState)
   const sessionsFake = {
     list: listStore,
-    manager: { get: vi.fn() },
+    binding: vi.fn(),
     scope: () => undefined,
-    cell: () => undefined,
+    provideInfo: () => undefined,
+    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+    provide: vi.fn(() => () => {}),
     create: vi.fn(),
     open: vi.fn(),
+    updateIntent: vi.fn(),
   }
   ctx.provide('sessions', sessionsFake)
+  ctx.provide('workspaces', {
+    startSession: vi.fn(),
+    sendSession: vi.fn(),
+  })
   ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-  ctx.provide('i18n', { bind: () => (key: string) => key })
+  ctx.provide('locale', { bind: () => (key: string) => key })
 
   // Declared by ui-layout's root entry in production; a stand-in root
   // occupant declares them here so the contributions land (it consumes
@@ -50,9 +58,8 @@ async function bench() {
   slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session' },
+      'conversation': { kind: 'single', scope: 'session-maybe' },
       'details': { kind: 'single', scope: 'session' },
-      'conversation.empty': { kind: 'single', scope: 'root' },
     },
   }, (_p: { renderSlot?: unknown }) => null)
 
@@ -61,7 +68,7 @@ async function bench() {
 }
 
 /** First stored entry for a key (inject/store live directly on StoredEntry). */
-function renderEntryOf(slots: SlotsService, key: 'conversation' | 'conversation.view' | 'details' | 'conversation.empty') {
+function renderEntryOf(slots: SlotsService, key: 'conversation' | 'conversation.session' | 'conversation.view' | 'details') {
   return slots.entries(key)[0] as undefined | { inject?: unknown; store?: unknown }
 }
 
@@ -84,23 +91,24 @@ describe('apply wiring', () => {
     expect(b.slots.spec('conversation.chat.toolview')).toEqual({ kind: 'keyed', scope: 'session' })
   })
 
-  it('occupies the three slots + the ring; session entries share one store handle, empty declares none', async () => {
+  it('occupies the slots + the ring; session entries share one store handle', async () => {
     const b = await bench()
     await b.fiber.await()
     const conversation = renderEntryOf(b.slots, 'conversation')
+    const conversationSession = renderEntryOf(b.slots, 'conversation.session')
     const chatView = renderEntryOf(b.slots, 'conversation.view')
     const details = renderEntryOf(b.slots, 'details')
-    const empty = renderEntryOf(b.slots, 'conversation.empty')
     expect(conversation?.inject).toBeTypeOf('function')
     expect(chatView?.inject).toBeTypeOf('function')
     expect(details?.inject).toBeTypeOf('function')
-    expect(empty?.inject).toBeTypeOf('function')
-    // The shared handle: one apply-built store value on ALL session entries.
-    expect(conversation?.store).toBeDefined()
-    expect(details?.store).toBe(conversation?.store)
-    expect(chatView?.store).toBe(conversation?.store)
-    // The empty slot is storeless (local state + useSessions derivation).
-    expect(empty?.store).toBeUndefined()
+    // The shared handle: one apply-built store value on ALL session entries
+    // (the session-maybe 'conversation' shell carries no store by design).
+    expect(conversationSession?.store).toBeDefined()
+    expect(details?.store).toBe(conversationSession?.store)
+    expect(chatView?.store).toBe(conversationSession?.store)
+    // The hero workspace picker hole rides the conversation entry's children
+    // declaration (the empty-state occupant is gone).
+    expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
   })
 
   it('mounts the bash sample as a keyed entry through the load-order seam', async () => {
@@ -123,7 +131,6 @@ describe('apply wiring', () => {
     expect(b.slots.entries('conversation.chat.toolview')).toHaveLength(0)
     expect(b.slots.spec('conversation.chat.toolview')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
-    expect(b.slots.entries('conversation.empty')).toHaveLength(0)
     expect(b.ctx.get('conversation')).toBeUndefined()
   })
 })

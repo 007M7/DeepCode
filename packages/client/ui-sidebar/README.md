@@ -1,10 +1,14 @@
 # @deepseek-ai/dsh-client-ui-sidebar
 
-Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. Collapse is a slide + crossfade into the layout-owned 56px rail (open / new session / new workspace / search — search expands and focuses the search box — plus the settings foot): the expanded content freezes at its width and fades in place while the column slides over it, then the rail — whale mark resting, panel icon on hover, tooltips on every control — crossfades in at settle as the wide content unmounts. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
+English | [中文](README.zh.md)
 
-`src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — plain service callbacks: onOpen/onCreate/onToggleSidebar) and `SidebarRootComponentProps = PropsRuntime<'sidebar'> & SidebarRootInjected` (owner `{collapsed,width}` plus the standard `useSessions` hook, resolved off ui-layout's SlotMap declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory closes over the plugin's own ctx.
+Sidebar plugin: real Host Workspaces in stable Host order, each containing its `sessionIds` in Workspace order with `parentId` nesting; Sessions outside every Workspace appear in a trailing `Ungrouped` section. Search, state dots, and collapse into the layout-owned 56px rail are presentation-local. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
 
-There is no plugin store: rows derive in the component (`useMemo` over the `useSessions` snapshot + local expansion/search state) through the pure `deriveRows` in `tree.ts`.
+New Session starts the runtime's page-local frontend Session Intent; a real Workspace's "+" starts one targeted to that Workspace. The Workspace header "+" opens ui-workspace's shared picker, whose selection also targets a frontend Session. A Workspace Intent does not appear in the sidebar.
+
+`SidebarRootComponentProps` composes the layout owner share, the global `useSessions` and `useWorkspaces` hooks, the declared `sidebar.workspace` and `sidebar.settings` child slots, and injected `startSession`, `open`, and sidebar-toggle callbacks. There is no plugin store: `deriveGroups` consumes object-layer snapshots and component-local expansion/search state.
+
+The foot is the `sidebar.settings` seat: the sidebar renders only the bottom-pinned layout slot and shares its column state (`wide`); ui-settings registers the trigger row and settings panel there.
 
 The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only — SidebarRoot, the row components, and the tree derivation are internal (the slot registration closes over them; tests import src paths directly).
 

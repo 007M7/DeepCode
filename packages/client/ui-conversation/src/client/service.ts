@@ -1,17 +1,11 @@
 /**
- * ConversationService implementation: scope-addressed send/cancel and the
- * empty-state startSession chain. Contract: api-contracts v3 section 7.
- * Selection/draft state moved to the declared chat store (slot terminal
- * design §4); the view registry moved to the 'conversation.view' slot (slot
- * ledger owns registration, ordering, and disposal) — what remains is the
- * send/stop orchestration face.
+ * Scope-addressed conversation send, cancel, and history orchestration.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
- * read the session tag with scopeOf (same mechanism as the host tool
- * registry). Mutable state lives in plain objects reached by one property
- * read — field assignment through the tracker's shadow proxy is off-limits,
- * as are `#` hard-private fields.
+ * read the session tag with `scopeOf`. Mutable state must remain reachable
+ * through one property read; assignment through the tracker proxy and `#`
+ * private fields bypass that rebinding.
  */
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
@@ -19,15 +13,23 @@ import type { Context } from 'cordis'
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
 import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { InputHub } from './input/hub.ts'
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service {
+  /** The per-session input machine registry (InputService face, design §5.2). */
+  readonly input: InputHub
+
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
+   * @param config - the shared InputHub constructed by the plugin apply
+   * (shared with the slot inject factories); absent = own instance
+   * (object-layer tests that never touch slots).
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config?: { input?: InputHub }) {
     super(ctx, 'conversation')
+    this.input = config?.input ?? new InputHub(ctx)
   }
 
   /**
@@ -50,37 +52,17 @@ export class ConversationService extends Service {
     if (!result.ok) throw new Error(`conversation.cancel failed: ${result.error.code}: ${result.error.message}`)
   }
 
-  /**
-   * Empty-state first-send chain (root-context method; does not read scope):
-   * create the session, navigate to it, then send through the new scope.
-   * The create → open ordering is safe: the manager merges the new summary
-   * synchronously before create() resolves, so the list store is projected by
-   * the time open() validates against it (manager notification batching is
-   * microtask-based; SessionsService projects on the same flush that create
-   * awaited through the RPC round trip).
-   * @param opts - project directory, prompt text, and send mode.
-   */
-  async startSession(opts: { cwd?: string; text: string; mode: 'queue' | 'steer' }): Promise<void> {
-    const sessions = this.requireSessions()
-    const id = await sessions.create(opts.cwd === undefined ? {} : { cwd: opts.cwd })
-    // The manager notifier flushes per microtask; one await guarantees the
-    // list-store projection landed before sessions.open validates against it.
-    await Promise.resolve()
-    sessions.open(id)
-    const scoped = sessions.scope(id)
-    if (scoped === undefined) throw new Error(`conversation.startSession: created session "${id}" resolved no scope`)
-    // ctx.get, not scoped.conversation: property access walks the fiber
-    // topology (a scope fiber never injects services), while get reads the
-    // global store and still binds this service to the scoped ctx.
-    const scopedConversation = scoped.get('conversation')
-    if (scopedConversation === undefined) throw new Error('conversation.startSession: conversation service unavailable through the new scope')
-    await scopedConversation.send(opts.text, opts.mode)
+  /** Pull one older history page for the scoped Session. */
+  async loadOlder(): Promise<void> {
+    await this.scopedSession('loadOlder').loadOlder()
   }
 
   /** Resolve the caller scope's Session or throw on root contexts. */
   private scopedSession(op: string): Session {
     const id = this.scopeId(op)
-    return this.requireSessions().manager.get(id)
+    const binding = this.requireSessions().binding(id)
+    if (binding === undefined) throw new Error(`conversation.${op}: session "${id}" resolved no binding`)
+    return binding.session
   }
 
   /** Read the caller's session scope tag via the sessions service; root contexts fail loud. */

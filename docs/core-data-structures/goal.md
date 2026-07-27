@@ -1,5 +1,7 @@
 # Same-session goals
 
+English | [中文](goal.zh.md)
+
 Types shared by the event-sourced goal domain and its policy consumers. The [goal-domain Agent Note](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) owns the persistence and activation decisions; this page records the literal shapes from [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts).
 
 ## Identity and lifecycle
@@ -69,7 +71,7 @@ interface GoalView extends GoalSnapshot {
 
 ## Durable changes
 
-Every mutation is a `context/message` whose metadata is either a complete snapshot or a clear tombstone. The version, metadata, goal source, and verbatim rendered content form one replay invariant.
+Every mutation is a round-zero goal-sourced `user/message` whose metadata is either a complete snapshot or a clear tombstone. The version, metadata, goal source, and verbatim rendered content form one replay invariant.
 
 ```ts type-equiv
 /** Full-snapshot goal mutation retained in a model-visible context event. */

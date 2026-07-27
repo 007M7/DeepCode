@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-tasks
 
+English | [中文](README.zh.md)
+
 The model-facing control surface for `ctx.tasks`: three kind-independent tools, completion notices, and one background-work prompt section. Loading the plugin attaches the surface required by `ctx.tasks.start()`.
 
 ## Tools
@@ -8,7 +10,7 @@ The model-facing control surface for `ctx.tasks`: three kind-independent tools, 
 - `task_list()` returns caller-visible tasks as `<id> [<kind>] <status> — <label>`.
 - `task_kill(task_id, reason?)` requests cancellation immediately and forwards the logged reason. Terminal tasks return a non-consuming snapshot.
 
-All three use generic ACP cards: `read` for output and list, `execute` for kill.
+All three use generic UI cards: `read` for output and list, `execute` for kill.
 
 Their canonical values are `{ text, task }`, `PublicTaskSnapshot[]`, and `{ outcome: 'cancellation-requested' | 'already-finished', task }`. A public snapshot carries id, kind, label, status/detail, and start/finish times; it deliberately omits `ownerSession` and the internal `reported` notice bit. Native renderers preserve the status and acknowledgement text above.
 

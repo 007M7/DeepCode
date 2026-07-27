@@ -47,7 +47,7 @@ describe('cordis tools through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-cordis'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'give yourself reverse_text, use it, clean up' }])
+    agent.followup([{ type: 'text', text: 'give yourself reverse_text, use it, clean up' }])
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events

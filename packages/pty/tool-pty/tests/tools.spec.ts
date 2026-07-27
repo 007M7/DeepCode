@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { renderToolsSdk } from '@deepseek-ai/dsh-tools'
 import type { ToolSdkSchema } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
 import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
 import type { PtyBackend, PtyBackendSession, PtySendOperation, PtySendRequest, PtySessionStatus, PtySignal } from '@deepseek-ai/dsh-pty'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 
@@ -18,7 +18,7 @@ function fakeAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const agent: Agent = {
     id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
-    send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(agent)
   return agent
@@ -106,7 +106,7 @@ async function setupBase(tasks: boolean) {
   const stub = stubBackend()
   ctx.pty.registerBackend(stub.backend)
   if (tasks) {
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks)
   }
   return { ctx, stub, agent: fakeAgent(ctx, tasks ? 'with-tasks' : 'foreground') }

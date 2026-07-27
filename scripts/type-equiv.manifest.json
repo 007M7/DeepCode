@@ -1,5 +1,5 @@
 {
-  "comment": "Maps each ` ```ts type-equiv ` or ` ```ts public-api ` block (by doc + declared symbol + projection) to the source declaration and original JSDoc it must match. Omit projection for the complete declaration; use public-api with a ` ```ts public-api ` block for a body-stripped public class declaration. verify-type-equiv.ts enforces a 1:1 correspondence: every source-equivalence block has exactly one entry here, and every entry resolves to exactly one block. Add an entry when you add a source-equivalence block; remove it when you remove the block.",
+  "comment": "Maps each primary ` ```ts type-equiv ` or ` ```ts public-api ` block (by doc + declared symbol + projection) to the source declaration and original JSDoc it must match. Paired `.zh.md` blocks are byte-identical derivatives checked through their unsuffixed sibling and have no duplicate entry. Omit projection for the complete declaration; use public-api with a ` ```ts public-api ` block for a body-stripped public class declaration. verify-type-equiv.ts enforces a 1:1 correspondence between primary blocks and entries. Add an entry when you add a primary source-equivalence block; remove it when you remove the block.",
   "entries": [
     {
       "doc": "docs/core-data-structures/core.md",
@@ -73,12 +73,32 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "AgentCancelCause",
+      "symbol": "InjectOptions",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "InjectOptions",
+      "symbol": "ResolvedAgentInput",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentMessageId",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentMessage",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "CancelOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentCancelCause",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -391,7 +411,22 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionLogSnapshot",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionSurfaceSnapshot",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionTitleObservation",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionTitleObservationResult",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
@@ -435,24 +470,9 @@
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "SessionReferenceInput",
-      "source": "packages/context/session-reference/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "SessionReferenceCandidate",
-      "source": "packages/context/session-reference/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "PreparedReferencedMessage",
-      "source": "packages/context/session-reference/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-reference.md",
-      "symbol": "SessionReferenceErrorCode",
-      "source": "packages/context/session-reference/src/config.ts"
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventTraceObservation",
+      "source": "packages/session-query/session-query/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/session-title.md",
@@ -508,6 +528,26 @@
       "doc": "docs/core-data-structures/session-title.md",
       "symbol": "SessionTitleProvider",
       "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceInput",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceCandidate",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "PreparedReferencedMessage",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceErrorCode",
+      "source": "packages/context/session-reference/src/config.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
@@ -567,6 +607,11 @@
     {
       "doc": "docs/core-data-structures/tools.md",
       "symbol": "ToolExecutionMode",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "CodeDispatchLog",
       "source": "packages/core/tools/src/index.ts"
     },
     {
@@ -1192,6 +1237,11 @@
     {
       "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionSearchPage",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventSearchPage",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {
