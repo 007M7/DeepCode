@@ -67,7 +67,7 @@ Every adapter MUST obey these, and every consumer may rely on them:
 - **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below) - the `User-Agent` baseline - and prove it with a wire-level test (mock server asserting the received header, or the library's header hook for a library-backed adapter).
 - **Replay state is adapter-owned.** A successful `finish` may carry lossless-JSON state needed to reconstruct a native provider response. The loop stores it with the assembled assistant message unless an `agent/step-result` listener rewrote the content. On a later request, `LlmService` passes the state only when the historical provider and target provider are currently registered to the exact same adapter instance. That adapter validates the state and owns any cross-model or cross-provider conversion; other adapters receive the provider-neutral content and provenance without the private state.
 
-This contract is pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (hand-rolled fetch/SSE) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter exercises the finish-chunk error path, while transport-boundary tests prove each idle watchdog stops its actual request.
+This contract is pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (direct fetch, SSE framing via `eventsource-parser`) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter exercises the finish-chunk error path, while transport-boundary tests prove each idle watchdog stops its actual request.
 
 ## `AppIdentity` — app attribution
 
@@ -179,8 +179,8 @@ interface PreparedLlmCall {
 /**
  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
  * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
- * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The hand-rolled
- * DeepSeek and pi-ai adapters intentionally exercise this contract through different internals.
+ * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The direct-fetch
+ * DeepSeek and library-backed pi-ai adapters intentionally exercise this contract through different internals.
  */
 declare abstract class LlmAdapter {
   /**
