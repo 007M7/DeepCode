@@ -149,15 +149,23 @@ describe('LocalSkillProvider', () => {
     await writeSkill(custom, 'custom-only', 'custom only')
     await writeSkill(join(home, '.dsh/skills/.system'), 'hidden-system', 'hidden system')
 
-    const ctx = await setupLocal(home, { customSkillDirs: [custom] })
+    const bundled = await tempDir('skill-bundled')
+    await writeSkill(bundled, 'bundled-only', 'bundled skill')
+    await writeSkill(bundled, 'same', 'bundled skill')
+    const ctx = await setupLocal(home, { customSkillDirs: [custom], bundledSkillDir: bundled })
 
     const skills = await ctx.skills.list({ cwd: join(project, 'src') })
-    expect(skills.map(skill => [skill.name, skill.description])).toEqual([
-      ['custom-only', 'custom only'],
-      ['same', 'project dsh skill'],
+    expect(skills.map(skill => skill.name)).toEqual([
+      'bundled-only',
+      'custom-only',
+      'same',
     ])
+    expect(skills.find(skill => skill.name === 'custom-only')?.description).toBe('custom only')
+    expect(skills.find(skill => skill.name === 'same')?.description).toBe('project dsh skill')
     expect(skills.find(skill => skill.name === 'same')?.source).toBe('project-dsh')
     expect(skills.find(skill => skill.name === 'hidden-system')).toBeUndefined()
+    expect(skills.find(skill => skill.name === 'bundled-only')).toMatchObject({ source: 'bundled' })
+    expect((await ctx.skills.get('bundled-only'))?.content).toBe('Use the skill.')
 
     const noGit = await tempDir('skill-no-git')
     await writeSkill(join(noGit, '.dsh/skills'), 'fallback-root', 'Fallback root')
@@ -335,6 +343,20 @@ describe('LocalSkillProvider', () => {
     ])
     expect(fs.listDirCalls).toBeGreaterThan(0)
     expect(await ctx.skills.get('binary-skill')).toBeUndefined()
+
+    const bundled = await tempDir('skill-backend-bundled')
+    await writeSkill(bundled, 'bundled-host', 'Bundled host skill')
+    const bundledCtx = new Context()
+    await bundledCtx.plugin(TestFileSystem)
+    const bundledFs = bundledCtx.fs as TestFileSystem
+    bundledFs.failResolvePaths.add(bundled)
+    await bundledCtx.plugin(SkillService)
+    await bundledCtx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      bundledSkillDir: bundled,
+    })
+    expect((await bundledCtx.skills.get('bundled-host'))?.source).toBe('bundled')
   })
 
   it('forwards cancellation to filesystem reads while loading a skill', async () => {
@@ -375,17 +397,22 @@ describe('LocalSkillProvider', () => {
   it('uses default home root resolution without exposing builtin skills', async () => {
     const previousDshHome = process.env.DSH_HOME
     const previousAgentsHome = process.env.DSH_AGENTS_HOME
+    const previousBundledSkillDir = process.env.DSH_BUNDLED_SKILL_DIR
     const envHome = await tempDir('skill-env-home')
     try {
       process.env.DSH_HOME = join(envHome, '.dsh')
       process.env.DSH_AGENTS_HOME = join(envHome, '.agents')
+      const bundled = join(envHome, 'bundled-skills')
+      process.env.DSH_BUNDLED_SKILL_DIR = bundled
       await writeSkill(join(envHome, '.dsh/skills'), 'env-skill', 'Env skill')
+      await writeSkill(bundled, 'env-bundled-skill', 'Env bundled skill')
       const ctx = new Context()
       await ctx.plugin(SkillService)
       await ctx.plugin(SkillLocal)
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-skill'])
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-bundled-skill', 'env-skill'])
 
       process.env.DSH_HOME = join(envHome, 'empty-dsh')
+      delete process.env.DSH_BUNDLED_SKILL_DIR
       process.env.DSH_AGENTS_HOME = join(envHome, 'empty-agents')
       const empty = new Context()
       await empty.plugin(SkillService)
@@ -404,6 +431,11 @@ describe('LocalSkillProvider', () => {
         delete process.env.DSH_AGENTS_HOME
       } else {
         process.env.DSH_AGENTS_HOME = previousAgentsHome
+      }
+      if (previousBundledSkillDir === undefined) {
+        delete process.env.DSH_BUNDLED_SKILL_DIR
+      } else {
+        process.env.DSH_BUNDLED_SKILL_DIR = previousBundledSkillDir
       }
     }
   })

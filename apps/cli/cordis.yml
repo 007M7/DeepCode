@@ -84,6 +84,10 @@
 - id: llm-retry
   name: '@deepseek-ai/dsh-llm-retry'
 
+# Session store root. AppCLIEntry resolves the engineering default to a
+# global dir under the Harness home ($DSH_HOME, else ~/.dsh): sessions live
+# in one place across every cwd, not a project-local ./.sessions. The
+# persistenceRoot profile key (user config) still overrides this per field.
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
@@ -287,6 +291,7 @@
 - id: ui-conversation
   name: '@deepseek-ai/dsh-client-ui-conversation'
 
+
 - id: ui-workspace
   name: '@deepseek-ai/dsh-client-ui-workspace'
 
@@ -303,6 +308,10 @@
 
 - id: ui-subagent
   name: '@deepseek-ai/dsh-client-ui-subagent'
+
+# Model selection: the /model popupSelect + composer seat over session.models.
+- id: ui-model
+  name: '@deepseek-ai/dsh-client-ui-model'
 
 - id: ui-question
   name: '@deepseek-ai/dsh-client-ui-question'

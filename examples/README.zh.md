@@ -22,9 +22,9 @@
 
 ## cordis-agent
 
-**自指** 演示：编码主干加 [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis)，其三个工具（`cordis_inspect`/`cordis_mount`/`cordis_unmount`）使 agent 可以检查自身所在的实时 cordis 运行时，将模型编写的插件挂载到其中（事件监听器、一个专为自身创建的全新工具，或一个供另一挂载项注入的服务），并再次释放它们。所有动态挂载都归入同一 `cordis-dynamic` fiber 子树。`ctx.fs`/`ctx.web` 服务仅作为提供方随行，是这些插件构建所依赖的能力。
+**自指** 演示：编码主干加 [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis)，其三个工具（`cordis_inspect`/`cordis_mount`/`cordis_unmount`）使 agent 可以检查当前 DSH 进程、挂载模型编写的临时 Plugin（事件监听器、一个全新工具，或一个供另一临时 Plugin 注入的服务），并再次卸载它们。这些 Plugin 只存在于内存中，共享一个内部 `cordis-dynamic` fiber 子树；`ctx.fs`/`ctx.web` 仅作为它们可用的能力提供方。
 
-运行：`pnpm run demo:cordis`（需要 `DEEPSEEK_API_KEY`）。分阶段演示脚本详见 [cordis-agent/README.md](cordis-agent/README.md)，设计与沙箱注意事项详见[工具集 Agent Note](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
+使用 `pnpm run demo:cordis` 运行 TUI，使用 `pnpm run demo:cordis web` 在 `http://127.0.0.1:3081` 启动浏览器 UI，或使用 `pnpm run demo:cordis acp` 启动 ACP 服务器（三者均需 `DEEPSEEK_API_KEY`）。分阶段演示脚本详见 [cordis-agent/README.md](cordis-agent/README.md)，设计与沙箱注意事项详见[工具集 Agent Note](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
 
 ## acp-agent
 

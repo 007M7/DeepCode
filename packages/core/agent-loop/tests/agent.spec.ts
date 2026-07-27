@@ -88,6 +88,79 @@ describe('Agent', () => {
     expect(statuses).toEqual(['running', 'idle'])
   })
 
+  it('awaits the turn-end checkpoint before claiming the next queued turn', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const firstFlush = Promise.withResolvers<undefined>()
+    const flushedTurns: number[] = []
+    ctx.on('session/flush', async (session) => {
+      const turnEnd = session.events.findLast(event => event.type === 'turn/end')
+      flushedTurns.push(turnEnd?.data.turn ?? 0)
+      if (turnEnd?.data.turn === 1) await firstFlush.promise
+    })
+
+    send(agent, 'first')
+    send(agent, 'second')
+
+    await vi.waitFor(() => { expect(flushedTurns).toEqual([1]) })
+    expect(adapter.requests).toHaveLength(1)
+    firstFlush.resolve(undefined)
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(flushedTurns).toEqual([1, 2])
+  })
+
+  it('keeps whenIdle pending through the final turn checkpoint', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('done')]))
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const flush = Promise.withResolvers<undefined>()
+    let flushStarted = false
+    ctx.on('session/flush', () => {
+      flushStarted = true
+      return flush.promise
+    })
+
+    send(agent, 'go')
+    await vi.waitFor(() => { expect(flushStarted).toBe(true) })
+    let idleSettled = false
+    const idle = agent.whenIdle().then(() => { idleSettled = true })
+    await Promise.resolve()
+    expect(idleSettled).toBe(false)
+
+    flush.resolve(undefined)
+    await idle
+    expect(agent.status).toBe('idle')
+  })
+
+  it('reports a rejected turn-end checkpoint and continues queued work', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const failure = new Error('disk unavailable')
+    const errors: { turn: number; step: number; error: unknown }[] = []
+    let flushes = 0
+    ctx.on('session/flush', () => {
+      flushes += 1
+      if (flushes === 1) throw failure
+    })
+    ctx.on('agent/error', (subject, turn, step, error) => {
+      if (subject === agent) errors.push({ turn, step, error })
+    })
+
+    send(agent, 'first')
+    send(agent, 'second')
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(flushes).toBe(2)
+    expect(errors).toEqual([{ turn: 1, step: 1, error: failure }])
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining('session/flush failed at turn 1: disk unavailable'))
+    warning.mockRestore()
+  })
+
   it('whenIdle() resolves immediately without active work', async () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })

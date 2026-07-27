@@ -21,7 +21,6 @@ The package mounts no console logger, interactive UI, user-interaction service, 
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
 | `toolBash` | owner defaults | model-facing bash config, including this producer's background opt-in |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds |
-| `llmRetry` | owner defaults | bounded transient model-request retry policy |
 | `persistenceRoot` | `./.sessions` | JSONL session root |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `workspaceContext` | required | workspace-instruction byte budget, or `false` to disable loading |

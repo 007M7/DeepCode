@@ -1,0 +1,210 @@
+/**
+ * ui-model browser half on a real cordis Context with fake command/slots/
+ * connection faces and real session scopes: the plugin mounts ModelService
+ * as `models`, the /model contribution and the conversation.input.model
+ * seat both register, and BOTH entries resolve the SAME per-session
+ * directory through the service — a selection submitted through the seat's
+ * inject face is the current the popup's next options pass marks active
+ * (and the reverse), the one-shared-state contract of the dual entry.
+ * Scope disposal drops the directory (HMR safety).
+ */
+import { Context } from 'cordis'
+import { describe, expect, it } from 'vitest'
+import { createScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
+import type { CommandContribution, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
+import type { ModelSelectInjected } from '../src/client/slots.ts'
+import { apply, inject } from '../src/client/index.ts'
+
+const sid = (k: string): SessionId => k as SessionId
+
+const GROUPS = [{
+  id: 'deepseek',
+  name: 'DeepSeek',
+  models: [
+    {
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek-V4-Flash',
+      reasoning: {
+        efforts: [
+          { id: 'off', name: 'Off' },
+          { id: 'high', name: 'High' },
+          { id: 'max', name: 'Max' },
+        ],
+        defaultEffort: 'high',
+      },
+    },
+    {
+      id: 'deepseek-v4-pro',
+      name: 'DeepSeek-V4-Pro',
+      reasoning: {
+        efforts: [
+          { id: 'off', name: 'Off' },
+          { id: 'high', name: 'High' },
+          { id: 'max', name: 'Max' },
+        ],
+        defaultEffort: 'high',
+      },
+    },
+  ],
+}]
+
+/** Boot the plugin over fake faces + a stateful fake host (current moves on selectModel). */
+async function bench() {
+  const ctx = new Context()
+  let current: ModelTarget = { provider: 'deepseek', model: 'deepseek-v4-flash' }
+  const calls = { models: 0, select: 0 }
+  ctx.provide('connection', { api: { sessions: {
+    models: () => {
+      calls.models += 1
+      return Promise.resolve({ result: { ok: true as const, value: { current, groups: GROUPS, failures: [] } } })
+    },
+    selectModel: (payload: { provider: string; model: string; reasoningEffort?: string }) => {
+      calls.select += 1
+      current = {
+        provider: payload.provider,
+        model: payload.model,
+        ...payload.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: payload.reasoningEffort },
+      }
+      return Promise.resolve({ result: { ok: true as const, value: { selected: current } } })
+    },
+  } } })
+  let contribution: CommandContribution | undefined
+  ctx.provide('command', {
+    register(c: CommandContribution) {
+      contribution = c
+      return () => { contribution = undefined }
+    },
+  })
+  const seats = new Map<string, { inject: ((sessionId: SessionId) => ModelSelectInjected) | undefined }>()
+  ctx.provide('slots', {
+    register(options: { name: string; inject?: (sessionId: SessionId) => ModelSelectInjected }) {
+      seats.set(options.name, { inject: options.inject })
+      return () => { seats.delete(options.name) }
+    },
+  })
+  ctx.provide('conversation', {})
+  const scopes = new Map<SessionId, Context>()
+  ctx.provide('sessions', { scope: (id: SessionId) => scopes.get(id) })
+  const fiber = ctx.plugin({ inject: [...inject], apply })
+  await fiber.await()
+  await ctx.plugin(function probe() {}).await()
+  const mint = (key: string) => {
+    const handle = createScope(ctx, sid(key))
+    scopes.set(sid(key), handle.ctx)
+    return handle
+  }
+  return {
+    ctx, fiber, mint, calls,
+    contribution: () => contribution!,
+    seat: () => seats.get('conversation.input.model')!,
+    hostCurrent: () => current,
+    setHostCurrent: (target: ModelTarget) => { current = target },
+  }
+}
+
+const projection = (id: string) => ({ sessionId: sid(id) })
+
+describe('ui-model dual entry', () => {
+  it('registers the /model contribution and the composer model seat', async () => {
+    const b = await bench()
+    expect(b.contribution().name).toBe('model')
+    expect(b.contribution().ui.kind).toBe('popupSelect')
+    expect(b.seat().inject).toBeTypeOf('function')
+  })
+
+  it('popup options mark the host current active with the provider group in the detail', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const options = await b.contribution().ui.options(projection('s1'), new AbortController().signal)
+    expect(options.map((o: SelectOption) => o.label)).toEqual(['DeepSeek-V4-Flash', 'DeepSeek-V4-Pro'])
+    expect(options[0]).toMatchObject({ active: true, detail: 'DeepSeek' })
+    expect(options[1]?.active).toBeUndefined()
+  })
+
+  it('a seat selection is the current the popup marks active next — one shared state', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const seatFace = b.seat().inject!(sid('s1'))
+    // Switch through the SEAT entry.
+    expect(await seatFace.select({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    })).toBe(true)
+    expect(b.hostCurrent()).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    })
+    expect(seatFace.directory.getSnapshot().current).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    })
+    // The POPUP's next options pass reflects it without a seat-side reload.
+    const options = await b.contribution().ui.options(projection('s1'), new AbortController().signal)
+    expect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')).toMatchObject({ active: true })
+  })
+
+  it('a popup selection lands on the seat store — the reverse direction of the same state', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const seatFace = b.seat().inject!(sid('s1'))
+    const options = await b.contribution().ui.options(projection('s1'), new AbortController().signal)
+    const pro = options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!
+    await b.contribution().ui.onSelect(pro, projection('s1'))
+    expect(seatFace.directory.getSnapshot().current).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+    })
+  })
+
+  it('both entries share one directory instance per session, isolated across sessions', async () => {
+    const b = await bench()
+    b.mint('a')
+    b.mint('b')
+    const faceA = b.seat().inject!(sid('a'))
+    const faceA2 = b.seat().inject!(sid('a'))
+    const faceB = b.seat().inject!(sid('b'))
+    expect(faceA.directory).toBe(faceA2.directory)
+    expect(faceA.directory).not.toBe(faceB.directory)
+    // The service face resolves the same instance the seat inject handed out.
+    expect(b.ctx.models.directoryFor(sid('a')).store).toBe(faceA.directory)
+  })
+
+  it('drops an unconsumed local selection and restores the Host target after reconnect', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const face = b.seat().inject!(sid('s1'))
+    await face.select({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    b.setHostCurrent({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+
+    b.ctx.emit('connection/reset')
+    expect(face.directory.getSnapshot()).toMatchObject({ current: null, status: 'loading' })
+    await Promise.resolve()
+    expect(face.directory.getSnapshot()).toMatchObject({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      status: 'ready',
+    })
+  })
+
+  it('scope disposal drops the directory; a reborn scope gets a fresh one', async () => {
+    const b = await bench()
+    const first = b.mint('s1')
+    const face1 = b.seat().inject!(sid('s1'))
+    await first.fiber.dispose()
+    b.mint('s1')
+    const face2 = b.seat().inject!(sid('s1'))
+    expect(face2.directory).not.toBe(face1.directory)
+  })
+
+  it('an unknown session fails loud at the seat inject', async () => {
+    const b = await bench()
+    expect(() => b.seat().inject!(sid('ghost'))).toThrow(/resolved no scope/)
+  })
+})
