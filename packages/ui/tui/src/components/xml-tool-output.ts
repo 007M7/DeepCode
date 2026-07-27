@@ -1,4 +1,8 @@
-/** Conservative readable-tree rendering for model-facing text containing one XML document. */
+/**
+ * Conservative readable-tree rendering for model-facing text containing one XML
+ * document, used by the transcript's tool and context cards.
+ * @module @deepseek-ai/dsh-tui/components/xml-tool-output
+ */
 
 import { SaxesParser } from 'saxes'
 
