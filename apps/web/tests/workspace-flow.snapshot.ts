@@ -134,10 +134,9 @@ function setComposerText(composer: HTMLElement, value: string): void {
   expect((composer as HTMLTextAreaElement).value).toBe(value)
 }
 
-/** Drive the picker's create flow: chip → Create workspace → name dialog. */
+/** Drive the picker's create flow: chip → Create a new workspace → name dialog. */
 async function createWorkspaceViaPicker(name: string): Promise<void> {
   fireEvent.click(workspaceChip())
-  fireEvent.click(await screen.findByRole('menuitem', { name: 'Create workspace' }))
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Create a new workspace' }))
   const dialog = await screen.findByRole('dialog', { name: 'Create a new workspace' })
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'New workspace name' }), {
