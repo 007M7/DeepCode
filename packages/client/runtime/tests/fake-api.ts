@@ -2,7 +2,7 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  ClientResponse, CommandDescriptor, CommandExecuteResult, HostFrame, IApiClient, MuxFrame,
+  ClientResponse, CommandDescriptor, HostFrame, IApiClient, MuxFrame,
   RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
@@ -119,7 +119,7 @@ export class FakeApiClient implements IApiClient {
   // skill lists without casts.
   onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>>
     = () => Promise.resolve(ok({ commands: [] }))
-  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>>
+  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean }>>
     = () => Promise.resolve(ok({ matched: false }))
   onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
     = () => Promise.resolve(ok({ skills: [] }))

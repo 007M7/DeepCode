@@ -20,7 +20,7 @@ import {
   memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type {
-  CodeSubCall, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
+  CodeSubCall, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -28,6 +28,7 @@ import type { ChatViewSlotProps } from '../contract/slots.ts'
 import type { SelectionTarget } from '../contract/views.ts'
 import { deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
+import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem } from './MessageItem.tsx'
 import { PendingCard } from './PendingCard.tsx'
@@ -145,6 +146,24 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
           selectedCallId={selectedCallId}
         />
       ))}
+    </div>
+  )
+})
+
+/** One command lifecycle row: keyed dispatch on the command name with the
+ *  generic card as the render-site fallback (zero registration required). A
+ *  run-less cross-window node has no name and always lands on the fallback. */
+const CommandRow = memo(function CommandRow({ renderSlot, node }: {
+  renderSlot: RenderToolRow
+  node: CommandNode
+}) {
+  const owner = useMemo(() => ({ node }), [node])
+  return (
+    <div className={css.callRow}>
+      {renderSlot('conversation.chat.commandview', owner, {
+        entryKey: node.name ?? '',
+        fallback: <GenericCommandCard {...owner} />,
+      })}
     </div>
   )
 })
@@ -274,6 +293,9 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
     const node: ConversationNode = item.node
     if (node.kind === 'assistant') {
       return <AssistantMarkdown key={item.key} blocks={node.blocks} streaming={false} interrupted={node.interrupted} />
+    }
+    if (node.kind === 'command') {
+      return <CommandRow key={item.key} renderSlot={renderSlot} node={node} />
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null

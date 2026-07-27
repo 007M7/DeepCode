@@ -120,6 +120,31 @@ export interface UnknownSurfaceNode {
   data: unknown
 }
 
+/**
+ * One slash-command lifecycle folded from the log-only `command/run` /
+ * `command/done` pair (paired by commandId, mirroring tool call↔result).
+ * Log-only events never enter the surface fold, so the FoldAdapter indexes
+ * them separately and merges the nodes into the flow by seq. A window cut
+ * between the pair soft-falls like tool pairs: a done with no in-window run
+ * still builds a node (name/line null), and a run with no done renders as
+ * still executing.
+ */
+export interface CommandNode {
+  kind: 'command'
+  /** Seq of the command/run event; the done event's seq when only the done is in-window. */
+  seq: number
+  /** Unix epoch ms of the anchoring event. */
+  time: number
+  /** Pairing id minted by the host executor. */
+  commandId: string
+  /** Command name (run payload); null when the run fell outside the window. */
+  name: string | null
+  /** Exact dispatched command line (run payload); null when the run fell outside the window. */
+  line: string | null
+  /** Settlement outcome (done payload); null while the command is still executing. */
+  outcome: { kind: 'success' | 'error'; text?: string } | null
+}
+
 /** Finalized conversation node union (kind discriminates; seq is the React key). */
 export type ConversationNode =
   | UserMessageNode
@@ -127,6 +152,7 @@ export type ConversationNode =
   | SteeringMessageNode
   | ContextMessageNode
   | ToolResultNode
+  | CommandNode
   | UnknownSurfaceNode
 
 /**
