@@ -19,6 +19,10 @@ export interface WorkspaceListSnapshot {
   error: RpcError | null
 }
 
+type WorkspaceDelta =
+  | { type: 'upsert'; workspace: WorkspaceView }
+  | { type: 'remove'; workspaceId: WorkspaceId }
+
 /** Workspace object cluster driven by one list baseline and changed-frame upserts. */
 export class WorkspaceManager {
   private items: Workspace[] = []
@@ -28,7 +32,16 @@ export class WorkspaceManager {
   private phase: WorkspaceListPhase = 'pending'
   private error: RpcError | null = null
   private inflight: Promise<void> | null = null
-  private refreshFrames: WorkspaceView[] | null = null
+  private refreshFrames: WorkspaceDelta[] | null = null
+  /**
+   * Ids this process has seen removed, kept for the connection's lifetime so
+   * a late changed frame or a stale baseline row cannot resurrect a deleted
+   * row. Correctness rests on Host ids never being reused (the registry mints
+   * a fresh `randomUUID` per record, including when the same directory is
+   * registered again) — a path-derived id scheme would turn these entries
+   * into permanent blindfolds and must clear them instead.
+   */
+  private readonly removedIds = new Set<WorkspaceId>()
   private snapshotCache: WorkspaceListSnapshot
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
@@ -51,7 +64,7 @@ export class WorkspaceManager {
     this.state = 'loading'
     this.error = null
     const established = this.itemViews()
-    const frames: WorkspaceView[] = []
+    const frames: WorkspaceDelta[] = []
     this.refreshFrames = frames
     this.notifier.markDirty()
     this.inflight = (async () => {
@@ -61,7 +74,8 @@ export class WorkspaceManager {
           let items = this.phase === 'pending'
             ? result.value.items
             : mergeOrderedBaseline(established, result.value.items, workspace => workspace.workspaceId)
-          for (const workspace of frames) items = upsertWorkspace(items, workspace)
+          items = items.filter(workspace => !this.removedIds.has(workspace.workspaceId))
+          for (const delta of frames) items = applyWorkspaceDelta(items, delta)
           this.installViews(items)
           this.state = 'idle'
           this.phase = 'ready'
@@ -112,6 +126,18 @@ export class WorkspaceManager {
   }
 
   /**
+   * Delete a Workspace registration and remove its local projection from the
+   * unary response without waiting for the Host frame.
+   * @param workspaceId - target workspace.
+   * @returns the wire result.
+   */
+  async delete(workspaceId: WorkspaceId): Promise<RpcResult<{ deleted: true }>> {
+    const { result } = await this.api.workspace.delete({ workspaceId })
+    if (result.ok) this.remove(workspaceId, true)
+    return result
+  }
+
+  /**
    * Move a session within its Workspace's manual order, then publish the
    * returned snapshot without waiting for the changed frame.
    * @param workspaceId - owning workspace.
@@ -139,6 +165,7 @@ export class WorkspaceManager {
    */
   handleHostEnvelope(envelope: RpcRequest<HostFrame>): void {
     if (envelope.payload.type === 'host/workspace-changed') this.upsert(envelope.payload.workspace)
+    else if (envelope.payload.type === 'host/workspace-removed') this.remove(envelope.payload.workspaceId)
   }
 
   /** Re-pull the baseline after each connection generation. */
@@ -175,7 +202,8 @@ export class WorkspaceManager {
 
   /** Upsert one Host view, optionally retaining the local object that materialized it. */
   private upsert(view: WorkspaceView, identity?: Workspace): void {
-    this.refreshFrames?.push(view)
+    if (this.removedIds.has(view.workspaceId)) return
+    this.refreshFrames?.push({ type: 'upsert', workspace: view })
     const index = this.items.findIndex(item => item.getSnapshot().view?.workspaceId === view.workspaceId)
     // Mutation responses and changed frames race (two carriers, no ordering):
     // reject a snapshot strictly older than the installed projection so a
@@ -193,6 +221,24 @@ export class WorkspaceManager {
       this.items = [...this.items]
     }
     this.notifier.markDirty()
+  }
+
+  /** Remove one id idempotently and retain a tombstone against late echoes. */
+  private remove(workspaceId: WorkspaceId, direct = false): void {
+    this.refreshFrames?.push({ type: 'remove', workspaceId })
+    this.removedIds.add(workspaceId)
+    const items = this.items.filter(item =>
+      item.getSnapshot().view?.workspaceId !== workspaceId)
+    if (items.length === this.items.length) {
+      // The Host frame may have removed the row first but left its batched
+      // notification pending. A successful unary echo still flushes that
+      // committed state before the user action resolves.
+      if (direct) this.notifier.notifyNow()
+      return
+    }
+    this.items = items
+    if (direct) this.notifier.notifyNow()
+    else this.notifier.markDirty()
   }
 
   private installViews(views: readonly WorkspaceView[]): void {
@@ -233,4 +279,11 @@ function upsertWorkspace(items: readonly WorkspaceView[], workspace: WorkspaceVi
   return index === -1
     ? [workspace, ...items]
     : items.map((item, position) => position === index ? workspace : item)
+}
+
+/** Replay one ordered delta over a baseline: upsert in place, or drop the removed id. */
+function applyWorkspaceDelta(items: readonly WorkspaceView[], delta: WorkspaceDelta): WorkspaceView[] {
+  return delta.type === 'upsert'
+    ? upsertWorkspace(items, delta.workspace)
+    : items.filter(workspace => workspace.workspaceId !== delta.workspaceId)
 }
