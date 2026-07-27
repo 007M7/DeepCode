@@ -105,7 +105,8 @@ export const todoItemSchema = z.object({
  * deep-validating here would import every domain's schema into the carrier.
  */
 export const sessionProjectionsBlockSchema = z.object({
-  asOfSeq: z.number().int().nonnegative(),
+  // -1 = empty log (the lastSeq convention of session/subscribed).
+  asOfSeq: z.number().int().min(-1),
   values: z.record(z.string(), z.unknown()),
 }) as unknown as z.ZodType<SessionProjectionsBlock>
 

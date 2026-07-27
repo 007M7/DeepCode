@@ -37,6 +37,9 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('question/resolved'), sessionId: sessionIdSchema, questionRpcId: rpcIdSchema, outcome: z.union([z.literal('answered'), z.literal('cancelled')]) }),
   // content/source reuse the wide passthroughs (both are merge-extensible in core).
   z.object({ type: z.literal('session/queued'), sessionId: sessionIdSchema, content: z.array(contentBlockSchema), source: z.looseObject({ kind: z.string() }), steering: z.boolean() }),
+  // value stays wide: it already passed its unit's own schema on the host,
+  // and deep-validating here would import every domain's schema into the carrier.
+  z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<MuxFrame>
 

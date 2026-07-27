@@ -75,6 +75,15 @@ export type MuxFrame =
    * reconciliation key).
    */
   | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
+  /**
+   * One projection unit's finished value changed (session-projection RFC).
+   * Live push state, never logged — replay recomputes on the host (the
+   * tool-view posture). `value` is the unit's schema-validated view output;
+   * `seq` is the unit's watermark at emission. Clients keep one generic
+   * per-session value store under higher-seq-wins, seeded by the history
+   * tail page's projections block.
+   */
+  | { type: 'session/projection'; sessionId: SessionId; key: string; value: unknown; seq: number }
   | { type: 'stream/error'; error: RpcError }
 
 /**

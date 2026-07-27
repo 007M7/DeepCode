@@ -299,25 +299,18 @@ function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined 
 }
 
 /**
- * Compute the projection baseline for one history tail page: read the
- * session's next-event seq, then walk every registered provider — one fully
- * synchronous pass (no await anywhere), so all values and `asOfSeq` form a
- * single consistent cut and `asOfSeq` equals the window tail seq. Each value
- * passes through its provider's own schema before leaving the host (the
- * carrier holds zero domain knowledge; a provider returning an invalid value —
- * including an accidental Promise from a non-synchronous `get` — fails loud
- * here). An absent registry means the deployment has no projection seam: the
- * whole block is absent and clients treat every key as capability-absent.
+ * The projection baseline for one history tail page: the registry's
+ * watermark-cache snapshot — one fully synchronous read (no await between the
+ * page slice and this), so all values and `asOfSeq` form a single consistent
+ * cut and `asOfSeq` equals the window tail event seq. The carrier holds zero
+ * domain knowledge (each value passed its unit's own schema inside the
+ * registry). An absent registry means the deployment has no projection seam:
+ * the whole block is absent and clients treat every key as capability-absent.
  */
 function projectionsFor(ctx: Context, agent: Agent): SessionProjectionsBlock | undefined {
   const registry = ctx.get('sessionProjections')
   if (registry === undefined) return undefined
-  const asOfSeq = agent.session.seq
-  const values: Record<string, unknown> = {}
-  for (const provider of registry.entries()) {
-    values[provider.key] = provider.schema.parse(provider.get(agent))
-  }
-  return { asOfSeq, values: values as SessionProjectionsBlock['values'] }
+  return registry.snapshot(agent.session)
 }
 
 /**
@@ -399,6 +392,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const envelope = frame(payload)
     for (const queue of muxQueues) queue.push(envelope)
   }
+
+  // Projection change feed → session/projection push frames. The carrier
+  // mints the wire frame (the seam package holds no wire vocabulary); the
+  // child activates only when a projection registry is composed, and the
+  // subscription unwinds with this gateway's fiber.
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
+      broadcast({ type: 'session/projection', sessionId: session.id, key, value, seq })
+    })
+  })
 
   /**
    * Per-session inbox mirror serving the mux-open queue snapshot (the same

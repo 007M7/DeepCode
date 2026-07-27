@@ -37,13 +37,16 @@ export interface HistoryEntry {
 
 /**
  * The projection baseline riding the history tail page: one synchronous cut
- * over every registered projection provider. `asOfSeq` equals the window tail
- * seq (the session's next-event seq at slice time) because the handler reads
- * it and every value with no await in between. A key absent from `values`
- * means the capability is absent (its domain plugin is unmounted).
+ * over every registered projection unit, read from the registry's watermark
+ * cache. `asOfSeq` is the seq of the last committed event every value
+ * reflects — the window tail event seq (`-1` for an empty log, mirroring
+ * `session/subscribed.lastSeq`), directly comparable with
+ * `session/projection` frame seqs under the client's higher-seq-wins rule. A
+ * key absent from `values` means the capability is absent (its domain plugin
+ * is unmounted).
  */
 export interface SessionProjectionsBlock {
-  /** The session seq the values are consistent with (window tail seq). */
+  /** Seq of the last event the values reflect; -1 for an empty log. */
   asOfSeq: number
   /** Whole current value per registered projection key. */
   values: Partial<SessionProjectionMap>

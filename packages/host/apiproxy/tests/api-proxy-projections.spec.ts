@@ -1,10 +1,10 @@
 /**
- * Projections block on the session.history tail page: a registered fake
- * provider's whole value rides the tail page with asOfSeq equal to the window
- * tail seq; loadOlder pages (beforeSeq present) never carry the block; a
- * composition without the registry serves histories without the block; a
- * disposed registration's key leaves subsequent responses; and a provider
- * value rejected by its own schema fails the handler loud.
+ * Projection carrier paths of the host ApiProxy: the history tail page's
+ * projections block reads the registry's watermark snapshot (asOfSeq = last
+ * event seq, one consistent cut); loadOlder pages never carry the block; a
+ * composition without the registry serves histories without it; a disposed
+ * registration's key leaves subsequent responses; and every unit change is
+ * pushed to mux consumers as a session/projection frame minted here.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -15,15 +15,15 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import type { ProjectionProvider } from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import type { MuxFrame, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 
-declare module '@deepseek-ai/dsh-session-projection' {
+declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
-    'test/echo-seq': { seenSeq: number }
+    'test/last-user': { text: string } | null
   }
 }
 
@@ -32,12 +32,18 @@ function request<P>(payload: P): RpcRequest<P> {
   return { rpcId: RpcId(`proj-${String(nextRpc++)}`), payload }
 }
 
-/** Provider whose value records the session seq it observed at get() time. */
-const echoSeqProvider: ProjectionProvider<'test/echo-seq'> = {
-  key: 'test/echo-seq',
-  schema: z.object({ seenSeq: z.number().int().nonnegative() }),
-  get: agent => ({ seenSeq: agent.session.seq }),
-}
+/** Whole-value unit folding the latest user/message text; null before the first. */
+type LastUserState = { text: string } | null
+const lastUserUnit = (): ProjectionDefinition<'test/last-user', LastUserState> => ({
+  key: 'test/last-user',
+  schema: z.union([z.object({ text: z.string() }), z.null()]),
+  init: () => null,
+  apply: (state, event) => (event.type === 'user/message'
+    ? { text: (event.data.content[0] as { text?: string }).text ?? '' }
+    : state),
+  view: state => state,
+  stateVersion: 1,
+})
 
 async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: Session }> {
   const ctx = new Context()
@@ -59,32 +65,29 @@ function seedMessages(session: Session, count: number): void {
   }
 }
 
-describe('session.history projections block', () => {
-  it('serves the registered value on the tail page with asOfSeq = window tail seq', async () => {
-    const { ctx, session } = await harness(true)
-    ctx.sessionProjections.register(echoSeqProvider)
-    seedMessages(session, 3)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+const api = (ctx: Context) => createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
 
-    const response = await api.sessions.history(request({ sessionId: session.id }))
+describe('session.history projections block', () => {
+  it('serves the unit value on the tail page with asOfSeq = last event seq', async () => {
+    const { ctx, session } = await harness(true)
+    ctx.sessionProjections.register(lastUserUnit())
+    seedMessages(session, 3)
+    const response = await api(ctx).sessions.history(request({ sessionId: session.id }))
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
     const { events, projections } = response.result.value
     expect(projections).toBeDefined()
-    expect(projections?.asOfSeq).toBe(session.seq)
-    // The cut is consistent: the value observed the same seq the block stamps.
-    expect(projections?.values['test/echo-seq']).toEqual({ seenSeq: session.seq })
-    // asOfSeq is the window tail: the last served event sits right below it.
-    expect(events.at(-1)?.event.seq).toBe(session.seq - 1)
+    expect(projections?.asOfSeq).toBe(session.seq - 1)
+    expect(projections?.values['test/last-user']).toEqual({ text: 'm2' })
+    // asOfSeq IS the window tail: the last served event carries it.
+    expect(events.at(-1)?.event.seq).toBe(projections?.asOfSeq)
   })
 
   it('never carries the block on loadOlder pages (beforeSeq present)', async () => {
     const { ctx, session } = await harness(true)
-    ctx.sessionProjections.register(echoSeqProvider)
+    ctx.sessionProjections.register(lastUserUnit())
     seedMessages(session, 5)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
-
-    const older = await api.sessions.history(request({ sessionId: session.id, beforeSeq: 3, maxMessages: 2 }))
+    const older = await api(ctx).sessions.history(request({ sessionId: session.id, beforeSeq: 3, maxMessages: 2 }))
     expect(older.result.ok).toBe(true)
     if (!older.result.ok) throw new Error('unreachable')
     expect('projections' in older.result.value).toBe(false)
@@ -93,9 +96,7 @@ describe('session.history projections block', () => {
   it('serves no block when the composition has no projection registry', async () => {
     const { ctx, session } = await harness(false)
     seedMessages(session, 2)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
-
-    const response = await api.sessions.history(request({ sessionId: session.id }))
+    const response = await api(ctx).sessions.history(request({ sessionId: session.id }))
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
     expect('projections' in response.result.value).toBe(false)
@@ -103,35 +104,78 @@ describe('session.history projections block', () => {
 
   it('drops a disposed registration from subsequent tail pages (empty block, key absent)', async () => {
     const { ctx, session } = await harness(true)
-    const dispose = ctx.sessionProjections.register(echoSeqProvider)
+    const dispose = ctx.sessionProjections.register(lastUserUnit())
     seedMessages(session, 1)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
-
-    const before = await api.sessions.history(request({ sessionId: session.id }))
+    const proxy = api(ctx)
+    const before = await proxy.sessions.history(request({ sessionId: session.id }))
     if (!before.result.ok) throw new Error('unreachable')
-    expect(before.result.value.projections?.values['test/echo-seq']).toBeDefined()
+    expect(before.result.value.projections?.values['test/last-user']).toEqual({ text: 'm0' })
 
     dispose()
-    const after = await api.sessions.history(request({ sessionId: session.id }))
+    const after = await proxy.sessions.history(request({ sessionId: session.id }))
     if (!after.result.ok) throw new Error('unreachable')
     // The registry is still mounted, so the block itself stays (asOfSeq cut
     // with zero keys); the disposed key reads as capability absence.
-    expect(after.result.value.projections?.asOfSeq).toBe(session.seq)
+    expect(after.result.value.projections?.asOfSeq).toBe(session.seq - 1)
     expect(after.result.value.projections?.values).toEqual({})
   })
+})
 
-  it('fails loud when a provider value violates its own schema (async get is unrepresentable)', async () => {
+describe('session/projection push frame', () => {
+  /** Drain frames until `count` session/projection frames arrived. */
+  async function collect(iterable: AsyncIterable<RpcRequest<MuxFrame>>, count: number, abort: AbortController): Promise<MuxFrame[]> {
+    const frames: MuxFrame[] = []
+    for await (const envelope of iterable) {
+      frames.push(envelope.payload)
+      if (frames.filter(f => f.type === 'session/projection').length >= count) abort.abort()
+    }
+    return frames
+  }
+
+  it('broadcasts a frame per changed unit with the causing seq, and none for same-reference applies', async () => {
     const { ctx, session } = await harness(true)
-    ctx.sessionProjections.register({
-      key: 'test/echo-seq',
-      schema: z.object({ seenSeq: z.number().int().nonnegative() }),
-      // A Promise (what an accidentally-async get would return) is not the
-      // declared shape: the boundary parse rejects it before it hits the wire.
-      get: () => Promise.resolve({ seenSeq: 0 }) as never,
-    })
-    seedMessages(session, 1)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    ctx.sessionProjections.register(lastUserUnit())
+    const proxy = api(ctx)
+    // The gateway's onChanged subscription lives in an inject child whose
+    // fiber activates asynchronously; yield until it lands before appending.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const abort = new AbortController()
+    const stream = proxy.events.mux({ rpcId: RpcId('t-proj-mux'), payload: {} }, abort.signal)
+    const collected = collect(stream, 2, abort)
 
-    await expect(api.sessions.history(request({ sessionId: session.id }))).rejects.toThrow()
+    seedMessages(session, 1)
+    // Same-reference apply: turn/start does not concern the unit — no frame.
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    seedMessages(session, 1)
+
+    const frames = await collected
+    const pushes = frames.filter(
+      (f): f is Extract<MuxFrame, { type: 'session/projection' }> => f.type === 'session/projection',
+    )
+    expect(pushes).toEqual([
+      { type: 'session/projection', sessionId: session.id, key: 'test/last-user', value: { text: 'm0' }, seq: 0 },
+      { type: 'session/projection', sessionId: session.id, key: 'test/last-user', value: { text: 'm0' }, seq: 2 },
+    ])
+    // Frame seq aligns with the tail block's asOfSeq vocabulary (higher-seq-wins compatible).
+    const tail = await proxy.sessions.history(request({ sessionId: session.id }))
+    if (!tail.result.ok) throw new Error('unreachable')
+    expect(tail.result.value.projections?.asOfSeq).toBe(pushes.at(-1)?.seq)
+  })
+
+  it('emits no projection frames when the composition has no registry', async () => {
+    const { ctx, session } = await harness(false)
+    const proxy = api(ctx)
+    const abort = new AbortController()
+    const stream = proxy.events.mux({ rpcId: RpcId('t-noproj-mux'), payload: {} }, abort.signal)
+    const frames: MuxFrame[] = []
+    const drained = (async () => {
+      for await (const envelope of stream) {
+        frames.push(envelope.payload)
+        if (frames.filter(f => f.type === 'session/event').length >= 2) abort.abort()
+      }
+    })()
+    seedMessages(session, 2)
+    await drained
+    expect(frames.some(f => f.type === 'session/projection')).toBe(false)
   })
 })
