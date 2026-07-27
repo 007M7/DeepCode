@@ -53,6 +53,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, strea
         switch (block.kind) {
           case 'text': return <MarkdownText key={i} text={block.text} streaming={streaming} />
           case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} />
+          // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
           case 'tool-call': return null
           default: return <JsonBlock key={i} label="未知内容块" payload={block.block} />
         }
