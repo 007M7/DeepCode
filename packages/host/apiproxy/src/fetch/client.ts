@@ -13,7 +13,7 @@ import { RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from '../api/rpc.schema.ts'
 import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
-import { hostDescribeValueSchema } from '../api/host.schema.ts'
+import { hostDescribeValueSchema, hostPickDirectoryValueSchema } from '../api/host.schema.ts'
 import {
   sessionCancelValueSchema,
   sessionCreateValueSchema,
@@ -23,8 +23,13 @@ import {
 } from '../api/sessions.schema.ts'
 import {
   workspaceCreateValueSchema,
+  workspaceDeleteValueSchema,
+  workspaceInsertSessionBeforeValueSchema,
   workspaceListValueSchema,
+  workspaceRenameValueSchema,
 } from '../api/workspace.schema.ts'
+import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
+import { skillListValueSchema } from '../api/skills.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -51,10 +56,21 @@ export interface IApiClient {
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
+    pickDirectory(payload: RequestPayload<'host.pickDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.pickDirectory'>>>
   }
   workspace: {
     list(payload: RequestPayload<'workspace.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.list'>>>
     create(payload: RequestPayload<'workspace.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.create'>>>
+    rename(payload: RequestPayload<'workspace.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.rename'>>>
+    delete(payload: RequestPayload<'workspace.delete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.delete'>>>
+    insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
+  }
+  commands: {
+    list(payload: RequestPayload<'command.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'command.list'>>>
+    execute(payload: RequestPayload<'command.execute'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'command.execute'>>>
+  }
+  skills: {
+    list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
   }
   events: {
     mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
@@ -75,8 +91,15 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.prompt': sessionPromptValueSchema,
   'session.cancel': sessionCancelValueSchema,
   'host.describe': hostDescribeValueSchema,
+  'host.pickDirectory': hostPickDirectoryValueSchema,
   'workspace.list': workspaceListValueSchema,
   'workspace.create': workspaceCreateValueSchema,
+  'workspace.rename': workspaceRenameValueSchema,
+  'workspace.delete': workspaceDeleteValueSchema,
+  'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
+  'command.list': commandListValueSchema,
+  'command.execute': commandExecuteValueSchema,
+  'skill.list': skillListValueSchema,
 }
 
 /** Default unary timeout (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -156,13 +179,22 @@ export abstract class AbstractApiClient implements IApiClient {
    * Shared POST leg of both C→S carriers (callUnary/respond): JSON body,
    * timeout merged with the caller's optional external signal, non-2xx → transport throw.
    */
-  private async postJson(path: string, body: ClientRequest | ClientResponse, signal: AbortSignal | undefined): Promise<Response> {
-    const timeout = AbortSignal.timeout(this.timeoutMs)
+  private async postJson(
+    path: string,
+    body: ClientRequest | ClientResponse,
+    signal: AbortSignal | undefined,
+    useDefaultTimeout = true,
+  ): Promise<Response> {
+    const requestSignal = useDefaultTimeout
+      ? signal === undefined
+        ? AbortSignal.timeout(this.timeoutMs)
+        : AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal])
+      : signal
     const response = await this.doFetch(new URL(path, this.resolveBase()), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-      signal: signal === undefined ? timeout : AbortSignal.any([timeout, signal]),
+      ...requestSignal === undefined ? {} : { signal: requestSignal },
     })
     if (!response.ok) throw new Error(`transport failure for ${path}: HTTP ${response.status}`)
     return response
@@ -177,10 +209,11 @@ export abstract class AbstractApiClient implements IApiClient {
     method: K,
     payload: RequestPayload<K>,
     signal?: AbortSignal,
+    useDefaultTimeout = true,
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const message: ClientRequest = { type: 'client-request', rpcId: this.mintRpcId(), method, payload }
     this.onEnvelope(message)
-    const response = await this.postJson(`/api/${method}`, message, signal)
+    const response = await this.postJson(`/api/${method}`, message, signal, useDefaultTimeout)
     const full = serverResponseSchema.parse(await response.json())
     this.onEnvelope(full)
     if (full.rpcId !== message.rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${message.rpcId}, got ${full.rpcId}`)
@@ -261,11 +294,26 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly host: IApiClient['host'] = {
     describe: (payload, signal) => this.callUnary('host.describe', payload, signal),
+    // A native system dialog is user-paced and may legitimately stay open
+    // longer than the normal unary deadline. Caller/connection aborts remain.
+    pickDirectory: (payload, signal) => this.callUnary('host.pickDirectory', payload, signal, false),
   }
 
   readonly workspace: IApiClient['workspace'] = {
     list: (payload, signal) => this.callUnary('workspace.list', payload, signal),
     create: (payload, signal) => this.callUnary('workspace.create', payload, signal),
+    rename: (payload, signal) => this.callUnary('workspace.rename', payload, signal),
+    delete: (payload, signal) => this.callUnary('workspace.delete', payload, signal),
+    insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
+  }
+
+  readonly commands: IApiClient['commands'] = {
+    list: (payload, signal) => this.callUnary('command.list', payload, signal),
+    execute: (payload, signal) => this.callUnary('command.execute', payload, signal),
+  }
+
+  readonly skills: IApiClient['skills'] = {
+    list: (payload, signal) => this.callUnary('skill.list', payload, signal),
   }
 
   readonly events: IApiClient['events'] = {

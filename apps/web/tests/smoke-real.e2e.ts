@@ -1,9 +1,9 @@
 // W5 real-host smoke: spawn `dsh web` with a real key, walk the full W5 flow
 // list in a real chromium, screenshot every screen into .artifacts/ for the
 // figma comparison pass. Self-skips without DEEPSEEK_API_KEY (repo e2e
-// convention); the runner loads the repo-root .env explicitly because the CLI
-// only auto-loads .env from its cwd (a temp dir here, so sessions never land
-// in the repo's .sessions).
+// convention); vitest.web.config.ts loads the repo-root .env before this file
+// runs (the CLI only auto-loads .env from its cwd — a temp dir here, so
+// sessions never land in the repo's .sessions).
 //
 // Selector convention: CSS Modules hash as [hash]_[local], so class-substring
 // selectors are unreliable — anchor on data-* attributes (data-variant /
@@ -24,18 +24,7 @@ import { pathToFileURL } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { REPO_ROOT, probeFreePort, requireDist, saveFailureShot } from './support.ts'
-
-/** Repo-root .env → process.env (never overrides an already-set variable). */
-function loadRootEnv(): void {
-  const envPath = join(REPO_ROOT, '.env')
-  if (!existsSync(envPath)) return
-  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim())
-    if (m !== null && process.env[m[1]!] === undefined) process.env[m[1]!] = m[2]
-  }
-}
-loadRootEnv()
+import { REPO_ROOT, connectFreshWorkspace, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -147,7 +136,7 @@ async function detailsTrack(page: Page): Promise<number> {
 // Readiness gate: `dsh web` serves ALL nine manifest plugins; until every UI
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
-const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-question', 'ui-trajectory']
+const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'locale', 'ui-layout', 'ui-sidebar', 'ui-settings', 'ui-settings-general', 'ui-models', 'ui-conversation', 'ui-question', 'ui-trajectory']
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')
@@ -271,6 +260,83 @@ describe('dsh web keyless CLI smoke', () => {
       rmSync(workspace, { recursive: true, force: true })
     }
   })
+
+  it('DSH_TOOLS_MODE=code collapses the provider wire tools to run_code with the SDK prompt section', async () => {
+    requireDist()
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-code-mode-'))
+
+    interface CodeModeProviderRequest {
+      messages?: { role?: string; content?: string }[]
+      tools?: { function?: { name?: string } }[]
+    }
+    let resolveProviderRequest!: (request: CodeModeProviderRequest) => void
+    const providerRequest = new Promise<CodeModeProviderRequest>((resolve) => {
+      resolveProviderRequest = resolve
+    })
+    const provider = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        resolveProviderRequest(JSON.parse(body) as CodeModeProviderRequest)
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        response.end([
+          'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
+          'data: {"choices":[{"delta":{"content":"done"}}]}',
+          'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'))
+      })
+    })
+    await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (address === null || typeof address === 'string') throw new Error('mock provider did not bind a TCP port')
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      {
+        cwd: workspace,
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: 'keyless-web-code-mode',
+          DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+          DSH_TOOLS_MODE: 'code',
+          DSH_HOME: join(workspace, '.dsh'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const baseUrl = await waitForReadyLine(child)
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
+      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+        sessionId: created.sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: 'go' }],
+      })
+      const captured = await Promise.race([
+        providerRequest,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
+        }),
+      ])
+      expect(captured.tools?.map(tool => tool.function?.name)).toEqual(['run_code'])
+      const system = captured.messages?.find(message => message.role === 'system')
+      expect(system?.content).toContain('## Writing code for run_code')
+      expect(system?.content).toContain('declare const tools')
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
 })
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key, W5)', () => {
@@ -327,6 +393,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
 
   it('2+3 empty-state first send completes a real model round', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-first-round'))
+    // Fresh world: connect a Workspace so the composer starts live.
+    await connectFreshWorkspace(page)
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     await screen(page, '02-empty-state')

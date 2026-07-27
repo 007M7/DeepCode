@@ -177,7 +177,7 @@ interface TodoItem {
  * canonical empty optional fields are absent.
  */
 interface EpochHeader {
-  /** The conversation's call configuration (provider, model, and sampling scalars). */
+  /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
@@ -372,6 +372,18 @@ declare class Session {
   readonly header: SessionHeader;
   /** The session identity, derived from its durable header's single copy. */
   get id(): SessionId;
+  /**
+   * The first seq appended IN THIS PROCESS: the length of the constructor
+   * seed (0 without one). Events below it entered through construction —
+   * replay, fork, or resume — and were never published on the `session/event`
+   * firehose (constructor seeds do not emit), so consumers that replay the
+   * log as a publication substitute (telemetry adoption) start here. Distinct
+   * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
+   * session's constructor seed is its full stored log, while its header keeps
+   * the original fork value — this field is the in-process construction fact
+   * and is deliberately not persisted.
+   */
+  readonly firstLiveSeq: number;
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
@@ -564,6 +576,6 @@ interface TurnEndReasonMap {
 
 ## 持久性契约
 
-持久化后端依赖的契约如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端可选启用的打包分片行就是此类编码；见 [persistence.md](persistence.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增携带不可序列化数据的事件类型，或破坏会话不变式配套插件所检查的轮次/步骤嵌套，会构成磁盘格式的破坏性变更。
+持久化后端依赖的契约如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端默认启用的打包分片行就是此类编码；见 [persistence.md](persistence.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增携带不可序列化数据的事件类型，或破坏会话不变式配套插件所检查的轮次/步骤嵌套，会构成磁盘格式的破坏性变更。
 
 消费此契约的后端见 [persistence.md](persistence.md)。

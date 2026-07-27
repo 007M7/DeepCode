@@ -1,26 +1,58 @@
-/** Shared Workspace picker for the sidebar and New Session hero. */
+/**
+ * Workspace pick/create flow. WorkspaceCreateFlow is the reusable core
+ * (menu + path/create dialogs) consumed directly by WorkspaceBrowser (same
+ * package) and wrapped by WorkspacePicker for the conversation empty-state
+ * slot registration.
+ */
+import type { RefObject } from 'react'
 import { useCallback, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  WorkspaceCreateError,
+  type WorkspaceId, type WorkspaceListState, type WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
 
-const CREATE_WORKSPACE = '::create-workspace'
-const USE_EXISTING = '::use-existing'
+const OPEN_LOCAL_FOLDER = '::open-local-folder'
 const CREATE_NEW = '::create-new'
 
-type ModalKind = 'path' | 'create' | null
+type ModalKind = 'create' | 'folder-error' | null
 
-export function WorkspacePicker({
+/** Core flow props: the owner supplies popover control and pick semantics. */
+export interface WorkspaceCreateFlowProps {
+  /** Popover visibility (anchor button toggle state, owner-local). */
+  open: boolean
+  /** The anchor button element — the popover's placement anchor. */
+  anchorRef?: RefObject<HTMLElement | null> | undefined
+  /** Selector hook over the workspace list (framework standard hook). */
+  useWorkspaces: <S>(selector: (state: WorkspaceListState) => S) => S
+  /** Create or adopt a real Host Workspace. */
+  createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
+  /** Open the Host's native single-directory picker. */
+  pickDirectory: () => Promise<string | null>
+  /** A real Workspace was picked or created. */
+  onPick: (workspaceId: WorkspaceId) => void
+  /** Close the popover (outside click / Escape / post-pick). */
+  onClose: () => void
+}
+
+/**
+ * Render the pick menu plus the two create dialogs.
+ * @param props - owner-controlled flow props.
+ * @returns menu + dialog elements.
+ */
+export function WorkspaceCreateFlow({
   open,
   anchorRef,
   useWorkspaces,
+  createWorkspace,
+  pickDirectory,
   onPick,
   onClose,
-  createWorkspace,
-}: WorkspacePickerProps) {
+}: WorkspaceCreateFlowProps) {
   const workspaceSnapshot = useWorkspaces(state => state)
   const workspaces = workspaceSnapshot.items
   const getAnchorRect = useCallback(
@@ -28,12 +60,13 @@ export function WorkspacePicker({
     [anchorRef],
   )
   const [modalKind, setModalKind] = useState<ModalKind>(null)
-  const [pathDraft, setPathDraft] = useState('')
   const [workspaceName, setWorkspaceName] = useState('')
   const [creating, setCreating] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
+  const [pickingFolder, setPickingFolder] = useState(false)
+  const [folderConflict, setFolderConflict] = useState(false)
   const normalizedWorkspaceName = workspaceName.trim()
-  const duplicateWorkspaceName = normalizedWorkspaceName !== ''
+  const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
 
   const items: MenuEntry[] = [
@@ -41,17 +74,11 @@ export function WorkspacePicker({
       id: workspace.workspaceId as string,
       label: workspace.title,
       icon: <IconFolderClose16 size={16} />,
+      disabled: pickingFolder,
     })),
     ...(workspaces.length > 0 ? [{ type: 'separator' as const, id: 'sep-create' }] : []),
-    {
-      id: CREATE_WORKSPACE,
-      label: 'Create workspace',
-      icon: <IconPlusOutline16 size={16} />,
-      submenu: [
-        { id: USE_EXISTING, label: 'Use an existing folder' },
-        { id: CREATE_NEW, label: 'Create a new workspace' },
-      ],
-    },
+    { id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder },
+    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
   ]
 
   const closeModal = (): void => {
@@ -60,12 +87,29 @@ export function WorkspacePicker({
     setModalError(null)
   }
 
+  const openLocalFolder = (): void => {
+    onClose()
+    setModalKind(null)
+    setModalError(null)
+    setFolderConflict(false)
+    setPickingFolder(true)
+    void pickDirectory().then(async (path) => {
+      if (path === null) return
+      const workspace = await createWorkspace({ path })
+      onPick(workspace.workspaceId)
+    }).catch((reason: unknown) => {
+      setFolderConflict(
+        reason instanceof WorkspaceCreateError
+        && reason.rpcError.code === 'workspace-name-conflict',
+      )
+      setModalError(reason instanceof Error ? reason.message : String(reason))
+      setModalKind('folder-error')
+    }).finally(() => { setPickingFolder(false) })
+  }
+
   const handleSelect = (id: string): void => {
-    if (id === USE_EXISTING) {
-      onClose()
-      setPathDraft('')
-      setModalError(null)
-      setModalKind('path')
+    if (id === OPEN_LOCAL_FOLDER) {
+      openLocalFolder()
       return
     }
     if (id === CREATE_NEW) {
@@ -93,11 +137,6 @@ export function WorkspacePicker({
     })
   }
 
-  const confirmPath = (): void => {
-    const path = pathDraft.trim()
-    if (path !== '') create({ path })
-  }
-
   const confirmCreate = (): void => {
     if (normalizedWorkspaceName !== '' && !duplicateWorkspaceName) {
       create({ name: normalizedWorkspaceName })
@@ -117,40 +156,21 @@ export function WorkspacePicker({
       />
       {open && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">Loading workspaces…</div>}
       <Modal
-        open={modalKind === 'path'}
+        open={modalKind === 'folder-error'}
         onClose={closeModal}
-        title="Use an existing folder"
+        title={folderConflict ? 'A workspace with this name already exists' : 'Couldn’t open folder'}
         footer={(
           <>
-            <Button variant="outline" className={css.modalAction!} disabled={creating} onClick={closeModal}>Cancel</Button>
-            <Button
-              variant="primary"
-              className={css.modalAction!}
-              disabled={creating || pathDraft.trim() === ''}
-              onClick={confirmPath}
-            >
-              Use folder
-            </Button>
+            <Button variant="outline" className={css.modalAction!} onClick={closeModal}>Cancel</Button>
+            <Button variant="primary" className={css.modalAction!} onClick={openLocalFolder}>Choose again</Button>
           </>
         )}
       >
-        <input
-          className={css.modalInput}
-          value={pathDraft}
-          aria-label="Existing folder path"
-          autoFocus
-          disabled={creating}
-          placeholder="/path/to/project"
-          onChange={(event) => { setPathDraft(event.target.value) }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              confirmPath()
-            }
-          }}
-        />
-        {creating && <div className={css.modalStatus} role="status">Creating workspace…</div>}
-        {modalError !== null && <div className={css.modalError} role="alert">{modalError}</div>}
+        <div className={css.modalError} role="alert">
+          {folderConflict
+            ? 'Choose a folder with a different name.'
+            : modalError}
+        </div>
       </Modal>
       <Modal
         open={modalKind === 'create'}
@@ -192,5 +212,33 @@ export function WorkspacePicker({
         {modalError !== null && <div className={css.modalError} role="alert">{modalError}</div>}
       </Modal>
     </>
+  )
+}
+
+/**
+ * The conversation empty-state registration: adapts the owner share to the
+ * core flow (all state and semantics live in the flow / the owner).
+ * @param props - empty-state slot props (owner share + injected creation callback).
+ * @returns the flow element.
+ */
+export function WorkspacePicker({
+  open,
+  anchorRef,
+  useWorkspaces,
+  onPick,
+  onClose,
+  createWorkspace,
+  pickDirectory,
+}: WorkspacePickerProps) {
+  return (
+    <WorkspaceCreateFlow
+      open={open}
+      anchorRef={anchorRef}
+      useWorkspaces={useWorkspaces}
+      createWorkspace={createWorkspace}
+      pickDirectory={pickDirectory}
+      onPick={onPick}
+      onClose={onClose}
+    />
   )
 }

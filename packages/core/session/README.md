@@ -1,5 +1,7 @@
 # dsh-session
 
+English | [中文](README.zh.md)
+
 Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (an ordered projection of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
 
 The optional `@deepseek-ai/dsh-session/invariant` companion registers this package's relational trace checks with `ctx.invariants`: monotonic sequence numbers, turn/step enclosure, and same-step tool call/result pairing. It replays existing sessions when loaded or reloaded; storage validation, snapshotting, freezing, provenance, and surface acceptance remain always-on responsibilities of the root session package.
@@ -50,7 +52,7 @@ Durable values need one accepted representation, not a check followed by a secon
 
 ### Chunk-row storage codec (`chunk-rows.ts`)
 
-Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/chunk` lines whose JSON envelopes dwarf their payloads. `packChunkRuns(events)` packs each run of ≥3 consecutive same-block delta chunks into one storage row — `text-chunks`, `reasoning-chunks`, or `tool-call-chunks` (bare slash-less tags: storage vocabulary, not `SessionEventMap` members) — and `decodeStorageRecord(value)` expands a parsed line back into its exact events (`seq0`/`time0` + per-member `dt` gaps reconstruct every `seq`/`time`). The encoder whitelists exact shapes and stores anything unrecognized verbatim; the decoder validates row-tagged values and throws on malformation. Owned here so the JSONL backend and the fixture readers (`dsh-llm-replay`, `dsh-acp-snapshot`) share one codec; the write-side switch is the backend's `packChunks` config.
+Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/chunk` lines whose JSON envelopes dwarf their payloads. `packChunkRuns(events)` packs each run of ≥3 consecutive same-block delta chunks into one storage row — `text-chunks`, `reasoning-chunks`, or `tool-call-chunks` (bare slash-less tags: storage vocabulary, not `SessionEventMap` members) — and `decodeStorageRecord(value)` expands a parsed line back into its exact events (`seq0`/`time0` + per-member `dt` gaps reconstruct every `seq`/`time`). The encoder whitelists exact shapes and stores anything unrecognized verbatim; the decoder validates row-tagged values and throws on malformation. Owned here so the JSONL backend and the fixture readers (`dsh-llm-replay`, `dsh-acp-snapshot`) share one codec; the backend's default-enabled `packChunks` config controls writes only.
 
 ### Surface types
 

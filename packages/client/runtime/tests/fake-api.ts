@@ -2,7 +2,8 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  ClientResponse, HostFrame, IApiClient, MuxFrame, RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId,
+  ClientResponse, CommandDescriptor, CommandExecuteResult, HostFrame, IApiClient, MuxFrame,
+  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -61,13 +62,15 @@ export class FakeApiClient implements IApiClient {
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
-  => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>> =
+  => Promise<RpcResponse<{ events: never[]; hasMore: boolean; todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[] }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onDescribe: (payload: unknown) => Promise<RpcResponse<{ version: string; cwd: string; attachedSessions: number }>> =
     () => Promise.resolve(ok({ version: '0-fake', cwd: '/f', attachedSessions: 0 }))
+  onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
+    () => Promise.resolve(ok({ path: null }))
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
@@ -86,15 +89,48 @@ export class FakeApiClient implements IApiClient {
 
   readonly host: IApiClient['host'] = {
     describe: (payload: unknown) => this.record('host.describe', payload, this.onDescribe(payload)),
+    pickDirectory: (payload: unknown) => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),
   }
 
   onWorkspaceList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
   onWorkspaceCreate: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>> =
     () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws'), created: true }))
 
+  onWorkspaceRename: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView }>> =
+    () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws') }))
+
+  onWorkspaceDelete: (payload: unknown) => Promise<RpcResponse<{ deleted: true }>> =
+    () => Promise.resolve(ok({ deleted: true }))
+
+  onWorkspaceInsertSessionBefore: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView }>> =
+    () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws') }))
+
   readonly workspace: IApiClient['workspace'] = {
     list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload)),
     create: (payload: unknown) => this.record('workspace.create', payload, this.onWorkspaceCreate(payload)),
+    rename: (payload: unknown) => this.record('workspace.rename', payload, this.onWorkspaceRename(payload)),
+    delete: (payload: unknown) => this.record('workspace.delete', payload, this.onWorkspaceDelete(payload)),
+    insertSessionBefore: (payload: unknown) =>
+      this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
+  }
+
+  // Payloads stay `unknown` (lint-lane note above); response rows are the real
+  // wire shapes so cases can program requires-bearing catalogs and dual-address
+  // skill lists without casts.
+  onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>>
+    = () => Promise.resolve(ok({ commands: [] }))
+  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>>
+    = () => Promise.resolve(ok({ matched: false }))
+  onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
+    = () => Promise.resolve(ok({ skills: [] }))
+
+  readonly commands: IApiClient['commands'] = {
+    list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),
+    execute: (payload: unknown) => this.record('command.execute', payload, this.onCommandExecute(payload)),
+  }
+
+  readonly skills: IApiClient['skills'] = {
+    list: (payload: unknown) => this.record('skill.list', payload, this.onSkillList(payload)),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

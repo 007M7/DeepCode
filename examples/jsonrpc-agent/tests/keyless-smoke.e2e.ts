@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { zstdDecompress } from 'node:zlib'
+import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/jsonrpc-demo/src/bin.ts', import.meta.url))
@@ -69,7 +69,9 @@ describe('jsonrpc-agent keyless smoke', () => {
     await new Promise<void>(resolve => modelServer.listen(0, '127.0.0.1', resolve))
     const address = modelServer.address()
     if (address === null || typeof address === 'string') throw new Error('model server did not bind a TCP port')
-    const child = spawn(process.execPath, [
+    // The line-predicate protocol driving below is the genuinely custom part;
+    // execa owns spawn, the deadline, and exit settlement around it.
+    const child = execa(process.execPath, [
       '--import',
       'tsx',
       binScript,
@@ -77,27 +79,26 @@ describe('jsonrpc-agent keyless smoke', () => {
     ], {
       cwd: repoRoot,
       env: {
-        ...process.env,
         DEEPSEEK_API_KEY: 'keyless-smoke-no-call',
         DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
         DSH_CWD: root,
         DSH_SESSION_ROOT: join(root, '.sessions'),
         ...(envValue === undefined ? {} : { DSH_MAX_TOKENS_AS_SUCCESS: envValue }),
       },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 35_000,
+      killSignal: 'SIGKILL',
+      reject: false,
     })
     const lines: string[] = []
     let stdoutBuffer = ''
     let stderr = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      stdoutBuffer += chunk
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString('utf8')
       const parts = stdoutBuffer.split('\n')
       stdoutBuffer = parts.pop() ?? ''
       lines.push(...parts)
     })
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => { stderr += chunk })
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8') })
 
     try {
       child.stdin.write(`${JSON.stringify({
@@ -144,16 +145,8 @@ describe('jsonrpc-agent keyless smoke', () => {
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'shutdown' })}\n`)
       const shutdown = await waitForLine(lines, value => value.id === 3, () => stderr)
       expect(shutdown).toMatchObject({ jsonrpc: '2.0', id: 3, result: {} })
-      if (child.exitCode === null) {
-        await new Promise<void>((resolve, reject) => {
-          child.once('exit', (code) => {
-            if (code === 0) resolve()
-            else reject(new Error(`runtime exited ${code}; stderr=${stderr}`))
-          })
-        })
-      } else {
-        expect(child.exitCode, stderr).toBe(0)
-      }
+      const exit = await child
+      expect(exit.exitCode, `signal=${String(exit.signal)}; stderr=${stderr}`).toBe(0)
       const sessionsRoot = join(root, '.sessions')
       const files = await readdir(sessionsRoot, { recursive: true })
       const log = files.find(file => file.endsWith('.jsonl.zstd'))
@@ -162,14 +155,16 @@ describe('jsonrpc-agent keyless smoke', () => {
       expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
       expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session', id: 'main' })
     } finally {
-      if (child.exitCode === null) child.kill('SIGKILL')
+      // No-op after exit; reject: false settles on every outcome, so cleanup never races teardown.
+      child.kill('SIGKILL')
+      await child
       await new Promise<void>(resolve => modelServer.close(() => { resolve() }))
       await rm(root, { recursive: true, force: true })
     }
   }, 40_000)
 
   it('rejects an invalid max-token success env value', async () => {
-    const child = spawn(process.execPath, [
+    const { exitCode, stdout, stderr } = await execa(process.execPath, [
       '--import',
       'tsx',
       binScript,
@@ -177,26 +172,17 @@ describe('jsonrpc-agent keyless smoke', () => {
     ], {
       cwd: repoRoot,
       env: {
-        ...process.env,
         DEEPSEEK_API_KEY: 'keyless-smoke-no-call',
         DSH_MAX_TOKENS_AS_SUCCESS: 'sometimes',
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => { stdout += chunk })
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => { stderr += chunk })
-
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      child.once('error', reject)
-      child.once('exit', resolve)
+      stdin: 'ignore',
+      timeout: 25_000,
+      killSignal: 'SIGKILL',
+      reject: false,
     })
 
     expect(exitCode, stderr).toBe(1)
     expect(stdout).toBe('')
     expect(stderr).toContain('plugin(s) failed to load: @deepseek-ai/dsh-jsonrpc')
-  }, 10_000)
+  }, 30_000)
 })

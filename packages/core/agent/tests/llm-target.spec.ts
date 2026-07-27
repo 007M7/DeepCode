@@ -7,7 +7,7 @@ import {
   type Agent,
   type AgentLlmTargetRef,
 } from '../src/index.ts'
-import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 
 describe('installAgentLlmTarget()', () => {
   it('snapshots prompt variables and request routing together, then disposes both listeners', async () => {
@@ -24,16 +24,31 @@ describe('installAgentLlmTarget()', () => {
       'agent/request', 1, 0, seed, signal, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
 
-    target.current = { provider: 'alpha', model: 'a1' }
+    target.current = {
+      provider: 'alpha',
+      model: 'a1',
+      reasoningEffort: ReasoningEffortId('high'),
+    }
     expect((await ctx.systemPrompt.assemble()).variables).toMatchObject({ provider: 'alpha', model: 'a1' })
     target.current = { provider: 'beta', model: 'b1' }
     await expect(agentEvents(ctx, agent).waterfall(
       'agent/request', 1, 0, seed, signal, () => Promise.resolve(seed),
-    )).resolves.toEqual({ provider: 'alpha', model: 'a1', temperature: 0.2 })
+    )).resolves.toEqual({
+      provider: 'alpha',
+      model: 'a1',
+      reasoningEffort: ReasoningEffortId('high'),
+      temperature: 0.2,
+    })
 
     expect((await ctx.systemPrompt.assemble()).variables).toMatchObject({ provider: 'beta', model: 'b1' })
+    const inherited: LlmCallConfig = {
+      provider: 'alpha',
+      model: 'a1',
+      reasoningEffort: ReasoningEffortId('max'),
+      temperature: 0.2,
+    }
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 1, seed, signal, () => Promise.resolve(seed),
+      'agent/request', 1, 1, inherited, signal, () => Promise.resolve(inherited),
     )).resolves.toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
 
     dispose()

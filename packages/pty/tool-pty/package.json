@@ -54,6 +54,7 @@
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tasks": "workspace:^",
+    "@deepseek-ai/dsh-tasks-local": "workspace:^",
     "@deepseek-ai/dsh-tool-tasks": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "cordis": "^4.0.0-rc.7"

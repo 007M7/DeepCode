@@ -9,7 +9,7 @@ This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verifie
 
 The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely. The event-dispatch methods themselves are generated in the [Cordis core Events API](core/events.md).
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`), **bail** (synchronous in-order dispatch until one listener returns a bail value; the scoped input-mutation events use it for an applied/not-applied answer).
 
 ## `agent/*`
 
@@ -618,7 +618,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:55`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:56`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -709,6 +709,75 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/core/session/src/index.ts:111`](../../packages/core/session/src/index.ts)
+
+## `slash/*`
+
+### `slash/input-begin-command` — bail
+
+Applies one command claim to the scoped Input. Dispatched with the session's scope carrier; the owning session's input listener returns `true` only after the phase and span CAS checks pass and the machine actually mutated — producers treat anything else as "not applied".
+
+```ts cordis-catalog
+/**
+ * Applies one command claim to the scoped Input. Dispatched with the
+ * session's scope carrier; the owning session's input listener returns
+ * `true` only after the phase and span CAS checks pass and the machine
+ * actually mutated — producers treat anything else as "not applied".
+ * @param request - Claim and menu-time span CAS.
+ * @mode bail
+ */
+'slash/input-begin-command'(request: BeginCommandRequest): true | undefined
+```
+
+Source: [`packages/client/ui-slash/src/types.ts:220`](../../packages/client/ui-slash/src/types.ts)
+
+### `slash/input-consume-token` — bail
+
+Consumes one command token after business success (popup settle / menu-pick execute). Same carrier routing and applied-truth contract.
+
+```ts cordis-catalog
+/**
+ * Consumes one command token after business success (popup settle /
+ * menu-pick execute). Same carrier routing and applied-truth contract.
+ * @param request - Exact span or bare-token guard.
+ * @mode bail
+ */
+'slash/input-consume-token'(request: ConsumeTokenRequest): true | undefined
+```
+
+Source: [`packages/client/ui-slash/src/types.ts:234`](../../packages/client/ui-slash/src/types.ts)
+
+### `slash/input-insert-reference` — bail
+
+Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).
+
+```ts cordis-catalog
+/**
+ * Inserts one reference into the scoped Input (same carrier routing and
+ * applied-truth contract as begin-command).
+ * @param request - Reference and menu-time span CAS.
+ * @mode bail
+ */
+'slash/input-insert-reference'(request: InsertReferenceRequest): true | undefined
+```
+
+Source: [`packages/client/ui-slash/src/types.ts:227`](../../packages/client/ui-slash/src/types.ts)
+
+### `slash/input-insert-text` — bail
+
+Replaces the trigger token span with literal text — the plain-text reference path (decision 21). Same carrier routing and applied-truth contract; the draft gains ordinary characters, no occurrence entry.
+
+```ts cordis-catalog
+/**
+ * Replaces the trigger token span with literal text — the plain-text
+ * reference path (decision 21). Same carrier routing and applied-truth
+ * contract; the draft gains ordinary characters, no occurrence entry.
+ * @param request - Replacement text and menu-time span CAS.
+ * @mode bail
+ */
+'slash/input-insert-text'(request: InsertTextRequest): true | undefined
+```
+
+Source: [`packages/client/ui-slash/src/types.ts:242`](../../packages/client/ui-slash/src/types.ts)
 
 ## `subagent/*`
 
@@ -825,6 +894,35 @@ Emitted when any prompt provider changes. This registry notification is unfilter
 
 Source: [`packages/core/system-prompt/src/index.ts:35`](../../packages/core/system-prompt/src/index.ts)
 
+## `telemetry/*`
+
+### `telemetry/record` — waterfall
+
+Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+
+```ts cordis-catalog
+/**
+ * Transform one outbound record before it reaches the backend. This
+ * waterfall is the seam's redaction extension point. It ships NO rules
+ * of its own: the
+ * innermost `next()` passes the record through unchanged, and with no
+ * listener mounted records reach the backend as captured, so exported
+ * data is exactly as clean as the rules a deployment mounts. Listeners
+ * stack by transforming `next()`'s return value; returning without
+ * `next()` replaces everything beneath. Dispatched synchronously on the
+ * capture hot path inside the coordinator's containment: a throwing
+ * listener withholds that one record (fail-closed) and never reaches the
+ * agent loop. Redaction applies to the exported copy only; the canonical
+ * session log is never rewritten.
+ * @param record - the candidate record, already the coordinator's own deep
+ *   copy; listeners return a (possibly new) record and must not mutate it.
+ * @mode waterfall
+ */
+'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
+```
+
+Source: [`packages/telemetry/session-telemetry/src/index.ts:41`](../../packages/telemetry/session-telemetry/src/index.ts)
+
 ## `tools/*`
 
 ### `tools/change` — emit
@@ -844,7 +942,31 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:143`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:156`](../../packages/core/tools/src/index.ts)
+
+### `tools/code-dispatch-log` — waterfall
+
+Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the unshaped content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+
+```ts cordis-catalog
+/**
+ * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
+ * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+ * content unchanged; a listener may return replacement blocks (e.g. the
+ * spill policy's preview + locator for an oversized text result). Only the
+ * logged copy is affected — the program already received the complete
+ * value, and the model sees neither. A throwing listener is contained:
+ * the bridge falls back to logging the unshaped content.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+ * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
+ * @mode waterfall
+ */
+'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
+```
+
+Types: [CodeDispatchLog](../core-data-structures/tools.md) · [ContentBlock](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [ToolRegistry](../core-data-structures/tools.md)
+
+Source: [`packages/core/tools/src/index.ts:138`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -929,7 +1051,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:133`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:146`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 

@@ -13,13 +13,14 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
@@ -55,6 +56,7 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(AgentRegistry)
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek)
+  await harness.plugin(LocalSubprocessService)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   await harness.plugin(WorkerCodeRuntime, {})
@@ -85,7 +87,7 @@ function runCode(harness: Context, code: string, signal: AbortSignal = testToolS
   return harness.tools.execute({
     callId: CallId(`keyless-code-${++keylessCall}`),
     name: RUN_CODE_NAME,
-    arguments: { code },
+    arguments: { code, description: 'Run the e2e program' },
     signal,
   })
 }
@@ -112,8 +114,9 @@ async function typedCodeModeHarness(): Promise<Context> {
 /** Keyless real-worker harness with the task-owned bash lifecycle. */
 async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
   const harness = await typedCodeModeHarness()
-  await harness.plugin(TaskService)
+  await harness.plugin(LocalTaskService)
   await harness.plugin(ToolTasks, {})
+  await harness.plugin(LocalSubprocessService)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   return harness

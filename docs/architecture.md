@@ -28,6 +28,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts with package-contributed servi
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process trees for the bash executors, the LSP host, and the ACP subagent backend |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
@@ -91,7 +92,7 @@ forever:
       agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
+      agent/request -> prepare reasoning/default under turn signal -> log request/header -> checkpoint -> llm/stream (frozen, registration-bound)
       on final adapter-path or terminal in-band failure:
         'step/end'
         agent/request-error(original error, failure facts, immutable prior failures, signal)
@@ -125,7 +126,7 @@ Pruning precedes summaries; overflow retries require durable progress. Adapters 
 
 Adapter failures close the step before `agent/request-error` with exact `Error`, `LlmFailure`, and history. Retries open steps; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit nothing.
 
-Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The signal retires before `turn/end`. Effective `cancel()` emits its cause, clears queues, and aborts; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Other failures use `agent/error`. Cancellation and disposal beat recovery; the turn signal also cancels asynchronous model-capability preparation before any request header is committed, and undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The signal retires before `turn/end`. Effective `cancel()` emits its cause, clears queues, and aborts; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Session events are turn-enclosed; reload closes an interrupted tail with a synthetic `interrupted` turn end. Post-close failures use `agent/error`. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
@@ -177,7 +178,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 |---|---|
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register on `ctx.tools`; schemas enter prompt assembly |
-| Add shell execution | implement and register a `ctx.bash` backend |
+| Add shell execution | implement and register a `ctx.bash` backend (the local one spawns through `ctx.subprocess`) |
 | Add persistent terminal execution | register a `ctx.pty` backend and `dsh-tool-pty` |
 | Add a human command | register on `ctx.commands`; adapters discover and dispatch it without a model turn |
 | Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |

@@ -59,6 +59,7 @@ const GROUP_ORDER = [
   'llm',
   'core',
   'goal',
+  'process',
   'bash',
   'pty',
   'sandbox',
@@ -77,6 +78,7 @@ const GROUP_ORDER = [
   'session-persistence',
   'session-query',
   'session-title',
+  'telemetry',
   'storage',
   'workspace',
   'support',
@@ -134,6 +136,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
     consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'session-query', 'session-query-sqlite'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'telemetry',
+    pkg: 'session-telemetry',
+    title: 'Session telemetry seam',
+    mode: 'seam',
+    implementations: ['session-telemetry-otel'],
+    consumers: [],
+    note: 'The seam captures, redacts, and hands session records to one backend; nothing else consumes the service — its output leaves the process.',
   },
   {
     key: 'storage',
@@ -265,6 +276,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
   },
   {
+    key: 'subprocess',
+    pkg: 'subprocess',
+    title: 'Subprocess seam',
+    mode: 'seam',
+    implementations: ['subprocess-local'],
+    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp'],
+    note: 'The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
+  },
+  {
     key: 'bash',
     pkg: 'bash',
     title: 'Bash executor seam',
@@ -365,9 +385,10 @@ const SERVICE_ROLES: ServiceRole[] = [
     key: 'tasks',
     pkg: 'tasks',
     title: 'Background task registry',
-    mode: 'core',
+    mode: 'seam',
+    implementations: ['tasks-local'],
     consumers: ['tool-bash', 'tool-pty', 'tool-subagent', 'tool-tasks'],
-    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
+    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it; tasks-local is the process-local registry.',
   },
   {
     key: 'web',
@@ -916,8 +937,13 @@ function renderEventRelations(pkgs: Pkg[]): string {
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
   // Every declared event needs a dispatcher: zero means dead vocabulary or an
-  // unrecognized semantic dispatch shape. Listener-free extension points remain valid.
+  // unrecognized semantic dispatch shape. Listener-free extension points remain
+  // valid. Client-declared events are exempt: the relation scan seeds the HOST
+  // aggregate program only (host+client cannot share one program — the cordis
+  // Context merges collide), so client dispatch sites are structurally
+  // invisible here; their rows stay in the table for the declarations' sake.
   const undispatched = [...events]
+    .filter(event => !event.source.startsWith('packages/client/'))
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
     .sort()
@@ -1128,7 +1154,7 @@ function renderIndex(docs: GraphDoc[]): string {
     ...generatedHeader('Documentation Graph Index'),
     'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
     '',
-    'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/implemented/process/2026-07-03-documentation-graph-atlas.md).',
+    'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/archived/process/2026-07-03-documentation-graph-atlas.md).',
     '',
     '| Graph | Mode |',
     '| --- | --- |',

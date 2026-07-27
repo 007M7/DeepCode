@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-acp-demo
 
+English | [中文](README.zh.md)
+
 ACP automation server app: the default agent spine, client-created agents through [`@deepseek-ai/dsh-acp`](../../acp/acp/README.md), JSONL persistence, and semantic checkpointing behind one JSON-RPC stdio bin. Programmatic clients create fresh sessions; this package mounts no human UI.
 
 ## Composition
@@ -27,7 +29,7 @@ The app does not install commands, user interaction, session navigation, configu
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home shared by bash and local skill discovery. |
 | `sessionTitle` | spine example limits | Durable fallback-title limits; titles remain off the ACP wire. |
 | `persistenceRoot` | `./.sessions` | JSONL backend root and parent directory of the derived `session-query.db` index. |
-| `packChunks` | `false` | Pack consecutive delta-chunk events in storage. |
+| `packChunks` | `true` | Pack consecutive delta-chunk events in storage. |
 | `persistenceCompression` | `zstd` | Checksummed Zstandard frames or raw `none`. |
 | `workspaceContext` | required | Workspace-instruction byte budget/config, or `false`. |
 | `skills` | owner defaults | Skill registry, local provider, and model-facing skill tool. |

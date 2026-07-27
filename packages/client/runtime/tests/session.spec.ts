@@ -22,9 +22,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false) {
+function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
 }
 
 describe('open', () => {
@@ -153,6 +153,42 @@ describe('live event path', () => {
     })
   })
 
+  it('folds todo/write into snapshot.todos last-write-wins, live and on window replay', async () => {
+    const listA = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'in_progress' as const }]
+    const listB = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'completed' as const }]
+    const { session } = await opened()
+    expect(session.getSnapshot().todos).toEqual([])
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.todoWrite(6, listA))
+    expect(session.getSnapshot().todos).toEqual(listA)
+    feed(ev.todoWrite(7, listB))
+    expect(session.getSnapshot().todos).toEqual(listB)
+    // Window replay converges on the same last snapshot (history contains both writes).
+    const replayed = makeSession()
+    replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
+    await replayed.session.open()
+    expect(replayed.session.getSnapshot().todos).toEqual(listB)
+  })
+
+  it('seeds todos from the tail page projection when the last write precedes the window', async () => {
+    const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
+    // Cold open: the page window carries NO todo/write; the projection rides the response.
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(100, 9, '问', '答'), true, list)
+    await session.open()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // Paging an older window in must not clear the session-level projection.
+    api.onHistory = () => histResponse(plainTurn(94, 8, '旧问', '旧答'), false)
+    await session.loadOlder()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // A later live write still overrides the seeded projection.
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(106, [{ content: '新计划', status: 'pending' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
+  })
+
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
@@ -165,6 +201,37 @@ describe('live event path', () => {
     await Promise.resolve()
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
+  })
+
+  it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
+    expect(session.getSnapshot().todos).toEqual([])
+    // The missed range contained a todo/write that the repulled page no longer
+    // covers; the response's session-level projection is the only carrier.
+    const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
+    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(8, 1, 'c', 'd')], false, current)
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(11, 1, 'd') })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history').length).toBe(2)
+    })
+    await Promise.resolve()
+    expect(session.getSnapshot().todos).toEqual(current)
+  })
+
+  it('clears the plan when a tail response omits the projection (a write the log never kept)', async () => {
+    // Live write lands, then the host crashes before persisting it: the
+    // authoritative log holds no todo/write, so the resync tail response
+    // carries no projection — an omitted field on a tail request is the empty
+    // list, not a missing carrier, and the rolled-back plan must disappear.
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(6, [{ content: '丢失的计划', status: 'in_progress' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '丢失的计划', status: 'in_progress' }])
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.resync()
+    expect(session.getSnapshot().todos).toEqual([])
   })
 })
 
@@ -641,6 +708,95 @@ describe('resync', () => {
     const snapshot = session.getSnapshot()
     expect(snapshot.openState).toBe('open') // stale failure did not settle the fresh generation into error
     expect(snapshot.nodes.map(n => n.seq)).toEqual([7, 9])
+  })
+})
+
+describe('run_code sub-dispatch indexing', () => {
+  it('a start event lands as a running-shaped sub-call and its settle replaces it in place', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
+    feed(ev.codeDispatchStart(8, 'p1', 1, 'bash', { command: 'sleep' }))
+    feed(ev.codeDispatchStart(9, 'p1', 2, 'read', { path: 'a.txt' }))
+    const live = session.getSnapshot().codeDispatches.get('p1')
+    expect(live).toHaveLength(2)
+    // Running shape (no 'kind'): the exact RunningToolCall form native rows use.
+    expect(live?.[0]).toMatchObject({ callId: 'p1:code:1', name: 'bash', argsRaw: '{"command":"sleep"}' })
+    expect(live?.[0] !== undefined && 'kind' in live[0]).toBe(false)
+    // Settle out of order (parallel run): #2 first — replaces in place, keeping start order.
+    feed(ev.codeDispatch(10, 'p1', 2, 'read', { path: 'a.txt' }, 'alpha'))
+    const mixed = session.getSnapshot().codeDispatches.get('p1')
+    expect(mixed?.map(sub => 'kind' in sub)).toEqual([false, true])
+    expect(mixed?.[1]).toMatchObject({ callId: 'p1:code:2', content: [{ type: 'text', text: 'alpha' }] })
+    // The settle carries the paired start's time as callTime (duration source).
+    feed(ev.codeDispatch(11, 'p1', 1, 'bash', { command: 'sleep' }, 'done'))
+    const settled = session.getSnapshot().codeDispatches.get('p1')
+    expect(settled?.map(sub => 'kind' in sub)).toEqual([true, true])
+    expect(settled?.[0]).toMatchObject({ callId: 'p1:code:1', callTime: 1_700_000_000_008 })
+  })
+
+  it('indexes live tool/code-dispatch events under their parent as native-shaped result nodes', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'))
+    feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls', description: '列目录' }, 'demo.txt'))
+    feed(ev.codeDispatch(9, 'p1', 2, 'read', { path: 'a.txt' }, 'Error: ENOENT', true))
+    const subs = session.getSnapshot().codeDispatches.get('p1')
+    expect(subs).toHaveLength(2)
+    expect(subs?.[0]).toMatchObject({
+      kind: 'tool-result', callId: 'p1:code:1',
+      call: { name: 'bash', argsRaw: '{"command":"ls","description":"列目录"}' },
+      // The settle event carries no start time: callTime stays null (never a
+      // fabricated zero-duration).
+      callTime: null,
+      isError: false, content: [{ type: 'text', text: 'demo.txt' }],
+    })
+    expect(subs?.[1]).toMatchObject({ callId: 'p1:code:2', isError: true })
+    // No paired start in the window: duration is UNKNOWN (null), never a
+    // fabricated zero-duration span.
+    expect(subs?.[0]).toMatchObject({ callTime: null })
+    // Sub-dispatches never join the surface flow.
+    expect(session.getSnapshot().nodes.some(n => n.kind === 'tool-result' && n.callId.includes(':code:'))).toBe(false)
+  })
+
+  it('rebuilds the same index from a history window (replay parity)', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse([
+      ...plainTurn(0, 0, '问', '答'),
+      ev.turnStart(6, 1),
+      ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'),
+      ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'demo.txt'),
+      ev.toolResult(9, 1, 'p1', '{"done":true}'),
+      ev.turnEnd(10, 1),
+    ])
+    await session.open()
+    const subs = session.getSnapshot().codeDispatches.get('p1')
+    expect(subs).toHaveLength(1)
+    expect(subs?.[0]).toMatchObject({ callId: 'p1:code:1', call: { name: 'bash' } })
+  })
+
+  it('keeps the dispatch map reference across unrelated changes and swaps it on a new dispatch', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '稳', '定'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
+    feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'x'))
+    const before = session.getSnapshot()
+    feed(ev.chunkStart(9, 1))
+    feed(ev.chunkText(10, 1, '流式'))
+    const after = session.getSnapshot()
+    expect(after.codeDispatches).toBe(before.codeDispatches)
+    feed(ev.codeDispatch(11, 'p1', 2, 'read', { path: 'a' }, 'y'))
+    expect(session.getSnapshot().codeDispatches).not.toBe(after.codeDispatches)
+    expect(session.getSnapshot().codeDispatches.get('p1')).toHaveLength(2)
   })
 })
 

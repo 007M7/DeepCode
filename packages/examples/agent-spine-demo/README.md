@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-agent-spine-demo
 
+English | [中文](README.zh.md)
+
 The **default executor-less, UI-less agent spine** as ONE Cordis bundle plugin. It loads the fixed set of services every harness agent needs, including the local skill provider, and forwards the loop's `agents` list as its own config — so an app package composes a working agent by adding only a front door and the swappable backends.
 
 Read this package for the whole plugin tree and its composition order.
@@ -22,7 +24,7 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-tool-goal        optional model-facing goal controls
 @deepseek-ai/dsh-goal-session     optional same-session goal-round driver
 @deepseek-ai/dsh-llm-retry        provider-routed request retry policy
-@deepseek-ai/dsh-tasks            generic background-task registry
+@deepseek-ai/dsh-tasks-local      generic background-task registry
 @deepseek-ai/dsh-invariants       configurable invariant registry service
 @deepseek-ai/dsh-session/invariant
 @deepseek-ai/dsh-agent/invariant

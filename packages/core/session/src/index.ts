@@ -183,6 +183,11 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
     const header = record['header']
     const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
     if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
+    const reasoningEffort = (config as Record<string, unknown>)['reasoningEffort']
+    if (reasoningEffort !== undefined
+      && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
+      throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
+    }
   }
   if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
     throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
@@ -300,6 +305,19 @@ export class Session {
     return this.header.id
   }
 
+  /**
+   * The first seq appended IN THIS PROCESS: the length of the constructor
+   * seed (0 without one). Events below it entered through construction —
+   * replay, fork, or resume — and were never published on the `session/event`
+   * firehose (constructor seeds do not emit), so consumers that replay the
+   * log as a publication substitute (telemetry adoption) start here. Distinct
+   * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
+   * session's constructor seed is its full stored log, while its header keeps
+   * the original fork value — this field is the in-process construction fact
+   * and is deliberately not persisted.
+   */
+  readonly firstLiveSeq: number
+
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
     if (seed) {
       // Validate the seed to the SAME invariants `append` enforces, so a
@@ -332,6 +350,7 @@ export class Session {
         this.log.push(deepFreeze(snapshot))
       }
     }
+    this.firstLiveSeq = this.log.length
     this.header = snapshotSessionHeader(id, header)
   }
 

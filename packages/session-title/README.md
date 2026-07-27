@@ -1,5 +1,7 @@
 # session-title/ — log-backed session-title capability family
 
+English | [中文](README.zh.md)
+
 Durable session-title state, one optional asynchronous provider seam, and two opt-in model-backed implementations. The built-in first-message fallback is part of the service, so every composition can title a session without an auxiliary model call.
 
 | Package | Role | ctx key |

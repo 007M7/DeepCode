@@ -14,6 +14,8 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { WorkspaceEntity } from './entity.ts'
 import type { WorkspaceEntityHost } from './entity.ts'
+
+export { WorkspaceMoveInvalidError } from './entity.ts'
 import { realpathNormalize } from './paths.ts'
 import { workspaceDomainSpec } from './spec.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
@@ -46,6 +48,7 @@ export class WorkspaceNameConflictError extends Error {
     this.name = 'WorkspaceNameConflictError'
   }
 }
+
 
 declare module 'cordis' {
   interface Context {
@@ -82,7 +85,6 @@ export class WorkspaceRegistry extends Service {
   private readonly headers = new Map<SessionId, SessionHeader>()
   private readonly sessionPaths = new Map<SessionId, string>()
   private readonly invalidSessionPaths = new Map<SessionId, string>()
-  private readonly pendingTouches = new Map<SessionId, Promise<void>>()
   private operationTail: Promise<void> = Promise.resolve()
 
   private readonly host: WorkspaceEntityHost = {
@@ -107,6 +109,7 @@ export class WorkspaceRegistry extends Service {
     this.global = domain.global
     this.state = domain.global.get()
 
+    await this.recoverPendingMutation()
     this.validateStoredState(this.state)
     if (!this.state.initialized) {
       const headers = await this.ctx.sessionPersistence.list()
@@ -120,13 +123,6 @@ export class WorkspaceRegistry extends Service {
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
     this.reportFilteredCandidates()
-    // Session activity is authoritative even when no RPC/SSE consumer is
-    // connected. This service-owned listener is disposed with the registry.
-    this.ctx.on('session/event', (session) => {
-      void this.touchSession(session.id).catch((error: unknown) => {
-        this.ctx.logger.warn(`workspace activity touch failed for session '${session.id}': ${String(error)}`)
-      })
-    })
   }
 
   /**
@@ -174,29 +170,15 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
-   * Move one accounted, cwd-validated session to the front of its workspace.
-   * Ungrouped sessions and candidates filtered by the header check are
-   * no-ops. The owning workspace's relative position never changes.
-   * @param sessionId - Session whose activity was observed.
-   * @returns resolution after the possible record write.
+   * Delete one workspace registration while retaining its directory and every
+   * session log. The durable order is updated before the table deletion; a
+   * failed table write restores the prior order and keeps the entity
+   * published. Unknown ids are an idempotent no-op for domain callers.
+   * @param id - Workspace registration to remove.
+   * @returns `true` when a record was deleted, `false` when it was unknown.
    */
-  async touchSession(sessionId: SessionId): Promise<void> {
-    const pending = this.pendingTouches.get(sessionId)
-    if (pending !== undefined) {
-      await pending
-      return
-    }
-    for (const entity of this.entities.values()) {
-      if (!entity.hasSession(sessionId)) continue
-      const touch = entity.touchSession(sessionId)
-      this.pendingTouches.set(sessionId, touch)
-      try {
-        await touch
-      } finally {
-        this.pendingTouches.delete(sessionId)
-      }
-      return
-    }
+  delete(id: WorkspaceId): Promise<boolean> {
+    return this.enqueueOperation(() => this.deleteKnown(id))
   }
 
   /**
@@ -237,10 +219,28 @@ export class WorkspaceRegistry extends Service {
     }
     const entity = new WorkspaceEntity(this.host, id, record)
     this.entities.set(id, entity)
+    const pendingState: WorkspaceDomainState = {
+      ...state,
+      pendingMutation: { operation: 'create', workspaceId: id },
+    }
+    try {
+      await this.setState(pendingState)
+    } catch (error) {
+      this.entities.delete(id)
+      throw error
+    }
     try {
       await table.put(id, record)
     } catch (error) {
       this.entities.delete(id)
+      try {
+        await this.setState(state)
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `workspace '${id}' record write and pending-marker rollback both failed`,
+        )
+      }
       throw error
     }
 
@@ -251,15 +251,85 @@ export class WorkspaceRegistry extends Service {
       try {
         await table.delete(id)
       } catch (rollbackError) {
-        this.entities.set(id, entity)
         throw new AggregateError(
           [error, rollbackError],
-          `workspace '${id}' was stored but its registry order and rollback both failed`,
+          `workspace '${id}' order write and record rollback both failed; the pending marker remains recoverable`,
+        )
+      }
+      try {
+        await this.setState(state)
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `workspace '${id}' order write and pending-marker rollback both failed`,
         )
       }
       throw error
     }
     return entity
+  }
+
+  private async deleteKnown(id: WorkspaceId): Promise<boolean> {
+    const entity = this.entities.get(id)
+    if (entity === undefined) return false
+    const state = this.requireState()
+    const nextState = {
+      initialized: true,
+      workspaceIds: state.workspaceIds.filter(workspaceId => workspaceId !== id),
+    }
+    await this.setState({
+      ...nextState,
+      pendingMutation: { operation: 'delete', workspaceId: id },
+    })
+    this.entities.delete(id)
+    try {
+      await this.requireTable().delete(id)
+    } catch (error) {
+      this.entities.set(id, entity)
+      try {
+        await this.setState(state)
+      } catch (rollbackError) {
+        // The durable marker still says to finish deletion, so the cache must
+        // agree with that recoverable direction rather than republish a row
+        // absent from the persisted order.
+        this.entities.delete(id)
+        throw new AggregateError(
+          [error, rollbackError],
+          `workspace '${id}' record deletion and registry-order rollback both failed`,
+        )
+      }
+      throw error
+    }
+    try {
+      await this.setState(nextState)
+    } catch (error) {
+      // The deletion committed at the table write and was already published
+      // to Host streams. Keep the durable marker for startup recovery rather
+      // than reporting failure after the requested state became true.
+      this.ctx.logger.warn(
+        `workspace '${id}' was deleted but its pending marker could not be cleared: ${String(error)}`,
+      )
+    }
+    return true
+  }
+
+  /**
+   * Complete the one mutation explicitly named by durable state. Unexplained
+   * order/table divergence still reaches {@link validateStoredState} and
+   * fails loud; this path never infers provenance from shape alone.
+   */
+  private async recoverPendingMutation(): Promise<void> {
+    const state = this.requireState()
+    const pending = state.pendingMutation
+    if (pending === undefined) return
+    if (state.workspaceIds.includes(pending.workspaceId)) {
+      throw new Error(
+        `workspace domain is inconsistent: pending ${pending.operation} workspace `
+        + `'${pending.workspaceId}' is still present in registry order`,
+      )
+    }
+    await this.requireTable().delete(pending.workspaceId)
+    await this.setState({ initialized: state.initialized, workspaceIds: state.workspaceIds })
   }
 
   private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {
@@ -485,7 +555,12 @@ export class WorkspaceRegistry extends Service {
   }
 
   private enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.operationTail.then(operation)
+    const result = this.operationTail.then(async () => {
+      // A committed delete may leave only its marker cleanup pending. Retry
+      // recovery before another create/delete can overwrite that provenance.
+      await this.recoverPendingMutation()
+      return await operation()
+    })
     this.operationTail = result.then(() => {}, () => {})
     return result
   }

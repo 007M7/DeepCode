@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh`
 
+English | [中文](README.zh.md)
+
 The `dsh` command-line entry follows the `apps/` assembly tier: `apps/*` are product assemblies over `packages/*` libraries. Plain `dsh` boots the interactive TUI coding agent, `dsh -p "task"` runs one headless turn, and `dsh web` serves the browser UI.
 
 Argv is parsed once through a [Commander](https://github.com/tj/commander.js) adapter ([`src/args.ts`](src/args.ts)): one program whose default (no subcommand) is the TUI/headless surface (`--config`, `-p`/`--prompt`, `--resume`) and whose `web` subcommand is the browser UI. `src/bin.ts` switches on the resolved mode and dynamic-imports only that mode's module. `dsh --help` lists every mode and `dsh web --help` renders the web usage, `dsh --version` prints this app's version, and an unknown option or a mistyped `--resume` fails loud (stderr, exit 1) instead of misrouting. `dsh web`'s `--host`/`--port` are unvalidated pass-through overrides: the `dsh-host-webserver` schema is the single source of both the default (the shipped `cordis.yml` value when a flag is absent) and validity, and rejects a bad value at boot.
@@ -13,6 +15,8 @@ The TUI surface:
 - applies the personal overlay from `~/.dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `.env` fills environment gaps (ambient > project `.env` > personal `.env`), `config.yaml` patches the booted tree.
 
 The Web and headless surfaces boot one shared composition (`cordis.yml`): both treat the invoking directory as the default project and Workspace root, create named Workspaces beneath that root unless `--workspace-root <path>` overrides it, load applicable `AGENTS.md`/`CLAUDE.md` instructions into each agent-loop request prefix with a 65,536-byte render budget, and opt into first-message model titles. Headless differs only in listening on an OS-assigned port (parallel `dsh -p` runs never collide; the stderr-printed URL opens the live session in a browser). Both need the frontend dist and client bundles built (`pnpm run build && pnpm run build:web`).
+
+`DSH_TOOLS_MODE` selects the tool presentation mode for the whole Web/headless process: `native` (the schema default when unset), `code` (the `run_code`-only Code Mode wire), or `both`; any other value fails loud at boot through the `dsh-tools` config schema. It is a TEMPORARY seam — process-wide because Loader composition is static — and is removed once the web UI owns per-session tool-mode selection; the TUI surface ignores it (its config tree pins its own mode).
 
 ## Install (developer machine)
 

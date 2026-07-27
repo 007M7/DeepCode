@@ -4,16 +4,18 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import type { BashProcess } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
 async function setup(config: ConstructorParameters<typeof LocalBashExecutor>[1] = {}) {
   const ctx = new Context()
+  await ctx.plugin(LocalSubprocessService)
+  ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
   // A short kill grace via the REAL config path, so escalation tests stay fast.
   await ctx.plugin(LocalBashExecutor, { graceMs: 200, ...config })
   const bash = ctx.bash as LocalBashExecutor
-  bash.internals = { spillDir }
   return { ctx, bash }
 }
 
@@ -293,44 +295,52 @@ describe('LocalBashExecutor.start (background process handles)', () => {
   })
 })
 
-describe('LocalBashExecutor disposal', () => {
-  it('disposing the fiber kills running processes and AWAITS their exit (no orphans, SIGKILL escalation included)', async () => {
+describe('process lifecycle ownership (the subprocess service, not the executor)', () => {
+  it('a background process survives executor-fiber disposal and dies with the subprocess service', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
+    const managerFiber = await ctx.plugin(LocalSubprocessService)
+    ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
+    const executorFiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir }
 
     // The child prints its own pid ($$ = the detached bash group leader) so
     // the test can probe liveness through the public read surface alone.
-    const proc = bash.start(bash.resolve({ command: 'trap \'\' TERM; echo $$; sleep 60' }))
+    const proc = bash.start(bash.resolve({ command: 'echo $$; sleep 60' }))
     const pid = Number((await readUntil(proc, '\n')).trim())
     expect(Number.isInteger(pid) && pid > 0).toBe(true)
 
-    await fiber.dispose()
-    // Disposal itself waited: the pid must already be gone, no grace left —
-    // even for a TERM-trapping child held until the SIGKILL escalation landed.
+    // Executor reload/disposal leaves background work running — the
+    // handle stays live and readable, mirroring the task runtime's
+    // registrations-outlive-producer-fibers contract.
+    await executorFiber.dispose()
+    expect(proc.status).toBe('running')
+    expect(() => process.kill(pid, 0)).not.toThrow()
+
+    // Service disposal kills the group and AWAITS its exit (no orphans).
+    await managerFiber.dispose()
     expect(() => process.kill(pid, 0)).toThrow()
-    expect(proc.status).toBe('killed')
     await proc.done
+    expect(proc.status).toBe('killed')
   })
 
-  it('settled processes already left the live map: dispose does not touch them', async () => {
+  it('service disposal escalates to SIGKILL for TERM-trapping children and settles handles', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
+    const managerFiber = await ctx.plugin(LocalSubprocessService)
+    ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
+    await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir }
 
     const finished = bash.start(bash.resolve({ command: 'echo done' }))
     await finished.done
     expect(finished.status).toBe('completed')
-    const running = bash.start(bash.resolve({ command: 'sleep 60' }))
+    const trapping = bash.start(bash.resolve({ command: 'trap \'\' TERM; echo armed; sleep 60' }))
+    await readUntil(trapping, 'armed')
 
-    await fiber.dispose()
-    // The teardown marks every LIVE entry killed; a settled process had
-    // already left the map, so its status stays completed.
+    await managerFiber.dispose()
+    // A settled process was untouched; the live one died by escalation.
     expect(finished.status).toBe('completed')
-    expect(running.status).toBe('killed')
-    await running.done
-    expect(running.signal).toBe('SIGTERM')
+    await trapping.done
+    expect(trapping.status).toBe('killed')
+    expect(trapping.signal).toBe('SIGKILL')
   })
 })

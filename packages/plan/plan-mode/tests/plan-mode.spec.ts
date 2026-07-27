@@ -753,7 +753,7 @@ describe('exit_plan_mode', () => {
     const result = await ctx.tools.execute({
       callId: CallId(`call-exit-${++callCounter}`),
       name: RUN_CODE_NAME,
-      arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })` },
+      arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })`, description: 'Submit the plan for review' },
       signal: new AbortController().signal,
       agent,
     })

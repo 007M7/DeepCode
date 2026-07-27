@@ -10,7 +10,7 @@ import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionCreateError, SessionsService, scopeOf } from '../src/client/sessions/service.ts'
-import { FakeApiClient, ok } from './fake-api.ts'
+import { FakeApiClient, deferred, ok } from './fake-api.ts'
 
 const sid = (s: string): SessionId => s as SessionId
 
@@ -28,10 +28,12 @@ function bench(): Bench {
 }
 
 /** Refresh the manager list from programmable rows and flush the microtask batch. */
-async function feedList(b: Bench, rows: { id: string; cwd?: string; parentId?: string; running?: boolean }[]): Promise<void> {
+type FeedRow = { id: string; cwd?: string; parentId?: string; running?: boolean; blank?: boolean }
+
+async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
   b.api.onList = () => Promise.resolve(ok({
     items: rows.map(r => ({
-      sessionId: sid(r.id), updatedAt: 1, running: r.running ?? false,
+      sessionId: sid(r.id), updatedAt: 1, running: r.running ?? false, blank: r.blank ?? false,
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentSessionId: sid(r.parentId) } : {}),
     })),
@@ -61,7 +63,7 @@ describe('list store projection', () => {
   it('reflects live increments (host stream via manager) into the store', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
-    b.svc.handleHostEnvelope({ rpcId: 'r1' as never, payload: { type: 'host/session-added', sessionId: sid('s2') } as never })
+    b.svc.handleHostEnvelope({ rpcId: 'r1' as never, payload: { type: 'host/session-added', blank: true, sessionId: sid('s2') } as never })
     await Promise.resolve()
     expect(b.svc.list.getSnapshot().ids).toContain('s2')
   })
@@ -77,7 +79,7 @@ describe('scope tree', () => {
     expect(scopeOf(scoped as Context)).toBe('s1')
     expect(scopeOf(b.ctx)).toBeUndefined()
     const binding = b.svc.binding(sid('s1'))
-    expect(binding?.session).toBe(b.svc.cell('s1')?.session)
+    expect(binding?.session).toBe(b.svc.provideInfo('s1')?.hooks['session'])
     expect(b.svc.binding(sid('s1'))).toBe(binding)
     expect(binding?.ctx).toBe(scoped)
   })
@@ -184,20 +186,20 @@ describe('cell (render-layer session kit)', () => {
   it('resolves an identity-stable {sessionId, session} cell; unknown ids yield undefined', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
-    const cell = b.svc.cell('s1')
-    expect(cell).toBeDefined()
-    expect(cell?.sessionId).toBe('s1')
-    // The cell carries the observable; hook binding happens in React.
-    expect(cell?.session).toBe(b.svc.binding(sid('s1'))?.session)
-    expect(b.svc.cell('s1')).toBe(cell)
-    expect(b.svc.cell('ghost')).toBeUndefined()
+    const info = b.svc.provideInfo('s1')
+    expect(info).toBeDefined()
+    expect(info?.sessionId).toBe('s1')
+    // The bundle carries bare observables; hook binding happens in React.
+    expect(info?.hooks['session']).toBe(b.svc.binding(sid('s1'))?.session)
+    expect(b.svc.provideInfo('s1')).toBe(info)
+    expect(b.svc.provideInfo('ghost')).toBeUndefined()
   })
 
-  it('cell()/binding() are pure resolution: no staging, no deferred sweep', async () => {
+  it('provideInfo()/binding() are pure resolution: no staging, no deferred sweep', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
     b.svc.open(sid('s1')) // staged
-    b.svc.cell('s2') // resolution only — must NOT move the stage
+    b.svc.provideInfo('s2') // resolution only — must NOT move the stage
     b.svc.binding(sid('s2'))
     await feedList(b, [{ id: 's2' }]) // s1 removed: still staged → deferred, scope survives
     expect(b.svc.scope(sid('s1'))).toBeDefined()
@@ -209,7 +211,7 @@ describe('cell (render-layer session kit)', () => {
     const historyCalls = () => b.api.calls.filter(c => c.method === 'session.history')
     // Resolution is addressing, not staging: no window pull.
     b.svc.scope(sid('s1'))
-    b.svc.cell('s1')
+    b.svc.provideInfo('s1')
     b.svc.binding(sid('s1'))
     expect(historyCalls()).toHaveLength(0)
     b.svc.open(sid('s1'))
@@ -296,12 +298,24 @@ describe('create', () => {
     const failure = await b.svc.create({ sessionId: sid('candidate') }).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(SessionCreateError)
     expect(failure).toMatchObject({
-      requestedSessionId: 'candidate', publishedSessionId: undefined,
+      requestedSessionId: 'candidate',
       rpcError: { code: 'internal', message: '爆了' },
     })
   })
 
-  it('surfaces the definitely published id after Workspace attachment fails', async () => {
+  it('resolves with the session already listed and binding-resolvable (no flush wait)', async () => {
+    const b = bench()
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('born') }))
+    const born = await b.svc.create({ workspaceId: 'ws' as never })
+    // Synchronously after resolution — the draft hand-off contract: the
+    // create echo IS the entity entering the client's view (blank row +
+    // resolvable scope/binding), no notifier flush in between.
+    expect(b.svc.list.getSnapshot().byId[born]).toMatchObject({ id: 'born', blank: true })
+    expect(b.svc.binding(born)).toBeDefined()
+    expect(b.svc.scope(born)).toBeDefined()
+  })
+
+  it('lists the published id after Workspace attachment fails (publication precedes attachment)', async () => {
     const b = bench()
     b.api.onCreate = () => Promise.resolve({
       rpcId: 'attach' as never,
@@ -318,11 +332,111 @@ describe('create', () => {
       sessionId: sid('published'),
     }).catch((error: unknown) => error)
     await Promise.resolve()
+    expect(failure).toBeInstanceOf(SessionCreateError)
     expect(failure).toMatchObject({
-      publishedSessionId: 'published', requestedSessionId: 'published',
+      requestedSessionId: 'published',
       rpcError: { code: 'workspace-attach-failed' },
     })
-    expect(b.svc.list.getSnapshot().byId[sid('published')]).toMatchObject({ id: 'published' })
+    expect(b.svc.list.getSnapshot().byId[sid('published')]).toMatchObject({ id: 'published', blank: true })
+  })
+})
+
+describe('scope lifecycle rides the list mirror (entity parity: no client-side pre-birth)', () => {
+  it('a session-added frame births the row (blank) and makes the scope resolvable; removal prunes it', async () => {
+    const b = bench()
+    await feedList(b, [])
+    expect(b.svc.scope(sid('s-new'))).toBeUndefined() // not in view: no scope, no exceptions
+    b.svc.handleHostEnvelope({
+      rpcId: 'add' as never,
+      payload: { type: 'host/session-added', sessionId: sid('s-new'), blank: true, cwd: '/w/a' } as never,
+    })
+    await Promise.resolve()
+    const scoped = b.svc.scope(sid('s-new'))
+    expect(scoped).toBeDefined()
+    expect(scopeOf(scoped as Context)).toBe('s-new')
+    b.svc.handleHostEnvelope({
+      rpcId: 'rm' as never,
+      payload: { type: 'host/session-removed', sessionId: sid('s-new') },
+    })
+    await Promise.resolve()
+    expect(b.svc.scope(sid('s-new'))).toBeUndefined()
+  })
+})
+
+describe('blank mirror', () => {
+  it('flips blank=false from the running:true status frame (cross-client conversion)', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1', blank: true }])
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: true })
+    b.svc.handleHostEnvelope({
+      rpcId: 'st' as never,
+      payload: { type: 'host/session-status', sessionId: sid('s1'), running: true },
+    })
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: false, running: true })
+    // The instantiated Session mirrors the same flip.
+    expect(b.svc.binding(sid('s1'))?.session.getSnapshot().blank).toBe(false)
+  })
+
+  it('flips blank=false on prompt ACCEPTANCE, not on the attempt', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1', blank: true, cwd: '/w/a' }])
+    const session = b.svc.binding(sid('s1'))!.session
+    expect(session.getSnapshot().blank).toBe(true)
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onPrompt']>>>()
+    b.api.onPrompt = () => gate.promise
+    const send = session.prompt([{ type: 'text', text: 'hi' }], 'queue')
+    // In flight: still blank (the flip point is the success response, which
+    // proves the user message reached the host log).
+    expect(session.getSnapshot().blank).toBe(true)
+    gate.resolve(ok({ accepted: true as const }))
+    await send
+    expect(session.getSnapshot().blank).toBe(false)
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: false })
+  })
+
+  it('keeps a rejected first prompt blank: hidden and still reusable', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1', blank: true, cwd: '/w/a' }])
+    const session = b.svc.binding(sid('s1'))!.session
+    b.api.onPrompt = () => Promise.resolve({
+      rpcId: 'busy' as never,
+      result: { ok: false as const, error: { code: 'internal' as const, message: 'agent busy', details: {} } },
+    } as never)
+    const result = await session.prompt([{ type: 'text', text: 'hi' }], 'queue')
+    expect(result.ok).toBe(false)
+    // No flip on failure: local stays aligned with the host authority
+    // (events.length still 0), so the session stays hidden and reusable.
+    expect(session.getSnapshot().blank).toBe(true)
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: true })
+  })
+
+  it('takes session-added blank=true as the hidden birth and list blank as reconnect authority', async () => {
+    const b = bench()
+    await feedList(b, [])
+    b.svc.handleHostEnvelope({
+      rpcId: 'add' as never,
+      payload: { type: 'host/session-added', sessionId: sid('s-new'), blank: true, cwd: '/w/a' } as never,
+    })
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('s-new')]).toMatchObject({ blank: true })
+    // Reconnect re-pull: the summary's blank=false wins (authoritative alignment).
+    await feedList(b, [{ id: 's-new', blank: false, cwd: '/w/a' }])
+    expect(b.svc.list.getSnapshot().byId[sid('s-new')]).toMatchObject({ blank: false })
+  })
+
+  it('never re-blanks: a stale blank=true summary cannot hide an engaged session', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1', blank: true }])
+    const session = b.svc.binding(sid('s1'))!.session
+    await session.prompt([{ type: 'text', text: 'hi' }], 'queue')
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: false })
+    // The next list pull still claims blank (host hasn't logged the message yet).
+    await feedList(b, [{ id: 's1', blank: true }])
+    expect(b.svc.binding(sid('s1'))?.session.getSnapshot().blank).toBe(false)
   })
 })
 

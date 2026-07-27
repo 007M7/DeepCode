@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-21-bounded-llm-request-recovery.zh.md)
+
 The [per-provider request retry policy](../feature/2026-07-24-provider-retry-policies.md) extends this foundation with exact-provider configuration and an explicit unbounded mode. This note continues to own structured failure facts, the closed-step recovery boundary, normal mode's transient defaults, visible single attempts, and durable retry status.
 
 ## Problem
