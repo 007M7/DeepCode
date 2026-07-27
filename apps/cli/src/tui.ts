@@ -11,6 +11,7 @@
  * @module @deepseek-ai/dsh/tui
  */
 
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   addHarnessSourceSection,
@@ -62,6 +63,7 @@ export async function runTui(config: string | undefined, resumeSessionId: string
   // The bin already loaded the invoking directory's .env; the personal .env
   // only fills what is still unset (process.loadEnvFile never overrides).
   loadEnv(NAME, resolveDshHome())
+  process.env.DSH_BUNDLED_SKILL_DIR = join(SOURCE_ROOT, 'skills')
   // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
   // flag, so the resumed process rehydrates through this same intake. The host
   // is offered only when Node exposes `process.execve` and knows its own entry.

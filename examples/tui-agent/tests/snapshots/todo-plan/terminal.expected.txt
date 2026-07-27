@@ -1,57 +1,48 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "Use the todo_write tool to — DSH TUI snapshot"
-cursor hidden column=1 viewportRow=31 bufferRow=31
+cursor hidden column=7 viewportRow=31 bufferRow=31
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
 1| " Use the todo_write tool to"
   style 1-26 fg=bright-black
-2| " deepseek-v4-flash  •  main-session"
-  style 1-34 dim
+2| " main-session"
+  style 1-12 dim
 3| <blank>
-4| "▌ "
-  style 0-0 fg=bright-blue
-5| "▌ You                                                                                               "
-  style 0-0 fg=bright-blue
-  style 2-4 fg=bright-blue bold
-6| "▌ Use the todo_write tool to record a plan with exactly three todos: \"read the code\" (in_progress), "
-  style 0-0 fg=bright-blue
-7| "▌ \"write the fix\" (pending), \"run the tests\" (pending). Send all three in one todo_write call. Then "
-  style 0-0 fg=bright-blue
-8| "▌ reply with the single word DONE and stop.                                                         "
-  style 0-0 fg=bright-blue
-9| "▌ "
-  style 0-0 fg=bright-blue
-10| <blank>
-11| " Reasoning                                                                                          "
-  style 1-9 fg=bright-black italic
-12| " The user wants me to use the todo_write tool to record a plan with exactly three todos in the      "
-  style 1-99 fg=bright-black italic
-13| " specified statuses, then reply with \"DONE\".                                                        "
-  style 1-43 fg=bright-black italic
-14| <blank>
-15| "▌ "
-  style 0-0 fg=green
-16| "▌ ✓ Update todo list                                                                                "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-19 bold
-17| "▌ Updated todo list: 2 pending, 1 in progress, 0 completed.                                         "
-  style 0-0 fg=green
-18| "▌ "
-  style 0-0 fg=green
-19| <blank>
-20| " Reasoning                                                                                          "
-  style 1-9 fg=bright-black italic
-21| " The todos have been written successfully. Now I just need to reply with the single word \"DONE\".    "
-  style 1-95 fg=bright-black italic
-22| <blank>
-23| " Assistant                                                                                          "
-  style 1-9 fg=bright-magenta bold
-24| " DONE                                                                                               "
-25| <blank>
+4| "You                                                                                                 "
+  style 0-2 fg=bright-blue bold underline
+5| "Use the todo_write tool to record a plan with exactly three todos: \"read the code\" (in_progress),   "
+6| "\"write the fix\" (pending), \"run the tests\" (pending). Send all three in one todo_write call. Then   "
+7| "reply with the single word DONE and stop.                                                           "
+8| <blank>
+9| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+10| "Reasoning                                                                                           "
+  style 0-8 fg=bright-black italic
+11| "The user wants me to use the todo_write tool to record a plan with exactly three todos in the       "
+  style 0-99 fg=bright-black italic
+12| "specified statuses, then reply with \"DONE\".                                                         "
+  style 0-42 fg=bright-black italic
+13| <blank>
+14| "● Tool / todo_write"
+  style 0-18 fg=green
+15| "Update todo list                                                                                    "
+16| "Updated todo list: 2 pending, 1 in progress, 0 completed.                                           "
+17| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+18| <blank>
+19| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+20| "Reasoning                                                                                           "
+  style 0-8 fg=bright-black italic
+21| "The todos have been written successfully. Now I just need to reply with the single word \"DONE\".     "
+  style 0-94 fg=bright-black italic
+22| "DONE                                                                                                "
+23| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+24-25| <blank>
 26| "Plan"
   style 0-3 fg=bright-blue bold
 27| "  ● read the code"
@@ -60,13 +51,13 @@ buffer
   style 2-2 dim
 29| "  ○ run the tests"
   style 2-2 dim
-30| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-31| "                                                                                                    "
-  style 1-1 inverse
-32| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-33| "deepseek-v4-flash  /workspace/project  ↑3.1k ↓145  cache 47%  3% context  tools:"
-  style 0-79 dim
-  style 82-99 dim
-34-35| <blank>
+30| "/workspace/project  deepseek-v4-flash  ↑3.1k ↓145  cache 47%  3% context"
+  style 0-37 fg=bright-blue bold
+  style 40-56 fg=bright-black
+  style 59-79 fg=bright-black
+  style 82-91 fg=bright-black
+31| " dsh ◍                                                                                              "
+  style 1-3 fg=bright-blue bold
+  style 5-6 fg=bright-black
+  style 7-7 inverse
+32-35| <blank>

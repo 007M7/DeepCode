@@ -79,8 +79,9 @@ describe('startInProcessRun', () => {
     const result = await run.result
     const child = ctx.agents.get(run.id)!
 
+    expect(injected).toBe(true)
     expect(child.session.events.findLast(event => event.type === 'turn/end'))
-      .toMatchObject({ data: { reason: { kind: 'max-tokens' } } })
+      .toMatchObject({ data: { reason: { kind: 'completed' } } })
     expect(result.stopReason).toBe('max-tokens')
     await run.dispose()
   })

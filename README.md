@@ -16,16 +16,22 @@ curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/m
 
 The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, and prompts for a DeepSeek API key.
 
-The installer clones DeepSeek Harness to `~/.dsh/source`, links `dsh` into `~/.local/bin`, and launches it. Re-running the command updates the checkout. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
+The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
 
 ## Use DeepSeek Harness
 
 ### Web UI
 
-For the recommended local interface, build the frontend after installation and after each update, then start the Web UI:
+For the recommended local interface, build the frontend after installation and after each update, then start the Web UI. Resolve the running checkout from the `dsh` launcher so the command holds regardless of which staging worktree is current (the launcher resolves through the stable `current` symlink):
 
 ```sh
-pnpm --dir ~/.dsh/source run build && pnpm --dir ~/.dsh/source run build:web
+dsh_bin=$(cd "$(dirname "$(command -v dsh)")" && pwd -P)/$(basename "$(command -v dsh)")
+while [ -L "$dsh_bin" ]; do
+  link=$(readlink "$dsh_bin")
+  case $link in /*) dsh_bin=$link ;; *) dsh_bin=$(cd "$(dirname "$dsh_bin")" && cd "$(dirname "$link")" && pwd -P)/$(basename "$link") ;; esac
+done
+dsh_dir=$(cd "$(dirname "$dsh_bin")/.." && pwd -P)
+pnpm --dir "$dsh_dir" run build && pnpm --dir "$dsh_dir" run build:web
 dsh web
 ```
 

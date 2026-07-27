@@ -14,7 +14,7 @@ Status: implemented
 
 TUI 通过 `ctx.get('skills')` 读取 skill 服务，而非声明式注入，因为 skill 是条件挂载的：没有注册表的部署仍保有可用的前门，此时 `/skill:` 会报告 skill 不可用，而不是挂载失败。`createTuiChat` 是同步的，而 `ctx.skills.list()` 是异步的，所以自动补全先立即种入静态斜杠命令，待目录解析完成后再用 `skill:<name>` 条目重建 provider（提供方）；在 dispose（资源释放）之后才到达的解析结果会被丢弃，而被拒绝的查找会保留基础命令。
 
-自动补全只列出模型可调用的 skill——它基于 `list()` 构建，而 `list()` 会略去 `disableModelInvocation` 的 skill——手动提交则通过 `get()` 解析，skill 注册表将其记录为返回被禁用 skill 的可信调用方路径。因此用户可以通过键入 skill 的确切名称加载任意 skill，但补全菜单绝不会宣传一个本不该让模型看见的 skill。未知名称、前缀之后为空的名称、以及查找失败，都会各自呈现为 transcript（文本记录）中的一条通知，且不发送任何内容。
+自动补全只列出模型可调用的 skill——它基于 `list()` 构建，而 `list()` 会略去 `disableModelInvocation` 的 skill——手动提交则通过 `get()` 解析，skill 注册表将其记录为返回被禁用 skill 的可信调用方路径。因此用户可以通过键入 skill 的确切名称加载任意 skill，但补全菜单绝不会宣传一个本不该让模型看见的 skill。每个补全条目都以其胜出来源的作用域为标签——`project-` 来源标为 `(project)`，其他一切来源标为 `(user)`——标签置于斜杠命令的参数提示位，菜单会显示它，但选中时绝不会插入，因此尾随指令仍然跟在补全后的名称之后。未知名称、前缀之后为空的名称、以及查找失败，都会各自呈现为 transcript（文本记录）中的一条通知，且不发送任何内容。
 
 `renderSkillInvocation` 及资源基址行是 TUI 自有的，刻意不复用 `dsh-tool-skill` 的 `skill` 工具结果。该工具把正文包进 `<skill_content>`/`<skill_resources>`/`<skill_instructions>` 是为了一个*工具结果*；而手动调用是一个*用户轮次*，把两个渲染器耦合起来会迫使一种面向模型的形态同时服务两个界面。代价是两个都在格式化 skill 正文的渲染器；收益是各界面面向模型的文本可以独立演进，且各自在其产出处被固定。
 

@@ -40,6 +40,9 @@
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/child-mock-llm.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/mock-delegating-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
@@ -603,6 +606,16 @@
     "packages/client/hmr": {
       "entry": [
         "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/subagent/subagent-dsh-sdk": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
       ],
       "project": [
         "src/**/*.ts",
