@@ -35,7 +35,7 @@ The SQLite layout containing `seed_length`, `source_event_seqs`, and `surface_op
 
 `dsh-llm-replay`'s `parseSessionHeader` now also reads `seedLength` (absent ⇒ 0), and `loadSessionScripts` derives a child's entries from `parseSessionLog(text).slice(seedLength)` — the events at or after the boundary, i.e. the child's own model calls. For a spawn child `seedLength` is 0 and this is a no-op, so spawn scenarios are byte-for-byte unchanged.
 
-This closes the routing correctness gap, and two recorded fork scenarios exercise it end to end — see [Record fork and mixed spawn+fork snapshot scenarios](2026-06-22-fork-snapshot-scenarios.md).
+This closes the routing correctness gap, and two recorded fork scenarios exercise it end to end — see [Record fork and mixed spawn+fork snapshot scenarios](../../archived/testing/2026-06-22-fork-snapshot-scenarios.md).
 
 ## Alternatives considered
 

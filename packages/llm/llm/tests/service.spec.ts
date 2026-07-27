@@ -291,6 +291,34 @@ describe('LlmService', () => {
     expect(facts).not.toBe(carried)
   })
 
+  it('keeps validated failure facts across package copies with matching own codes', async () => {
+    const original = Object.assign(new Error('provider busy'), {
+      code: 'RATE_LIMIT',
+      failure: {
+        message: 'provider busy',
+        code: 'RATE_LIMIT',
+        status: 429,
+        providerRetryAfterMs: 1_500,
+        requestId: 'req-cross-copy',
+      },
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    expect(llmFailureOf(stream, original)).toEqual({
+      message: 'provider busy',
+      code: 'RATE_LIMIT',
+      status: 429,
+      providerRetryAfterMs: 1_500,
+      requestId: 'req-cross-copy',
+    })
+  })
+
   it('keeps an unknown SDK Error exact without trusting its private code or accessors', async () => {
     const original = Object.assign(new Error('socket closed'), { code: 'ECONNRESET' })
     Object.defineProperty(original, 'failure', {
@@ -322,6 +350,64 @@ describe('LlmService', () => {
       for await (const _chunk of stream) { /* drain */ }
     })()).rejects.toBe(original)
     expect(llmFailureOf(stream, original)).toEqual({ message: 'LLM adapter failed', code: 'UNKNOWN' })
+  })
+
+  it('keeps an SDK Error exact without trusting accessor-backed carried facts', async () => {
+    const original = Object.assign(new Error('busy'), {
+      failure: { message: 'busy', code: 'SERVER', status: 503 },
+    })
+    Object.defineProperty(original, 'code', {
+      get() { throw new Error('SDK code accessor must not escape') },
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    expect(llmFailureOf(stream, original)).toEqual({ message: 'busy', code: 'UNKNOWN' })
+  })
+
+  it('does not trust carried facts matched only by an inherited code', async () => {
+    class InheritedCodeError extends Error {
+      get code(): string { return 'SERVER' }
+    }
+    const original = Object.assign(new InheritedCodeError('busy'), {
+      failure: { message: 'busy', code: 'SERVER', status: 503 },
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    expect(llmFailureOf(stream, original)).toEqual({ message: 'busy', code: 'UNKNOWN' })
+  })
+
+  it('keeps an SDK Error exact when code descriptor inspection is trapped', async () => {
+    const target = Object.assign(new Error('busy'), {
+      code: 'SERVER',
+      failure: { message: 'busy', code: 'SERVER', status: 503 },
+    })
+    const original = new Proxy(target, {
+      getOwnPropertyDescriptor(value, property) {
+        if (property === 'code') throw new Error('SDK code descriptor trap')
+        return Reflect.getOwnPropertyDescriptor(value, property)
+      },
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    expect(llmFailureOf(stream, original)).toEqual({ message: 'busy', code: 'UNKNOWN' })
   })
 
   it('falls back safely when SDK objects trap failure inspection or expose malformed facts', async () => {
