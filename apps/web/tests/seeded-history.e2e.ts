@@ -71,6 +71,35 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await recordFixture(scaffold, sessionId, SEED)
   }, 200_000)
 
+  it.skipIf(MODE === 'record')('serves the projections baseline on the real composition tail page', async () => {
+    // Composition regression tripwire: the projection registry must be a row
+    // in the SHIPPED cordis.yml — with it absent every domain unit's optional
+    // injection stays silent and this block disappears (no titles/todos on
+    // the web), while fixture-level suites stay green. Assert through the
+    // real HTTP wire against the booted real host.
+    const response = await fetch(`${scaffold.baseUrl}/api/session.history`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'client-request', rpcId: 'seeded-projections', method: 'session.history',
+        payload: { sessionId: SEED_ID },
+      }),
+    })
+    expect(response.ok).toBe(true)
+    const body = await response.json() as {
+      result: { ok: boolean; value?: { projections?: { asOfSeq: number; values: Record<string, unknown> } } }
+    }
+    expect(body.result.ok).toBe(true)
+    const projections = body.result.value?.projections
+    expect(projections).toBeDefined()
+    expect(projections?.asOfSeq).toBeGreaterThanOrEqual(0)
+    // The seed carries a session/title event: the title unit must serve it.
+    expect(typeof projections?.values.title).toBe('string')
+    // tool-todo is composed but the seed has no todo/write: whole-value null,
+    // key PRESENT (absence would mean the unit never registered).
+    expect(projections?.values).toHaveProperty('todos', null)
+  })
+
   it.skipIf(MODE === 'record')('lists the seeded session cold and renders its history from the log', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-history'))
     // The sidebar tree collapses workspace groups by default: click the group
