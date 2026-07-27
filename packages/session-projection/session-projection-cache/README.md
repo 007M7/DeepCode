@@ -43,17 +43,11 @@ Injects `storageDomain`, `sessionProjections`, `sessionPersistence`, `sessions`.
 
 ## Model Experience
 
-### What the model sees
+None, as the cache only persists and restores host-side read models of already-logged session state and touches no prompt, message, schema, stream, or tool result.
 
-Nothing. The cache is a host read-model accelerator; no prompt, schema, or tool surface.
+#### KV Cache effect
 
-### Token effect
-
-Zero.
-
-### KV Cache effect
-
-None — no request content changes.
+None; the cache never assembles or sends provider requests.
 
 ## Known Limitations and Deferred Work
 
