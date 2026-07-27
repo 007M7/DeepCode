@@ -71,30 +71,35 @@ async function seedResumeSession(cwd: string): Promise<void> {
   ].join('\n'))
 }
 
-/** The rendered system prompt from the first `request/header` in the workspace's persisted session log. */
-interface LoggedRequestHeader {
+/** Model-visible startup context from the first request in the workspace's persisted session log. */
+interface LoggedRequestContext {
   /** The system prompt string the launcher sends. */
   system: string
-  /** The baked session-prefix messages (skill catalog, workspace context) serialized to text. */
-  prefix: string
+  /** The durable skill-catalog message serialized to text. */
+  skillCatalog: string
 }
 
-async function readLoggedRequestHeader(cwd: string): Promise<LoggedRequestHeader> {
+async function readLoggedRequestContext(cwd: string): Promise<LoggedRequestContext> {
   const sessionsDir = join(cwd, '.sessions')
   const entries = await readdir(sessionsDir, { recursive: true })
   // A single keyless run writes one session log; the source section is global, so any log carries it.
   const logRelPath = entries.find(name => name.endsWith('.jsonl'))
   if (logRelPath === undefined) throw new Error(`no session log written under ${sessionsDir}`)
   const lines = (await readFile(join(sessionsDir, logRelPath), 'utf8')).split('\n').filter(Boolean)
+  let skillCatalog = ''
   for (const line of lines) {
-    const event = JSON.parse(line) as {
-      type: string
-      data: { header?: { system?: string; messagePrefix?: unknown } }
+    const event = JSON.parse(line) as SessionEvent
+    if (
+      event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'dsh-tool-skill'
+    ) {
+      skillCatalog = JSON.stringify(event.data.content)
     }
     if (event.type === 'request/header') {
       return {
-        system: event.data.header?.system ?? '',
-        prefix: JSON.stringify(event.data.header?.messagePrefix ?? []),
+        system: event.data.header.system ?? '',
+        skillCatalog,
       }
     }
   }
@@ -366,9 +371,9 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     // The launcher resolves the checkout root three hops up from apps/cli/{src,lib};
     // this test file sits an equal depth under the same root, so the same hop applies.
     // The source-path line is a system-prompt section; the bundled skills reach the
-    // model through the session-prefix catalog, so each assertion targets its own field.
+    // model through a durable user message, so each assertion targets its own field.
     const sourceRoot = fileURLToPath(new URL('../../..', import.meta.url))
-    let header: LoggedRequestHeader = { system: '', prefix: '' }
+    let context: LoggedRequestContext = { system: '', skillCatalog: '' }
     await smoke({
       label: 'dsh source-path prompt',
       tempDirPrefix: 'dsh-source-path-',
@@ -380,11 +385,11 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
         { waitFor: 'How should the scripted run proceed?', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],
-      inspect: async (cwd) => { header = await readLoggedRequestHeader(cwd) },
+      inspect: async (cwd) => { context = await readLoggedRequestContext(cwd) },
     })
-    expect(header.system).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
-    expect(header.prefix).toContain("- `dsh-customize`: Customize or maintain any dsh source checkout — the one powering the current DSH process, the installed `dsh` command, or a sibling dsh/deepseek-harness clone. Use before any requested action that alters such a checkout's files or git state. Read-only questions that only inspect the checkout do not trigger this. Do not edit the personal staging checkout directly.")
-    expect(header.prefix).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback worktree. Use when the user asks to update or upgrade DSH.')
-    expect(header.prefix).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')
+    expect(context.system).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
+    expect(context.skillCatalog).toContain("- `dsh-customize`: Customize or maintain any dsh source checkout — the one powering the current DSH process, the installed `dsh` command, or a sibling dsh/deepseek-harness clone. Use before any requested action that alters such a checkout's files or git state. Read-only questions that only inspect the checkout do not trigger this. Do not edit the personal staging checkout directly.")
+    expect(context.skillCatalog).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback worktree. Use when the user asks to update or upgrade DSH.')
+    expect(context.skillCatalog).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })
