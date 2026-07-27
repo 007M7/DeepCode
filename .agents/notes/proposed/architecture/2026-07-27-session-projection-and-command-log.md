@@ -28,7 +28,7 @@ A light interface package: the merge-extensible type map, the registry service, 
 
 What a domain registers is a **state-driven computation unit** — three pure functions plus declarations — never an opaque getter. The framework owns driving it (subscription, watermark, caching, and later checkpointing); the domain owns only the mathematics. Projections serve every business domain (session title, plan, goal, permission, todos); commands are merely one trigger path and hold no special position in this contract.
 
-```ts
+```ts ignore-check
 export interface SessionProjectionMap {}   // the single type table for the whole chain
 
 export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
@@ -58,7 +58,7 @@ declare module 'cordis' {
 
 ### Wire: projections block on the history tail page
 
-```ts
+```ts ignore-check
 // session.history response, tail page only (beforeSeq absent):
 { events, hasMore,
   projections?: { asOfSeq: number, values: Partial<SessionProjectionMap> } }
@@ -74,7 +74,7 @@ Retired by this block: `session.planMode` and `setPlanMode` (both sides — plan
 
 Because the host is the only computation site, finished values reach clients over one new mux frame:
 
-```ts
+```ts ignore-check
 // MuxFrame union + schema branch:
 { type: 'session/projection', sessionId, key: string, value: unknown, seq: number }
 ```
@@ -97,7 +97,7 @@ A domain's input event set is its own choice — that is the general rule this e
 
 The existing four seats cannot host this state (store discipline bans business objects; inject bans hooks; `ConversationSnapshot` is being evacuated). `useProjection` becomes a framework seat, minted in web-react (the one hook constructor), delivered through the same standard-kit channel as `useSession` (`provideInfo` → SessionProvider → props):
 
-```ts
+```ts ignore-check
 type UseProjection = {
   <K extends keyof SessionProjectionMap>(key: K): SessionProjectionMap[K] | undefined
   <K extends keyof SessionProjectionMap, S>(
@@ -114,7 +114,7 @@ The one existing violation of "no hooks through inject" — `DetailsInjected.use
 
 Two log-only (non-surface, model-invisible) events, mirroring the `tool/call`/`tool/result` pairing:
 
-```ts
+```ts ignore-check
 'command/run':  { commandId: string; name: string; args: string; source: CommandSource }
 'command/done': { commandId: string; kind: 'success' | 'error'; text?: string }
 ```

@@ -28,7 +28,7 @@ Status: proposed
 
 领域注册的是一个**状态驱动计算单元（state-driven computation unit）**——三个纯函数外加若干声明——绝不是一个不透明的 getter。驱动它是框架的职责（订阅、水位线（watermark）、缓存，以及后续的检查点机制），领域只负责数学本身。投影服务于所有业务领域（会话标题、plan、goal、权限、todos）；命令只是其中一条触发路径，在本契约中没有任何特殊地位。
 
-```ts
+```ts ignore-check
 export interface SessionProjectionMap {}   // the single type table for the whole chain
 
 export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
@@ -58,7 +58,7 @@ declare module 'cordis' {
 
 ### 协议层：历史尾页上的 projections 块
 
-```ts
+```ts ignore-check
 // session.history response, tail page only (beforeSeq absent):
 { events, hasMore,
   projections?: { asOfSeq: number, values: Partial<SessionProjectionMap> } }
@@ -74,7 +74,7 @@ api-proxy 的历史处理器切出尾页后读取 `session.seq`，然后同步�
 
 既然 host 是唯一计算地点，成品值经一个新的 mux 帧送达客户端：
 
-```ts
+```ts ignore-check
 // MuxFrame union + schema branch:
 { type: 'session/projection', sessionId, key: string, value: unknown, seq: number }
 ```
@@ -97,7 +97,7 @@ plan mode 完整演示了这套模式——触发路径、运行面、回放面�
 
 既有四个席位都装不下这份状态（store 纪律禁止业务对象；inject 禁止钩子；`ConversationSnapshot` 正在被清退）。`useProjection` 成为一个框架席位，在 web-react（唯一的钩子铸造点）铸造，经与 `useSession` 相同的标准套件通道（`provideInfo` → SessionProvider → props）送达：
 
-```ts
+```ts ignore-check
 type UseProjection = {
   <K extends keyof SessionProjectionMap>(key: K): SessionProjectionMap[K] | undefined
   <K extends keyof SessionProjectionMap, S>(
@@ -114,7 +114,7 @@ type UseProjection = {
 
 两个仅日志（非 surface、模型不可见）事件，镜像 `tool/call`/`tool/result` 的配对：
 
-```ts
+```ts ignore-check
 'command/run':  { commandId: string; name: string; args: string; source: CommandSource }
 'command/done': { commandId: string; kind: 'success' | 'error'; text?: string }
 ```
