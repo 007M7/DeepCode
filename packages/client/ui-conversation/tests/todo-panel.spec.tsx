@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status
- * rows, collapse with active hint), its TodoDock adapter (selects the plan off
- * the session snapshot and follows changes), and the todo_write toolview row
- * (progress summary from args, generic fallback on malformed JSON, error badge,
+ * rows, collapse), its TodoDock adapter (selects the plan off the session
+ * snapshot and follows changes), and the todo_write toolview row (progress
+ * summary from args, generic fallback on malformed JSON, error badge,
  * keyboard activation).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -31,32 +31,36 @@ describe('TodoPanel', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('shows progress, one row per item with its status, and strikes done items', () => {
+  it('shows progress, one row per item with its status glyph', () => {
     render(<TodoPanel todos={LIST} />)
     expect(screen.getByTestId('todo-panel')).toBeTruthy()
-    expect(screen.getByText('1/3')).toBeTruthy()
+    expect(screen.getByText('To-dos')).toBeTruthy()
+    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
     const items = screen.getAllByRole('listitem')
     expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
     expect(screen.getByText('搭骨架')).toBeTruthy()
     expect(screen.getByText('写组件')).toBeTruthy()
+    // Each status row carries an SVG glyph (not a text bullet).
+    expect(items.every(li => li.querySelector('svg') !== null)).toBe(true)
   })
 
-  it('collapse hides the list and surfaces the active item in the header; expand restores', () => {
+  it('collapse hides the list; expand restores; header keeps the count summary', () => {
     render(<TodoPanel todos={LIST} />)
     const header = screen.getByRole('button', { expanded: true })
     fireEvent.click(header)
     expect(screen.queryByRole('list')).toBeNull()
-    // Collapsed header carries the in-progress content as the one-line hint.
-    expect(screen.getByText('写组件')).toBeTruthy()
+    // Collapsed header is title + progress only (no in-progress content hint).
+    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
+    expect(screen.queryByText('写组件')).toBeNull()
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
   })
 
-  it('collapsed header omits the hint when nothing is in progress', () => {
+  it('collapsed header still shows zero in-progress when nothing is active', () => {
     render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} />)
     fireEvent.click(screen.getByRole('button', { expanded: true }))
     expect(screen.queryByText('都完了')).toBeNull()
-    expect(screen.getByText('1/1')).toBeTruthy()
+    expect(screen.getByText('1/1 tasks · 0 in progress')).toBeTruthy()
   })
 })
 
@@ -71,7 +75,7 @@ describe('TodoDock', () => {
     render(<TodoDock {...dockProps(store)} />)
     expect(screen.queryByTestId('todo-panel')).toBeNull()
     act(() => { store.set({ todos: LIST }) })
-    expect(screen.getByText('1/3')).toBeTruthy()
+    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
     // A rollback to the empty list retires the strip (the panel owns no data).
     act(() => { store.set({ todos: [] }) })
     expect(screen.queryByTestId('todo-panel')).toBeNull()
