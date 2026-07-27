@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { zstdDecompress } from 'node:zlib'
+import { execa } from 'execa'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -114,36 +114,34 @@ interface BinResult {
   readonly stderr: string
 }
 
-function runBuiltBin(cwd: string, args: readonly string[], interrupt?: NodeJS.Signals): Promise<BinResult> {
-  return new Promise((resolveResult, reject) => {
-    const child = spawn(process.execPath, [cliBin, ...args], {
-      cwd,
-      env: { ...process.env, DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents') },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
+async function runBuiltBin(cwd: string, args: readonly string[], interrupt?: NodeJS.Signals): Promise<BinResult> {
+  const subprocess = execa(process.execPath, [cliBin, ...args], {
+    cwd,
+    env: { DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents') },
+    stdin: 'ignore',
+    timeout: 25_000,
+    killSignal: 'SIGKILL',
+    reject: false,
+    stripFinalNewline: false,
+  })
+  // Genuinely custom mid-stream logic: the signal cases deliver `interrupt`
+  // once the first streamed chunk proves the turn is in flight.
+  if (interrupt !== undefined) {
+    let streamed = ''
     let interrupted = false
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
-      if (interrupt !== undefined && !interrupted && stdout.includes('assistant/chunk')) {
+    subprocess.stdout.on('data', (chunk: Buffer) => {
+      streamed += chunk.toString('utf8')
+      if (!interrupted && streamed.includes('assistant/chunk')) {
         interrupted = true
-        child.kill(interrupt)
+        subprocess.kill(interrupt)
       }
     })
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => { stderr += chunk })
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      reject(new Error(`built CLI did not exit. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, 25_000)
-    child.once('error', (error) => { clearTimeout(timer); reject(error) })
-    child.once('exit', (code, signal) => {
-      clearTimeout(timer)
-      resolveResult({ code: code ?? -1, signal, stdout, stderr })
-    })
-  })
+  }
+  const result = await subprocess
+  if (result.timedOut) {
+    throw new Error(`built CLI did not exit. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+  }
+  return { code: result.exitCode ?? -1, signal: result.signal ?? null, stdout: result.stdout, stderr: result.stderr }
 }
 
 let consumer: string | undefined

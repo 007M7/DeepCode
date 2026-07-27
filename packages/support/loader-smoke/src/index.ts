@@ -11,10 +11,10 @@
  * @module @deepseek-ai/dsh-loader-smoke
  */
 
-import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { execa } from 'execa'
 
 const DEFAULT_PROCESS_TIMEOUT_MS = 30_000
 
@@ -171,53 +171,27 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
       tsconfigPath: options.tsconfigPath,
       env: { DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents'), ...options.env },
     })
-    const result = await new Promise<LoaderSmokeResult>((resolve, reject) => {
-      const child = spawn(launch.command, launch.args, {
-        cwd,
-        env: { ...process.env, ...launch.env },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-      let stdout = ''
-      let stderr = ''
-      let deferredFailure: Error | undefined
-      child.stdout.setEncoding('utf8')
-      child.stdout.on('data', (chunk: string) => { stdout += chunk })
-      child.stderr.setEncoding('utf8')
-      child.stderr.on('data', (chunk: string) => { stderr += chunk })
-
-      const timer = setTimeout(() => {
-        deferredFailure = new Error(`${options.label} did not exit within ${processTimeoutMs / 1_000}s. stdout:\n${stdout}\nstderr:\n${stderr}`)
-        child.kill('SIGKILL')
-      }, processTimeoutMs)
-
-      child.once('exit', (code) => {
-        clearTimeout(timer)
-        if (deferredFailure !== undefined) {
-          reject(deferredFailure)
-        } else if (code === 0) {
-          resolve({ stdout, stderr })
-        } else {
-          reject(new Error(`${options.label} exited ${String(code)}. stdout:\n${stdout}\nstderr:\n${stderr}`))
-        }
-      })
-
-      // process.execPath and a just-created pipe make these OS-error paths
-      // impractical to induce without replacing the boundary under test.
-      /* v8 ignore start */
-      child.once('error', (error) => {
-        clearTimeout(timer)
-        reject(new Error(`${options.label} failed to start: ${error.message}`))
-      })
-      child.stdin.once('error', (error) => {
-        deferredFailure ??= new Error(`${options.label} stdin failed: ${error.message}`)
-        child.kill('SIGKILL')
-      })
-      /* v8 ignore stop */
-
-      child.stdin.end()
+    // `input: ''` writes nothing and closes stdin — the fixture-visible
+    // stdin-close contract. `reject: false` folds spawn errors, the SIGKILL
+    // deadline, and nonzero exits into independent result fields, so the
+    // diagnostics below embed both streams on every failure.
+    const result = await execa(launch.command, launch.args, {
+      cwd,
+      env: launch.env,
+      input: '',
+      timeout: processTimeoutMs,
+      killSignal: 'SIGKILL',
+      reject: false,
+      stripFinalNewline: false,
     })
+    if (result.timedOut) {
+      throw new Error(`${options.label} did not exit within ${processTimeoutMs / 1_000}s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+    }
+    if (result.failed) {
+      throw new Error(`${options.label} exited ${String(result.exitCode)}. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+    }
     await options.inspect?.(cwd)
-    return result
+    return { stdout: result.stdout, stderr: result.stderr }
   } finally {
     await rm(cwd, { recursive: true, force: true })
   }

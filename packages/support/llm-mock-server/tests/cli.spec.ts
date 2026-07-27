@@ -101,8 +101,11 @@ describe('mock LLM server CLI parser', () => {
 
   it.each([
     [[], /--sequence is required/],
-    [['--wat'], /requires a value/],
-    [['--wat', 'x'], /unknown option/],
+    // Tokenizer-level failures carry node:util parseArgs's own messages.
+    [['--wat'], /Unknown option '--wat'/],
+    [['--wat', 'x'], /Unknown option '--wat'/],
+    [['--port'], /Option '--port <value>' argument missing/],
+    [['--sequence', 'success', 'stray'], /Unexpected argument 'stray'/],
     [['--port', 'NaN', '--sequence', 'success'], /finite number/],
     [['--sequence', 'success,'], /non-empty/],
     [['--sequence', 'success,connection_refused'], /only as the first/],
@@ -110,7 +113,8 @@ describe('mock LLM server CLI parser', () => {
     [['--sequence', 'unknown'], /unknown behavior/],
     [['--sequence', 'connection_refused,success', '--port', '0'], /nonzero/],
     [['--sequence', 'success', '--listen-delay-ms', '5'], /requires connection_refused/],
-    [['--sequence', 'connection_refused,success', '--listen-delay-ms', '-1'], /integer between 0 and 2147483647/],
+    // `=` syntax: a space-separated leading-dash value is a tokenizer error, not a bounds probe.
+    [['--sequence', 'connection_refused,success', '--listen-delay-ms=-1'], /integer between 0 and 2147483647/],
     [['--sequence', 'connection_refused,success', '--listen-delay-ms', '1.5'], /integer between 0 and 2147483647/],
     [['--sequence', 'connection_refused,success', '--listen-delay-ms', '2147483648'], /integer between 0 and 2147483647/],
     [['--sequence', 'success', '--seed', '1'], /require random/],
