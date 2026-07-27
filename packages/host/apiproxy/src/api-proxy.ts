@@ -21,9 +21,11 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock,
+  SessionSummary, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+// Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
+import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -294,6 +296,28 @@ function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined 
     if (event !== undefined && event.type === 'todo/write') return event.data.todos
   }
   return undefined
+}
+
+/**
+ * Compute the projection baseline for one history tail page: read the
+ * session's next-event seq, then walk every registered provider — one fully
+ * synchronous pass (no await anywhere), so all values and `asOfSeq` form a
+ * single consistent cut and `asOfSeq` equals the window tail seq. Each value
+ * passes through its provider's own schema before leaving the host (the
+ * carrier holds zero domain knowledge; a provider returning an invalid value —
+ * including an accidental Promise from a non-synchronous `get` — fails loud
+ * here). An absent registry means the deployment has no projection seam: the
+ * whole block is absent and clients treat every key as capability-absent.
+ */
+function projectionsFor(ctx: Context, agent: Agent): SessionProjectionsBlock | undefined {
+  const registry = ctx.get('sessionProjections')
+  if (registry === undefined) return undefined
+  const asOfSeq = agent.session.seq
+  const values: Record<string, unknown> = {}
+  for (const provider of registry.entries()) {
+    values[provider.key] = provider.schema.parse(provider.get(agent))
+  }
+  return { asOfSeq, values: values as SessionProjectionsBlock['values'] }
 }
 
 /**
@@ -657,6 +681,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, beforeSeq, maxMessages } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
+        // Everything below the resume above is synchronous: the page slice,
+        // the seq read, and the projection walk see one un-torn session state.
         const page = paginate(found.agent.session.events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
         // Views are computed against the registry at pagination time; result
         // pairing scans within the page only (message-boundary pagination keeps
@@ -668,8 +694,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // Tail page carries the session-level todo projection over the FULL
         // log (the page window may not contain the last todo/write; a paged
         // client cannot reconstruct session-level state from it).
+        // TODO(gui): retire this rider onto the generic projections block.
         const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
-        return ok(request, { events: entries, hasMore: page.hasMore, ...todos === undefined ? {} : { todos } })
+        // Baseline rider: tail page only — loadOlder (beforeSeq present) is
+        // the one path that never needs a fresh projection baseline.
+        const projections = beforeSeq === undefined ? projectionsFor(ctx, found.agent) : undefined
+        return ok(request, {
+          events: entries,
+          hasMore: page.hasMore,
+          ...todos === undefined ? {} : { todos },
+          ...projections === undefined ? {} : { projections },
+        })
       },
 
       async prompt(request) {

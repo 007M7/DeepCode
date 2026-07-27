@@ -2604,6 +2604,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-session-title':
         specifier: workspace:^
         version: link:../../session-title/session-title

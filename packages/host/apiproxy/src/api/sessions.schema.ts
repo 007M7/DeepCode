@@ -9,7 +9,7 @@ import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { HistoryEntry, SessionSummary } from './sessions.ts'
+import type { HistoryEntry, SessionProjectionsBlock, SessionSummary } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
 
@@ -99,11 +99,22 @@ export const todoItemSchema = z.object({
   status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
 })
 
-/** session.history response value. */
+/**
+ * Projection baseline passthrough: `values` stays a wide record — each value
+ * was already parsed by its provider's own schema on the host side, and
+ * deep-validating here would import every domain's schema into the carrier.
+ */
+export const sessionProjectionsBlockSchema = z.object({
+  asOfSeq: z.number().int().nonnegative(),
+  values: z.record(z.string(), z.unknown()),
+}) as unknown as z.ZodType<SessionProjectionsBlock>
+
+/** session.history response value (todos and projections ride the tail page only). */
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
   todos: z.array(todoItemSchema).optional(),
+  projections: sessionProjectionsBlockSchema.optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */

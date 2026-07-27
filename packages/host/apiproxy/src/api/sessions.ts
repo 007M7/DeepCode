@@ -6,6 +6,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection'
 import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -30,6 +31,20 @@ declare module '@deepseek-ai/dsh-llm' {
 export interface HistoryEntry {
   event: SessionEvent
   view?: ToolEventView
+}
+
+/**
+ * The projection baseline riding the history tail page: one synchronous cut
+ * over every registered projection provider. `asOfSeq` equals the window tail
+ * seq (the session's next-event seq at slice time) because the handler reads
+ * it and every value with no await in between. A key absent from `values`
+ * means the capability is absent (its domain plugin is unmounted).
+ */
+export interface SessionProjectionsBlock {
+  /** The session seq the values are consistent with (window tail seq). */
+  asOfSeq: number
+  /** Whole current value per registered projection key. */
+  values: Partial<SessionProjectionMap>
 }
 
 /** Session list entry (v1 builds no index: list does readdir+stat). */
@@ -81,9 +96,15 @@ export interface SessionsApi {
    * projection (latest `todo/write` over the FULL log, independent of the page window) —
    * so a paged client restores the plan without walking history; absent when the session
    * never wrote one. Older pages omit it (the projection is session-level, not per-page).
+   * TODO(gui): the todos rider retires onto the generic projections block below.
+   * The tail page — and only the tail page — additionally carries `projections`
+   * when the deployment mounts the session-projection registry: every moment
+   * the client needs a fresh baseline already pulls the tail page, and
+   * loadOlder (the only beforeSeq path) is the only path that never needs one.
+   * A deployment without the registry serves histories without the block.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[] }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[]; projections?: SessionProjectionsBlock }>>
 
   /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
