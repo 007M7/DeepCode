@@ -25,13 +25,13 @@ Two related test-infra hand-rolls compounded the case:
 ## Alternatives considered
 
 - **`tinyexec` instead of execa.** Already in `node_modules` transitively via vitest, smaller API — but no kill-escalation, no rich error output embedding, and being transitive is not a contract; if the lighter package is preferred the swap shape is identical.
-- **A repo-local shared spawn helper (no new dep).** Viable and cheaper on supply chain, but it keeps the maintenance of deadline/kill/settlement logic in-repo when a battle-tested package owns exactly this; contrary to the [dependency policy](../process/2026-07-26-dependencies-over-hand-rolling.md), it also has to re-earn Windows behavior (taskkill, exit codes) that execa already carries.
+- **A repo-local shared spawn helper (no new dep).** Viable and cheaper on supply chain, but it keeps the maintenance of deadline/kill/settlement logic in-repo when a battle-tested package owns exactly this; contrary to the [dependency policy](../process/2026-07-26-dependencies-over-hand-rolling.md), it also has to re-earn cross-platform timeout, termination, and result-normalization behavior that execa already carries.
 - **`get-port`, `wait-on`, `tempy`, `tree-kill`.** Rejected individually: the repo's single port probe is break-even, the file waits are dominated by `vi.waitFor`, temp-dir handling already uses `mkdtemp` + `rm {recursive}` builtins everywhere, and acp-snapshot's `close()` is drain-ordering logic, not tree traversal.
 
 ## Consequences
 
 - The hand-rolled collect/timeout blocks are gone, including the two `/* v8 ignore */` un-inducible OS-error branches in `loader-smoke`: spawn and stream failures settle through execa's result fields, so the `src/` file carries no coverage exemptions and the per-file gate covers every remaining branch.
 - Captured output is bounded by execa's default 100 MB `maxBuffer` (overflow terminates the subprocess) where it was previously unbounded; the `loader-smoke` README's limitation entry reflects this.
-- Windows termination behavior (taskkill, exit-code mapping) is owned by execa instead of per-site hand-rolls; each rewritten suite was re-run on POSIX in this change, and the Windows CI lanes own the other platform.
+- Direct-child timeout termination and exit/signal result normalization are owned by execa across platforms instead of per-site hand-rolls; process-tree termination remains outside these helpers, as the `loader-smoke` README states. Each rewritten suite was re-run on POSIX in this change, and the Windows CI lanes own the other platform.
 - execa is a new root devDependency (previously absent from the lockfile); it is one of the most-depended-on packages on npm and actively maintained, and the exe/runtime closure is unaffected (tests only).
 - The mock-server CLI's tokenizer-level error texts are no longer this repo's to choose: unknown options, missing values, and stray positionals report `parseArgs`'s wording, pinned as such in `tests/cli.spec.ts`.

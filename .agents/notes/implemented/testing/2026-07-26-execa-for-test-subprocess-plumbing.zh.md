@@ -25,13 +25,13 @@ Status: implemented
 ## 曾考虑的替代方案
 
 - **用 `tinyexec` 代替 execa。**它已经作为 vitest 的传递依赖存在于 `node_modules` 中，API 也更小；但它没有终止信号逐级升级，不会把丰富的输出嵌入错误对象，而且传递依赖并不构成契约。如果最终更倾向这个更轻的包，替换的形态完全相同。
-- **仓库内共享的 spawn 辅助函数（不引入新依赖）。**可行，供应链成本也更低，但当一个久经实战的包恰好负责这件事时，它把截止时限、终止与结算逻辑的维护留在了仓库内；这与[依赖策略](../process/2026-07-26-dependencies-over-hand-rolling.md)背道而驰，它还得重新踩坑换来 execa 已经自带的 Windows 行为（taskkill、退出码）。
+- **仓库内共享的 spawn 辅助函数（不引入新依赖）。**可行，供应链成本也更低，但当一个久经实战的包恰好负责这件事时，它把截止时限、终止与结算逻辑的维护留在了仓库内；这与[依赖策略](../process/2026-07-26-dependencies-over-hand-rolling.md)背道而驰，它还得重新踩坑换来 execa 已经自带的跨平台超时、终止与结果规范化行为。
 - **`get-port`、`wait-on`、`tempy`、`tree-kill`。**逐一不予采纳：仓库仅有的一处端口探测替换后收支相抵；文件等待场景已由 `vi.waitFor` 更优地覆盖；临时目录处理在各处已经使用内置的 `mkdtemp` + `rm {recursive}`；acp-snapshot 的 `close()` 是排空顺序逻辑，不是进程树遍历。
 
 ## 后果
 
 - 手写的收集/超时代码块全部移除，包括 `loader-smoke` 中两个标注 `/* v8 ignore */`、无法人为诱发的 OS 错误分支：spawn 与流故障如今经由 execa 的结果字段结算，这个 `src/` 文件不再携带任何覆盖率豁免，逐文件门禁覆盖其余全部分支。
 - 捕获的输出如今受 execa 默认 100 MB `maxBuffer` 约束（溢出即终止子进程），此前是无界的；`loader-smoke` README 的局限条目反映了这一点。
-- Windows 终止行为（taskkill、退出码映射）由 execa 拥有，不再逐处手写；每个改写后的套件在本次变更中已在 POSIX 上重新运行，另一平台由 Windows CI 车道负责。
+- 直接子进程的超时终止以及退出/信号结果规范化均由 execa 跨平台负责，不再逐处手写；如 `loader-smoke` README 所述，这些辅助函数依然不负责终止进程树。每个改写后的套件在本次变更中已在 POSIX 上重新运行，另一平台由 Windows CI 车道负责。
 - execa 是新增的根 devDependency（此前完全不存在于 lockfile 中）；它是 npm 上被依赖最多的包之一且维护活跃，exe/运行时闭包不受影响（仅测试使用）。
 - mock-server CLI 切分器层面的错误文本不再由本仓库决定：未知选项、缺失取值与多余位置参数报告 `parseArgs` 的措辞，并在 `tests/cli.spec.ts` 中如此固定。
