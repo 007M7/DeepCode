@@ -330,12 +330,31 @@ describe('provider profile lifecycle', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const fiber = await ctx.plugin(LlmPiAi, {
-      providers: [{ provider: 'openai' }, { provider: 'anthropic' }],
+      providers: [
+        {
+          provider: 'openai',
+          retryPolicy: {
+            mode: 'always',
+            backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 },
+          },
+        },
+        { provider: 'anthropic' },
+      ],
     })
     expect(ctx.llm.listProviders()).toEqual([
       { id: 'openai', name: 'openai' },
       { id: 'anthropic', name: 'anthropic' },
     ])
+    expect(ctx.llm.providerRetryPolicy('openai')).toEqual({
+      mode: 'always',
+      initialDelayMs: 25,
+      maxDelayMs: 100,
+      jitterRatio: 0.2,
+    })
+    expect(ctx.llm.providerRetryPolicy('anthropic')).toMatchObject({
+      mode: 'normal',
+      maxRetries: 2,
+    })
     await fiber.dispose()
     expect(ctx.llm.listProviders()).toEqual([])
   })
@@ -458,6 +477,23 @@ describe('provider profile lifecycle', () => {
       await expect(ctx.plugin(LlmPiAi, { providers: [{ provider: 'openai', ...entry }] }))
         .rejects.toThrow()
     }
+  })
+
+  it('rejects invalid nested retryPolicy at the provider-profile boundary', async () => {
+    expect(() => resolveProfiles([{
+      provider: 'openai',
+      retryPolicy: { mode: 'always', backoff: { jitterRatio: -1 } },
+    }])).toThrow(/retryPolicy\.backoff\.jitterRatio/)
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await expect(ctx.plugin(LlmPiAi, {
+      providers: [{
+        provider: 'openai',
+        retryPolicy: { mode: 'normal', maxRetries: -1 },
+      }],
+    })).rejects.toThrow(/retryPolicy/)
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 
   it('constructs the adapter directly and rejects routes it does not own', async () => {

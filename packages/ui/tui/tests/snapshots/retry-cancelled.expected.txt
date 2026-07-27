@@ -21,7 +21,7 @@ buffer
 7| "▌ "
   style 0-0 fg=bright-blue
 8| <blank>
-9| " Retrying model request (1/2) in 1000ms: temporary transport failure                            "
+9| " Retrying model request (1/∞) in 1000ms: temporary transport failure                            "
   style 1-67 fg=yellow
 10| <blank>
 11| " Turn cancelled.                                                                                "

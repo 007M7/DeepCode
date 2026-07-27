@@ -173,6 +173,8 @@ export class BasicCompactService extends CompactService {
       _step,
       _error,
       failure,
+      _priorFailures,
+      _retryPolicy,
       signal,
       next,
     ) => {
