@@ -131,6 +131,27 @@ export class WorkspacesService {
   }
 
   /**
+   * The shared New Session action behind the shell entry points (sidebar
+   * button, workspace browser): resolve the target Workspace — explicit wins,
+   * else the recent-Workspace projection — connect its blank session and
+   * navigate there; with no Workspace at all, clear the selection into the
+   * New Session view state. Connect failures are non-fatal (console
+   * diagnostics; the current view stays usable).
+   * @param workspaceId - explicit target Workspace for scoped actions.
+   */
+  startSession(workspaceId?: WorkspaceId): void {
+    const target = workspaceId ?? this.list.getSnapshot().recentWorkspaceId
+    if (target === undefined) {
+      this.sessions.clear()
+      return
+    }
+    void this.connectWorkspace(target).then(
+      (sessionId) => { this.sessions.open(sessionId) },
+      (reason: unknown) => { console.warn('new session failed:', reason) },
+    )
+  }
+
+  /**
    * Create a Workspace by name or register an existing path.
    * @param input - exactly one Host create spelling.
    * @returns the created or idempotently resolved Workspace.

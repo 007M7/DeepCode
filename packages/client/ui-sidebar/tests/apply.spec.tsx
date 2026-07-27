@@ -9,10 +9,7 @@ async function bench(declare = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const layout = { toggleSidebar: vi.fn() }
-  const workspaces = {
-    connectWorkspace: vi.fn(async () => 'blank-1' as never),
-    list: { getSnapshot: () => ({ recentWorkspaceId: undefined }) },
-  }
+  const workspaces = { startSession: vi.fn() }
   const sessions = { open: vi.fn(), clear: vi.fn() }
   ctx.provide('layout', layout)
   ctx.provide('sessions', sessions as never)
@@ -39,13 +36,11 @@ describe('ui-sidebar apply', () => {
     expect(b.slots.spec('sidebar.workspaces')).toEqual({ kind: 'single', scope: 'root' })
     const injected = (b.slots.entries('sidebar')[0]!.inject as () => SidebarRootInjected)()
     expect(Object.keys(injected)).toEqual(['startSession', 'toggleSidebar'])
-    // Workspace given: reuse-or-create the blank session, then navigate.
+    // Both arms delegate to the runtime's shared New Session action.
     injected.startSession('workspace' as never)
-    expect(b.workspaces.connectWorkspace).toHaveBeenCalledWith('workspace')
-    await vi.waitFor(() => { expect(b.sessions.open).toHaveBeenCalledWith('blank-1') })
-    // No workspace (the shell's New Session button): clear into the view state.
+    expect(b.workspaces.startSession).toHaveBeenCalledWith('workspace')
     injected.startSession()
-    expect(b.sessions.clear).toHaveBeenCalledOnce()
+    expect(b.workspaces.startSession).toHaveBeenLastCalledWith(undefined)
     injected.toggleSidebar()
     expect(b.layout.toggleSidebar).toHaveBeenCalledOnce()
   })

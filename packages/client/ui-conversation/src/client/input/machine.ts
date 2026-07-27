@@ -292,14 +292,19 @@ export class InputMachine {
   private onInsertRef(reference: ReferenceInsert, span: TokenSpan): InputEffect[] {
     if (this.phase !== 'plain' && this.phase !== 'claimed') return []
     if (!this.casOk(span)) return []
+    this.replaceSpanWithChip(reference, span)
+    this.paste = undefined
+    return []
+  }
+
+  /** Shared chip-insertion transaction: replace [span) with one placeholder occurrence (insert-ref and paste-upgrade both land here). */
+  private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): void {
     this.pushTxn()
     this.typingRun = undefined
     this.reconcile({ start: span.start, end: span.end, insertedLength: 1 })
     this.withMinted([this.mint(reference, span.start)])
     this.adopt(this.draft.slice(0, span.start) + PLACEHOLDER + this.draft.slice(span.end))
     this.watchClaim()
-    this.paste = undefined
-    return []
   }
 
   /**
@@ -437,12 +442,7 @@ export class InputMachine {
     if (attempt === undefined || attempt.attemptId !== attemptId) return []
     if (this.phase !== 'plain' && this.phase !== 'claimed') return []
     if (!this.casOk(span) || span.start === span.end) return []
-    this.pushTxn()
-    this.typingRun = undefined
-    this.reconcile({ start: span.start, end: span.end, insertedLength: 1 })
-    this.withMinted([this.mint(reference, span.start)])
-    this.adopt(this.draft.slice(0, span.start) + PLACEHOLDER + this.draft.slice(span.end))
-    this.watchClaim()
+    this.replaceSpanWithChip(reference, span)
     this.paste = {
       ...attempt,
       insertedRange: { start: attempt.insertedRange.start, end: attempt.insertedRange.end + 1 - (span.end - span.start) },

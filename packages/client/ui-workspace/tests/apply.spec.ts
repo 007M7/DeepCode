@@ -14,17 +14,16 @@ async function bench() {
     path: 'name' in input ? `/projects/${input.name}` : input.path,
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
-  const connectWorkspace = vi.fn(async () => 'blank-1' as never)
+  const startSession = vi.fn()
   const rename = vi.fn(async () => ({}))
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
   ctx.provide('workspaces', {
-    create, connectWorkspace, rename, insertSessionBefore,
-    list: { getSnapshot: () => ({ recentWorkspaceId: undefined }) },
+    create, startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, create, connectWorkspace, rename, insertSessionBefore, open, clear }
+  return { ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename, insertSessionBefore, open, clear }
 }
 
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
@@ -60,13 +59,11 @@ describe('ui-workspace apply', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
 
     const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
-    // Workspace given: reuse-or-create the blank session, then navigate.
+    // Both arms delegate to the runtime's shared New Session action.
     browser.startSession('ws' as never)
-    expect(b.connectWorkspace).toHaveBeenCalledWith('ws')
-    await vi.waitFor(() => { expect(b.open).toHaveBeenCalledWith('blank-1') })
-    // No workspace: clear the selection into the New Session pure view state.
+    expect(b.startSession).toHaveBeenCalledWith('ws')
     browser.startSession()
-    expect(b.clear).toHaveBeenCalledOnce()
+    expect(b.startSession).toHaveBeenLastCalledWith(undefined)
     browser.open('session' as never)
     expect(b.open).toHaveBeenCalledWith('session')
     await browser.renameWorkspace('ws' as never, 'renamed')

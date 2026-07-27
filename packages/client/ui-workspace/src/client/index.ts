@@ -34,19 +34,9 @@ export const inject = ['slots', 'sessions', 'workspaces']
  */
 export function apply(ctx: ClientContext): void {
   const browserInjected = (): WorkspaceBrowserInjected => ({
-    // Explicit group actions keep their target; an unscoped New Session
-    // action resolves through the runtime's recent-Workspace projection.
-    startSession: (workspaceId) => {
-      const target = workspaceId ?? ctx.workspaces.list.getSnapshot().recentWorkspaceId
-      if (target === undefined) {
-        ctx.sessions.clear()
-        return
-      }
-      void ctx.workspaces.connectWorkspace(target).then(
-        (sessionId) => { ctx.sessions.open(sessionId) },
-        (reason: unknown) => { console.warn('new session failed:', reason) },
-      )
-    },
+    // Explicit group actions keep their target; unscoped New Session rides
+    // the runtime's shared action (recent-Workspace projection inside).
+    startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {

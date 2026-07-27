@@ -13,19 +13,9 @@ export const inject = ['slots', 'layout', 'sessions', 'workspaces']
  */
 export function apply(ctx: ClientContext): void {
   const injectProps = (): SidebarRootInjected => ({
-    // The shell's New Session button targets the most recently active
-    // Workspace; an explicit Workspace still wins for scoped create actions.
-    startSession: (workspaceId) => {
-      const target = workspaceId ?? ctx.workspaces.list.getSnapshot().recentWorkspaceId
-      if (target === undefined) {
-        ctx.sessions.clear()
-        return
-      }
-      void ctx.workspaces.connectWorkspace(target).then(
-        (sessionId) => { ctx.sessions.open(sessionId) },
-        (reason: unknown) => { console.warn('new session failed:', reason) },
-      )
-    },
+    // The shell's New Session button rides the runtime's shared action
+    // (recent-Workspace targeting; explicit Workspace wins for scoped actions).
+    startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
   })
   ctx.effect(

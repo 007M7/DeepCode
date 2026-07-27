@@ -428,6 +428,15 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   }
 
   const summaryOf = (id: SessionId): SessionSummary | undefined => sessions.find(s => s.sessionId === id)
+  /** Shared session guard for sessionId-addressed catalog routes: the error response when the session is unknown, undefined when it exists. */
+  const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined =>
+    summaryOf(request.payload.sessionId) === undefined
+      ? err<{ sessionId: SessionId }, never>(request, {
+          code: 'session-not-found',
+          message: `no session ${request.payload.sessionId}`,
+          details: { sessionId: request.payload.sessionId },
+        })
+      : undefined
   const setRunning = (id: SessionId, running: boolean): void => {
     const summary = summaryOf(id)
     if (summary === undefined || summary.running === running) return
@@ -746,14 +755,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       // The catalog mirrors one session's effective view (every fixture
       // session has an agent, like the real host).
       list: (request) => {
-        const summary = summaryOf(request.payload.sessionId)
-        if (summary === undefined) {
-          return err(request, {
-            code: 'session-not-found',
-            message: `no session ${request.payload.sessionId}`,
-            details: { sessionId: request.payload.sessionId },
-          })
-        }
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
         return ok(request, {
           commands: [
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
@@ -763,14 +766,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         })
       },
       execute: (request) => {
-        const summary = summaryOf(request.payload.sessionId)
-        if (summary === undefined) {
-          return err(request, {
-            code: 'session-not-found',
-            message: `no session ${request.payload.sessionId}`,
-            details: { sessionId: request.payload.sessionId },
-          })
-        }
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
         const line = request.payload.line.trim()
         const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
         const name = match?.[1]
@@ -791,14 +788,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     skills: {
       list: (request) => {
-        const summary = summaryOf(request.payload.sessionId)
-        if (summary === undefined) {
-          return err(request, {
-            code: 'session-not-found',
-            message: `no session ${request.payload.sessionId}`,
-            details: { sessionId: request.payload.sessionId },
-          })
-        }
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
         return ok(request, {
           skills: [
             { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
