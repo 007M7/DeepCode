@@ -39,8 +39,8 @@ interface SubagentCapabilities {
 /**
  * What a caller asks for when starting a subagent. The tool layer builds this
  * from the model's `{ description, prompt }` plus its own config; the service
- * validates {@link SubagentCapabilities} against the named provider, then
- * passes it to {@link SubagentProvider.start}.
+ * validates {@link SubagentCapabilities} against the named provider and
+ * resolves a {@link SubagentProviderStartRequest} for dispatch.
  */
 interface SubagentStartRequest {
   /** Content delivered as the child's user message. */
@@ -89,23 +89,36 @@ interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
-  /**
-   * Continuable-child intent, resolved by `ctx.subagents` before start.
-   * The provider MUST publish exactly `sessionId` as the child identity
-   * instead of allocating one internally, and MUST append the snapshotted
-   * `descriptor` as the child's turn-enclosed `subagent/descriptor` event
-   * before its first request. Requires {@link SubagentProvider.resume} (the
-   * continuation capability); the service rejects the request otherwise.
-   */
-  readonly continuation?: SubagentContinuation
 }
 ```
 
 `signal` 是就绪前后唯一的取消通道。[subagent 组合控制 Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)规定 persona、live 全局工具过滤、绝对深度以及「可见性而非权限」的设计理由。
 
-## 可继续子 agent：`SubagentContinuation` 与 `SubagentResumeRequest`
+提供方会接收单独的已解析请求类型。直接调用 `SubagentService.start()` 会清除继续执行状态；只有 `startContinuable()` 才会提供由服务分配的标识和描述符。
 
-**可继续后台 subagent** 是一份持久化子 agent 会话，由一系列由 Task 支撑的激活组成。`SubagentService.startContinuable()` 会分配稳定的子 agent id、对版本化的 `subagent/descriptor` payload 建立快照，并通过已解析的启动请求传入二者；提供方会准确发布该 id，并在初始 prompt 获准前追加描述符。`SubagentService.sendMessage()` 会先加载并授权已停止的子 agent，再通过底层 `resume()` 操作分发完全解析的恢复请求，或引导其实时激活。只有 `ctx.tasks` 和 `ctx.agents` 存在时，内部管理器才会负责描述符查找与 Task 关联；每项继续执行操作都要求持久化，而加载提供方注册表不要求持久化。`startContinuable()` 返回两个标识，`sendMessage()` 则报告消息是对现有 Task 执行了 `steered`，还是 `started` 一个新 Task。每个发送方都会提供 `MessageSource` 和取消信号；若在在线投递等待准入期间中止该信号，则会取消共享激活，并在其完全停稳后拒绝调用。可选的面向模型工具使用 `CoordinatorMessageSource` 及其工具执行信号，人工适配器则使用 `{ kind: 'user' }` 及其交互信号。
+```ts type-equiv
+/**
+ * Provider-facing start request after the service resolves optional
+ * continuation state. Ordinary callers use {@link SubagentStartRequest}; only
+ * the Task-backed continuation path can attach a stable child identity and
+ * durable descriptor.
+ */
+interface SubagentProviderStartRequest extends SubagentStartRequest {
+  /**
+   * Continuable-child state resolved by `ctx.subagents` before provider dispatch.
+   * The provider MUST publish exactly `sessionId` as the child identity
+   * instead of allocating one internally, and MUST append the snapshotted,
+   * model-hidden `subagent/descriptor` before the initial prompt is admitted.
+   * Requires {@link SubagentProvider.resume} (the
+   * continuation capability); the service rejects the request otherwise.
+   */
+  readonly continuation?: SubagentContinuation | undefined
+}
+```
+
+## 可继续子 agent 与提供方恢复
+
+**可继续后台 subagent** 是一份持久化子 agent 会话，由一系列由 Task 支撑的激活组成。`SubagentService.startContinuable()` 会分配稳定的子 agent id、对版本化的 `subagent/descriptor` payload 建立快照，并通过面向提供方的启动请求传入二者；提供方会准确发布该 id，并在初始 prompt 获准前追加描述符。`SubagentService.followup()` 沿用 `Agent` 的意图动词：它会引导实时激活，或在加载并授权已停止的子 agent 后，仅在内部向提供方分发已解析的恢复请求。只有 `ctx.tasks` 和 `ctx.agents` 存在时，内部管理器才会负责描述符查找与 Task 关联；每项继续执行操作都要求持久化，而加载提供方注册表不要求持久化。`startContinuable()` 返回两个标识，`followup()` 则报告内容是对现有 Task 执行了 `steered`，还是 `started` 一个新 Task。每个发送方都通过一个选项对象提供 `MessageSource` 和取消信号；若在在线投递等待准入期间中止该信号，则会取消共享激活，并在其完全停稳后拒绝调用。可选的面向模型工具使用 `CoordinatorMessageSource` 及其工具执行信号，人工适配器则使用 `{ kind: 'user' }` 及其交互信号。
 
 ```ts type-equiv
 /** Attribution for a model coordinator's follow-up to one of its children. */
@@ -118,8 +131,33 @@ interface CoordinatorMessageSource {
 
 ```ts type-equiv
 /**
- * The resolved continuable-child identity and durable composition record a
- * continuation caller attaches to a start request.
+ * Options for following up with one continuable child.
+ */
+interface SubagentFollowupOptions {
+  /** Durable attribution retained on either live or resumed delivery. */
+  readonly source: MessageSource
+  /** Caller cancellation for a live-delivery admission wait. */
+  readonly signal: AbortSignal
+}
+```
+
+```ts type-equiv
+/**
+ * How a continuable follow-up was routed:
+ * `steered` joined the running activation's existing Task without creating a
+ * Task of its own; `started` created a fresh Task that cold-resumes the
+ * durable child with the content. Failure is an exception, never a result —
+ * undelivered content throws.
+ */
+type SubagentFollowupResult =
+  | { readonly route: 'steered'; readonly taskId: TaskId }
+  | { readonly route: 'started'; readonly taskId: TaskId }
+```
+
+```ts type-equiv
+/**
+ * The resolved continuable-child identity and durable composition record the
+ * service attaches before provider dispatch.
  */
 interface SubagentContinuation {
   /** Service-allocated stable child session id, published verbatim. */
@@ -131,14 +169,13 @@ interface SubagentContinuation {
 
 ```ts type-equiv
 /**
- * What a caller asks for when resuming a persisted continuable child. The
- * continuation manager loads the child log, folds and authorizes its descriptor,
- * and passes this fully resolved request to
- * {@link SubagentService.resume}, which dispatches to
+ * Provider-facing request for reconstructing a persisted continuable child.
+ * The continuation manager loads the child log, folds and authorizes its
+ * descriptor, then privately dispatches this resolved request to
  * {@link SubagentProvider.resume}. The provider reconstructs the declared
  * composition under the live parent's scope and drives one turn with `prompt`.
  */
-interface SubagentResumeRequest {
+interface SubagentProviderResumeRequest {
   /** The persisted child session id to resume. */
   readonly sessionId: SessionId
   /** The follow-up message that starts the resumed activation's turn. */
@@ -297,22 +334,22 @@ interface SubagentProvider {
    * fulfillment, the provider owns and cleans all partial resources before this
    * promise rejects. Ownership transfers to the caller only on fulfillment.
    */
-  start(request: SubagentStartRequest): Promise<SubagentRun>
+  start(request: SubagentProviderStartRequest): Promise<SubagentRun>
   /**
    * OPTIONAL (continuation capability): reconstruct a persisted continuable
    * child from its own transcript and declared descriptor, drive one
    * follow-up turn, and return a fresh run. Method presence is the capability
-   * — the service rejects `resume` dispatch and continuable starts on
+   * — the service rejects continuable starts and cold-resume dispatch on
    * providers without it. Same publication contract as {@link start}: if
    * reconstruction fails or `request.signal` aborts before fulfillment, the
    * provider rolls its creation transaction back to quiescence before
    * rejecting; after fulfillment the same signal cancels the published run.
    */
-  resume?(request: SubagentResumeRequest): Promise<SubagentRun>
+  resume?(request: SubagentProviderResumeRequest): Promise<SubagentRun>
 }
 ```
 
-`start()` 仅在 run 就绪时 fulfill；`resume()` 采用相同的发布与生命周期观察契约。服务铸造唯一 `runId`，从提供方的确切 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；rejection 意味着提供方已清理，且不会 emit 生命周期事件对。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，每个 listener 异常都会被独立隔离。
+提供方的 `start()` 仅在 run 就绪时 fulfill；提供方的 `resume()` 采用相同的发布与生命周期观察契约，但只有继续执行管理器会分发它。服务铸造唯一 `runId`，从提供方的确切 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；rejection 意味着提供方已清理，且不会 emit 生命周期事件对。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，每个 listener 异常都会被独立隔离。
 
 ## 进程内后端：深度与种子
 

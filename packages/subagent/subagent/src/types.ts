@@ -43,8 +43,8 @@ export interface SubagentCapabilities {
 /**
  * What a caller asks for when starting a subagent. The tool layer builds this
  * from the model's `{ description, prompt }` plus its own config; the service
- * validates {@link SubagentCapabilities} against the named provider, then
- * passes it to {@link SubagentProvider.start}.
+ * validates {@link SubagentCapabilities} against the named provider and
+ * resolves a {@link SubagentProviderStartRequest} for dispatch.
  */
 export interface SubagentStartRequest {
   /** Content delivered as the child's user message. */
@@ -93,20 +93,29 @@ export interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
-  /**
-   * Continuable-child intent, resolved by `ctx.subagents` before start.
-   * The provider MUST publish exactly `sessionId` as the child identity
-   * instead of allocating one internally, and MUST append the snapshotted
-   * `descriptor` as the child's turn-enclosed `subagent/descriptor` event
-   * before its first request. Requires {@link SubagentProvider.resume} (the
-   * continuation capability); the service rejects the request otherwise.
-   */
-  readonly continuation?: SubagentContinuation
 }
 
 /**
- * The resolved continuable-child identity and durable composition record a
- * continuation caller attaches to a start request.
+ * Provider-facing start request after the service resolves optional
+ * continuation state. Ordinary callers use {@link SubagentStartRequest}; only
+ * the Task-backed continuation path can attach a stable child identity and
+ * durable descriptor.
+ */
+export interface SubagentProviderStartRequest extends SubagentStartRequest {
+  /**
+   * Continuable-child state resolved by `ctx.subagents` before provider dispatch.
+   * The provider MUST publish exactly `sessionId` as the child identity
+   * instead of allocating one internally, and MUST append the snapshotted,
+   * model-hidden `subagent/descriptor` before the initial prompt is admitted.
+   * Requires {@link SubagentProvider.resume} (the
+   * continuation capability); the service rejects the request otherwise.
+   */
+  readonly continuation?: SubagentContinuation | undefined
+}
+
+/**
+ * The resolved continuable-child identity and durable composition record the
+ * service attaches before provider dispatch.
  */
 export interface SubagentContinuation {
   /** Service-allocated stable child session id, published verbatim. */
@@ -116,14 +125,13 @@ export interface SubagentContinuation {
 }
 
 /**
- * What a caller asks for when resuming a persisted continuable child. The
- * continuation manager loads the child log, folds and authorizes its descriptor,
- * and passes this fully resolved request to
- * {@link SubagentService.resume}, which dispatches to
+ * Provider-facing request for reconstructing a persisted continuable child.
+ * The continuation manager loads the child log, folds and authorizes its
+ * descriptor, then privately dispatches this resolved request to
  * {@link SubagentProvider.resume}. The provider reconstructs the declared
  * composition under the live parent's scope and drives one turn with `prompt`.
  */
-export interface SubagentResumeRequest {
+export interface SubagentProviderResumeRequest {
   /** The persisted child session id to resume. */
   readonly sessionId: SessionId
   /** The follow-up message that starts the resumed activation's turn. */
@@ -257,16 +265,16 @@ export interface SubagentProvider {
    * fulfillment, the provider owns and cleans all partial resources before this
    * promise rejects. Ownership transfers to the caller only on fulfillment.
    */
-  start(request: SubagentStartRequest): Promise<SubagentRun>
+  start(request: SubagentProviderStartRequest): Promise<SubagentRun>
   /**
    * OPTIONAL (continuation capability): reconstruct a persisted continuable
    * child from its own transcript and declared descriptor, drive one
    * follow-up turn, and return a fresh run. Method presence is the capability
-   * — the service rejects `resume` dispatch and continuable starts on
+   * — the service rejects continuable starts and cold-resume dispatch on
    * providers without it. Same publication contract as {@link start}: if
    * reconstruction fails or `request.signal` aborts before fulfillment, the
    * provider rolls its creation transaction back to quiescence before
    * rejecting; after fulfillment the same signal cancels the published run.
    */
-  resume?(request: SubagentResumeRequest): Promise<SubagentRun>
+  resume?(request: SubagentProviderResumeRequest): Promise<SubagentRun>
 }

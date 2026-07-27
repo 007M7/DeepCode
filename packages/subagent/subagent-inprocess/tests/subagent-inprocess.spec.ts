@@ -73,6 +73,21 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.get(run.id)).toBeUndefined()
   })
 
+  it('uses explicit child model selectors when the parent has none and preserves its cwd', async () => {
+    const { ctx } = await setup([textResponse('driver answer')])
+    const parent = ctx.agentLoop.create(SessionId('bare-parent'), {}, { cwd: '/workspace' })
+    const run = await startInProcessRun({
+      ...request(parent),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    }, {})
+
+    const child = ctx.agents.get(run.id)!
+    expect(child.options).toMatchObject({ provider: 'mock', model: 'mock' })
+    expect(child.session.header.cwd).toBe('/workspace')
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    await run.dispose()
+  })
+
   it('rejects a continuable child when no durability listener is registered', async () => {
     const { parent } = await setup([textResponse('driver answer')])
 
@@ -346,9 +361,9 @@ describe('startInProcessRun', () => {
       acceptsNextStep: false,
       ctx: {
         sessions: {
-          flushRequired: () => {
+          flush: () => {
             flushes++
-            return Promise.resolve()
+            return Promise.resolve(true)
           },
         },
       } as unknown as Context,

@@ -1635,22 +1635,11 @@ announce(session: Session): void
  * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
  * scoped-dispatch invariant can pin it.
  * @param session - the session whose buffered events must reach durable storage.
- * @returns resolves when every flush listener has settled; after all settle,
- *   rejects with the first registered listener failure if any listener failed.
+ * @returns whether at least one durability listener participated, after every
+ *   listener has settled successfully.
+ * @throws the first registered listener failure after every listener settles.
  */
-async flush(session: Session): Promise<void>
-
-/**
- * Dispatch the same awaited checkpoint as {@link flush}, but reject when its
- * scoped listener snapshot is empty. Callers use this operation when success
- * requires an installed durability participant rather than optional
- * best-effort persistence.
- * @param session - the session whose buffered events must reach durable storage.
- * @returns resolves when at least one listener participated and every
- *   listener settled successfully.
- * @throws when no listener is registered or any registered listener fails.
- */
-async flushRequired(session: Session): Promise<void>
+async flush(session: Session): Promise<boolean>
 
 /**
  * Look up a live session.
@@ -1684,7 +1673,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:766`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:764`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1972,17 +1961,18 @@ Named provider registry with raw and Task-backed continuation operations.
 startContinuable(spec: ContinuableStartSpec): ContinuableStart
 
 /**
- * Deliver a message to a continuable child by steering its live activation
- * or cold-resuming a fresh Task-backed activation.
+ * Follow up with a continuable child. A live child is steered and fulfillment
+ * confirms request admission; an idle child immediately returns a fresh Task
+ * whose descriptor lookup, authorization, and cold resume may later fail.
  * @param parent - live direct parent authorizing the operation.
  * @param childId - durable child session id.
- * @param message - user-role content to deliver.
- * @param source - durable caller attribution.
- * @param signal - caller cancellation; while live delivery awaits admission,
- *   abort cancels the shared activation so the wait reaches quiescence.
+ * @param content - user-role content to deliver.
+ * @param options - durable attribution and caller cancellation; aborting a
+ *   live-delivery wait cancels the shared activation and awaits quiescence.
  * @returns the existing steered Task or newly started Task.
+ * @throws when continuation services are unavailable or live delivery is not admitted.
  */
-sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, signal: AbortSignal, ): Promise<SendMessageResult>
+followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<SubagentFollowupResult>
 
 /**
  * Register a provider under its name. Registration is effect-scoped and HMR
@@ -2016,23 +2006,11 @@ list(): string[]
  * @returns the ready holder-owned run.
  */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
-
-/**
- * Resume a persisted continuable child through the named provider's
- * `resume` capability, with the same run lifecycle observation as
- * {@link start}. The internal continuation manager has already loaded the
- * child, folded its descriptor, and authorized the parent; this method owns
- * only capability-checked dispatch.
- * @param name - the provider recorded in the child's descriptor.
- * @param request - the fully resolved resume request.
- * @returns the fresh holder-owned run for the resumed activation.
- */
-async resume(name: string, request: SubagentResumeRequest): Promise<SubagentRun>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageSource](../core-data-structures/core.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentResumeRequest](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentFollowupResult](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:198`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:199`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

@@ -43,7 +43,7 @@ A provider exposes `start(request) → Promise<SubagentRun>`. Fulfillment publis
 ### Two kinds of optional capability, discovered two ways
 
 - **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter`, `persona`) ride on a static `provider.capabilities` descriptor. The service checks every requested one BEFORE delegating and **rejects loud** (`SubagentError('UNSUPPORTED_CAPABILITY')`) if the provider lacks it — never accepted-then-ignored. They must be checked before a run exists, which is why they cannot be runtime methods.
-- **Runtime features** (steering via `sendMessage`, follow-up via `resume`) are **optional methods** on `SubagentRun`. The method's presence IS the capability, and TypeScript narrowing is the discovery mechanism: a consumer cannot call an absent method without narrowing first, so there is no silent-degradation path and no separate flags object to keep in sync.
+- **Runtime features** are optional methods at their owning seams: confirmed live delivery is `SubagentRun.steer`, while persisted reconstruction is `SubagentProvider.resume`. Method presence is the capability and TypeScript narrowing is the discovery mechanism, so no separate flags object can drift from the implementation.
 
 ### Fork vs. fresh are separate backends, not a flag
 

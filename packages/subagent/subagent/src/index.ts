@@ -13,11 +13,11 @@
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Raw `start` and `resume` remain collection-agnostic provider dispatch.
- * When `ctx.tasks` and `ctx.agents` are available, the same service also binds
- * an internal continuation manager for durable child ids, descriptor lookup,
- * Task-backed activations, and steer-or-resume delivery. Persistence remains
- * optional and is required only when a continuation operation is called.
+ * Public operations express caller intent: `start` returns one ready owned run,
+ * `startContinuable` starts a Task-backed durable child, and `followup` routes
+ * later content without exposing whether the child is live. Provider resume
+ * dispatch stays private because only the continuation manager holds the
+ * resolved descriptor and authorization facts.
  *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
@@ -32,14 +32,15 @@ import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   SubagentCapabilities,
   SubagentProvider,
+  SubagentProviderResumeRequest,
+  SubagentProviderStartRequest,
   SubagentResult,
-  SubagentResumeRequest,
   SubagentRun,
   SubagentStartRequest,
 } from './types.ts'
@@ -49,7 +50,8 @@ import SubagentContinuationManager from './continuation.ts'
 import type {
   ContinuableStart,
   ContinuableStartSpec,
-  SendMessageResult,
+  SubagentFollowupOptions,
+  SubagentFollowupResult,
 } from './continuation.ts'
 
 export * from './out-of-process.ts'
@@ -58,8 +60,9 @@ export type {
   SubagentCapabilities,
   SubagentContinuation,
   SubagentProvider,
+  SubagentProviderResumeRequest,
+  SubagentProviderStartRequest,
   SubagentResult,
-  SubagentResumeRequest,
   SubagentRun,
   SubagentStartRequest,
   SubagentStopReason,
@@ -72,15 +75,13 @@ export {
 } from './descriptor.ts'
 export type { SubagentDescriptorData, SubagentDescriptorInput } from './descriptor.ts'
 export { SubagentError } from './error.ts'
-export {
-  runOutcome,
-  settleRun,
-} from './continuation.ts'
+export { settleRun } from './continuation.ts'
 export type {
   ContinuableStart,
   ContinuableStartSpec,
   CoordinatorMessageSource,
-  SendMessageResult,
+  SubagentFollowupOptions,
+  SubagentFollowupResult,
 } from './continuation.ts'
 
 declare module '@deepseek-ai/dsh-agent' {
@@ -202,7 +203,11 @@ export class SubagentService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'subagents')
     ctx.inject(['tasks', 'agents'], (childCtx: Context) => {
-      const manager = new SubagentContinuationManager(childCtx, this)
+      const manager = new SubagentContinuationManager(
+        childCtx,
+        (name, request) => this.startProvider(name, request),
+        request => this.resumeProvider(request),
+      )
       this.continuations = manager
       childCtx.effect(() => () => {
         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
@@ -222,24 +227,24 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Deliver a message to a continuable child by steering its live activation
-   * or cold-resuming a fresh Task-backed activation.
+   * Follow up with a continuable child. A live child is steered and fulfillment
+   * confirms request admission; an idle child immediately returns a fresh Task
+   * whose descriptor lookup, authorization, and cold resume may later fail.
    * @param parent - live direct parent authorizing the operation.
    * @param childId - durable child session id.
-   * @param message - user-role content to deliver.
-   * @param source - durable caller attribution.
-   * @param signal - caller cancellation; while live delivery awaits admission,
-   *   abort cancels the shared activation so the wait reaches quiescence.
+   * @param content - user-role content to deliver.
+   * @param options - durable attribution and caller cancellation; aborting a
+   *   live-delivery wait cancels the shared activation and awaits quiescence.
    * @returns the existing steered Task or newly started Task.
+   * @throws when continuation services are unavailable or live delivery is not admitted.
    */
-  sendMessage(
+  followup(
     parent: Agent,
     childId: SessionId,
-    message: ContentBlock[],
-    source: MessageSource,
-    signal: AbortSignal,
-  ): Promise<SendMessageResult> {
-    return this.requireContinuations().sendMessage(parent, childId, message, source, signal)
+    content: ContentBlock[],
+    options: SubagentFollowupOptions,
+  ): Promise<SubagentFollowupResult> {
+    return this.requireContinuations().followup(parent, childId, content, options)
   }
 
   /**
@@ -294,6 +299,16 @@ export class SubagentService extends Service {
    * @returns the ready holder-owned run.
    */
   async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
+    // A provider request is structurally assignable to the caller shape. Clear
+    // its wider field so only startContinuable can supply service-owned state.
+    return this.startProvider(name, { ...request, continuation: undefined })
+  }
+
+  /** Validate and dispatch one ordinary or service-resolved provider start. */
+  private async startProvider(
+    name: string,
+    request: SubagentProviderStartRequest,
+  ): Promise<SubagentRun> {
     const provider = this.expectProvider(name)
     this.assertCapabilities(provider, request)
     assertSubagentMaxDepth(request.maxDepth)
@@ -308,17 +323,9 @@ export class SubagentService extends Service {
     return this.observeRun(name, request.parent, await provider.start(request))
   }
 
-  /**
-   * Resume a persisted continuable child through the named provider's
-   * `resume` capability, with the same run lifecycle observation as
-   * {@link start}. The internal continuation manager has already loaded the
-   * child, folded its descriptor, and authorized the parent; this method owns
-   * only capability-checked dispatch.
-   * @param name - the provider recorded in the child's descriptor.
-   * @param request - the fully resolved resume request.
-   * @returns the fresh holder-owned run for the resumed activation.
-   */
-  async resume(name: string, request: SubagentResumeRequest): Promise<SubagentRun> {
+  /** Dispatch one authorized provider resume and observe its run lifecycle. */
+  private async resumeProvider(request: SubagentProviderResumeRequest): Promise<SubagentRun> {
+    const name = request.descriptor.provider
     const provider = this.expectProvider(name)
     if (provider.resume === undefined) {
       throw new SubagentError(

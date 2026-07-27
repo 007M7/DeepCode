@@ -270,7 +270,7 @@ Subagent 启动有一次所有权转移。提供方拥有部分资源直到其 s
 
 `SubagentStartRequest.signal` 是必需的。中止它会在启动期间和就绪之后请求取消。`SubagentRun.dispose()` 也请求取消并等待完全停稳。没有单独的公开 `run.cancel()` 通道。
 
-可选的 `sendMessage()` 支持能接受 steering 的活跃后端。可选的 `resume()` 返回 `Promise<SubagentRun>`，因为恢复的子级有相同的异步就绪边界。
+可选的 `SubagentRun.steer()` 支持能够确认 steering 准入的活跃后端。可选的 `SubagentProvider.resume()` 返回 `Promise<SubagentRun>`，因为重建的子级有相同的异步就绪边界。
 
 服务在调用提供方之前验证提供方能力和请求语义。提供方拒绝在拒绝逃出之前清理所有部分资源，且不发射 `subagent/start`/`subagent/end` 对。兑现之后，服务附加结果观察、发射作用域 start 并返回 run。提供方移除阻止后续 start，但不撤销提供方已接受的 run。
 

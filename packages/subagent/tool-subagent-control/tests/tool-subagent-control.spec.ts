@@ -106,9 +106,9 @@ describe('dsh-tool-subagent-control', () => {
     // Reach past the tool into the subagent service to fake a running route
     // deterministically: the tool is a thin adapter, so its steered wording is
     // what this test pins.
-    ctx.subagents.sendMessage = async (agent, _childId, message, messageSource) => {
+    ctx.subagents.followup = async (agent, _childId, message, options) => {
       steered = (message[0] as { text: string }).text
-      source = messageSource
+      source = options.source
       return { route: 'steered', taskId: ctx.tasks.list(agent)[0]?.id ?? ('subagent-9' as never) }
     }
     const result = await callTool(ctx, 'send_message', {
@@ -130,9 +130,9 @@ describe('dsh-tool-subagent-control', () => {
     })
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
     const deliveryStarted: PromiseWithResolvers<void> = Promise.withResolvers()
-    const sendMessage = ctx.subagents.sendMessage.bind(ctx.subagents)
-    ctx.subagents.sendMessage = (agent, childId, message, source, signal) => {
-      const delivery = sendMessage(agent, childId, message, source, signal)
+    const followup = ctx.subagents.followup.bind(ctx.subagents)
+    ctx.subagents.followup = (agent, childId, message, options) => {
+      const delivery = followup(agent, childId, message, options)
       deliveryStarted.resolve()
       return delivery
     }

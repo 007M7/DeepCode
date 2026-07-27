@@ -270,7 +270,7 @@ Subagent startup has one ownership transfer. The provider owns partial resources
 
 `SubagentStartRequest.signal` is required. Aborting it requests cancellation during startup and after readiness. `SubagentRun.dispose()` also requests cancellation and awaits quiescence. There is no separate public `run.cancel()` channel.
 
-Optional `sendMessage()` supports a live backend that can accept steering. Optional `resume()` returns `Promise<SubagentRun>` because the resumed child has the same asynchronous readiness boundary.
+Optional `SubagentRun.steer()` supports a live backend that can confirm steering admission. Optional `SubagentProvider.resume()` returns `Promise<SubagentRun>` because a reconstructed child has the same asynchronous readiness boundary.
 
 The service validates provider capabilities and request semantics before calling the provider. A provider rejection cleans any partial resources before the rejection escapes and emits no `subagent/start`/`subagent/end` pair. After fulfillment, the service attaches result observation, emits scoped start, and returns the run. Provider removal prevents later starts but does not revoke a run already accepted by the provider.
 

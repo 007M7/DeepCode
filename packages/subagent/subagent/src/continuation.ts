@@ -21,8 +21,13 @@ import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
-import type { SubagentResult, SubagentRun, SubagentStartRequest } from './types.ts'
-import type { SubagentService } from './index.ts'
+import type {
+  SubagentProviderResumeRequest,
+  SubagentProviderStartRequest,
+  SubagentResult,
+  SubagentRun,
+  SubagentStartRequest,
+} from './types.ts'
 import type { TaskHooks, TaskId, TaskOutcome } from '@deepseek-ai/dsh-tasks'
 import { SubagentError } from './error.ts'
 
@@ -50,10 +55,10 @@ export interface ContinuableStartSpec {
    * durable descriptor, then supplies the Task-owned cancellation signal and
    * `continuation` itself.
    */
-  readonly request: Omit<SubagentStartRequest, 'signal' | 'continuation'>
+  readonly request: Omit<SubagentStartRequest, 'signal'>
 }
 
-/** Identities returned by {@link SubagentContinuationManager.startContinuable}. */
+/** Identities returned by a continuable start. */
 export interface ContinuableStart {
   /** The durable child session id, stable across activations. */
   readonly childId: SessionId
@@ -62,15 +67,28 @@ export interface ContinuableStart {
 }
 
 /**
- * How {@link SubagentContinuationManager.sendMessage} delivered a message:
+ * Options for following up with one continuable child.
+ */
+export interface SubagentFollowupOptions {
+  /** Durable attribution retained on either live or resumed delivery. */
+  readonly source: MessageSource
+  /** Caller cancellation for a live-delivery admission wait. */
+  readonly signal: AbortSignal
+}
+
+/**
+ * How a continuable follow-up was routed:
  * `steered` joined the running activation's existing Task without creating a
  * Task of its own; `started` created a fresh Task that cold-resumes the
- * durable child with the message. Failure is an exception, never a result —
- * an undelivered message throws.
+ * durable child with the content. Failure is an exception, never a result —
+ * undelivered content throws.
  */
-export type SendMessageResult =
+export type SubagentFollowupResult =
   | { readonly route: 'steered'; readonly taskId: TaskId }
   | { readonly route: 'started'; readonly taskId: TaskId }
+
+type StartProvider = (name: string, request: SubagentProviderStartRequest) => Promise<SubagentRun>
+type ResumeProvider = (request: SubagentProviderResumeRequest) => Promise<SubagentRun>
 
 /**
  * One child's current process-local activation: its Task and, after provider
@@ -98,7 +116,7 @@ interface ActiveActivation {
  * @param result - child terminal result.
  * @returns outcome for the `ctx.tasks` registration.
  */
-export function runOutcome(result: SubagentResult): TaskOutcome {
+function runOutcome(result: SubagentResult): TaskOutcome {
   switch (result.stopReason) {
     case 'completed':
       return { status: 'completed', output: finalText(result.output) }
@@ -154,7 +172,7 @@ function finalText(blocks: ContentBlock[]): string {
 /**
  * The continuable-subagent orchestration service. Tool schema and UI adapters
  * are consumers of this one contract: parent and human messages route through
- * {@link sendMessage} and share one activation result and cancellation
+ * {@link followup} and share one activation result and cancellation
  * boundary, while foreground one-shot delegation keeps calling
  * `ctx.subagents.start()` directly.
  */
@@ -164,7 +182,8 @@ export class SubagentContinuationManager {
 
   constructor(
     private readonly ctx: Context,
-    private readonly subagents: SubagentService,
+    private readonly startProvider: StartProvider,
+    private readonly resumeProvider: ResumeProvider,
   ) {
     // Terminal publication is one of the two removal conditions. The exact
     // Task id pins the resolution to this activation, never a later same-child one.
@@ -224,7 +243,7 @@ export class SubagentContinuationManager {
       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
     })
     const taskId = this.startActivation(childId, spec.label, request.parent, signal =>
-      this.subagents.start(spec.provider, {
+      this.startProvider(spec.provider, {
         ...request,
         signal,
         continuation: { sessionId: childId, descriptor },
@@ -233,7 +252,7 @@ export class SubagentContinuationManager {
   }
 
   /**
-   * Deliver one message to a known continuable child: steer its running
+   * Follow up with a known continuable child: steer its running
    * activation, or cold-resume the durable session into a fresh Task-backed
    * activation. The two routes are reported distinctly so timing-dependent
    * routing is observable. Rejection means the message was NOT delivered — in
@@ -246,28 +265,36 @@ export class SubagentContinuationManager {
    * @param parent - the live parent agent sending the message (model tool or
    *   human adapter); Task access is authorized by its session id.
    * @param childId - the stable child session id.
-   * @param message - the user-role content to deliver.
-   * @param source - caller-supplied attribution retained across either route.
-   * @param signal - caller cancellation. During live delivery, abort cancels
-   *   the shared activation and rejects only after it reaches quiescence.
-   * @returns whether the message `steered` the existing Task or `started` a new one.
+   * @param content - the user-role content to deliver.
+   * @param options - caller attribution and cancellation. During live delivery,
+   *   abort cancels the shared activation and rejects only after quiescence.
+   * @returns whether the content `steered` the existing Task or `started` a new one.
    */
-  async sendMessage(
+  async followup(
     parent: Agent,
     childId: SessionId,
-    message: ContentBlock[],
-    source: MessageSource,
-    signal: AbortSignal,
-  ): Promise<SendMessageResult> {
+    content: ContentBlock[],
+    options: SubagentFollowupOptions,
+  ): Promise<SubagentFollowupResult> {
     this.assertOwnership(childId)
     const activation = this.activations.get(childId)
     if (activation !== undefined) {
       return {
         route: 'steered',
-        taskId: await this.steerActivation(activation, parent, childId, message, source, signal),
+        taskId: await this.steerActivation(
+          activation,
+          parent,
+          childId,
+          content,
+          options.source,
+          options.signal,
+        ),
       }
     }
-    return { route: 'started', taskId: this.resumeActivation(parent, childId, message, source) }
+    return {
+      route: 'started',
+      taskId: this.resumeActivation(parent, childId, content, options.source),
+    }
   }
 
   /**
@@ -422,7 +449,7 @@ export class SubagentContinuationManager {
           'NOT_RESUMABLE',
         )
       }
-      return this.subagents.resume(descriptor.provider, {
+      return this.resumeProvider({
         sessionId: childId,
         prompt: message,
         source,

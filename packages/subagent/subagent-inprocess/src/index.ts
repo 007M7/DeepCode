@@ -15,10 +15,10 @@ import { createUserMessage, errorChain, type ContentBlock, type MessageSource } 
 import { assertSubagentMaxDepth, delegationDepthOf, SubagentError } from '@deepseek-ai/dsh-subagent'
 import type {
   SubagentDescriptorData,
+  SubagentProviderResumeRequest,
+  SubagentProviderStartRequest,
   SubagentResult,
-  SubagentResumeRequest,
   SubagentRun,
-  SubagentStartRequest,
   SubagentStopReason,
 } from '@deepseek-ai/dsh-subagent'
 // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
@@ -108,7 +108,7 @@ function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescripto
  * @returns a ready holder-owned run.
  */
 export async function startInProcessRun(
-  request: SubagentStartRequest,
+  request: SubagentProviderStartRequest,
   options: InProcessRunOptions,
 ): Promise<SubagentRun> {
   assertSubagentMaxDepth(request.maxDepth)
@@ -197,10 +197,10 @@ export async function startInProcessRun(
  * (loaded through the parent's persistence-backed registry `resume`), so a
  * fork child never re-forks current parent history; the persisted header
  * remains authoritative for lineage and the delegation-depth floor.
- * @param request - the fully resolved resume request from the low-level service.
+ * @param request - the fully resolved resume request from the continuation manager.
  * @returns a fresh ready holder-owned run for this activation.
  */
-export async function resumeInProcessRun(request: SubagentResumeRequest): Promise<SubagentRun> {
+export async function resumeInProcessRun(request: SubagentProviderResumeRequest): Promise<SubagentRun> {
   if (request.signal.aborted) throw prePublicationAbort()
   const descriptor = request.descriptor
   const agentOptions: AgentOptions = {
@@ -269,7 +269,10 @@ function driveTurn(
       await child.whenIdle()
       if (durability === 'required') {
         try {
-          await child.ctx.sessions.flushRequired(child.session)
+          const participated = await child.ctx.sessions.flush(child.session)
+          if (!participated) {
+            throw new Error(`session "${child.id}" required durability checkpoint has no registered listener`)
+          }
         } catch (error: unknown) {
           if (!signal.aborted) {
             throw new SubagentError(

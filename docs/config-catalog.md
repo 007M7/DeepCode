@@ -1582,7 +1582,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-fork/src/index.ts:25`](../packages/subagent/subagent-fork/src/index.ts)
+Source: [`packages/subagent/subagent-fork/src/index.ts:30`](../packages/subagent/subagent-fork/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -1596,7 +1596,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-spawn/src/index.ts:20`](../packages/subagent/subagent-spawn/src/index.ts)
+Source: [`packages/subagent/subagent-spawn/src/index.ts:25`](../packages/subagent/subagent-spawn/src/index.ts)
 
 ## `@deepseek-ai/dsh-system-prompt`
 

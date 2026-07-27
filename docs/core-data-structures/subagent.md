@@ -39,8 +39,8 @@ The tool layer builds this request from the model input and its own config; the 
 /**
  * What a caller asks for when starting a subagent. The tool layer builds this
  * from the model's `{ description, prompt }` plus its own config; the service
- * validates {@link SubagentCapabilities} against the named provider, then
- * passes it to {@link SubagentProvider.start}.
+ * validates {@link SubagentCapabilities} against the named provider and
+ * resolves a {@link SubagentProviderStartRequest} for dispatch.
  */
 interface SubagentStartRequest {
   /** Content delivered as the child's user message. */
@@ -89,23 +89,36 @@ interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
-  /**
-   * Continuable-child intent, resolved by `ctx.subagents` before start.
-   * The provider MUST publish exactly `sessionId` as the child identity
-   * instead of allocating one internally, and MUST append the snapshotted
-   * `descriptor` as the child's turn-enclosed `subagent/descriptor` event
-   * before its first request. Requires {@link SubagentProvider.resume} (the
-   * continuation capability); the service rejects the request otherwise.
-   */
-  readonly continuation?: SubagentContinuation
 }
 ```
 
 `signal` is the single cancellation channel before and after readiness. The [subagent composition-controls Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the persona, live global-tool filter, absolute-depth, and visibility-not-authority rationale.
 
-## Continuable children: `SubagentContinuation` and `SubagentResumeRequest`
+Providers receive a separate resolved shape. Raw `SubagentService.start()` clears continuation state, while `startContinuable()` alone supplies the service-allocated identity and descriptor.
 
-A **continuable background subagent** is a durable child session with a series of Task-backed activations. `SubagentService.startContinuable()` allocates the stable child id, snapshots the versioned `subagent/descriptor` payload, and passes both through the resolved start request; the provider publishes exactly that id and appends the descriptor before the initial prompt is admitted. `SubagentService.sendMessage()` loads and authorizes a stopped child before dispatching a fully resolved resume request through the raw `resume()` operation, or steers its live activation. An internal manager owns descriptor lookup and Task association only while `ctx.tasks` and `ctx.agents` exist; persistence is required per continuation operation, not to load the provider registry. `startContinuable()` returns both identities, while `sendMessage()` reports whether the message `steered` the existing Task or `started` a fresh one. Every sender supplies a `MessageSource` and cancellation signal; abort while live delivery awaits admission cancels the shared activation and rejects after quiescence. The optional model-facing tool uses `CoordinatorMessageSource` and its tool-execution signal, while a human adapter uses `{ kind: 'user' }` and its interaction signal.
+```ts type-equiv
+/**
+ * Provider-facing start request after the service resolves optional
+ * continuation state. Ordinary callers use {@link SubagentStartRequest}; only
+ * the Task-backed continuation path can attach a stable child identity and
+ * durable descriptor.
+ */
+interface SubagentProviderStartRequest extends SubagentStartRequest {
+  /**
+   * Continuable-child state resolved by `ctx.subagents` before provider dispatch.
+   * The provider MUST publish exactly `sessionId` as the child identity
+   * instead of allocating one internally, and MUST append the snapshotted,
+   * model-hidden `subagent/descriptor` before the initial prompt is admitted.
+   * Requires {@link SubagentProvider.resume} (the
+   * continuation capability); the service rejects the request otherwise.
+   */
+  readonly continuation?: SubagentContinuation | undefined
+}
+```
+
+## Continuable children and provider resume
+
+A **continuable background subagent** is a durable child session with a series of Task-backed activations. `SubagentService.startContinuable()` allocates the stable child id, snapshots the versioned `subagent/descriptor` payload, and passes both through the provider-facing start request; the provider publishes exactly that id and appends the descriptor before the initial prompt is admitted. `SubagentService.followup()` mirrors the intent verb on `Agent`: it steers a live activation or privately dispatches a resolved provider resume after loading and authorizing a stopped child. An internal manager owns descriptor lookup and Task association only while `ctx.tasks` and `ctx.agents` exist; persistence is required per continuation operation, not to load the provider registry. `startContinuable()` returns both identities, while `followup()` reports whether the content `steered` the existing Task or `started` a fresh one. Every sender supplies a `MessageSource` and cancellation signal through one options object; abort while live delivery awaits admission cancels the shared activation and rejects after quiescence. The optional model-facing tool uses `CoordinatorMessageSource` and its tool-execution signal, while a human adapter uses `{ kind: 'user' }` and its interaction signal.
 
 ```ts type-equiv
 /** Attribution for a model coordinator's follow-up to one of its children. */
@@ -118,8 +131,33 @@ interface CoordinatorMessageSource {
 
 ```ts type-equiv
 /**
- * The resolved continuable-child identity and durable composition record a
- * continuation caller attaches to a start request.
+ * Options for following up with one continuable child.
+ */
+interface SubagentFollowupOptions {
+  /** Durable attribution retained on either live or resumed delivery. */
+  readonly source: MessageSource
+  /** Caller cancellation for a live-delivery admission wait. */
+  readonly signal: AbortSignal
+}
+```
+
+```ts type-equiv
+/**
+ * How a continuable follow-up was routed:
+ * `steered` joined the running activation's existing Task without creating a
+ * Task of its own; `started` created a fresh Task that cold-resumes the
+ * durable child with the content. Failure is an exception, never a result —
+ * undelivered content throws.
+ */
+type SubagentFollowupResult =
+  | { readonly route: 'steered'; readonly taskId: TaskId }
+  | { readonly route: 'started'; readonly taskId: TaskId }
+```
+
+```ts type-equiv
+/**
+ * The resolved continuable-child identity and durable composition record the
+ * service attaches before provider dispatch.
  */
 interface SubagentContinuation {
   /** Service-allocated stable child session id, published verbatim. */
@@ -131,14 +169,13 @@ interface SubagentContinuation {
 
 ```ts type-equiv
 /**
- * What a caller asks for when resuming a persisted continuable child. The
- * continuation manager loads the child log, folds and authorizes its descriptor,
- * and passes this fully resolved request to
- * {@link SubagentService.resume}, which dispatches to
+ * Provider-facing request for reconstructing a persisted continuable child.
+ * The continuation manager loads the child log, folds and authorizes its
+ * descriptor, then privately dispatches this resolved request to
  * {@link SubagentProvider.resume}. The provider reconstructs the declared
  * composition under the live parent's scope and drives one turn with `prompt`.
  */
-interface SubagentResumeRequest {
+interface SubagentProviderResumeRequest {
   /** The persisted child session id to resume. */
   readonly sessionId: SessionId
   /** The follow-up message that starts the resumed activation's turn. */
@@ -295,22 +332,22 @@ interface SubagentProvider {
    * fulfillment, the provider owns and cleans all partial resources before this
    * promise rejects. Ownership transfers to the caller only on fulfillment.
    */
-  start(request: SubagentStartRequest): Promise<SubagentRun>
+  start(request: SubagentProviderStartRequest): Promise<SubagentRun>
   /**
    * OPTIONAL (continuation capability): reconstruct a persisted continuable
    * child from its own transcript and declared descriptor, drive one
    * follow-up turn, and return a fresh run. Method presence is the capability
-   * — the service rejects `resume` dispatch and continuable starts on
+   * — the service rejects continuable starts and cold-resume dispatch on
    * providers without it. Same publication contract as {@link start}: if
    * reconstruction fails or `request.signal` aborts before fulfillment, the
    * provider rolls its creation transaction back to quiescence before
    * rejecting; after fulfillment the same signal cancels the published run.
    */
-  resume?(request: SubagentResumeRequest): Promise<SubagentRun>
+  resume?(request: SubagentProviderResumeRequest): Promise<SubagentRun>
 }
 ```
 
-`start()` fulfills only with a ready run; `resume()` shares the same publication and lifecycle-observation contract. The service mints a unique `runId`, snapshots `local` from the provider's exact `localAgent`, observes the result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. The paired `subagent/end` carries the same identity and the final output or infrastructure failure. Both events are observe-only and contain listener exceptions.
+Provider `start()` fulfills only with a ready run; provider `resume()` shares the same publication and lifecycle-observation contract but is dispatched only by the continuation manager. The service mints a unique `runId`, snapshots `local` from the provider's exact `localAgent`, observes the result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. The paired `subagent/end` carries the same identity and the final output or infrastructure failure. Both events are observe-only and contain listener exceptions.
 
 ## In-process backends: depth and seed
 

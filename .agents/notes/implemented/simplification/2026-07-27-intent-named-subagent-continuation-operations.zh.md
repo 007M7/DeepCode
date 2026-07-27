@@ -1,0 +1,36 @@
+# Agent Note: 按意图命名的 subagent 继续执行操作
+
+Status: implemented
+
+[English](2026-07-27-intent-named-subagent-continuation-operations.md) | 中文
+
+## 问题
+
+将可继续 child 的编排合并到 `ctx.subagents` 后，提供方分发与调用方意图共存于同一个公开服务中。`resume(name, request)` 接受描述符、已鉴权的 parent、持久化 child id 与激活信号，而只有内部继续执行管理器才能正确解析这些数据。`sendMessage(...)` 暴露的是传输层措辞，而不是 `Agent` 已采用的 `followup` 意图；它还将来源与信号拆成独立参数，扩大了操作接口，而每个调用方都必须以原子方式同时使用二者。
+
+持久性边界还同时公开了 `SessionStore.flush()` 与 `flushRequired()`。二者执行相同的作用域内并行分发，唯一差别是是否接受空的监听器快照，因此会话接口将一个消费方的策略编码为第二项操作。
+
+## 决策
+
+`SubagentService` 公开三种执行意图：`start(name, request)` 用于普通的、由持有方负责的 run；`startContinuable(spec)` 用于具备持久性且由 Task 支撑的 child；`followup(parent, childId, content, { source, signal })` 用于投递后续内容。最后一个动词与 `Agent.followup()` 一致，而 `SubagentRun.steer()` 仍是范围更窄的能力，仅向已确认仍在运行的激活提供 steering（中途引导）。面向模型的工具保留稳定的 `send_message` 名称，并将路由委托给 `followup()`。
+
+调用方请求与提供方请求相互分离。`SubagentStartRequest` 只包含调用方提供的启动数据；`SubagentProviderStartRequest` 则加入由服务解析的继续执行状态。普通 `start()` 在分发给提供方之前会清除该状态。`SubagentProviderResumeRequest` 仍属于提供方 seam，但 `SubagentService.resume()` 不对外公开：继续执行管理器加载描述符、对 parent 进行鉴权，并调用由服务持有的私有提供方启动与恢复闭包。提供方分发仍会经过相同的功能检查和 run 生命周期观测，而无需将其变成调用方操作。
+
+`SessionStore.flush(session)` 返回 `Promise<boolean>`。至少一个作用域内的持久性监听器成功参与后，它解析为 `true`；监听器快照为空时解析为 `false`；所有监听器结算后，如有失败，则以注册顺序最靠前的监听器错误拒绝。普通检查点可以忽略该布尔值。可继续提供方在最终结果边界要求该值为 `true`，并将 `false` 或拒绝映射为 `DURABILITY_FAILED`。
+
+## 已考虑的替代方案
+
+**保留公开的提供方恢复分发。** 继续执行管理器之外没有任何生产调用方负责安全调用所需的描述符查找、直接 parent 鉴权、Task 取消与激活关联。公开方法会暴露已解析的实现数据，但并不存在与之对应的合理独立调用意图。
+
+**在服务上保留 `sendMessage`。** 面向模型的工具发送消息，但服务操作表达的是后续操作，既可能对运行中的激活执行 steering，也可能从持久化存储恢复。`followup` 与结构化 `Agent` 接口保持一致，也不承诺特定路由。
+
+**保留 `flushRequired()`。** 第二个方法只封装了空监听器检查。由现有屏障返回是否有监听器参与，可以让分发只保留一套实现，并让每个调用方自行判定缺少监听器是否可接受。
+
+**合并普通启动与可继续启动。** 一个标志会让同一方法要么等待由持有方负责的 run 就绪后返回，要么立即返回 child 和 Task 标识。按意图拆分的方法无需返回值联合类型即可保留所有权与时序差异。
+
+## 影响
+
+- Cordis 服务目录只包含调用方操作；提供方的重建能力仍可通过 `SubagentProvider.resume?()` 扩展，同时不会将已解析的请求暴露为服务方法。
+- 后续操作的来源与取消信号通过同一个选项对象传递，与 `Agent` 上按意图命名的辅助方法形态一致，同时保留在线投递与从持久化存储恢复的语义。
+- 会话持久性只保留一个屏障操作。需要后端参与的调用方必须检查参与结果，而不是选择第二种分发方法。
+- `send_message` schema、路由结果、Task 所有权、持久化事件词汇与模型可见的 transcript（文本记录）保持不变。

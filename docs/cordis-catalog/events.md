@@ -685,14 +685,12 @@ Source: [`packages/core/session/src/index.ts:93`](../../packages/core/session/sr
 
 ### `session/flush` — parallel
 
-Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. An empty listener snapshot is accepted by SessionStore.flush and rejected by SessionStore.flushRequired. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
 
 ```ts cordis-catalog
 /**
  * Awaited parallel durability checkpoint: every listener runs and the
- * caller awaits all of them, with no waterfall veto. An empty listener
- * snapshot is accepted by {@link SessionStore.flush} and rejected by
- * {@link SessionStore.flushRequired}. Scope-filtered dispatch
+ * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch
  * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
  * @param session - the session whose buffered events must reach durable storage.
  * @dshScopeScan unsupported
@@ -703,7 +701,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:104`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:102`](../../packages/core/session/src/index.ts)
 
 ## `settings/*`
 
@@ -796,7 +794,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:165`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:166`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -813,7 +811,7 @@ A provider became resolvable in the registry.
 
 Types: [SubagentProvider](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:139`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -828,7 +826,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:145`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:146`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -850,7 +848,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:156`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:157`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

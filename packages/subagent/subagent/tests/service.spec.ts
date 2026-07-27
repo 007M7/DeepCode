@@ -12,6 +12,7 @@ import SubagentService, {
   assertSubagentMaxDepth,
   type SubagentCapabilities,
   type SubagentProvider,
+  type SubagentProviderStartRequest,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
@@ -37,6 +38,7 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 class StubProvider implements SubagentProvider {
   readonly inheritsParentContext = false
   startCount = 0
+  lastRequest: SubagentProviderStartRequest | undefined
 
   constructor(
     readonly name: string,
@@ -47,8 +49,9 @@ class StubProvider implements SubagentProvider {
     },
   ) {}
 
-  async start(request: SubagentStartRequest): Promise<SubagentRun> {
+  async start(request: SubagentProviderStartRequest): Promise<SubagentRun> {
     this.startCount += 1
+    this.lastRequest = request
     return {
       id: SessionId(`child:${this.name}:${request.parent.id}`),
       localAgent: undefined,
@@ -102,27 +105,23 @@ describe('SubagentService', () => {
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
   })
 
-  it('rejects continuable start and resume when the provider has no resume capability', async () => {
+  it('keeps provider continuation state out of raw start and exposes no raw resume operation', async () => {
     const { subagents } = await service()
-    subagents.registerProvider(new StubProvider('one-shot'))
+    const provider = new StubProvider('one-shot')
+    subagents.registerProvider(provider)
     const descriptor = snapshotSubagentDescriptor({ provider: 'one-shot' })
     const sessionId = SessionId('continuable-child')
     const parent = fakeParent()
     const signal = new AbortController().signal
 
-    await expect(subagents.start('one-shot', baseRequest({
-      parent,
-      signal,
+    const providerRequest: SubagentProviderStartRequest = {
+      ...baseRequest({ parent, signal }),
       continuation: { sessionId, descriptor },
-    }))).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
-    await expect(subagents.resume('one-shot', {
-      sessionId,
-      prompt: [{ type: 'text', text: 'continue' }],
-      source: { kind: 'user' },
-      parent,
-      signal,
-      descriptor,
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
+    }
+    await subagents.start('one-shot', providerRequest)
+
+    expect(provider.lastRequest?.continuation).toBeUndefined()
+    expect('resume' in subagents).toBe(false)
   })
 
   it('rejects Task-backed continuation operations when their runtime services are absent', async () => {

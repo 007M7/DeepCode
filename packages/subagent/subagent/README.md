@@ -21,19 +21,18 @@ Multiple providers may coexist under different names. This lets a deployment exp
 
 ## Service API
 
-`SubagentService` has seven main operations:
+`SubagentService` has six main operations:
 
 | Member | Meaning |
 |---|---|
 | `registerProvider(provider)` | Register one trusted same-process implementation by name. Registration is effect-scoped; removing it prevents new starts but does not revoke runs already returned to callers. Duplicate names fail loud. |
 | `getProvider(name)` | Return the provider, or `undefined` when absent. |
 | `list()` | Return provider names in insertion order. |
-| `start(name, request)` | Validate requested capabilities and semantic values, then await the provider until a real child is ready. Fulfillment returns a holder-owned `SubagentRun`; rejection means the provider has already cleaned every partial startup resource. |
-| `resume(name, request)` | Capability-checked raw dispatch to `provider.resume?()` with the same run lifecycle observation as `start`; the caller owns descriptor lookup, authorization, and collection. |
+| `start(name, request)` | Validate an ordinary caller request, then await the provider until a real child is ready. Fulfillment returns a holder-owned `SubagentRun`; rejection means the provider has already cleaned every partial startup resource. Continuation state cannot enter through this operation. |
 | `startContinuable(spec)` | Allocate a durable child id and register its initial Task-backed activation. Requires `ctx.tasks`, `ctx.agents`, session persistence, and a resumable provider. |
-| `sendMessage(parent, childId, message, source, signal)` | Steer the current activation or start a new Task that cold-resumes the durable child. Aborting `signal` while live delivery awaits admission cancels the shared activation and rejects after it reaches quiescence. Requires `ctx.tasks` and `ctx.agents`; cold resume also requires session persistence. |
+| `followup(parent, childId, content, { source, signal })` | Follow up with a durable child, matching `Agent.followup()` terminology. It steers the current activation or starts a new Task that cold-resumes the child. Aborting `signal` while live delivery awaits admission cancels the shared activation and rejects after quiescence. Requires `ctx.tasks` and `ctx.agents`; cold resume also requires session persistence. |
 
-`SubagentStartRequest.signal` is required and is the canonical cancellation channel. An abort before publication makes `start()` reject after rollback; an abort after publication cancels the live child. The request may also select a model, require structured output, cap delegation depth, restrict child tools, set a child persona, or carry a resolved `continuation` (the control-allocated stable child id plus its durable descriptor), which requires the provider's `resume` capability.
+`SubagentStartRequest.signal` is required and is the canonical cancellation channel. An abort before publication makes `start()` reject after rollback; an abort after publication cancels the live child. The request may also select a model, require structured output, cap delegation depth, restrict child tools, or set a child persona. Only the internal continuation manager can add a stable child id and durable descriptor to the provider-facing `SubagentProviderStartRequest`; cold provider resume is likewise private dispatch after descriptor lookup and parent authorization.
 
 Same-process requests, descriptors, results, and event payloads are trusted typed values borrowed as immutable. The service does not clone or freeze them; serialization and hostile-input validation belong at actual process, worker, persistence, and model boundaries.
 
@@ -60,13 +59,13 @@ The seam owns the depth vocabulary shared by implementations and consumers: the 
 
 ## Ownership and lifecycle
 
-`provider.start(request): Promise<SubagentRun>` is the ownership-transfer boundary. Before fulfillment, the provider owns setup and must cancel, roll back, and quiesce partial resources on every failure. After fulfillment, the caller owns the run and must call `dispose()` on every path. `provider.resume?(request)` shares the same contract for a resumed activation.
+`provider.start(request): Promise<SubagentRun>` is the ownership-transfer boundary. Before fulfillment, the provider owns setup and must cancel, roll back, and quiesce partial resources on every failure. After fulfillment, the caller owns the run and must call `dispose()` on every path. `provider.resume?(request)` shares the same contract for a resumed activation; only the continuation manager dispatches it.
 
 `SubagentRun.result` resolves to `{ output, structured?, stopReason }`. Child-level failures resolve with a non-`completed` reason; only an infrastructure fault that the seam cannot represent may reject. For a continuable activation, a completed result also confirms that the provider made its final state durable; a failed required checkpoint rejects as infrastructure rather than publishing unconfirmed output. `dispose()` is idempotent, cancels remaining work, and waits for the child resources to quiesce.
 
 A local run publishes an ordinary child agent/session before `start()` fulfills, returns that shared session id as `SubagentRun.id`, exposes the exact child as `SubagentRun.localAgent`, and records `request.parent.session.id` in the child's `parentSession` header. A continuable start publishes exactly the service-allocated `continuation.sessionId`. Remote providers instead mint a parent-scoped lifecycle id and return `localAgent: undefined`.
 
-The service emits `subagent/start` only after `start()` or `resume()` has fulfilled. It attaches the result observer before that synchronous notification, so even an already-settled child still produces `subagent/start` before `subagent/end`. The pair shares a service-minted `runId`; its `local` flag is snapshotted from the provider's exact `localAgent`, so observers never infer run identity or locality from reusable provider/session names.
+The service emits `subagent/start` only after an ordinary start or privately dispatched provider resume has fulfilled. It attaches the result observer before that synchronous notification, so even an already-settled child still produces `subagent/start` before `subagent/end`. The pair shares a service-minted `runId`; its `local` flag is snapshotted from the provider's exact `localAgent`, so observers never infer run identity or locality from reusable provider/session names.
 
 Run events are scoped to the delegating parent. Every listener is independently contained: a synchronous throw or rejected returned promise is logged without starving peer listeners or changing the run.
 

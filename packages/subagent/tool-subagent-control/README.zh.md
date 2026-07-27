@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-可选的全局具名 `send_message` 工具：`ctx.subagents.sendMessage()` 之上的轻量适配器。绑定提供方的 `@deepseek-ai/dsh-tool-subagent` 实例会为每种传输注册不同的委派工具；这个单独加载的包（package）只注册一个共享后续操作工具，因此多个委派工具绝不会重复注册全局控制工具。是否加载本工具不会决定委派工具是否启动可继续工作。
+可选的全局具名 `send_message` 工具：`ctx.subagents.followup()` 之上的轻量适配器。绑定提供方的 `@deepseek-ai/dsh-tool-subagent` 实例会为每种传输注册不同的委派工具；这个单独加载的包（package）只注册一个共享后续操作工具，因此多个委派工具绝不会重复注册全局控制工具。是否加载本工具不会决定委派工具是否启动可继续工作。
 
 本工具不执行生命周期路由。它将每条后续消息的来源标记为 `{ kind: 'coordinator', senderSessionId: parent.id }`；subagent 服务会保留该来源，并在向运行中激活的现有 Task 在线投递消息与创建新 Task、从持久化存储恢复子 agent 之间做出选择。本工具会转发其执行信号，因此，若在在线投递等待准入期间取消，则会取消共享激活，并仅在子 agent 完全停稳后结算。本工具会渲染实际采用的路由及相关 Task id。投递失败会变为出错的工具结果，并明确说明消息未送达。
 

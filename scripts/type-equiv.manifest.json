@@ -1096,6 +1096,11 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentProviderStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
       "symbol": "SubagentContinuation",
       "source": "packages/subagent/subagent/src/types.ts"
     },
@@ -1106,7 +1111,17 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
-      "symbol": "SubagentResumeRequest",
+      "symbol": "SubagentFollowupOptions",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentFollowupResult",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentProviderResumeRequest",
       "source": "packages/subagent/subagent/src/types.ts"
     },
     {

@@ -1,6 +1,6 @@
 /**
  * The globally named `send_message` tool: a thin model-facing adapter over
- * `ctx.subagents.sendMessage()`. It performs no lifecycle routing of its
+ * `ctx.subagents.followup()`. It performs no lifecycle routing of its
  * own — steer-or-resume orchestration belongs to the subagent service — and it
  * lives apart from the provider-bound `@deepseek-ai/dsh-tool-subagent`
  * instances so multiple delegation tools share one control tool.
@@ -60,21 +60,23 @@ export function apply(ctx: Context): void {
           : `message started task ${value.taskId} continuing subagent ${args.subagent_id}`,
       }],
     },
-    execute(args, exec) {
+    async execute(args, exec) {
       const parent = exec.agent
       if (!parent) {
         // Non-agent callers have no session to authorize Task access with.
         throw new Error('send_message requires a calling agent (exec.agent was undefined)')
       }
       const message: ContentBlock[] = [{ type: 'text', text: args.message }]
-      const result = ctx.subagents.sendMessage(
+      const result = await ctx.subagents.followup(
         parent,
         SessionId(args.subagent_id),
         message,
-        { kind: 'coordinator', senderSessionId: parent.id },
-        exec.signal,
+        {
+          source: { kind: 'coordinator', senderSessionId: parent.id },
+          signal: exec.signal,
+        },
       )
-      return Promise.resolve(result)
+      return result
     },
   }))
 }

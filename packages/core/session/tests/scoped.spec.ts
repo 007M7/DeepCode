@@ -84,25 +84,16 @@ describe('sessions.flush()', () => {
     const ctx = await mount()
     const session = ctx.sessions.create()
 
-    await expect(ctx.sessions.flush(session)).resolves.toBeUndefined()
+    await expect(ctx.sessions.flush(session)).resolves.toBe(false)
   })
 
-  it('rejects a required flush with no listeners', async () => {
-    const ctx = await mount()
-    const session = ctx.sessions.create()
-
-    await expect(ctx.sessions.flushRequired(session)).rejects.toThrow(
-      `session "${session.id}" required durability checkpoint has no registered listener`,
-    )
-  })
-
-  it('completes a required flush when a listener succeeds', async () => {
+  it('reports a participating listener after it succeeds', async () => {
     const ctx = await mount()
     const session = ctx.sessions.create()
     const flushed: Session[] = []
     ctx.on('session/flush', current => void flushed.push(current))
 
-    await ctx.sessions.flushRequired(session)
+    await expect(ctx.sessions.flush(session)).resolves.toBe(true)
 
     expect(flushed).toEqual([session])
   })
