@@ -17,7 +17,7 @@
 // the open llm seam post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -72,16 +72,6 @@ const REPLAY_PROVIDERS = [{
   name: 'DeepSeek',
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
 }]
-
-/** Repo-root .env → process.env for record mode (never overrides set vars); the smoke-real convention. */
-function loadRootEnv(): void {
-  const envPath = join(REPO_ROOT, '.env')
-  if (!existsSync(envPath)) return
-  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim())
-    if (m !== null && process.env[m[1]!] === undefined) process.env[m[1]!] = m[2]
-  }
-}
 
 /** A booted web scaffold: real composition, mode-selected model backend, temp world. */
 export interface WebScaffold {
@@ -146,7 +136,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   requireDist()
   const mode = webSnapshotMode()
   if (mode === 'record') {
-    loadRootEnv()
+    // Both owning vitest configs (web unconditionally, snapshot in record
+    // mode) load the repo-root .env before this file runs.
     if (process.env.DEEPSEEK_API_KEY === undefined || process.env.DEEPSEEK_API_KEY.length === 0) {
       throw new Error('web e2e record mode needs DEEPSEEK_API_KEY (env or repo-root .env)')
     }

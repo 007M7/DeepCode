@@ -1,9 +1,9 @@
 // W5 real-host smoke: spawn `dsh web` with a real key, walk the full W5 flow
 // list in a real chromium, screenshot every screen into .artifacts/ for the
 // figma comparison pass. Self-skips without DEEPSEEK_API_KEY (repo e2e
-// convention); the runner loads the repo-root .env explicitly because the CLI
-// only auto-loads .env from its cwd (a temp dir here, so sessions never land
-// in the repo's .sessions).
+// convention); vitest.web.config.ts loads the repo-root .env before this file
+// runs (the CLI only auto-loads .env from its cwd — a temp dir here, so
+// sessions never land in the repo's .sessions).
 //
 // Selector convention: CSS Modules hash as [hash]_[local], so class-substring
 // selectors are unreliable — anchor on data-* attributes (data-variant /
@@ -25,17 +25,6 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, probeFreePort, requireDist, saveFailureShot } from './support.ts'
-
-/** Repo-root .env → process.env (never overrides an already-set variable). */
-function loadRootEnv(): void {
-  const envPath = join(REPO_ROOT, '.env')
-  if (!existsSync(envPath)) return
-  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim())
-    if (m !== null && process.env[m[1]!] === undefined) process.env[m[1]!] = m[2]
-  }
-}
-loadRootEnv()
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
