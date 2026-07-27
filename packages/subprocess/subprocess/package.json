@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-subagent-subprocess",
-  "description": "Shared out-of-process subagent machinery: credential env scrub, spawn-failure capture, child-exit waits, the EOF-to-SIGTERM-to-SIGKILL dispose ladder, and isolated config dirs (pure lib; registers nothing)",
+  "name": "@deepseek-ai/dsh-subprocess",
+  "description": "Subprocess seam (ctx.subprocess) for the DeepSeek Harness — managed process groups, bounded spill-backed output, and escalated kills behind one abstract service",
   "version": "0.0.1",
   "private": true,
   "type": "module",

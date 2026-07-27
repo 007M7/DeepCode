@@ -10,10 +10,10 @@
     - img
   - radiogroup:
     - radio "Blue":
-      - text: 1 Blue
+      - text: 1 Blue A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.
       - img
     - radio "Green":
-      - text: 2 Green
+      - text: 2 Green A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.
       - img
     - button "其他，请填写自定义答案":
       - img
