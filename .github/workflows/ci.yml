@@ -427,12 +427,13 @@ jobs:
     name: serial / linux (self-hosted standby)
     runs-on: [self-hosted, linux, x64, vm-backup]
     steps:
-      # fetch-depth 2 + DSH_ARCHIVE_BASE_REF below: same frozen-archive
-      # comparison as serial-linux — without the prior commit the archive
-      # verifier defaults to HEAD and compares the new manifest with itself.
+      # Full history + DSH_ARCHIVE_BASE_REF below: same frozen-archive
+      # comparison as serial-linux. Depth 2 would miss github.event.before
+      # on multi-commit or force pushes; full fetch is cheap here because
+      # checkout resolves against the VM's local mirror.
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:

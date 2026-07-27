@@ -6,7 +6,7 @@ English | [中文](2026-07-26-ci-failover-runbook.zh.md)
 
 ## Problem
 
-The three required Linux worker jobs in [CI](../../../../.github/workflows/ci.yml) (`node 24 / static`, `node 24 / coverage`, `node 24 / snapshots and artifacts`) and the required verdict job that aggregates them (`all checks passed`) run on the hosted enterprise 32-core pools. When those pools degrade — jobs queue indefinitely, the enterprise labels vanish, or GitHub-side capacity fails — every open pull request becomes unmergeable, and the ordinary recovery of merging a fix is itself deadlocked behind the very required checks that cannot run. An outage therefore needs a switch a repository admin can throw without merging anything.
+The three required Linux worker jobs in [CI](../../../../.github/workflows/ci.yml) (`node 24 / static`, `node 24 / coverage`, `node 24 / snapshots and artifacts`) and the required verdict job that aggregates them (`all checks passed`) run on the hosted enterprise 32-core pools. When those pools degrade — jobs queue indefinitely, the enterprise labels vanish, or GitHub-side capacity fails — every open pull request becomes unmergeable, and the ordinary recovery of merging a fix is itself deadlocked behind the very required checks that cannot run. An outage therefore needs a switch any responder with repository write access can throw without merging anything.
 
 ## Decision
 
@@ -16,7 +16,7 @@ Each of the three required Linux worker jobs — and the `all checks passed` ver
 
 `vm-backup`: one 64-core VM, six always-on systemd-managed runner instances. Check the latest `serial / linux (self-hosted standby)` run before switching: a green standby is verified-yesterday capacity.
 
-### Switch (repo admin, ~1 minute, no merge)
+### Switch (any repository writer, ~1 minute, no merge)
 
 1. Repository **Settings → Secrets and variables → Actions → Variables → New repository variable**: name `DSH_CI_FAILOVER`, value `selfhosted`.
 2. Retrigger the required jobs so they re-resolve their pool. Jobs already **queued** for the hosted labels do not retarget and cannot be re-run in place, so for the documented indefinite-queue outage, cancel the stuck run and re-run all jobs, or push a new commit; "Re-run failed jobs" only helps once a job has actually failed rather than queued.
@@ -37,14 +37,14 @@ Delete the `DSH_CI_FAILOVER` variable (or set it to anything other than `selfhos
 
 ### Trust boundary
 
-The variable is writer-manageable repository state; a pull request event itself can neither set it nor read a different value into effect, and the selector expressions live in workflow definitions. Note that under failover, `pull_request` runs execute the PR merge ref's own workflow definition — the boundary against untrusted code is repository membership (private, forking disabled, Dependabot excluded by the selectors), not the variable. Runner-side enforcement — an org-level runner group restricting these runners to the master-ref workflow — is tracked separately and composes with this mechanism.
+The variable is writer-manageable repository state; a pull request event itself can neither set it nor read a different value into effect, and the selector expressions live in workflow definitions. Note that under failover, `pull_request` runs execute the PR merge ref's own workflow definition — the boundary against untrusted code is repository membership (private, forking disabled, Dependabot excluded by the selectors), not the variable. Note on runner-group policy: pinning the runner group to the master-ref workflow is **incompatible** with this failover — the four failover jobs are `pull_request` runs evaluated from PR merge refs, and a master-pinned group leaves them queued (observed live on 2026-07-27; the group was widened to all workflows of this repository to unblock the switch). A stricter runner-side policy therefore costs PR failover; the shipped posture accepts repository-scoped, all-workflow group access.
 
 ## Alternatives considered
 
-**Merge a workflow change to switch pools.** Rejected because the outage that motivates the switch is exactly the state in which no PR can merge: the required checks are the ones failing. A repository variable is admin-controlled state that takes effect on re-run without a merge.
+**Merge a workflow change to switch pools.** Rejected because the outage that motivates the switch is exactly the state in which no PR can merge: the required checks are the ones failing. A repository variable is writer-manageable state that takes effect on re-run without a merge.
 
 **Keep the self-hosted pool always in the required path.** Rejected because it trades hosted-pool availability for the in-house VM's, moving a single point of failure rather than adding a fallback. The variable keeps the hosted pools primary and the self-hosted pool a proven, one-action standby.
 
 ## Consequences
 
-Recovering from a hosted-pool outage is a single admin variable plus a re-run, with no merge on the critical path. The cost is a second runner topology to keep working: the standby lane exercises it on every master push so the failover target never goes stale, and the concurrency and cache-restore branches in `ci.yml` carry a `selfhosted` leg that must stay in step with the hosted leg.
+Recovering from a hosted-pool outage is a single variable (any writer) plus a re-run, with no merge on the critical path. The cost is a second runner topology to keep working: the standby lane exercises it on every master push so the failover target never goes stale, and the concurrency and cache-restore branches in `ci.yml` carry a `selfhosted` leg that must stay in step with the hosted leg.
