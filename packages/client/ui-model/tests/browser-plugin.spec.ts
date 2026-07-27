@@ -74,6 +74,7 @@ async function bench() {
     contribution: () => contribution!,
     seat: () => seats.get('conversation.input.model')!,
     hostCurrent: () => current,
+    setHostCurrent: (target: ModelTarget) => { current = target },
   }
 }
 
@@ -130,6 +131,22 @@ describe('ui-model dual entry', () => {
     expect(faceA.directory).not.toBe(faceB.directory)
     // The service face resolves the same instance the seat inject handed out.
     expect(b.ctx.models.directoryFor(sid('a')).store).toBe(faceA.directory)
+  })
+
+  it('drops an unconsumed local selection and restores the Host target after reconnect', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const face = b.seat().inject!(sid('s1'))
+    await face.select({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    b.setHostCurrent({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+
+    b.ctx.emit('connection/reset')
+    expect(face.directory.getSnapshot()).toMatchObject({ current: null, status: 'loading' })
+    await Promise.resolve()
+    expect(face.directory.getSnapshot()).toMatchObject({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      status: 'ready',
+    })
   })
 
   it('scope disposal drops the directory; a reborn scope gets a fresh one', async () => {

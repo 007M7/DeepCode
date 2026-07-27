@@ -41,6 +41,9 @@ export class ModelService extends Service {
    */
   constructor(ctx: Context) {
     super(ctx, 'models')
+    ctx.on('connection/reset', () => {
+      for (const directory of this.live.directories.values()) directory.resetConnected()
+    })
   }
 
   /**

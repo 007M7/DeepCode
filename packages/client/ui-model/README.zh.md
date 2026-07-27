@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型选择插件（浏览器半侧）：**两个入口共用一份 per-session 目录**，由 `ModelService`（`ctx.models`）持有。`/model` popupSelect contribution（经 `ctx.command` 注册）与 composer 的具名 `conversation.input.model` 坑位（紧凑触发器 + 向上展开的按提供方分组菜单，视觉取 figma 313:14108 的 ToggleButton）都通过同一个 `ModelDirectory` 实例经 `session.models` 加载会话的建议目录、经 `session.selectModel` 提交——host 报告的 current target 是两个界面共同回显的唯一事实，在任一入口切换，另一入口下次打开显示的就是新值。目录加载与选择共享一个代次计数器（旧响应永不覆盖新结果）；提供方级目录失败内联列出，可用分组保持可选；整体失败与选择失败落各入口自己的重试面（popup 壳的 error/retry、坑位菜单的内联错误），状态不分叉。目录按会话惰性解析（`ctx.models.directoryFor(sessionId)`），随会话 scope 一并释放。
+模型选择插件（浏览器半侧）：**两个入口共用一份 per-session 目录**，由 `ModelService`（`ctx.models`）持有。`/model` popupSelect contribution（经 `ctx.command` 注册）与 composer 的具名 `conversation.input.model` 坑位（紧凑触发器 + 向上展开的按提供方分组菜单，视觉取 figma 313:14108 的 ToggleButton）都通过同一个 `ModelDirectory` 实例经 `session.models` 加载会话的建议目录、经 `session.selectModel` 提交——host 报告的 current target 是两个界面共同回显的唯一事实，在任一入口切换，另一入口下次打开显示的就是新值。目录加载与选择共享一个代次计数器（旧响应永不覆盖新结果）；连接重置会先丢弃所有常驻目录投影，再重新拉取 Host 恢复的 target 后显示，避免继续呈现未消费的进程内选择。提供方级目录失败内联列出，可用分组保持可选；整体失败与选择失败落各入口自己的重试面（popup 壳的 error/retry、坑位菜单的内联错误），状态不分叉。目录按会话惰性解析（`ctx.models.directoryFor(sessionId)`），随会话 scope 一并释放。
 
 `/client` 导出面为插件本体（`apply`/`inject`）、`ModelService`、`ModelDirectory` 及其状态形状、坑位注入面类型。
 

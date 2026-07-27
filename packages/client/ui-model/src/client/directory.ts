@@ -116,6 +116,24 @@ export class ModelDirectory {
     this.store.update((s) => { s.effort = effort })
   }
 
+  /**
+   * Drop the previous Host generation's projection and repull it. Clearing
+   * first prevents an unconsumed process-local selection from being displayed
+   * while the restarted Host has restored the last logged request target.
+   */
+  resetConnected(): void {
+    if (this.disposed) return
+    ++this.generation
+    this.store.update((s) => {
+      s.current = null
+      s.groups = []
+      s.failures = []
+      s.status = 'idle'
+      s.error = null
+    })
+    void this.load().catch(() => { /* the next menu open remains the explicit retry surface */ })
+  }
+
   /** Scope teardown: late settlements lose write access to the store. */
   dispose(): void {
     this.disposed = true
