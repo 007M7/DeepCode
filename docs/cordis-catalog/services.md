@@ -1997,10 +1997,12 @@ async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
  * live-preferred corpus without loading or resuming an Agent. The lineage
  * trace supplies stable candidate order and live status; each candidate is
  * then inspected independently for exactly one supported descriptor in its
- * own suffix. Session-query reads take no signal, so cancellation is
- * cooperative: the scan rechecks `signal` after every un-signalled await and
- * stops between candidates instead of draining a slow or large catalog after
- * the caller has gone.
+ * own suffix. Listing is storage-read-only: session query resolves persisted
+ * candidates through the non-mutating `inspect()` read, so no catalog,
+ * descriptor, or repair event is written. Session-query reads take no signal,
+ * so cancellation is cooperative: the scan rechecks `signal` before and
+ * after the initial trace and after every other un-signalled await instead of
+ * draining a slow or large catalog after the caller has gone.
  * @param parentSessionId - parent whose direct children are listed.
  * @param signal - caller-owned cancellation observed between query awaits.
  * @returns child and diagnostic entries in lineage-trace order.
