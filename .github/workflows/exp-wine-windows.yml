@@ -68,6 +68,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      # Keyed on the runner image so a new image version re-downloads once.
+      # Cache scoping: each trigger seeds its own scope (pull_request → the
+      # PR merge ref, dispatch → the branch); only same-scope reruns hit.
+      # Promotion to ci.yml would let master seed the shared default-branch
+      # scope every trigger reads, as the pnpm store cache already does.
       - name: Compose Wine apt cache key
         id: wine-cache-key
         run: echo "key=wine-debs-${ImageOS:-linux}-${ImageVersion:-v0}" >> "$GITHUB_OUTPUT"
