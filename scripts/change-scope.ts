@@ -159,8 +159,17 @@ function diffPaths(root: string, args: string[], context: string): string[] {
   ], context))
 }
 
+function stripGitLineTerminator(output: string): string {
+  const withoutLineFeed = output.endsWith('\n') ? output.slice(0, -1) : output
+  return process.platform === 'win32' && withoutLineFeed.endsWith('\r')
+    ? withoutLineFeed.slice(0, -1)
+    : withoutLineFeed
+}
+
 function collectReport(options: ChangeScopeOptions, cwd: string): ChangeScopeReport {
-  const root = requireGit(cwd, ['rev-parse', '--show-toplevel'], 'cannot locate a Git worktree').trim()
+  const root = stripGitLineTerminator(
+    requireGit(cwd, ['rev-parse', '--show-toplevel'], 'cannot locate a Git worktree'),
+  )
   const baseSha = resolveCommit(root, 'base', options.base)
   const headSha = resolveCommit(root, 'head', options.head)
   const mergeBaseSha = resolveMergeBase(root, baseSha, headSha)

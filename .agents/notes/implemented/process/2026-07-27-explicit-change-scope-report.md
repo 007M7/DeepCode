@@ -12,13 +12,13 @@ An incorrect range undermines evidence selection because it can omit affected pa
 
 ## Decision
 
-The root `change-scope` command requires `--base <ref>`, accepts `--head <ref>` with `HEAD` as the default, and offers a versioned `--json` form. It resolves both inputs to commits with ambiguity detection and requires one merge base before writing output. The report records the repository root, current branch, configured upstream, input refs, resolved base, head, and merge-base commit IDs, plus sorted committed, staged, unstaged, and untracked path sets.
+The root `change-scope` command requires `--base <ref>`, accepts `--head <ref>` with `HEAD` as the default, and offers a versioned `--json` form. It resolves both inputs to commits with ambiguity detection and requires one merge base before writing output. The report records the repository root without normalizing legal path whitespace, current branch, configured upstream, input refs, resolved base, head, and merge-base commit IDs, plus sorted committed, staged, unstaged, and untracked path sets.
 
 Committed paths compare the resolved merge base with the resolved head. Dirty path sets always describe the current worktree and index, even when `--head` names another commit. Diff configuration cannot hide submodules or invoke external diff or text-conversion drivers, and rename detection is disabled so both sides of a rename remain visible.
 
 The command never guesses or fetches a base, queries a hosting provider, or selects tests. Each calling workflow verifies current remote or stack state, supplies the base explicitly, and uses the factual report as input to semantic review or evidence selection.
 
-Focused temporary-repository tests cover a fresh branch tracking `origin/master` without a same-name remote, its post-push upstream, a stacked non-master base, every dirty layer, invalid, ambiguous, and non-commit refs, deterministic human/JSON parity, and unchanged refs, index, config, and status after reporting.
+Focused temporary-repository tests cover a fresh branch tracking `origin/master` without a same-name remote, its post-push upstream, a worktree path ending in legal whitespace, a stacked non-master base, every dirty layer, invalid, ambiguous, and non-commit refs, deterministic human/JSON parity, and unchanged refs, index, config, and status after reporting.
 
 ## Alternatives considered
 

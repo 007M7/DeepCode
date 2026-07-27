@@ -40,11 +40,11 @@ function write(path: string, content: string): void {
   writeFileSync(path, content)
 }
 
-function fixture(): Fixture {
+function fixture(worktreeName = 'worktree'): Fixture {
   const container = mkdtempSync(join(tmpdir(), 'dsh-change-scope-'))
   fixtureRoots.push(container)
   const origin = join(container, 'origin.git')
-  const root = join(container, 'worktree')
+  const root = join(container, worktreeName)
   const hooks = join(container, 'hooks')
   mkdirSync(hooks)
   git(container, ['init', '--bare', '--initial-branch=master', origin])
@@ -137,6 +137,14 @@ describe('change-scope', () => {
     const pushed = jsonReport(root, 'origin/master')
     expect(pushed.repository.upstream).toBe('origin/feature')
     expect(pushed.paths.committed).toEqual(['feature.txt'])
+  })
+
+  it.skipIf(process.platform === 'win32')('preserves trailing spaces in the worktree path', () => {
+    const { root } = fixture('worktree ')
+    const report = jsonReport(root, 'HEAD')
+
+    expect(report.repository.root).toBe(realpathSync(root))
+    expect(report.paths).toEqual({ committed: [], staged: [], unstaged: [], untracked: [] })
   })
 
   it('reports an exact head above a non-master stacked base while dirty paths remain worktree-local', () => {
