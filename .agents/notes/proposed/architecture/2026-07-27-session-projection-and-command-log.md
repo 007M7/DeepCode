@@ -64,7 +64,7 @@ declare module 'cordis' {
   projections?: { asOfSeq: number, values: Partial<SessionProjectionMap> } }
 ```
 
-The api-proxy history handler, after slicing the tail page, reads `session.seq`, then synchronously walks the registry — no `await` anywhere, so every key's value and `asOfSeq` form one consistent cut, and `asOfSeq` equals the window tail seq. Api-proxy holds zero domain knowledge (the same carrier/contributor relationship as `viewFor` against `ctx.tools`).
+The api-proxy history handler, after slicing the tail page, synchronously walks the registry — no `await` anywhere, so every key's value and `asOfSeq` form one consistent cut. `asOfSeq` is the **last event's seq** (`session.seq - 1`; `-1` for an empty log, the same vocabulary as `session/subscribed.lastSeq`), so a push frame carrying the first post-baseline change always compares strictly greater. Api-proxy holds zero domain knowledge (the same carrier/contributor relationship as `viewFor` against `ctx.tools`).
 
 No new RPC method. The timing coincidence is exact: every moment the client needs a fresh baseline (open, reconnect resync, gap repair) already pulls the tail page, and the only path that never needs one (loadOlder) is the only path that passes `beforeSeq`. The client therefore has **no** independent "refetch the baseline" decision at all. Window content is never a signal: "no domain event in the window" is unanswerable there by construction, and only the baseline answers it.
 
@@ -176,6 +176,7 @@ Infrastructure first; the three in-flight PRs are left untouched and re-target a
 
 - **Whole-value rule is load-bearing**: a future domain logging bare deltas cannot serve consumers from its latest event and complicates its own unit. Mitigation: the rule is stated here and in the projection package README; the unit contract makes the full state explicit at every transition.
 - **Synchronous unit discipline**: `init`/`apply`/`view` that await would tear the consistency cut. The registry documents and the invariant companion asserts synchronicity as far as practical; review owns the rest.
+- **Live registry churn is not pushed**: loading or unloading a domain plugin mid-session changes the key set, but no session event fires and no frame is pushed; open clients hold the stale key until the next tail pull (reconnect, gap repair, open). Accepted as a dev-only (HMR) staleness window — a registry-change push can be added to the change feed later without contract impact.
 - **Eager drive costs on busy sessions**: every committed event passes every registered unit's `apply`. Units are cheap per-event by construction (whole-value rule), non-matching events return the same reference, and the count of registered domains is small; if a hot path ever shows, per-unit event-type prefilters can be added without contract change.
 - **Projection payload growth**: every tail page carries every registered key. Payloads are whole values of UI-scale state (a todo list, a goal snapshot); if a future domain's value is large, per-key opt-out or lazy keys can be added to the request without changing the model.
 - **Command log volume**: two log-only events per slash command; bounded by human command frequency, negligible against chunk volume.
