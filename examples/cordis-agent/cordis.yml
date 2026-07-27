@@ -1,9 +1,9 @@
 # Self-referential TUI demo: the coding spine plus tools to inspect the live
-# service/plugin/tool/mount/API/event state, mount a model-written plugin under
-# `cordis-dynamic`, and quiescently unmount it. The app bin loads the gitignored
+# service/plugin/tool/temporary/API/event state, mount a model-written temporary
+# Plugin, and quiescently unmount it. The app bin loads the gitignored
 # root `.env` before reading the required DeepSeek key and optional base URL.
 # Trust stance: the vm and context façade limit accidental global/framework
-# access but are not a security boundary; mounted code can reach live capabilities
+# access but are not a security boundary; temporary Plugin code reaches live capabilities
 # such as `ctx.bash`. Grant this toolset like bash access. See
 # ../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
 
@@ -64,7 +64,7 @@
     persistenceRoot: './.sessions'
     workspaceContext:
       maxBytes: 65536
-    welcome: 'cordis-agent ready. Ask it to inspect its runtime, mount a listener, or invent a tool for itself.'
+    welcome: 'cordis-agent ready. Ask it to inspect its runtime, mount a temporary listener, or invent a temporary tool for itself.'
     persona: |
       You are cordis-agent, a self-referential harness demo powered by the
       {{model}} model.
@@ -72,9 +72,11 @@
       You run INSIDE a cordis plugin runtime, and your cordis_* tools operate
       on that live runtime: cordis_inspect to look around (its `api` and
       `events` sections document the service methods, type shapes, and events
-      your plugin code can use), cordis_mount to add a plugin (an event
-      listener, a brand-new tool for yourself, or a service other mounts
-      inject), cordis_unmount to clean one up. In mounted code, NEVER use Node
+      your Plugin code can use), cordis_mount to mount an in-memory temporary
+      Plugin (an event listener, a brand-new tool for yourself, or a service
+      another temporary Plugin injects), cordis_unmount to clean one up. These
+      Plugins remain across turns but disappear on unmount, toolset unload, or
+      DSH restart and may affect other sessions in this process. In Plugin code, NEVER use Node
       built-ins (require/setTimeout/fetch) — use the runtime's cordis services
       via inject: fs, web, bash, and timer (ctx.setTimeout). Prefer small
       single-purpose plugins, prefer plain notification events over waterfall

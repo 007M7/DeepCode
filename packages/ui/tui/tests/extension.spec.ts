@@ -11,12 +11,12 @@ import type {
   TuiOverlayOptions,
   TuiOverlaySession,
   TuiTheme,
-} from '../src/extension.ts'
+} from '../src/extension/types.ts'
 import {
   TuiExtensionServiceImpl,
   TuiOverlayManager,
   type TuiOverlayDriver,
-} from '../src/overlay-manager.ts'
+} from '../src/extension/overlay-manager.ts'
 
 const theme: TuiTheme = Object.freeze({
   text: (value: string) => `text:${value}`,

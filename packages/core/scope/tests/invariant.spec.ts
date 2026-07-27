@@ -55,6 +55,8 @@ describe('scoped-dispatch invariants', () => {
         1,
         new Error('request'),
         { message: 'request', code: 'UNKNOWN' },
+        [],
+        undefined,
         signal,
         () => Promise.resolve(undefined),
       ],

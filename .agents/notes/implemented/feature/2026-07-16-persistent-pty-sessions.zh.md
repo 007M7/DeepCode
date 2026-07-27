@@ -72,13 +72,13 @@ UI 渲染契约精确且不携带位置信息。`terminal_send` 只为前台发�
 
 ### 本地就绪检测
 
-本地后端先识别受控 bash 启动时发出的私有 OSC prompt marker，并且只有在该 marker 后出现可打印的 prompt 文本时才据此声明 prompt 就绪；除此之外，它还运行 3 个有界 fallback 层级。在 data callback 之间保留这项状态，可以适配 macOS 分开交付 OSC marker 与 `PS1` 的情况；单独的 marker 不会发布空 MOTD。marker 在输出到达模型前被移除，使两个平台上的普通 shell 命令都无需固定等待静默阈值。尚未发布的 startup 不会把零输出静默视为就绪；timeout 会拒绝 spawn。若调用方取消在 startup 期间胜出，后端会关闭私有会话并原样抛出 `AbortSignal.reason`；尚不可观察的前台 PGID 不会再用查找错误覆盖取消原因。所有时间参数都是经校验的配置字段：`pollIntervalMs`、`exactProbeAfterMs`、`idleSilenceMs` 和 `timeoutMs`。
+本地后端先识别受控 bash 启动时发出的私有 OSC prompt marker，并且只有在该 marker 后出现可打印的 prompt 文本时才据此声明 prompt 就绪；除此之外，它还运行 3 个有界 fallback 层级。在 data callback 之间保留这项状态，可以适配 macOS 分开交付 OSC marker 与 `PS1` 的情况；单独的 marker 不会发布空 MOTD。marker 在输出到达模型前被移除，使两个平台上的普通 shell 命令都无需固定等待静默阈值。尚未发布的 startup 不会把零输出静默视为就绪；timeout 会拒绝 spawn。若调用方取消在 startup 期间胜出，后端会关闭私有会话并原样抛出 `AbortSignal.reason`；尚不可观察的前台 PGID 不会再用查找错误覆盖取消原因。所有时间参数都是经校验的配置字段：`pollIntervalMs`、`exactProbeAfterMs`、`idleSilenceMs`、`handoffGraceMs` 和 `timeoutMs`。
 
 在 Linux 上，检查器从 `/proc/<shellPid>/stat` 读取 shell 的终端前台 PGID，枚举该进程组中的每个进程与线程，并检查它们当前的 syscall。Tier 1 只有观察到 stdin 等待才返回正结果：直接 `read(0)`、获准读取且含 fd 0 的 `select`/`pselect6` 或 `poll`/`ppoll` 参数，或者含 fd 0 的 epoll interest list。无法读取的进程内存和未识别的 syscall 都是 miss，绝不作为正向猜测。架构表只包含对应 Linux UAPI 定义的 syscall number；不支持的架构跳过 Tier 1。
 
 macOS 没有精确 syscall 层。任何前台进程组输出静默都会返回 `inferred_idle`，包括 Python 和 `gdb`；从 `ps` 推导的终端 PGID 只用于发送信号，不作为「只有 shell 才能 idle」的证明。纯进程检查逻辑可注入并在 Linux 上完成 unit 覆盖率，同时由 macOS CI job 驱动真实 PTY 和进程表路径。
 
-Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 sleep 或网络阻塞的命令可能看似 ready。Tier 3 在 `timeoutMs` 后返回 `timeout`，避免前台工具调用无限占住 agent。结果保留这些区别；调用方可以通过 `ctx.tasks` 等待、向前台组发信号，或从另一个会话排查。
+Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 sleep 或网络阻塞的命令可能看似 ready。如果此前已经见过 prompt marker，Tier 2 会再等待 `handoffGraceMs`，使恰好落在静默边界上的 bash 前台交接仍然以精确的 `stdin_read` 归因结束，而不是退到较弱的推断；该宽限是由部署方拥有的配置字段，并被校验为至少覆盖一个 `pollIntervalMs`——短于轮询周期的宽限装不下一次就绪轮询，因此不可能改变任何结果。它只约束见过 marker 的 send，代价是这一种情况的交互返回延迟，而不是每一次 send。Tier 3 在 `timeoutMs` 后返回 `timeout`，避免前台工具调用无限占住 agent。结果保留这些区别；调用方可以通过 `ctx.tasks` 等待、向前台组发信号，或从另一个会话排查。
 
 一次 send 在任一层级 settle 之后，`PtySendOperation.append` 就不再接受输出，此后子进程的输出不会再进入那个已 settle 的 operation；它仍然会进入 scrollback，以及此时恰好处于活跃状态的任何 send。因此，等待自己所启动的 operation 上出现标记的测试，必须把 `idleSilenceMs` 与 `timeoutMs` 设得高于子进程自身的启动耗时；否则在负载较高的 macOS runner 上，解释器启动会在标记打印之前就结束这次 send。
 
@@ -116,6 +116,7 @@ plugins:
       pollIntervalMs: 50
       exactProbeAfterMs: 150
       idleSilenceMs: 3000
+      handoffGraceMs: 500
       timeoutMs: 30000
       disposeGraceMs: 3000
   '@deepseek-ai/dsh-tool-pty':
@@ -154,7 +155,7 @@ plugins:
 
 ## 验证
 
-- 每文件覆盖率固定 owner 隔离、并发预留、未发布 spawn 的取消与等待式 teardown、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
+- 每文件覆盖率固定 owner 隔离、并发预留、未发布 spawn 的取消与等待式 teardown、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、配置化交接宽限把 idle fallback 顶过一次轮询以及低于 `pollIntervalMs` 时的拒绝、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
 - Linux 进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、僵尸进程静止性、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
 - 真实 `node-pty` 测试在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、在由场景掌控的时间界限内先有意延迟子进程就绪，再对 raw mode 前台进程发送 `SIGINT`、忽略 `SIGTERM` 的子进程，以及 dispose 返回后立即完全停稳。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合。ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果和错误；TUI 快照固定 terminal 与 generic 卡片展示。
@@ -166,6 +167,8 @@ plugins:
 **无需削弱一次性工具即可获得持久终端状态。**Shell 与 REPL 状态可以跨工具调用保留，而 `bash`、`read`、`write` 和 `edit` 继续拥有更窄的校验、审批与回放契约。
 
 **Linux Tier 1 之外的 idle 都是启发式结果。**输出静默无法区分 prompt、sleep 和网络 I/O。类型化结果保留不确定性，有界 timeout、task 等待与信号让模型仍能掌握控制权。
+
+**精确归因与推断归因的边界是延迟取舍，不是可消除的竞态。**归因取决于内核在静默上限到达之前还是之后发布前台交接，因此任何固定宽限都是一次调度上的赌注。`handoffGraceMs` 把这个赌注交给部署配置：调大它可以在慢速或高负载主机上换到精确的 `stdin_read` 归因，代价是见过 prompt marker 之后的交互返回延迟；调小则相反。不应依赖胜负结果的测试断言可观察行为——下一次 send 能正常执行——而不是断言归因路径。
 
 **持久状态可能偏离模型认知。**模型可能忘记 cwd 或活跃 REPL。会话摘要和保留输出有助恢复，但任何 prompt 都无法让状态持久化变成确定行为。
 

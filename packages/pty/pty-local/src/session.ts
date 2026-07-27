@@ -331,11 +331,12 @@ export class LocalPtySession implements PtyBackendSession {
     // A prompt candidate can race bash's foreground handoff, but an interactive
     // child also inherits PROMPT_COMMAND. Silence therefore remains the bound
     // on waiting for shell ownership instead of letting a child marker suppress
-    // readiness until the absolute timeout. One final poll lets a foreground
-    // handoff coincident with that boundary win before the fallback settles.
+    // readiness until the absolute timeout. When a prompt marker was seen, the
+    // configured grace holds the fallback past the silence bound so polls in
+    // that window can observe the foreground handoff and settle as stdin_read.
     const idleFor = Date.now() - this.lastOutputAt
-    const handoffGrace = this.promptSeen ? this.config.pollIntervalMs : 0
-    if (startupHasOutput && idleFor >= this.config.idleSilenceMs && idleFor - this.config.idleSilenceMs >= handoffGrace) {
+    const handoffGrace = this.promptSeen ? this.config.handoffGraceMs : 0
+    if (startupHasOutput && idleFor >= this.config.idleSilenceMs + handoffGrace) {
       this.settleActive('inferred_idle')
       return
     }

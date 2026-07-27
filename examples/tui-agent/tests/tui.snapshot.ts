@@ -2,7 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -26,7 +26,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
-import { createTuiChat, FILE_REFERENCE_PROMPT } from '@deepseek-ai/dsh-tui'
+import { createTuiChat, FILE_REFERENCE_PROMPT, TuiPromptService } from '@deepseek-ai/dsh-tui'
 import LocalSpillStore from '@deepseek-ai/dsh-spill-local'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -227,6 +227,7 @@ async function mountScenarioContext(
   await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
   await ctx.plugin(UserInteractionService)
+  await ctx.plugin(TuiPromptService)
   // todo_write is opt-in: only the todo-plan scenario mounts it, matching the shipped
   // config that omits it. The other scenarios prove the default todo-free composition.
   if (scenario.enableTodo === true) await ctx.plugin(ToolTodo)
@@ -264,6 +265,7 @@ interface ScenarioResult {
 }
 
 async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 12, 0, 0).getTime())
   const dir = scenarioDir(scenario)
   const fixtureFile = join(dir, 'session.jsonl')
   const childFiles = childFixturePaths(scenario)
@@ -296,7 +298,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     const agent: Agent = handle.agent
     controller = createTuiChat(ctx, {
       sessionId: 'main-session',
-      color: true,
+      theme: { color: true },
       showReasoning: true,
       title: 'DSH TUI snapshot',
       welcome: `Recorded replay: ${scenario.name}`,
@@ -406,6 +408,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     await ctx?.fiber.dispose()
     await terminal.dispose()
     await rm(cwd, { recursive: true, force: true })
+    clock.mockRestore()
   }
 }
 
