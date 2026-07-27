@@ -234,7 +234,7 @@ describe('request stability across the loop', () => {
     await handle.dispose()
 
     expect(signal.aborted).toBe(true)
-    expect(handle.agent.status).toBe('disposed')
+    expect(handle.agent.status).toBe('idle')
     expect(adapter.requests).toHaveLength(0)
     expect(handle.agent.session.events.some(event => event.type === 'request/header')).toBe(false)
   })
@@ -252,7 +252,9 @@ describe('request stability across the loop', () => {
       }([])
       const ctx = await harness(adapter)
       const errors: Error[] = []
-      ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+      ctx.on('agent/error', (_agent, _turn, _step, error) => {
+        if (error instanceof Error) errors.push(error)
+      })
       const agent = ctx.agentLoop.create(SessionId(`reasoning-${kind}`), {
         provider: 'mock',
         model: 'mock',
@@ -395,7 +397,8 @@ describe('request stability across the loop', () => {
     await waitForIdle(ctx2, agent2)
 
     const snapshots = agent2.session.events.filter(e => e.type === 'request/header')
-    expect(snapshots).toHaveLength(1)
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[1]?.data.reason).toBe('resume')
     // Identical header across the restart: byte-identical continuation.
     expect(adapter2.requests[0]!.system).toEqual(adapter.requests[0]!.system)
     expectPrefixExtension(adapter.requests[0]!, adapter2.requests[0]!)

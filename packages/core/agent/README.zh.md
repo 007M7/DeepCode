@@ -58,7 +58,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 每个插件面向的 handle：
 
-- `agent.send(input, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`input` 是既有的 `UserMessageData { content, source }`，而 `SendOptions` 只要求路由策略 `target` 与 `wakeup`。它返回被接受消息的不透明 `AgentMessageId`，由该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件携带，调用方可据此把排队项与其生命周期关联。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering，而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
+- `agent.send(input, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`input` 是既有的 `UserMessageData { content, source }`，而 `SendOptions` 只要求路由策略 `target` 与 `wakeup`。它返回被接受消息的不透明 `AgentMessageId`，由该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件携带，调用方可据此把排队项与其生命周期关联。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
 - `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
 - `agent.steer(input)`：`next-step`／wakeup 预设：轮次打开时，为其下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；空闲时委托给会唤醒的后续轮次。取消或 dispose 可能丢弃待处理 steering。
 - `agent.inject(input)`：`next-step`／不唤醒预设：追加面向模型的上下文而不运行模型；下一次请求会看到一条逐字的 user role 消息，其来源由必填的 `input.source` 携带。轮次打开时，注入在 outbox 中等待下一个安全边界。空闲时，它立即追加而不开启轮次；持久化独立地响应 `session/event`。注入不发出 `agent/inbox/*` 事件。

@@ -2623,7 +2623,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
       'agent/request',
       0,
       0,
-      explicitResetSeed,
       new AbortController().signal,
       () => Promise.resolve(explicitResetSeed),
     )).resolves.toEqual({ provider: 'alpha', model: 'shared' })
@@ -2660,7 +2659,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
       'agent/request',
       0,
       0,
-      inheritedEffort,
       new AbortController().signal,
       () => Promise.resolve(inheritedEffort),
     )).resolves.toEqual({ provider: 'beta', model: 'shared' })

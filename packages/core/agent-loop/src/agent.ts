@@ -27,7 +27,7 @@ import type {
 import {
   BlockAssembler, LlmError, assertNever, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { Session, SessionId, TurnEndReason, TurnTrigger, UserMessageData } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -68,6 +68,8 @@ export class ReactLoopAgent implements Agent {
   /** Whether the session log is owed a matching turn end event. */
   private turnOpen = false
   private stepOpen = false
+  /** Whether this loop instance has appended its initial/resume request anchor. */
+  private requestHeaderLogged = false
 
   constructor(
     private loopCtx: Context,
@@ -445,11 +447,13 @@ export class ReactLoopAgent implements Agent {
     this.stepOpen = true
     signal.throwIfAborted()
 
-    const request = await this.buildRequest(turn, step, assembly.tools, system, boundaryMessages, signal)
+    const { request, preparedCall } = await this.buildRequest(
+      turn, step, assembly.tools, system, boundaryMessages, signal,
+    )
 
     const assembler = new BlockAssembler()
     const chunkSeqs: number[] = []
-    const stream = this.loopCtx.llm.stream(request)
+    const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request)
     try {
       for await (const chunk of stream) {
         signal.throwIfAborted()
@@ -518,9 +522,8 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Compose one frozen request: the `agent/request` config waterfall, the
-   * canonical logged header, then the header plus the boundary snapshot,
-   * byte-for-byte.
+   * Compose one frozen request and bind it to the adapter registration that
+   * resolved its exact-model defaults.
    */
   private async buildRequest(
     turn: number,
@@ -529,40 +532,69 @@ export class ReactLoopAgent implements Agent {
     system: string,
     boundaryMessages: Message[],
     signal: AbortSignal,
-  ): Promise<GenerateOptions> {
+  ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
 
-    // Seed from the logged header when the log has one (the log is the
-    // truth, across resumes too), else from agent options; freeze so
-    // listeners must return a replacement.
+    const loggedConfig = session.requestHeader()?.config
+    const initialProvider = this.options.provider ?? ''
+    const initialModel = this.options.model ?? ''
+    const initialConfig: LlmCallConfig = {
+      provider: initialProvider,
+      model: initialModel,
+      ...loggedConfig?.provider === initialProvider
+        && loggedConfig.model === initialModel
+        && loggedConfig.reasoningEffort !== undefined
+        ? { reasoningEffort: loggedConfig.reasoningEffort }
+        : {},
+    }
+    // A loop instance starts from its declared route, restoring only an opaque
+    // effort owned by that exact model. Later steps fold the config it logged.
     const seedConfig: LlmCallConfig = deepFreeze(structuredClone(
-      session.requestHeader()?.config
-      ?? { provider: this.options.provider ?? '', model: this.options.model ?? '' }))
-    const config = await this.loopCtx.waterfall(
+      this.requestHeaderLogged
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- a logged instance anchor guarantees the fold
+        ? session.requestHeader()!.config
+        : initialConfig,
+    ))
+    const proposedConfig = await this.loopCtx.waterfall(
       agentCarrier(this), 'agent/request', this, turn, step, signal,
       () => Promise.resolve(seedConfig),
     )
     signal.throwIfAborted()
-    if (!config.provider || !config.model) {
+    if (!proposedConfig.provider || !proposedConfig.model) {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
     }
+    let config: LlmCallConfig
+    let preparedCall: PreparedLlmCall | undefined
+    try {
+      preparedCall = await this.loopCtx.llm.prepareCall(proposedConfig, signal)
+      config = preparedCall.config
+    } catch (error: unknown) {
+      // A llm/stream listener may own and short-circuit a route with no
+      // adapter. Terminal dispatch still raises NO_ADAPTER when none does.
+      if (!(error instanceof LlmError) || error.code !== 'NO_ADAPTER') throw error
+      config = proposedConfig
+    }
+    signal.throwIfAborted()
 
     const header = canonicalHeader({
       config,
       ...system ? { system } : {},
       ...tools.length > 0 ? { tools } : {},
     })
-    // Log the header the request will use only when it differs
-    // from the folded baseline — reconstruction folds the log, so an
-    // unchanged header needs no new snapshot.
     const baseline = session.requestHeader()
-    if (baseline === undefined || !headerEquals(baseline, header)) {
-      session.append('request/header', { header, reason: baseline === undefined ? 'initial' : 'change' })
+    if (!this.requestHeaderLogged) {
+      session.append('request/header', { header, reason: baseline === undefined ? 'initial' : 'resume' })
+      this.requestHeaderLogged = true
+    } else if (baseline === undefined || !headerEquals(baseline, header)) {
+      session.append('request/header', { header, reason: 'change' })
     }
 
-    return markAgentLoopRequest(deepFreeze({
+    const request = markAgentLoopRequest(deepFreeze({
       provider: header.config.provider,
       model: header.config.model,
+      ...header.config.reasoningEffort !== undefined
+        ? { reasoningEffort: header.config.reasoningEffort }
+        : {},
       messages: boundaryMessages,
       ...header.system !== undefined ? { system: header.system } : {},
       ...header.tools !== undefined ? { tools: header.tools } : {},
@@ -572,6 +604,7 @@ export class ReactLoopAgent implements Agent {
       sessionId: session.id,
       signal,
     }))
+    return { request, ...preparedCall === undefined ? {} : { preparedCall } }
   }
 
   /** Commit the outbox and report whether it contained steering. */

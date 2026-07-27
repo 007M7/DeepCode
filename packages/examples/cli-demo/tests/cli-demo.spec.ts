@@ -35,6 +35,7 @@ async function mount(config: cliDemo.Config, withBash = false): Promise<Context>
     })
   }
   contexts.push(ctx)
+  config.persistenceRoot ??= await mkdtemp(join(tmpdir(), 'dsh-cli-demo-persistence-'))
   await ctx.plugin(cliDemo, config)
   await new Promise(resolve => setTimeout(resolve, 80))
   return ctx
