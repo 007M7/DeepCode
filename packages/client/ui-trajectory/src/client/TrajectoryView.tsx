@@ -12,9 +12,10 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
   const nodes = useSession((s) => s.nodes)
   const partial = useSession((s) => s.partial)
   const runningCalls = useSession((s) => s.runningCalls)
+  const codeDispatches = useSession((s) => s.codeDispatches)
   const turns = useMemo(
-    () => deriveTrajectoryLayout({ nodes, partial, runningCalls }),
-    [nodes, partial, runningCalls],
+    () => deriveTrajectoryLayout({ nodes, partial, runningCalls, codeDispatches }),
+    [nodes, partial, runningCalls, codeDispatches],
   )
   if (turns.length === 0) {
     return <div className={css.root}><p className={css.empty}>暂无轨迹数据</p></div>

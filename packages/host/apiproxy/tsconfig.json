@@ -36,6 +36,12 @@
       "path": "../../session-title/session-title"
     },
     {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../ui/commands"
+    },
+    {
       "path": "../../ui/user-approval"
     },
     {

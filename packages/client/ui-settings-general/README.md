@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-settings-general
 
+English | [中文](README.zh.md)
+
 Settings ownerless-copy plugin: registers everything on the Settings surface that belongs to no single feature — the shell's trigger/header/close chrome content, the General section (Permission/Tool Call skeleton rows + the `settings.general.item` slot declaration), and the `settings` dictionaries. Feature-owned rows (Language, Appearance) and sections (Models) stay with their feature packages.
 
 ## Model Experience

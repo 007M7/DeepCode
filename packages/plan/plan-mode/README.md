@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-plan-mode
 
+English | [中文](README.zh.md)
+
 Logged, per-agent plan collaboration state with deployment-owned guidance, direct `/plan [message]` entry and `/plan off` exit commands, and the reviewed `exit_plan_mode` exit. Plan mode is soft guidance; sandbox mode and approval policy remain independent enforcement axes.
 
 ## Durable state

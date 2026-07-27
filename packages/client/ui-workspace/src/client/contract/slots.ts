@@ -22,8 +22,12 @@ import type { createWorkspaceViewStore } from '../stores.ts'
  * browsing region drives.
  */
 export type WorkspaceBrowserInjected = {
-  /** Start or replace the current frontend Session Intent. */
-  startSession: (workspaceId?: WorkspaceId, prompt?: string) => void
+  /**
+   * Start a New Session in a Workspace: reuse-or-create its blank session
+   * and open it; with no workspace, clear the selection into the New Session
+   * pure view state (the conversation.empty seat).
+   */
+  startSession: (workspaceId?: WorkspaceId) => void
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
   /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
@@ -54,6 +58,10 @@ export type WorkspacePickerInjected = {
   createWorkspace(input: { name: string } | { path: string }): Promise<WorkspaceView>
 }
 
-/** Full picker props: the empty-state owner share plus the creation callback. */
+/**
+ * Full picker props: the owner share plus the creation callback. The two
+ * picker holes (blank-session hero / New-Session view) share one owner
+ * currency, so one composed type serves both registrations.
+ */
 export type WorkspacePickerProps =
-  PropsRuntime<'conversation.empty.workspace'> & WorkspacePickerInjected
+  PropsRuntime<'conversation.hero.workspace'> & WorkspacePickerInjected

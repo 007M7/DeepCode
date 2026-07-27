@@ -113,7 +113,7 @@ It keeps the interface/implementation/consumer discipline, consumer-never-import
 
 ## Later extension
 
-The seam was later extended with direct directory listing by [Add direct directory listing to the filesystem seam](../architecture/2026-07-03-filesystem-directory-listing-seam.md). That follow-up is tracked separately so this Agent Note's acceptance criteria continue to describe the fsspec-style refit that originally shipped.
+The seam was later extended with direct directory listing by [Add direct directory listing to the filesystem seam](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md). That follow-up is tracked separately so this Agent Note's acceptance criteria continue to describe the fsspec-style refit that originally shipped.
 
 ## Alternatives considered
 

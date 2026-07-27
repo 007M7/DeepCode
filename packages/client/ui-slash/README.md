@@ -1,0 +1,26 @@
+# @deepseek-ai/dsh-client-ui-slash
+
+English | [中文](README.zh.md)
+
+Input trigger pipeline plugin: `/` and `@` detection under the caret (word-boundary + guard-tier rules), the grouped candidate menu, and pick routing to registered sources. `ctx.slash` owns the source roster and resolves one `SlashController` per session scope (`sessionOf`); the conversation wiring layer drives `track`/`arbitrate`/`onSpace`/`adjudicate` on the controller. Sources receive a `ClientSessionContext` projection per call — sessions are always agent-backed, so the projection is the session identity alone and the roster is warmed once at scope birth. The pipeline is command-agnostic: space/enter adjudication polls the optional `matchSpace`/`matchEnter` hooks in registration order and the first non-undefined answer wins.
+
+Layering: `src/core/` (T2) is the pure core — `detectTrigger`, `menuReduce`/`seedGroups`/`MENU_CLOSED`, `exactMatch`, zero React/DOM/cordis; `src/client/service.ts` is the shell wiring the core to the menu snapshot store, the per-hit candidate fetch (generation-gated, `AbortSignal`-superseded, failed sources drop silently with a console record), and the three pick paths. `src/types.ts` and the two `contract.ts` files are the frozen cross-package contract (design v4 §5.1); changes require main-thread arbitration.
+
+MenuView renders the menu store into the `conversation.input.overlay` slot (list kind, session scope) and renders null while closed. The slot is owned by ui-conversation's composer entry (anchor, children declaration, lifecycle); its SlotMap type merge lives in this package's `src/client/slots.ts` because the dependency direction (ui-conversation → ui-slash) admits no reverse type import. Combobox pattern: focus stays in the textarea, rows pick on mousedown, the highlight rides `aria-activedescendant`.
+
+The `/client` export surface is the plugin body (`apply`/`inject`), `SlashService`, `MenuViewInjected`, and the contract types. MenuView itself is internal — the slot registration closes over it.
+
+## Model Experience
+
+None, as the trigger pipeline is browser presentation only — picks produce `CommandClaim`/`ReferenceInsert` data whose model-visible consequences (host command execution; inserted reference text riding an ordinary prompt) are owned by the consuming host and input-machine packages.
+
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
+## Known Limitations and Deferred Work
+
+- **Global source layer only** — session-scope source registration (per-session shadowing, ScopedLayers-alike) is designed but not enabled; the ledger tracks the trigger condition (a real per-session source need).
+- **`SlashCandidate.icon` renders as text** — MenuView drops the string into the icon slot verbatim; wiring to the design-system icon enum (iconFile five-variant family) lands when that enum ships.
+- **Overlay SlotMap merge home is split from slot ownership** — the `conversation.input.overlay` merge lives here (sole copy) while the slot's owner semantics (anchor, children declaration, lifecycle) stay with ui-conversation; the dependency direction (ui-conversation → ui-slash) forces the split, so a future dependency reshuffle should revisit it.
+- **Menu group order is registration order** — no explicit ordering seam across sources; acceptable while the roster is command/skill/subagent, revisit if business sources join.

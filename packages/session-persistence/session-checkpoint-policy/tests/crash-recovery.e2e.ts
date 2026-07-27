@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,16 +18,21 @@ const sessionId = SessionId('semantic-checkpoint-crash')
 const roots: string[] = []
 const CHILD_FAILPOINT_TIMEOUT_MS = 30_000
 
-async function waitForFile(path: string): Promise<void> {
+async function waitForMarker(path: string, expected: string): Promise<string> {
   const deadline = Date.now() + CHILD_FAILPOINT_TIMEOUT_MS
   for (;;) {
     try {
-      await access(path)
-      return
+      const content = await readFile(path, 'utf8')
+      if (content === expected) return content
+      if (!expected.startsWith(content)) {
+        throw new Error(`crash child wrote unexpected failpoint ${JSON.stringify(content)}`)
+      }
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
-    if (Date.now() >= deadline) throw new Error(`crash child did not reach failpoint ${path}`)
+    if (Date.now() >= deadline) {
+      throw new Error(`crash child did not publish failpoint ${JSON.stringify(expected)} at ${path}`)
+    }
     await new Promise(resolve => setTimeout(resolve, 10))
   }
 }
@@ -36,6 +41,9 @@ async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; marker
   const root = await mkdtemp(join(tmpdir(), `dsh-semantic-${mode}-`))
   roots.push(root)
   const marker = join(root, 'failpoint')
+  // Keep the open-before-write window deterministic: readiness is marker content, not path existence.
+  await writeFile(marker, '')
+  const expectedMarker = mode === 'request' ? 'request-dispatched' : 'tool-side-effect'
   const child = spawn(process.execPath, ['--import', tsxLoader, childScript, mode, root, marker], {
     cwd: repoRoot,
     env: { ...process.env, TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json') },
@@ -45,8 +53,7 @@ async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; marker
   child.stderr.setEncoding('utf8')
   child.stderr.on('data', (chunk: string) => { stderr += chunk })
   try {
-    await waitForFile(marker)
-    const markerText = await readFile(marker, 'utf8')
+    const markerText = await waitForMarker(marker, expectedMarker)
     const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.once('close', (code, signal) => { resolve({ code, signal }) })
     })

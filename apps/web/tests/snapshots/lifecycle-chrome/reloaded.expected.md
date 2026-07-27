@@ -1,0 +1,21 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Reply with the single word" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: Reply with the single word LIGHTHOUSE and stop.
+- button "Think The user wants me to reply with a single word. Let me comply.":
+  - img
+  - text: Think The user wants me to reply with a single word. Let me comply.
+- paragraph: LIGHTHOUSE
+- text: cache hit 99% · 7,810 tokens · 1 turns · 1 steps
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- button "Send message" [disabled]

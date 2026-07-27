@@ -1,0 +1,54 @@
+# @deepseek-ai/dsh-session-title
+
+[English](README.md) | 中文
+
+由日志支持的会话标题，提供即时确定性回退与一个可选异步提供方。每个已接受 revision 都是仅写入日志的 `session/title` 事件；`foldSessionTitle()` 与 `ctx.sessionTitle.get()` 会选择最新事件，并返回其事件 seq 和时间戳。
+
+只有用户 `user/message` 事件中的文本块符合条件。第一条符合条件的提示词会安排回退，从其开头若干词生成标题，并受所配置 UTF-8 字节上限约束。系统会规范化空白、移除终端控制序列，且截断绝不会切断 code point。空提示词和非文本提示词会等待后续符合条件的输入。
+
+## 服务：`SessionTitleService`（ctx 键：`sessionTitle`）
+
+- `get(session)` 从活跃或回放日志折叠最新已接受标题。
+- `refresh(session, signal?)` 在需要时物化回退，然后显式运行已注册提供方，处理当前符合条件的消息。提供方错误与调用方取消会 reject；取消不会回滚已经进入持久化流程的回退追加。
+- `register(provider)` 安装唯一可选提供方，并返回可等待的 Cordis effect disposer。第二次注册会立即抛出；资源释放会中止待处理和活跃调用，等待其结算，之后才允许注册另一个提供方。
+
+自动工作绝不会延迟主 agent 响应。只有当带标记、由循环构建的请求，其确切路由与当前已记录的 `request/header` 匹配时，提供方才会启动；即使 header 未变而无需新快照，也适用此规则。延迟完成会加入开放轮次，或使用已经 flush 的零步骤 `session-title` 轮次，并通过 `ctx.sessions.appendOutOfBand()` 追加。自动失败会发出警告并保留最新标题。新的全消息 revision、提供方资源释放、会话资源释放和显式刷新都会中止旧工作，陈旧完成值无法追加。并发显式刷新会在等待回退持久化前预留顺序；重叠的自动／显式回退请求共享一个会话本地进行中追加。服务与随附模型提供方记录使用 `appendSessionTitleOutOfBand()`，共享逐会话结算队列，因此替换请求记录会等待更早标题写入，但无需串行等待被取代的模型调用本身。服务 teardown 会取消排队工作，并在卸载完成前排空忽略取消的调用。
+
+Fork 会原样继承 seed 中的标题事件。首消息节奏不会自动为子会话重新生成标题；全消息节奏可以在子会话收到后续用户提示词后追加新 revision。
+
+## 配置
+
+所有上限都是必填项；该库不提供默认值。
+
+| 键 | 契约 |
+|---|---|
+| `fallbackMaxWords` | 确定性回退中以空白分隔的最大正整数词数。 |
+| `fallbackMaxBytes` | 回退允许的最大正整数 UTF-8 字节数；不得超过 `maxTitleBytes`。 |
+| `maxTitleBytes` | 接受任何来源标题的最大正整数 UTF-8 字节数。 |
+
+## 提供方契约
+
+提供方会提供品牌化稳定 id、自动模式（`first-message` 或 `all-user-messages`）和 `generate(request)`。请求携带活跃会话、截至一个固定 revision 的所有符合条件消息、可用时当前已记录的主请求路由，以及取消信号。结果包含非空标题、该请求中唯一且有序的来源消息 seq，以及可选模型 provenance。服务会在结果持久化前进行规范化和验证。
+
+参见[会话标题数据结构](../../../docs/core-data-structures/session-title.md)与[已实现决策](../../../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)。
+
+## 模型体验
+
+### 会话标题状态
+
+#### 模型看到的内容
+
+无。`session/title` 只写入日志，绝不会进入会话接口、`deriveMessages()`、系统提示词、工具 schema 或请求前缀。
+
+#### Token 影响
+
+回退与已接受的提供方 revision 不会向主 agent 请求增加 token。可选提供方的独立辅助请求由对应提供方包记录。
+
+#### KV Cache 影响
+
+不影响主请求；标题事件不会改变重建内容或缓存键。
+
+## 已知限制与暂缓工作
+
+- 手动重命名、删除标题、生成标题与用户标题的优先级、搜索和列表索引都不属于此服务。
+- 提供方注册表有意最多接受一个实现，因此部署若要组合相互竞争的标题策略，必须编写一个自行负责优先级的提供方。

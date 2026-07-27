@@ -231,6 +231,34 @@ type ToolExecutionMode =
   | { kind: 'exclusive' }
 ```
 
+Code Mode's bridge additionally exposes each settled sub-dispatch to the `tools/code-dispatch-log` waterfall, which may reshape the durable event's copy of the content (the program's value and the model contract are untouched):
+
+```ts type-equiv
+/**
+ * One settled `run_code` sub-dispatch about to be logged, as seen by the
+ * `tools/code-dispatch-log` waterfall: the parent execution (session owner,
+ * outer call identity), the sub-call identity, and the outcome whose durable
+ * copy a listener may reshape. `content` is the RENDERED result projection
+ * (what a native `tool/result` would carry) — the program itself received
+ * the structured `value` (or just the error message on failure); only the
+ * `tool/code-dispatch` event's copy changes.
+ */
+interface CodeDispatchLog {
+  /** The outer `run_code` execution. */
+  readonly exec: ToolExecution
+  /** The calling agent (the scope routing key and the spill owner), when the outer call has one. */
+  readonly agent?: Agent
+  /** Deterministic sub-call id (`<parent>:code:<n>`). */
+  readonly subCallId: CallId
+  /** The dispatched sub-tool name. */
+  readonly name: string
+  /** Whether the sub-call settled as an error. */
+  readonly isError: boolean
+  /** The sub-call's complete model-facing content (the settle event's default payload). */
+  readonly content: ContentBlock[]
+}
+```
+
 ```ts type-equiv
 /**
  * One pending tool call inside the registry pipeline. Parsed arguments cross
@@ -313,7 +341,7 @@ interface ToolExecutionFailure {
 type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure
 ```
 
-The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity. The canonical `value` is execution-local: the loop persists only `content`, `error`, and `meta`, while `tool/code-dispatch` stores a bounded summary. Replay reproduces presentation but cannot reconstruct intermediate values.
+The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity. The canonical `value` is execution-local: the loop persists only `content`, `error`, and `meta`, while `tool/code-dispatch` stores the sub-call's rendered `content` and `isError` verbatim. Replay reproduces presentation but cannot reconstruct canonical intermediate values.
 
 On success the registry snapshots and validates the body value, freezes it, and invokes the pure renderer plus the optional direct-surface metadata projector. It separately materializes the durable presentation fields immediately before `tools/result`; an invalid value, renderer/projector failure, or non-JSON presentation becomes a JSON-safe `isError`. The final live observer therefore sees the exact execution-local value beside fields safe for the later durable append.
 

@@ -1,12 +1,22 @@
 /** Conversation slot declarations and their composed component props. */
-import type { RefObject } from 'react'
-import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ReactNode, RefObject } from 'react'
+import type {
+  MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
+} from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConversationSnapshot, PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ComposerKeyboard, InputActions, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /**
+     * Strict-session content inside the resident conversation shell. This
+     * subtree owns the per-session chat store, header, and view ring and is
+     * remounted when the current session id changes.
+     */
+    'conversation.session': { kind: 'single'; scope: 'session'; owner: ConversationSessionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
      * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
@@ -31,9 +41,83 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * zero owner changes.
      */
     'conversation.composer': { kind: 'chain'; scope: 'session'; owner: ComposerChainProps }
-    /** Shared Workspace picker hole used by the page-local Session Intent hero. */
-    'conversation.empty.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
+    /**
+     * The hero-phase Workspace picker hole: rendered by ConversationRoot
+     * while the session is blank (picking another workspace switches to that
+     * workspace's blank session, draft carried). Root scope: the picker
+     * reads the global workspace list.
+     */
+    'conversation.hero.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
+    // 'conversation.input.overlay' merges in ui-slash (dedup ruling: the
+    // dependency direction is the hard constraint — ui-slash cannot import
+    // this package, while this package's input contract already imports
+    // ui-slash, so the type arrives transitively). The runtime declaration
+    // (children table in apply.ts) stays here with the other input slots.
+    /**
+     * Stacked strip above the input (queue rows / GoalBar / attachments;
+     * design §6 MIX evidence: entries coexist in fixed order).
+     */
+    'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
+    /** The composer top-edge band (stats line family). */
+    'conversation.composer.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
+    /** Tool-row left region inside the input card (existing chrome stays in place beside entries). */
+    'conversation.input.left': { kind: 'list'; scope: 'session'; owner: InputZone }
+    /** Tool-row right region inside the input card. */
+    'conversation.input.right': { kind: 'list'; scope: 'session'; owner: InputZone }
+    /**
+     * The default composer body: a single slot rendered as the composer
+     * chain's fallback (decision 20 — a real entry, not a chain rider, so a
+     * takeover election hides rather than unmounts it and the textarea DOM
+     * survives). InputBar registers here from this package's apply; its
+     * machine state arrives through the standard provide channel (useInput +
+     * inputActions), the keyboard command face through its own inject.
+     */
+    'conversation.composer.bar': { kind: 'single'; scope: 'session'; owner: ComposerBarOwnerProps }
+    /**
+     * The Plan-mode control seat in the composer tool row (left group).
+     * Declared by the composer-bar entry; empty until a plan plugin
+     * registers (B ruling: no placeholder fallback).
+     */
+    'conversation.input.plan': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
+    /**
+     * The model-select seat in the composer tool row (right group). Same
+     * empty-until-registered contract as the plan seat.
+     */
+    'conversation.input.model': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
   }
+
+  /**
+   * ui-conversation's members of the session standard kit, provided through
+   * `sessions.provide` (decision 19/20): every session-scope slot component
+   * receives the input machine's state hook and the two public actions.
+   */
+  interface SessionStandardProps {
+    /** Selector hook over the session's live input machine state. */
+    useInput: SnapshotSelectorHook<InputState>
+    /** The public input action face (stable identity per session). */
+    inputActions: InputActions
+  }
+
+  /** Input members for the resident composer while current session is optional. */
+  interface SessionMaybeStandardProps {
+    useInput: MaybeSnapshotSelectorHook<InputState>
+    inputActions: InputActions | undefined
+  }
+}
+
+/** Owner share of the strict session content seat. */
+export interface ConversationSessionOwnerProps {
+}
+
+/**
+ * The input-region slot currency (plan §1.4): dock/left/right entries read
+ * the conversation snapshot and the live input state as owner props (both
+ * are point-in-time snapshots — the dispatching skeleton re-renders on
+ * either store's change, so entries stay current without subscribing).
+ */
+export interface InputZone {
+  readonly session: ConversationSnapshot
+  readonly input: InputState
 }
 
 /**
@@ -87,23 +171,71 @@ export type ChatStore = ReturnType<typeof createChatStore>
 
 /** Business callbacks injected into the conversation slot. */
 export interface ConversationInjected {
+  /**
+   * Connect the selected Workspace and open its reusable/new blank session.
+   * When a blank session is already current, carry its draft to the target.
+   */
+  selectWorkspace(workspaceId: WorkspaceId): void
+}
+
+/** Business callbacks injected into the strict session content seat. */
+export interface ConversationSessionInjected {
   /** Views projected from the `conversation.view` slot ledger. */
   views: {
     list(): readonly ViewTab[]
     subscribe(fn: () => void): () => void
     version(): number
   }
-  /** Send choreography: trims, clears the draft optimistically, restores it on failure. */
-  send(text: string, mode: 'queue' | 'steer'): void
-  /** Cancel the in-flight turn (failure surfaces via snapshot.promptError). */
-  stop(): void
+  /** Bind the input machine's draft persistence mirror to the session store. */
+  bindDraftMirror(write: (text: string) => void): () => void
   /** Select a real Session through the runtime navigation owner. */
   open(sessionId: SessionId): void
-  /** Update the scoped Session's retained prompt. */
-  updateSessionPrompt(text: string): void
-  /** Retry the scoped Session's retained prompt. */
-  retrySessionPrompt(): void
 }
+
+/**
+ * Owner share of the composer-bar slot: ConversationRoot's layout-phase
+ * inputs plus the input-region child-slot content it renders (the region
+ * slots stay declared/rendered by the conversation entry; the bar hosts the
+ * results as chrome).
+ */
+export interface ComposerBarOwnerProps {
+  /** Hero = empty-state centered card; composer = resident bottom bar. */
+  variant: 'hero' | 'composer'
+  placeholder?: string
+  /** Optional content rendered above the textarea. */
+  accessory?: ReactNode
+  /** Floating overlay anchor content (menu / popup shell entries), rendered inside the card. */
+  overlay?: ReactNode
+  /** input.left slot entries (tool row, beside the resident chrome). */
+  leftItems?: ReactNode
+  /** input.right slot entries (tool row, before the primary button). */
+  rightItems?: ReactNode
+  onAdd?: () => void
+  addLabel?: string
+}
+
+/** Injected share of the composer-bar entry (package-internal faces). */
+export interface ComposerBarInjected {
+  /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane). */
+  keyboard: ComposerKeyboard
+  /** Cancel the in-flight turn. */
+  stop(): void
+}
+
+/**
+ * Owner share of the two named composer control seats (plan / model): the
+ * bar passes its disable state; the filling entry owns everything else.
+ */
+export interface InputControlOwnerProps {
+  /** Session-removed lock (the bar's chrome disable state). */
+  locked: boolean
+}
+
+/** Full composer-bar component props: standard kit & owner share & control-seat render share & injected share. */
+export type ComposerBarProps =
+  PropsRuntime<'conversation.composer.bar'>
+  & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model'>
+  & ComposerBarInjected
 
 /**
  * Composer chain currency: what ConversationRoot dispatches at its
@@ -116,10 +248,26 @@ export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
 }
 
-/** Full conversation-slot component props: runtime & child-render (view ring + composer chain) & store & injected shares. */
+/**
+ * Full conversation-slot component props: runtime & child-render (view ring
+ * + composer chain/bar + input-region + hero picker slots) & store & injected shares.
+ */
 export type ConversationSlotProps =
-  PropsRuntime<'conversation'> & PropsRenderSlots<'conversation.view' | 'conversation.composer'>
-  & PropsStore<ChatStore> & ConversationInjected
+  PropsRuntime<'conversation'> & PropsRenderSlots<
+    | 'conversation.session' | 'conversation.composer' | 'conversation.composer.bar'
+    | 'conversation.input.overlay'
+    | 'conversation.input.dock' | 'conversation.composer.dock'
+    | 'conversation.input.left' | 'conversation.input.right'
+    | 'conversation.hero.workspace'
+  >
+  & ConversationInjected
+
+/** Full strict-session content props: per-session store, view ring, and callbacks. */
+export type ConversationSessionSlotProps =
+  PropsRuntime<'conversation.session'>
+  & PropsRenderSlots<'conversation.view'>
+  & PropsStore<ChatStore>
+  & ConversationSessionInjected
 
 /**
  * Injected share of the chat view entry: the two callbacks whose targets live
@@ -148,24 +296,10 @@ export interface DetailsInjected {
 /** Full details-slot component props: selection arrives through the shared store, call material through useSession. */
 export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected
 
-/** Owner share common to the empty hero's Workspace picker. */
+/** Owner share common to the hero / New-Session Workspace pickers. */
 export interface EmptyWorkspaceOwnerProps {
   open: boolean
   anchorRef?: RefObject<HTMLElement>
   onPick(workspaceId: WorkspaceId): void
   onClose(): void
 }
-
-/** Runtime-owned actions injected into the empty-state occupant. */
-export interface EmptyStateInjected {
-  /** Replace the current Session intent, optionally preserving a prompt while retargeting. */
-  startSession(workspaceId?: WorkspaceId, prompt?: string): void
-  /** Update the current Session intent's controlled prompt. */
-  updateSessionPrompt(text: string): void
-  /** Materialize and send the current Session intent. */
-  sendSession(): void
-}
-
-/** Full empty-state component props: runtime projections, picker child slot, and injected actions. */
-export type EmptyStateSlotProps =
-  PropsRuntime<'conversation.empty'> & PropsRenderSlots<'conversation.empty.workspace'> & EmptyStateInjected

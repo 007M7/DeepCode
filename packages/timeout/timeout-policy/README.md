@@ -1,5 +1,7 @@
 # dsh-timeout-policy
 
+English | [中文](README.zh.md)
+
 Tool-call timeout enforcer: a single `tools/execute` around-dispatch listener that arms a per-call cooperative deadline on `exec.signal` for a tool declaring `timeoutMs` on its `ToolDefinition` and returns a structured `TOOL_TIMEOUT` result when that deadline wins. The budget is read from the tool's own declaration (`ToolDefinition.timeoutMs`, set by the owning tool plugin), so this plugin is **zero-config**. It is the reference `tools/execute` wrapper and the enforcement home for model-facing tool-call budgets (the timeout-library Agent Note's foreseen middleware).
 
 ## Plugin (namespace: `timeout-policy`)
