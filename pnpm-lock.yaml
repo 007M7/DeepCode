@@ -35,6 +35,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.8
         version: 4.1.8(vitest@4.1.8)
+      '@yarnpkg/cli-dist':
+        specifier: 4.17.1
+        version: 4.17.1
       eslint:
         specifier: ^10.4.1
         version: 10.5.0(jiti@2.7.0)
@@ -7468,6 +7471,11 @@ packages:
   '@xterm/headless@5.5.0':
     resolution: {integrity: sha512-5xXB7kdQlFBP82ViMJTwwEc3gKCLGKR/eoxQm4zge7GPBl86tCdI0IdPJjoKd8mUSFXz5V7i/25sfsEkP4j46g==}
 
+  '@yarnpkg/cli-dist@4.17.1':
+    resolution: {integrity: sha512-2tiSQuJNl/L3QwTdrq6lKWDpkcnp9MGvCT/rIldHcbu3SWfnLdmehvt3eulX1hT7FFt1Gjfq3CesF+kvhFip6g==}
+    engines: {node: '>=18.12.0'}
+    hasBin: true
+
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
@@ -12363,6 +12371,8 @@ snapshots:
       - typescript
 
   '@xterm/headless@5.5.0': {}
+
+  '@yarnpkg/cli-dist@4.17.1': {}
 
   accepts@2.0.0:
     dependencies:
