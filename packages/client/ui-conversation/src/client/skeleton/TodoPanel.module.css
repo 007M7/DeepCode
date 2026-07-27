@@ -54,6 +54,15 @@
   white-space: nowrap;
 }
 
+/* The parallel-active count sits outside .activeHint's ellipsis: a count
+   appended to a long task name would be the first thing clipped. */
+.activeExtra {
+  flex: none;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .chevron {
   display: grid;
   flex: none;

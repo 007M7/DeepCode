@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * Todo display acceptance: the shared plan model (counts + the one-line active
- * hint, which carries `+N` once parallel work marks several items in_progress),
- * the TodoPanel plan strip (empty-hidden, status rows, collapse with active
+ * Todo display acceptance: the shared plan model (counts plus the two halves of
+ * the one-line active hint — the named task and the `+N` count that parallel
+ * work adds, kept apart so neither surface ellipsizes the count away), the
+ * TodoPanel plan strip (empty-hidden, status rows, collapse with active
  * hint), its TodoDock adapter (selects the plan off the session snapshot and
  * follows changes), and the todo_write toolview row (progress summary from
  * args, generic fallback on malformed JSON, error badge, keyboard activation).
@@ -37,30 +38,32 @@ const PARALLEL: TodoItem[] = [
 ]
 
 describe('planSummary', () => {
-  it('counts done/total and names the single active item verbatim', () => {
-    expect(planSummary(LIST)).toEqual({ done: 1, total: 3, activeHint: '写组件' })
+  it('counts done/total and names the single active item with no extra count', () => {
+    expect(planSummary(LIST)).toEqual({ done: 1, total: 3, activeContent: '写组件', activeExtra: 0 })
   })
 
-  it('suffixes the extra active count when several items are in progress', () => {
-    // Parallel work marks several: naming one and hiding the rest would lose them.
-    expect(planSummary(PARALLEL)).toEqual({ done: 1, total: 5, activeHint: '写组件 +2' })
+  it('reports the extra active count separately when several items are in progress', () => {
+    // Parallel work marks several: naming one and hiding the rest would lose
+    // them, and the count stays unjoined so neither surface can ellipsize it.
+    expect(planSummary(PARALLEL)).toEqual({ done: 1, total: 5, activeContent: '写组件', activeExtra: 2 })
   })
 
   it('has no hint when nothing is in progress', () => {
     expect(planSummary([{ content: '都完了', status: 'completed' }]))
-      .toEqual({ done: 1, total: 1, activeHint: null })
+      .toEqual({ done: 1, total: 1, activeContent: null, activeExtra: 0 })
   })
 
   it('has no hint when the first active item carries no usable content (model JSON)', () => {
-    // Unvalidated args: a missing, mistyped, or empty content yields no hint,
-    // even with a second active item that would otherwise supply the count.
-    expect(planSummary([{ status: 'in_progress' }, { content: 'x', status: 'in_progress' }]).activeHint).toBeNull()
-    expect(planSummary([{ content: 42, status: 'in_progress' }]).activeHint).toBeNull()
-    expect(planSummary([{ content: '', status: 'in_progress' }]).activeHint).toBeNull()
+    // Unvalidated args: a missing, mistyped, or empty content yields no hint —
+    // and no orphan count, even with a second active item to count.
+    expect(planSummary([{ status: 'in_progress' }, { content: 'x', status: 'in_progress' }]))
+      .toMatchObject({ activeContent: null, activeExtra: 0 })
+    expect(planSummary([{ content: 42, status: 'in_progress' }]).activeContent).toBeNull()
+    expect(planSummary([{ content: '', status: 'in_progress' }]).activeContent).toBeNull()
   })
 
   it('is empty-safe', () => {
-    expect(planSummary([])).toEqual({ done: 0, total: 0, activeHint: null })
+    expect(planSummary([])).toEqual({ done: 0, total: 0, activeContent: null, activeExtra: 0 })
   })
 })
 
@@ -98,10 +101,15 @@ describe('TodoPanel', () => {
     expect(statuses.filter(s => s === 'in_progress')).toHaveLength(3)
     expect(screen.getByText('跑后台构建')).toBeTruthy()
     expect(screen.getByText('读源码')).toBeTruthy()
-    // Collapsed: the hint reports the other two rather than dropping them.
+    // Collapsed: the hint reports the other two rather than dropping them, and
+    // the count lives in its own element — the task-name span is the one that
+    // ellipsizes, so a joined "写组件 +2" would lose the count on a narrow view.
     fireEvent.click(screen.getByRole('button', { expanded: true }))
     expect(screen.queryByRole('list')).toBeNull()
-    expect(screen.getByText('写组件 +2')).toBeTruthy()
+    const name = screen.getByText('写组件')
+    const extra = screen.getByText('+2')
+    expect(extra).not.toBe(name)
+    expect(name.contains(extra)).toBe(false)
   })
 
   it('collapsed header omits the hint when nothing is in progress', () => {
@@ -162,9 +170,13 @@ describe('TodoRow', () => {
     expect(screen.getByText('1/3 已完成 · 写组件')).toBeTruthy()
   })
 
-  it('reports the extra active count when the written list runs several tasks', () => {
-    render(<TodoRow {...rowProps(resultNode(JSON.stringify({ todos: PARALLEL })))} />)
-    expect(screen.getByText('1/5 已完成 · 写组件 +2')).toBeTruthy()
+  it('reports the extra active count outside the ellipsized summary text', () => {
+    const { container } = render(<TodoRow {...rowProps(resultNode(JSON.stringify({ todos: PARALLEL })))} />)
+    const text = screen.getByText('1/5 已完成 · 写组件')
+    const extra = screen.getByText('+2')
+    // Separate spans: .summary truncates, the count must not travel inside it.
+    expect(text.contains(extra)).toBe(false)
+    expect(container.textContent).toContain('1/5 已完成 · 写组件+2')
   })
 
   it('omits the active clause when no item is in progress and reads running-call args', () => {

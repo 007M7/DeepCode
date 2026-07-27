@@ -8,7 +8,10 @@
 // by the tail history page), including the collapse interaction. The sample
 // plan runs two items in_progress at once, so both surfaces are pinned against
 // a parallel plan — the collapsed one-line hint must account for the second
-// active item instead of naming the first and dropping it.
+// active item instead of naming the first and dropping it. The `+1` reads
+// against the task name with no space because it is a separate non-shrinking
+// span (spaced by the flex `gap`), kept outside the ellipsized text so a narrow
+// viewport clips the task name rather than the count.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -165,7 +168,7 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
           "text": "○浏览器验收",
         },
       ],
-      "row": "☰更新任务清单1/4 已完成 · 实现 fixture 样本 +1",
+      "row": "☰更新任务清单1/4 已完成 · 实现 fixture 样本+1",
       "rowState": "ok",
     }
   `)
@@ -186,7 +189,7 @@ it('collapses the plan strip to the in-progress hint and restores it', async () 
     listGone: panel.querySelector('ul') === null,
   }).toMatchInlineSnapshot(`
     {
-      "collapsedHeader": "Plan1/4实现 fixture 样本 +1",
+      "collapsedHeader": "Plan1/4实现 fixture 样本+1",
       "listGone": true,
     }
   `)

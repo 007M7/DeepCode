@@ -35,6 +35,13 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Parallel-active count, kept out of .summary's ellipsis so a long task name
+   clips before the count that reports the other running tasks. */
+.extra {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .err {
   flex: none;
   color: var(--dsw-alias-state-error-primary);

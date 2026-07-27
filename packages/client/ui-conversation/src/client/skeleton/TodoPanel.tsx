@@ -4,7 +4,8 @@
 // 'conversation.input.dock' slot (QueueDock posture): the dock adapter does
 // the selecting, so the panel takes the plain list and stays framework-free.
 // Several items may be in_progress at once; the collapsed header's one-line
-// hint comes from the shared plan model, which reports the extra active count.
+// hint comes from the shared plan model, which reports the extra active count
+// in its own non-shrinking span so ellipsizing the task name cannot clip it.
 
 import { useState } from 'react'
 import type { Context } from 'cordis'
@@ -28,7 +29,7 @@ export function TodoPanel({ todos }: TodoPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
   if (todos.length === 0) return null
 
-  const { done, activeHint } = planSummary(todos)
+  const { done, activeContent, activeExtra } = planSummary(todos)
 
   return (
     <section className={css.root} data-testid="todo-panel" aria-label="任务清单">
@@ -40,8 +41,11 @@ export function TodoPanel({ todos }: TodoPanelProps) {
       >
         <span className={css.title}>Plan</span>
         <span className={css.progress}>{done}/{todos.length}</span>
-        {collapsed && activeHint !== null && (
-          <span className={css.activeHint}>{activeHint}</span>
+        {collapsed && activeContent !== null && (
+          <>
+            <span className={css.activeHint}>{activeContent}</span>
+            {activeExtra > 0 && <span className={css.activeExtra}>+{activeExtra}</span>}
+          </>
         )}
         <span className={css.chevron} aria-hidden>
           {collapsed ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}

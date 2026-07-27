@@ -1,9 +1,10 @@
 // todo_write toolview: plan-flavored summary row replacing the generic
 // "Tool call" card, registered into the keyed 'conversation.chat.toolview'
 // hole like the bash sample (a product registration, not a sample). The row
-// summarizes the written list (counts + active items) from the call args; the
-// durable list itself renders in the TodoPanel above the composer, so the
-// row stays one line.
+// summarizes the written list (counts + active items) from the call args, with
+// the parallel-active count in its own non-shrinking span outside the
+// ellipsized text; the durable list itself renders in the TodoPanel above the
+// composer, so the row stays one line.
 
 import type { KeyboardEvent } from 'react'
 import type { Context } from 'cordis'
@@ -18,7 +19,17 @@ function isItem(value: unknown): value is PlanItemLike {
   return typeof value === 'object' && value !== null
 }
 
-function summarize(argsRaw: string): string | null {
+/**
+ * The row's summary split at the ellipsis boundary: `text` truncates, `extra`
+ * is the parallel-active count that must not, so a narrow row never clips the
+ * one part that says several tasks are running.
+ */
+interface RowSummary {
+  text: string
+  extra: number
+}
+
+function summarize(argsRaw: string): RowSummary | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(argsRaw)
@@ -31,9 +42,12 @@ function summarize(argsRaw: string): string | null {
   if (typeof parsed !== 'object' || parsed === null) return null
   const todos = (parsed as { todos?: unknown }).todos
   if (!Array.isArray(todos) || !todos.every(isItem)) return null
-  const { done, total, activeHint } = planSummary(todos)
+  const { done, total, activeContent, activeExtra } = planSummary(todos)
   const head = `${done}/${total} 已完成`
-  return activeHint === null ? head : `${head} · ${activeHint}`
+  return {
+    text: activeContent === null ? head : `${head} · ${activeContent}`,
+    extra: activeExtra,
+  }
 }
 
 /** One-line plan update row (click opens the raw args in details). Non-ok
@@ -42,7 +56,7 @@ function summarize(argsRaw: string): string | null {
 export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const summary = summarize(argsRaw) ?? model.summary
+  const summary = summarize(argsRaw) ?? { text: model.summary, extra: 0 }
   // Button semantics, not a <button>: the row carries inline spans a button
   // would flatten, and ToolRow takes the same role/tabIndex/Enter-Space route.
   const openFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -64,7 +78,8 @@ export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
         ? <span className={css.badge} aria-hidden>☰</span>
         : <StateDot state={model.state === 'running' ? 'ongoing' : model.state === 'stopped' ? 'warning' : 'error'} />}
       <span className={css.title}>更新任务清单</span>
-      <span className={css.summary}>{summary}</span>
+      <span className={css.summary}>{summary.text}</span>
+      {summary.extra > 0 && <span className={css.extra}>+{summary.extra}</span>}
       {model.state === 'error' && <span className={css.err}>failed</span>}
       {model.state === 'stopped' && <span className={css.err}>已中断</span>}
     </div>

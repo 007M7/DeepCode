@@ -17,32 +17,40 @@ export interface PlanItemLike {
   status?: unknown
 }
 
-/** Counts plus the one-line hint; `activeHint` is null when there is none to show. */
+/**
+ * Counts plus the two halves of the one-line hint, deliberately NOT pre-joined:
+ * both surfaces ellipsize the hint, and a count concatenated onto the end of
+ * the task name is the first thing a narrow viewport clips — exactly when it
+ * carries information. Each surface renders `activeExtra` in its own
+ * non-shrinking span beside the truncatable `activeContent`.
+ */
 export interface PlanSummary {
   done: number
   total: number
-  activeHint: string | null
+  /** First `in_progress` content, or null when there is no usable one to name. */
+  activeContent: string | null
+  /** Active items beyond the first; 0 whenever there is no `activeContent` to sit beside. */
+  activeExtra: number
 }
 
 /**
- * Derive the counts and the active hint from a whole-list snapshot. The hint is
- * the first `in_progress` content suffixed `+<n>` for the remaining active
- * items, so a parallel plan reports how many tasks are running rather than
- * naming one and hiding the others. It is null when nothing is in progress, or
+ * Derive the counts and the active hint from a whole-list snapshot. The hint
+ * names the first `in_progress` item and counts the remaining active ones, so a
+ * parallel plan reports how many tasks are running rather than naming one and
+ * hiding the others. `activeContent` is null when nothing is in progress, or
  * when the first active item carries no usable content — model JSON may, and
  * the caller then falls back to its own summary.
  * @param todos - the whole list, in model order.
- * @returns the done/total counts and the active hint.
+ * @returns the done/total counts and the two hint halves.
  */
 export function planSummary(todos: readonly PlanItemLike[]): PlanSummary {
   const active = todos.filter(t => t.status === 'in_progress')
   const first = active[0]?.content
-  const activeHint = typeof first !== 'string' || first === ''
-    ? null
-    : active.length > 1 ? `${first} +${active.length - 1}` : first
+  const named = typeof first === 'string' && first !== ''
   return {
     done: todos.filter(t => t.status === 'completed').length,
     total: todos.length,
-    activeHint,
+    activeContent: named ? first : null,
+    activeExtra: named ? active.length - 1 : 0,
   }
 }
