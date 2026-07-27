@@ -2,7 +2,7 @@
  * The `todos` projection provider (session-projection RFC knife 4 — the "a
  * fourth domain is just its own registrations" acceptance probe): mounting
  * tool-todo beside the registry serves the whole current list on the history
- * tail page with a consistent asOfSeq; before any write the value is null; a
+ * tail page with a consistent asOfSeq (= last event seq); before any write the value is null; a
  * composition without tool-todo has no `todos` key; unmounting tool-todo
  * removes it (HMR safety). The carrier and framework are exercised unmodified.
  */
@@ -67,10 +67,10 @@ describe('todos projection provider', () => {
     seedMessage(bench.session)
     const projections = await bench.tailProjections()
     expect(projections?.values).toEqual({ todos: null })
-    expect(projections?.asOfSeq).toBe(bench.session.seq)
+    expect(projections?.asOfSeq).toBe(bench.session.seq - 1)
   })
 
-  it('serves the latest whole list after writes, asOfSeq = window tail seq', async () => {
+  it('serves the latest whole list after writes, asOfSeq = last event seq', async () => {
     const bench = await harness(true)
     const session = bench.session
     seedMessage(session)
@@ -84,7 +84,7 @@ describe('todos projection provider', () => {
     const projections = await bench.tailProjections()
     // Last-wins: the latest snapshot, whole.
     expect(projections?.values.todos).toEqual(second)
-    expect(projections?.asOfSeq).toBe(session.seq)
+    expect(projections?.asOfSeq).toBe(session.seq - 1)
   })
 
   it('has no todos key when tool-todo is not composed', async () => {

@@ -24,7 +24,7 @@ The canonical result is `{ todos, counts: { pending, inProgress, completed } }`;
 
 ## Session projection
 
-When the composition mounts `ctx.sessionProjections` ([`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.md)), this package registers the `todos` provider under an injected child: value = the latest `todo/write` snapshot backscanned from the in-memory log tail (whole list, last-wins), `null` before the first write. The key merges into `SessionProjectionMap` here (via the interface package's `/types` outlet); carriers serve it on the history tail page. Compositions without the registry are unaffected.
+When the composition mounts `ctx.sessionProjections` ([`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.md)), this package registers the `todos` projection unit under an injected child: `init` = `null` (no write yet), `apply` = take the whole list from each `todo/write` (last-wins; every other event returns the same state reference), `view` = identity, `stateVersion` = 1. The key merges into `SessionProjectionMap` here (via the interface package's `/types` outlet); the framework drives the unit and carriers serve the value on the history tail page and the `session/projection` push frame. Compositions without the registry are unaffected.
 
 ## Export shape
 

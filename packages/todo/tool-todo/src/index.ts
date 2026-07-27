@@ -9,9 +9,8 @@ import type { Context } from 'cordis'
 import { z } from 'zod'
 import type { ZodType } from 'zod'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
-// Type-only: resolves ctx.sessionProjections for the optional provider child.
+import type { TodoItem } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -82,29 +81,20 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = z.union([
   z.null(),
 ])
 
-/**
- * Current whole todo list: the latest `todo/write` snapshot, backscanned from
- * the log tail (bounded: first hit terminates; the events live in memory).
- * `null` = no write yet.
- */
-function currentTodos(agent: Agent): TodoItem[] | null {
-  const events = agent.session.events
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i] as SessionEvent
-    if (event.type === 'todo/write') return event.data.todos
-  }
-  return null
-}
-
-/** Register the `todo_write` tool on `ctx.tools` and, when the session-projection seam is composed, the `todos` provider. */
+/** Register the `todo_write` tool on `ctx.tools` and, when the session-projection seam is composed, the `todos` unit. */
 export function apply(ctx: Context): void {
-  // The provider child activates only when a projection registry is composed
-  // (headless assemblies without the seam stay unaffected).
+  // The unit child activates only when a projection registry is composed
+  // (headless assemblies without the seam stay unaffected). Pure last-wins
+  // fold: state is the latest whole todo/write list, null before the first
+  // write; every other event returns the same reference (no downstream work).
   ctx.inject(['sessionProjections'], (projectionCtx) => {
-    projectionCtx.sessionProjections.register({
+    projectionCtx.sessionProjections.register<'todos', TodoItem[] | null>({
       key: 'todos',
       schema: todosProjectionSchema,
-      get: currentTodos,
+      init: () => null,
+      apply: (state, event) => (event.type === 'todo/write' ? event.data.todos : state),
+      view: state => state,
+      stateVersion: 1,
     })
   })
   ctx.tools.register(defineTool({
