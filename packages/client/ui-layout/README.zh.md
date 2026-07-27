@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-外壳插件：三栏 AppFrame（拖动手柄与让步链）加 `ctx.layout` 面板几何服务；它注册到运行时拥有的 `root` slot，并声明 `sidebar`、`conversation`、`details` 和 `conversation.empty`。侧边栏宽度固定（只会收缩详情栏，然后将其自动关闭）；关闭的侧边栏仍保留 56px 控制轨道，详情栏则关闭到零宽度。该包还提供主题呈现器：它消费解析后的 `ctx.theme` 快照，并将其投影到 `document.body`（依据当前配色方案设置 `data-ds-dark-theme`，并将主题的别名 token 设为内联变量）。
+外壳插件：三栏 AppFrame（拖动手柄与让步链）加 `ctx.layout` 面板几何服务；它注册到运行时拥有的 `root` slot，并声明 `sidebar`、`conversation`、`details` 和 `conversation.empty`。侧边栏宽度固定（只会收缩详情栏，然后将其自动关闭）；关闭的侧边栏仍保留 56px 控制轨道，详情栏则关闭到零宽度。该包还提供主题呈现器：它消费解析后的 `ctx.theme` 快照，并将其投影到 document（用 `html { color-scheme }` 驱动原生 UA 控件，依据当前配色方案设置 `body[data-ds-dark-theme]`，并将主题的别名 token 设为 body 上的内联变量）。
 
 AppFrame 读取运行时 Session 投影：`baselinesReady` 选择加载状态，页面局部的 `SessionListState.intent` 选择空白编辑器，已连接 Session 则通过 `SessionProvider` 渲染。会话及空状态的 owner share 为空；每个注册方通过标准 hook 获取业务数据，并从自身的 inject 表层获取操作。侧边栏 owner share 只包含 `collapsed` 和 `width`；导航操作属于侧边栏自身注入的服务表层。
 

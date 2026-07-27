@@ -54,6 +54,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     startSession: vi.fn(),
     open: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
+    deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     ...overrides,
@@ -455,6 +456,79 @@ describe('WorkspaceBrowser', () => {
     fireEvent.change(screen.getByLabelText('Workspace name'), { target: { value: 'Other' } })
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+  })
+
+  it('confirms Workspace deletion, explains retention, and blocks duplicate submission', async () => {
+    let resolveDelete!: () => void
+    const deleteWorkspace = vi.fn(() => new Promise<void>((resolve) => { resolveDelete = resolve }))
+    const browser = mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['session'], 'Alpha')])),
+      deleteWorkspace,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Alpha' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete workspace' })
+    expect(dialog.textContent).toContain('removes “Alpha” from the workspace list')
+    expect(dialog.textContent).toContain('folder and session logs will be kept')
+    expect(dialog.textContent).toContain('sessions will appear under Ungrouped')
+
+    const confirm = screen.getByRole('button', { name: 'Delete workspace' }) as HTMLButtonElement
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(deleteWorkspace).toHaveBeenCalledOnce()
+    expect(deleteWorkspace).toHaveBeenCalledWith(wid('alpha'))
+    expect(confirm.disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Deleting workspace…')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
+    await act(async () => { resolveDelete() })
+    // RPC success alone does not close: the component waits until its
+    // useWorkspaces projection has committed the removal, preventing a stale
+    // duplicate-name frame from leaking into the next create gesture.
+    expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
+    rerender(browser, { useWorkspaces: hook(workspaceState([])) })
+    expect(screen.queryByRole('dialog', { name: 'Delete workspace' })).toBeNull()
+  })
+
+  it('keeps the delete dialog open on failure and allows retry or cancellation', async () => {
+    const deleteWorkspace = vi.fn()
+      .mockRejectedValueOnce(new Error('storage unavailable'))
+      .mockRejectedValueOnce('denied')
+    mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+      deleteWorkspace,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Alpha' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete workspace' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('storage unavailable') })
+    expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete workspace' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Delete workspace' })).toBeNull()
+  })
+
+  it('Cancel, Escape, and Close dismiss deletion without calling the action', () => {
+    const deleteWorkspace = vi.fn(async () => {})
+    mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+      deleteWorkspace,
+    })
+    const open = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Alpha' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
+    }
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    open()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(deleteWorkspace).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'Delete workspace' })).toBeNull()
   })
 
   it('search hides drag affordances (rows are not draggable during search)', () => {

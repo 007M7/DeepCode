@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-// ThemePresenter behavior account: the palette attribute follows
-// active.colorScheme only, token variables replace the previous apply's set,
-// and dispose retracts everything the presenter wrote.
+// ThemePresenter behavior account: root color-scheme and the palette attribute
+// follow active.colorScheme only, token variables replace the previous apply's
+// set, and dispose retracts everything the presenter wrote.
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -14,22 +14,26 @@ function snapshot(colorScheme: 'light' | 'dark', tokens: Record<string, string> 
 }
 
 beforeEach(() => {
+  document.documentElement.style.removeProperty('color-scheme')
   document.body.removeAttribute(DARK_ATTRIBUTE)
   document.body.removeAttribute('style')
 })
 
 describe('ThemePresenter', () => {
-  it('light scheme leaves the dark attribute absent', () => {
+  it('light scheme sets root color-scheme and leaves the dark attribute absent', () => {
     const presenter = new ThemePresenter()
     presenter.apply(snapshot('light'))
+    expect(document.documentElement.style.colorScheme).toBe('light')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)
   })
 
-  it('dark scheme sets the attribute; switching back to light removes it', () => {
+  it('dark scheme sets root color-scheme and the attribute; switching to light clears both', () => {
     const presenter = new ThemePresenter()
     presenter.apply(snapshot('dark'))
+    expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(true)
     presenter.apply(snapshot('light'))
+    expect(document.documentElement.style.colorScheme).toBe('light')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)
   })
 
@@ -44,11 +48,12 @@ describe('ThemePresenter', () => {
     expect(document.body.style.getPropertyValue('--dsw-alias-fg')).toBe('')
   })
 
-  it('dispose removes the attribute and every applied variable, sparing foreign inline styles', () => {
+  it('dispose removes color-scheme, the attribute, and every applied variable, sparing foreign inline styles', () => {
     document.body.style.setProperty('--foreign', 'kept')
     const presenter = new ThemePresenter()
     presenter.apply(snapshot('dark', { '--dsw-alias-bg': '#111' }))
     presenter.dispose()
+    expect(document.documentElement.style.colorScheme).toBe('')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)
     expect(document.body.style.getPropertyValue('--dsw-alias-bg')).toBe('')
     expect(document.body.style.getPropertyValue('--foreign')).toBe('kept')

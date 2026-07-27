@@ -1,35 +1,54 @@
-// Bash toolview sample, written in third-party posture: everything below uses
-// only the public slot surface (ctx.slots.register into the keyed
-// 'conversation.chat.toolview' hole + ToolRowProps) — the acceptance proof
-// that a plain plugin can take over a tool row with zero dedicated machinery.
-// Session-dimension differentiation happens INSIDE the component (the
-// canonical sub-agent scenario): rows in child sessions render the scoped
-// variant, derived from the standard useSessions kit — no registry predicates.
+// Bash toolview registrant: third-party posture over the keyed toolview hole
+// (ctx.slots.register + ToolRowProps only — never imports the chat domain).
+// Product chrome matches ToolRow / Think (figma: Bash · {description}).
+// Child sessions keep a scoped badge so session-dimension differentiation stays
+// observable inside the component (no parallel registry).
 
 import type { Context } from 'cordis'
+import { IconApiOutline14, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { toolRowModel } from '../contract/tool-call-model.ts'
+import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
 import css from './bash-sample.module.css'
 
-/** Bash row: command-first monospace summary replacing the generic card.
- *  Sub-session rows (parentId present) swap the prompt for a scoped badge —
- *  the differential stays observable per session from one registration. */
+function leadingFor(state: ToolRowState) {
+  switch (state) {
+    case 'running': return <StateDot state="ongoing" />
+    case 'error': return <StateDot state="error" />
+    case 'stopped': return <StateDot state="warning" />
+    default: return <IconApiOutline14 size={16} />
+  }
+}
+
+/** Visually hidden status — StateDot is aria-hidden; AT needs a text label. */
+function stateStatus(state: ToolRowState): string | null {
+  switch (state) {
+    case 'running': return '运行中'
+    case 'error': return '失败'
+    case 'stopped': return '已停止'
+    default: return null
+  }
+}
+
+/** Bash row: icon + Bash · {description}, matching the shared ToolRow chrome. */
 export function BashRow({ toolName, block, openDetails, sessionId, useSessions }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
-  if (isChild) {
-    return (
-      <div className={css.row} data-sample="bash-scoped" onClick={openDetails}>
-        <span className={css.scopeBadge}>scoped</span>
-        <span className={css.command}>{model.summary}</span>
-      </div>
-    )
-  }
+  const status = stateStatus(model.state)
   return (
-    <div className={css.row} data-sample="bash-global" onClick={openDetails}>
-      <span className={css.prompt} aria-hidden>$</span>
-      <span className={css.command}>{model.summary}</span>
-      {model.state === 'error' && <span className={css.err}>failed</span>}
+    <div
+      className={css.root}
+      data-sample={isChild ? 'bash-scoped' : 'bash-global'}
+      data-variant="bash"
+      data-state={model.state}
+      data-clickable
+      onClick={openDetails}
+    >
+      <span className={css.leading}>{leadingFor(model.state)}</span>
+      {status !== null && <span className={css.visuallyHidden}>{status}</span>}
+      {isChild && <span className={css.scopeBadge}>scoped</span>}
+      <span className={css.title}>{model.title}</span>
+      <span className={css.sep} aria-hidden />
+      <span className={css.summary}>{model.summary}</span>
     </div>
   )
 }
