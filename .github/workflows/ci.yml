@@ -414,8 +414,11 @@ jobs:
   # continuously proving that environment can take over a required lane if
   # the hosted pools degrade (the switch is then setting the writer-manageable
   # DSH_CI_FAILOVER variable — see the failover runbook, no merge required).
-  # Push-triggered, so it always executes the base branch's own workflow
-  # definition — no PR-editable path selects these runners. Non-blocking for
+  # Push-triggered, so this lane always executes the base branch's own
+  # workflow definition. (Under failover, pull_request jobs do reach these
+  # runners with the PR merge ref's workflow — the boundary there is
+  # repository membership: private, forking disabled, Dependabot excluded.)
+  # Non-blocking for
   # pull requests; no cache steps because the VM's persistent pnpm store and
   # tool caches make them redundant (and saving here would poison the hosted
   # cache namespace with self-hosted paths).
