@@ -709,28 +709,53 @@ class EventRelationCollector {
   /** Walk one package source file and classify event API calls by receiver type. */
   private visitSource(source: PackageSource): void {
     const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-        const receiverKind = this.receiverKind(node.expression.expression)
-        const method = node.expression.name.text
-        if (receiverKind === 'events-service' && method === 'dispatch') {
-          const argumentList = node.arguments[1]
-          if (argumentList) {
-            for (const event of this.eventNamesFromArgumentList(argumentList, new Set())) {
-              this.addDispatcher(event, source.pkg, 'events.dispatch')
+      if (ts.isCallExpression(node)) {
+        if (this.isAgentEventEmitter(node.expression)) {
+          const event = node.arguments[2]
+          if (event) {
+            for (const name of this.finiteStringValues(event) ?? []) {
+              this.addDispatcher(name, source.pkg, 'emitAgentEvent')
             }
           }
-        } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
-          const eventNames = this.eventNamesFromCall(node, receiverKind)
-          if (method === 'on' || method === 'once') {
-            for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
-          } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
-            for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
+        } else if (ts.isPropertyAccessExpression(node.expression)) {
+          const receiverKind = this.receiverKind(node.expression.expression)
+          const method = node.expression.name.text
+          if (receiverKind === 'events-service' && method === 'dispatch') {
+            const argumentList = node.arguments[1]
+            if (argumentList) {
+              for (const event of this.eventNamesFromArgumentList(argumentList, new Set())) {
+                this.addDispatcher(event, source.pkg, 'events.dispatch')
+              }
+            }
+          } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
+            const eventNames = this.eventNamesFromCall(node, receiverKind)
+            if (method === 'on' || method === 'once') {
+              for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
+            } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
+              for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
+            }
           }
         }
       }
       ts.forEachChild(node, visit)
     }
     visit(source.sourceFile)
+  }
+
+  /** Match the exported contained-notification helper by declaration identity. */
+  private isAgentEventEmitter(expression: ts.Expression): boolean {
+    if (!ts.isIdentifier(expression)) return false
+    const local = this.project.checker.getSymbolAtLocation(expression)
+    if (!local) return false
+    const symbol = local.flags & ts.SymbolFlags.Alias
+      ? this.project.checker.getAliasedSymbol(local)
+      : local
+    const declarations = symbol.declarations ?? []
+    return declarations.some((declaration) => {
+      return ts.isFunctionDeclaration(declaration)
+        && declaration.name?.text === 'emitAgentEvent'
+        && this.project.relativePath(declaration.getSourceFile()) === 'packages/core/agent/src/dispatch.ts'
+    })
   }
 
   /** Classify a receiver using assignability to the repository's actual event API types. */
@@ -984,18 +1009,21 @@ function renderLifecycle(): string {
     '  participant LLM as ctx.llm',
     '  participant Tools as ctx.tools',
     '  participant Session',
-    '  participant Persistence',
     '  participant SDK as UI or SDK listener',
     '  User->>Agent: followup(content)',
     `  Agent-->>SDK: ${mermaidCode('agent/inbox/enqueue')}`,
     '  Agent->>Driver: queued work wakes driver',
     `  Driver-->>SDK: ${mermaidCode('agent/status')} running`,
-    `  Driver->>Session: ${mermaidCode('turn/start')}`,
+    '  Note over Agent,Driver: next-step acceptance window opens',
     `  Driver->>Hooks: ${mermaidCode('agent/prompt-submit')} waterfall`,
     '  Hooks-->>Driver: authoritative allow, block, or add context',
-    `  Driver->>Session: ${mermaidCode('user/message')} or rejected ${mermaidCode('turn/end')}`,
+    '  alt prompt blocked or admission failed',
+    '    Driver-->>Driver: append context-only batch or keep steering boundary pending',
+    '  else prompt allowed',
+    `  Driver->>Session: ${mermaidCode('turn/start')}`,
+    `  Driver->>Session: ${mermaidCode('user/message')}`,
     `  Driver->>Prompt: ${mermaidCode('system-prompt/assemble')} waterfall`,
-    `  Driver-->>Driver: ${mermaidCode('agent/pre-step')} serial checkpoint`,
+    `  Driver-->>Driver: ${mermaidCode('agent/step')} serial checkpoint`,
     `  Driver->>Session: ${mermaidCode('step/start')}`,
     `  Driver->>LLM: ${mermaidCode('agent/request')} waterfall, then ${mermaidCode('llm/stream')} waterfall`,
     '  LLM-->>Driver: StreamChunk*',
@@ -1004,9 +1032,8 @@ function renderLifecycle(): string {
     '  alt final adapter or terminal in-band request failure',
     `    Driver->>Session: ${mermaidCode('step/end')}`,
     `    Driver->>Hooks: ${mermaidCode('agent/request-error')} waterfall`,
-    '    Hooks-->>Driver: retry in a new step or preserve the original error',
+    '    Hooks-->>Driver: return retry action or preserve the original error',
     '  else model request succeeded',
-    `  Driver->>Hooks: ${mermaidCode('agent/step-result')} waterfall`,
     `  Driver->>Session: ${mermaidCode('assistant/message')}`,
     '  Driver->>Tools: classify pending call by executionMode',
     '  loop barriers and bounded rolling pool, reclassify before start',
@@ -1021,19 +1048,18 @@ function renderLifecycle(): string {
     '    end',
     '  end',
     '  Driver->>Session: post-tool context and steering (no prompt-submit)',
-    `  Driver->>Hooks: ${mermaidCode('agent/post-step')} serial checkpoint`,
     `  Driver->>Session: ${mermaidCode('step/end')}`,
-    `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
-    `  Driver->>Hooks: ${mermaidCode('agent/turn-stop')} serial terminal checkpoint`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-stopping')} serial terminal checkpoint`,
     '  end',
+    '  Note over Agent,Driver: next-step acceptance window closes',
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
-    `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
+    '  end',
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
     '```',
     '',
     'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
     '',
-    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and a fresh retry step, and returns retry only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
+    '`dsh-compact-basic` uses `agent/step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
     'The returned `agent/prompt-submit` allow is authoritative; listeners wrapping `next()` preserve downstream content and additional contexts unless replacement is intentional. Steering bypasses that waterfall and joins at its durable checkpoint.',
     '',

@@ -75,7 +75,7 @@ describe('plan mode through the agent loop', () => {
     // prompt-submit, BEFORE the first assembly.
     ctx.planMode.set(agent, true)
 
-    agent.followup([{ type: 'text', text: 'explore the repo' }])
+    agent.followup({ content: [{ type: 'text', text: 'explore the repo' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -103,14 +103,14 @@ describe('plan mode through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-flip'), { provider: 'mock', model: 'mock' })
 
-    agent.followup([{ type: 'text', text: 'hello' }])
+    agent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     expect(foldPlanMode(agent.session.events)).toBe(false)
     const first = findEvent(agent.session.events, 'request/header')
     expect(first.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
 
     ctx.planMode.set(agent, true)
-    agent.followup([{ type: 'text', text: 'now plan' }])
+    agent.followup({ content: [{ type: 'text', text: 'now plan' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -128,7 +128,7 @@ describe('plan mode through the agent loop', () => {
     expect(second.data.header.system).toContain('plan mode')
   })
 
-  it('a mode flip during request recovery shapes the retry before its assembly', async () => {
+  it('a mode flip at error settlement shapes the retry before its assembly', async () => {
     const failedRequest = [{
       type: 'finish',
       reason: { kind: 'error', failure: { message: 'temporarily unavailable', code: 'SERVER', status: 503 } },
@@ -136,20 +136,14 @@ describe('plan mode through the agent loop', () => {
     const adapter = new MockAdapter([failedRequest, textResponse('Recovered in plan mode.')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-retry-flip'), { provider: 'mock', model: 'mock' })
-    const recoveryEntered = Promise.withResolvers<true>()
-    const releaseRecovery = Promise.withResolvers<true>()
-    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, _history, _signal, next) => {
+    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, _signal, next) => {
       if (subject !== agent) return next()
-      recoveryEntered.resolve(true)
-      await releaseRecovery.promise
-      return { action: 'retry' }
+      ctx.planMode.set(agent, true)
+      return { kind: 'retry' }
     })
 
     const idle = waitForIdle(ctx, agent)
-    agent.followup([{ type: 'text', text: 'plan after the transient failure' }])
-    await recoveryEntered.promise
-    ctx.planMode.set(agent, true)
-    releaseRecovery.resolve(true)
+    agent.followup({ content: [{ type: 'text', text: 'plan after the transient failure' }], source: { kind: 'user' } })
     await idle
 
     expect(adapter.requests).toHaveLength(2)
@@ -158,8 +152,10 @@ describe('plan mode through the agent loop', () => {
     expect(adapter.requests[1]?.tools).toEqual(adapter.requests[0]?.tools)
     const log = agent.session.events
     const planMode = findEvent(log, 'plan/mode')
-    const firstEnd = log.find(event => event.type === 'step/end' && event.data.step === 1)
-    const retryStart = log.find(event => event.type === 'step/start' && event.data.step === 2)
+    const firstEnd = log.find(event => event.type === 'step/end'
+      && event.data.turn === 1 && event.data.step === 1)
+    const retryStart = log.find(event => event.type === 'step/start'
+      && event.data.turn === 2 && event.data.step === 1)
     expect(firstEnd?.seq).toBeLessThan(planMode.seq)
     expect(planMode.seq).toBeLessThan(retryStart?.seq ?? 0)
     expect(findEvent(log, 'request/header', 'last').data.header.system).toContain(PLAN_CONFIG.section)

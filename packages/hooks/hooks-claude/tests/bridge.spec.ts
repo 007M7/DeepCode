@@ -60,12 +60,8 @@ async function harnessWithFiber(configDir: string, adapter: MockAdapter): Promis
   return { ctx, hooks }
 }
 
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
-      if (subject === agent && status === 'idle') { dispose(); resolve() }
-    })
-  })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 
 function events(agent: Agent): SessionEvent[] {
@@ -87,7 +83,7 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-claude bridge — UserPromptSubmit', () => {
-  it('a UserPromptSubmit hook that exits 2 blocks the prompt (rejected turn)', async () => {
+  it('a UserPromptSubmit hook that exits 2 rejects admission without a turn', async () => {
     // The UserPromptSubmit hook exits 2 (blocking) with a reason on stderr.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
@@ -99,16 +95,14 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'do something' }])
+    agent.followup({ content: [{ type: 'text', text: 'do something' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
-    // The prompt was blocked: model never called, turn ended rejected.
+    // The prompt was blocked before the model and before a turn opened.
     expect(adapter.requests).toHaveLength(0)
-    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('rejected')
-    // The hook ran and was recorded.
-    expect(events(agent).some(e => e.type === 'hook/invoked' && e.data.point === 'UserPromptSubmit')).toBe(true)
-    expect(events(agent).some(e => e.type === 'hook/result' && e.data.decision === 'block')).toBe(true)
+    expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+    // Admission has no open turn in which turn-scoped hook provenance could live.
+    expect(events(agent).some(e => e.type === 'hook/invoked' || e.type === 'hook/result')).toBe(false)
   })
 
   it('a UserPromptSubmit hook printing additionalContext injects it for the model', async () => {
@@ -122,7 +116,7 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // The injected context reached the model and is recorded with the plugin source.
@@ -147,7 +141,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     let ran = false
     ctx.tools.register(defineContentToolFixture({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'use danger' }])
+    agent.followup({ content: [{ type: 'text', text: 'use danger' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     expect(ran).toBe(false)
@@ -170,7 +164,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     let ran = false
     ctx.tools.register(defineContentToolFixture({ name: 'safe', description: 's', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran ok' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'use safe' }])
+    agent.followup({ content: [{ type: 'text', text: 'use safe' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     expect(ran).toBe(true)
@@ -192,7 +186,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const ctx = await harness(dir, adapter)
     ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'raw output' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const result = events(agent).find(e => e.type === 'tool/result')
@@ -213,7 +207,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const ctx = await harness(dir, adapter)
     ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
@@ -237,7 +231,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     let ran = false
     ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // `ask` degrades to deny today (FIXME permissions): the tool does not run and the result is isError.
@@ -262,11 +256,11 @@ describe('hooks-claude bridge — SessionStart', () => {
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     // session-start fires async (detached .then → agent.inject); wait for the
-    // injected context/message to actually land before sending, rather than a
+    // injected user/message to actually land before sending, rather than a
     // fixed sleep that flakes under load.
     await waitFor(() => events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('project uses tabs'))))
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('project uses tabs')
@@ -360,7 +354,7 @@ describe('hooks-claude bridge — load resilience', () => {
     await ctx.plugin(HooksClaude, { configPath: '/nonexistent/hooks.json' })
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     // The turn ran normally — no hooks, no crash.
     expect(adapter.requests).toHaveLength(1)
@@ -383,7 +377,7 @@ describe('hooks-claude bridge — load resilience', () => {
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone
     expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false) // no hook ran

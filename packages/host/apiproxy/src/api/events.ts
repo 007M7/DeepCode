@@ -63,14 +63,16 @@ export type MuxFrame =
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * A message entered the addressed agent's inbox (`agent/queued` passthrough:
-   * a queued message is not model-visible, so there is no session event to
-   * ride — this transient frame is the only wire signal). On stream open the
+   * A message entered the addressed agent's inbox. A queued message is not
+   * model-visible, so there is no session event to carry it; this transient
+   * frame is the only wire signal. On stream open the
    * host replays the current queue snapshot for every attached session (same
    * refresh-recovery baseline as pending questions); queue clearing on cancel
    * has no dedicated frame — clients fold it from the status flip.
-   * source carries the prompt's rpcId when the message came over this wire
-   * (the client's provisional-echo reconciliation key).
+   * `steering` is the host's acceptance-time queue classification and remains
+   * authoritative in reconnect snapshots. `source` carries the prompt's rpcId
+   * when the message came over this wire (the client's provisional-echo
+   * reconciliation key).
    */
   | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
   | { type: 'stream/error'; error: RpcError }

@@ -21,7 +21,7 @@ describe('ACP connection ownership', () => {
 
     await harness.acpFiber.dispose()
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
-    expect(agent.status).toBe('disposed')
+    expect(agent.status).toBe('idle')
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
   })
 
@@ -44,7 +44,7 @@ describe('ACP connection ownership', () => {
 
     await harness.closeClientTransport()
     await harness.acpFiber.dispose()
-    expect(agent.status).toBe('disposed')
+    expect(agent.status).toBe('idle')
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
     expect(harness.ctx.sessions.get(SessionId(sessionId))).toBeUndefined()
   })
@@ -58,10 +58,10 @@ describe('ACP connection ownership', () => {
     await vi.waitFor(() => { expect(agent.status).toBe('running') })
 
     await harness.abortClientTransport()
-    await vi.waitFor(() => { expect(agent.status).toBe('disposed') })
     await vi.waitFor(() => {
       expect(harness!.ctx.agents.get(SessionId(sessionId)) === undefined).toBe(true)
     })
+    expect(agent.status).toBe('idle')
   })
 
   it('disconnect and plugin disposal share one quiescence boundary', async () => {
@@ -73,7 +73,7 @@ describe('ACP connection ownership', () => {
     await vi.waitFor(() => { expect(agent.status).toBe('running') })
 
     await Promise.all([harness.closeClientTransport(), harness.acpFiber.dispose()])
-    expect(agent.status).toBe('disposed')
+    expect(agent.status).toBe('idle')
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
   })
 

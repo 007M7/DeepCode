@@ -62,7 +62,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 
 function sendAndWait(ctx: Context, agent: Agent): Promise<void> {
   const idle = waitForIdle(ctx, agent)
-  agent.followup([{ type: 'text', text: 'recover through the provider boundary' }])
+  agent.followup({ content: [{ type: 'text', text: 'recover through the provider boundary' }], source: { kind: 'user' } })
   return idle
 }
 
@@ -102,8 +102,9 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
 
     expect(server).toBeDefined()
     expect(server?.requests).toHaveLength(1)
-    expect(agent.session.events.filter(event => event.type === 'step/start').map(event => event.data.step))
-      .toEqual([1, 2])
+    expect(agent.session.events.filter(event => event.type === 'step/start')
+      .map(event => [event.data.turn, event.data.step]))
+      .toEqual([[1, 1], [2, 1]])
     expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data.failure.code))
       .toEqual(['TRANSPORT'])
     expect(finalAssistantText(agent)).toBe('connected after retry')
@@ -131,10 +132,11 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     expect(server.requests).toHaveLength(2)
     expect(server.requests[0]?.body).toEqual(server.requests[1]?.body)
     expect(agent.session.events.filter(event =>
-      event.type === 'assistant/chunk' && event.data.step === 1,
+      event.type === 'assistant/chunk' && event.data.turn === 1,
     )).toHaveLength(failedChunkCount)
-    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => event.data.step))
-      .toEqual([2])
+    expect(agent.session.events.filter(event => event.type === 'assistant/message')
+      .map(event => [event.data.turn, event.data.step]))
+      .toEqual([[2, 1]])
     expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data.failure.code))
       .toEqual(['TRANSPORT'])
     expect(finalAssistantText(agent)).toBe('recovered response')
@@ -157,8 +159,9 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     expect(server.requests[0]?.body).toEqual(server.requests[1]?.body)
     expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data.failure.code))
       .toEqual(['EMPTY_RESPONSE'])
-    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => event.data.step))
-      .toEqual([2])
+    expect(agent.session.events.filter(event => event.type === 'assistant/message')
+      .map(event => [event.data.turn, event.data.step]))
+      .toEqual([[2, 1]])
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
       data: { reason: { kind: 'completed' } },
@@ -182,7 +185,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
 
     expect(server.requests).toHaveLength(1)
     expect(agent.session.events.filter(event =>
-      event.type === 'assistant/chunk' && event.data.step === 1,
+      event.type === 'assistant/chunk' && event.data.turn === 1,
     )).toHaveLength(2)
     expect(agent.session.events.some(event => event.type === 'assistant/message')).toBe(false)
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
