@@ -7,7 +7,7 @@
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
  * open state and the active section id are component-local viewing state.
  */
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { IconCloseOutline16, IconDataOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps } from './contract/slots.ts'
@@ -99,12 +99,10 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
   // The ledger tick keeps the nav rows fresh: registrants re-register with
   // freshly localized text on locale change, and the trigger/header/close
   // seats re-render through their own outlets' subscriptions.
-  // State = ledger version: same-version notifications dedupe to no render.
-  const [, setSectionsRev] = useState(() => sectionsVersion())
-  useEffect(
-    () => subscribeSections(() => { setSectionsRev(sectionsVersion()) }),
-    [subscribeSections, sectionsVersion],
-  )
+  // uSES over the ledger version: same-version notifications dedupe to no
+  // render, and a registration landing between render and effect
+  // subscription cannot be missed.
+  useSyncExternalStore(subscribeSections, sectionsVersion)
   const rows = sections()
 
   return (
