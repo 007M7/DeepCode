@@ -526,6 +526,23 @@ export class SessionQuerySqlite extends SessionQueryService {
     }
   }
 
+  /** The shared header column bindings both session tables lead with. */
+  private static _headerBindings(
+    header: SessionHeader,
+  ): [string, number, number, string | null, string | null, number | null, number | null, string | null, string | null] {
+    return [
+      header.id,
+      header.version,
+      header.createdAt,
+      header.cwd ?? null,
+      header.parentSession ?? null,
+      header.seedLength ?? null,
+      header.delegationDepth ?? null,
+      header.sandboxMode ?? null,
+      header.approvalPolicy ?? null,
+    ]
+  }
+
   private _replacePersistedSession(
     entry: ObservedSession,
     revision: SessionPersistenceRevision,
@@ -537,19 +554,7 @@ export class SessionQuerySqlite extends SessionQueryService {
       INSERT INTO persisted_sessions
         (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, sandbox_mode, approval_policy, revision, generation)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      entry.header.id,
-      entry.header.version,
-      entry.header.createdAt,
-      entry.header.cwd ?? null,
-      entry.header.parentSession ?? null,
-      entry.header.seedLength ?? null,
-      entry.header.delegationDepth ?? null,
-      entry.header.sandboxMode ?? null,
-      entry.header.approvalPolicy ?? null,
-      revision,
-      generation,
-    )
+    `).run(...SessionQuerySqlite._headerBindings(entry.header), revision, generation)
     const insert = db.prepare(`
       INSERT INTO persisted_docs (text, session_id, seq, type, time, surface, codepoint_length)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -575,20 +580,7 @@ export class SessionQuerySqlite extends SessionQueryService {
       INSERT INTO temp.live_sessions
         (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, sandbox_mode, approval_policy, fingerprint, persisted, generation)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      entry.header.id,
-      entry.header.version,
-      entry.header.createdAt,
-      entry.header.cwd ?? null,
-      entry.header.parentSession ?? null,
-      entry.header.seedLength ?? null,
-      entry.header.delegationDepth ?? null,
-      entry.header.sandboxMode ?? null,
-      entry.header.approvalPolicy ?? null,
-      entry.fingerprint,
-      persisted ? 1 : 0,
-      generation,
-    )
+    `).run(...SessionQuerySqlite._headerBindings(entry.header), entry.fingerprint, persisted ? 1 : 0, generation)
     const insert = db.prepare(`
       INSERT INTO temp.live_docs (text, session_id, seq, type, time, surface, codepoint_length)
       VALUES (?, ?, ?, ?, ?, ?, ?)
