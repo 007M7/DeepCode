@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
-import { IntentRowItem, ProjectRowItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
+import { ProjectRowItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
 import type { GroupNode, SessionNode } from '../src/client/tree.ts'
 
 afterEach(cleanup)
@@ -43,7 +43,7 @@ describe('workspace browser rows', () => {
     const onCreate = vi.fn()
     const group: GroupNode = {
       key: 'project', workspaceId: wid('project'), cwd: '/projects/project', label: 'Project',
-      sessionCount: 1, expanded: true, containsCurrent: true, intentHere: false, sessions: [],
+      sessionCount: 1, expanded: true, containsCurrent: true, sessions: [],
     }
     render(<ProjectRowItem group={group} onToggle={onToggle} onCreate={onCreate} />)
 
@@ -54,11 +54,6 @@ describe('workspace browser rows', () => {
     expect(onToggle).not.toHaveBeenCalled()
     fireEvent.click(screen.getByText('Project'))
     expect(onToggle).toHaveBeenCalledOnce()
-  })
-
-  it('renders the frontend Intent placeholder as selected', () => {
-    render(<IntentRowItem />)
-    expect(screen.getByRole('treeitem').getAttribute('aria-selected')).toBe('true')
   })
 
   it('renders and operates selected, running, recursive Session nodes', () => {
@@ -103,12 +98,16 @@ describe('workspace browser rows', () => {
 
   it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
     const onRename = vi.fn()
+    const onDelete = vi.fn()
     const onToggle = vi.fn()
     const group: GroupNode = {
       key: 'project', workspaceId: wid('project'), cwd: '/projects/project', label: 'Project',
-      sessionCount: 0, expanded: false, containsCurrent: false, intentHere: false, sessions: [],
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
     }
-    render(<ProjectRowItem group={group} onToggle={onToggle} onCreate={vi.fn()} onRename={onRename} />)
+    render(<ProjectRowItem
+      group={group} onToggle={onToggle} onCreate={vi.fn()}
+      actions={{ rename: onRename, delete: onDelete }}
+    />)
     fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Project' }))
     // Opening the menu neither toggles the group nor renames yet.
     expect(onToggle).not.toHaveBeenCalled()
@@ -116,11 +115,11 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
     expect(onRename).toHaveBeenCalledOnce()
     expect(screen.queryByRole('menu')).toBeNull()
-    // Delete stays visual-only: selecting it just closes the menu.
     fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Project' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
     expect(screen.queryByRole('menu')).toBeNull()
     expect(onRename).toHaveBeenCalledOnce()
+    expect(onDelete).toHaveBeenCalledOnce()
     // Escape closes without selecting (Menu onClose path).
     fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Project' }))
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -130,7 +129,7 @@ describe('workspace browser rows', () => {
   it('ungrouped bucket renders no workspace menu', () => {
     const group: GroupNode = {
       key: '', workspaceId: undefined, cwd: undefined, label: 'Ungrouped',
-      sessionCount: 0, expanded: false, containsCurrent: false, intentHere: false, sessions: [],
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
     }
     render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} />)
     expect(screen.queryByRole('button', { name: /Workspace actions/ })).toBeNull()

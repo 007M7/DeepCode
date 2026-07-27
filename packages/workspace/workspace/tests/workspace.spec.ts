@@ -89,7 +89,7 @@ async function storageContext(pool: MemoryMediaPool, backend: StorageBackend = n
 /** Backend wrapper that injects one selected bootstrap write failure. */
 function selectiveFailureBackend(
   pool: MemoryMediaPool,
-  failure: { putAt?: number; deleteAt?: number; globalAt?: number },
+  failure: { putAt?: number; deleteAt?: number; globalAt?: number | readonly number[] },
 ): StorageBackend {
   const inner = new MemoryStorageBackend(pool)
   let puts = 0
@@ -113,7 +113,8 @@ function selectiveFailureBackend(
           },
           setGlobal: async (value) => {
             globals += 1
-            if (globals === failure.globalAt) throw new Error('selected bootstrap marker failure')
+            const failAt = Array.isArray(failure.globalAt) ? failure.globalAt : [failure.globalAt]
+            if (failAt.includes(globals)) throw new Error('selected bootstrap marker failure')
             await unit.setGlobal(value)
           },
           close: () => unit.close(),
@@ -394,11 +395,26 @@ describe('WorkspaceRegistry create and lookup', () => {
 
   it('rolls back the provisional cache when the record write fails', async () => {
     const dir = await makeDir('write-failure')
-    const result = await harness()
-    result.pool.failNextWrites = 1
-    await expect(result.registry.create(dir)).rejects.toThrow(/injected/)
+    const pool = new MemoryMediaPool()
+    const result = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { putAt: 1 }),
+    })
+    await expect(result.registry.create(dir)).rejects.toThrow(/selected bootstrap put failure/)
     expect(result.registry.list()).toEqual([])
     expect(await result.registry.create(dir)).toBeDefined()
+  })
+
+  it('does not publish a Workspace when its pending marker cannot be written', async () => {
+    const dir = await makeDir('pending-marker-write-failure')
+    const pool = new MemoryMediaPool()
+    const result = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { globalAt: 2 }),
+    })
+    await expect(result.registry.create(dir)).rejects.toThrow(/selected bootstrap marker failure/)
+    expect(result.registry.list()).toEqual([])
+    expect(pool.media.get('workspace')!.tables.get('workspaces')?.size ?? 0).toBe(0)
   })
 
   it('rolls back a record when registry-order persistence fails', async () => {
@@ -406,7 +422,7 @@ describe('WorkspaceRegistry create and lookup', () => {
     const pool = new MemoryMediaPool()
     const result = await harness({
       pool,
-      backend: selectiveFailureBackend(pool, { globalAt: 2 }),
+      backend: selectiveFailureBackend(pool, { globalAt: 3 }),
     })
     await expect(result.registry.create(dir)).rejects.toThrow(/marker failure/)
     expect(result.registry.list()).toEqual([])
@@ -418,10 +434,120 @@ describe('WorkspaceRegistry create and lookup', () => {
     const pool = new MemoryMediaPool()
     const result = await harness({
       pool,
-      backend: selectiveFailureBackend(pool, { globalAt: 2, deleteAt: 1 }),
+      backend: selectiveFailureBackend(pool, { globalAt: 3, deleteAt: 1 }),
     })
     await expect(result.registry.create(dir)).rejects.toBeInstanceOf(AggregateError)
     expect(pool.media.get('workspace')!.tables.get('workspaces')!.size).toBe(1)
+  })
+
+  it('reports a record write and pending-marker rollback failure together', async () => {
+    const dir = await makeDir('record-marker-rollback-failure')
+    const pool = new MemoryMediaPool()
+    const result = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { putAt: 1, globalAt: 3 }),
+    })
+    await expect(result.registry.create(dir)).rejects.toBeInstanceOf(AggregateError)
+    expect(storedState(pool)).toMatchObject({
+      pendingMutation: { operation: 'create' },
+    })
+  })
+
+  it('reports an order write and pending-marker rollback failure together', async () => {
+    const dir = await makeDir('order-marker-rollback-failure')
+    const pool = new MemoryMediaPool()
+    const result = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { globalAt: [3, 4] }),
+    })
+    await expect(result.registry.create(dir)).rejects.toBeInstanceOf(AggregateError)
+    expect(storedState(pool)).toMatchObject({
+      pendingMutation: { operation: 'create' },
+    })
+  })
+
+  it('deletes only the registration and leaves its directory and session headers untouched', async () => {
+    const dir = await makeDir('delete-registration')
+    const result = await harness({ sessions: [header('kept-session', dir)] })
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('kept-session'))
+
+    await expect(result.registry.delete(workspace.id)).resolves.toBe(true)
+    await expect(result.registry.delete(workspace.id)).resolves.toBe(false)
+    expect(result.registry.get(workspace.id)).toBeUndefined()
+    expect(result.registry.list()).toEqual([])
+    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [] })
+    expect(result.pool.media.get('workspace')!.tables.get('workspaces')!.has(workspace.id)).toBe(false)
+    await expect(realpath(dir)).resolves.toBe(dir)
+    expect(result.list).toHaveBeenCalledTimes(1)
+    expect(result.load).not.toHaveBeenCalled()
+    expect(result.inspect).not.toHaveBeenCalled()
+
+    const reregistered = await result.registry.create(dir)
+    expect(reregistered.id).not.toBe(workspace.id)
+    expect(reregistered.path).toBe(dir)
+    expect(reregistered.sessionIds).toEqual([])
+  })
+
+  it('rolls registry order and cache back when record deletion fails', async () => {
+    const dir = await makeDir('delete-rollback')
+    const pool = new MemoryMediaPool()
+    const result = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { deleteAt: 1 }),
+    })
+    const workspace = await result.registry.create(dir)
+
+    await expect(result.registry.delete(workspace.id)).rejects.toThrow(/selected rollback delete failure/)
+    expect(result.registry.get(workspace.id)).toBe(workspace)
+    expect(result.registry.list()).toEqual([workspace])
+    expect(storedState(pool).workspaceIds).toEqual([workspace.id])
+    expect(storedRecord(pool, workspace.id)).toMatchObject({ path: dir })
+  })
+
+  it('commits deletion and leaves a recoverable marker when marker cleanup fails', async () => {
+    const dir = await makeDir('delete-marker-cleanup')
+    const pool = new MemoryMediaPool()
+    const first = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { globalAt: 5 }),
+    })
+    const workspace = await first.registry.create(dir)
+
+    await expect(first.registry.delete(workspace.id)).resolves.toBe(true)
+    expect(first.registry.list()).toEqual([])
+    expect(storedState(pool)).toEqual({
+      initialized: true,
+      workspaceIds: [],
+      pendingMutation: { operation: 'delete', workspaceId: workspace.id },
+    })
+    const reregistered = await first.registry.create(dir)
+    expect(reregistered.id).not.toBe(workspace.id)
+    expect(storedState(pool)).toEqual({
+      initialized: true,
+      workspaceIds: [reregistered.id],
+    })
+    await first.fiber.dispose()
+
+    const restarted = await harness({ pool })
+    expect(restarted.registry.list().map(item => item.id)).toEqual([reregistered.id])
+  })
+
+  it('keeps the failed deletion unpublished when record and order rollback both fail', async () => {
+    const dir = await makeDir('delete-double-failure')
+    const pool = new MemoryMediaPool()
+    const result = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { deleteAt: 1, globalAt: 5 }),
+    })
+    const workspace = await result.registry.create(dir)
+
+    await expect(result.registry.delete(workspace.id)).rejects.toBeInstanceOf(AggregateError)
+    expect(result.registry.get(workspace.id)).toBeUndefined()
+    expect(storedState(pool)).toMatchObject({
+      workspaceIds: [],
+      pendingMutation: { operation: 'delete', workspaceId: workspace.id },
+    })
   })
 
   it('rejects table access before the registry has started', async () => {
@@ -429,6 +555,8 @@ describe('WorkspaceRegistry create and lookup', () => {
     const registry = new WorkspaceRegistry(new Context())
     await expect(registry.create(dir)).rejects.toThrow(/not started/)
     expect(() => registry.list()).toThrow(/not started/)
+    const internals = registry as unknown as { requireTable(): unknown }
+    expect(() => internals.requireTable()).toThrow(/not started/)
   })
 })
 
@@ -615,6 +743,49 @@ describe('header-validated membership projection', () => {
     const internals = result.registry as unknown as { entities: Map<WorkspaceId, unknown> }
     internals.entities.delete(workspace.id)
     expect(() => result.registry.list()).toThrow(/references missing workspace/)
+  })
+
+  it('recovers only an explicitly marked interrupted create or delete', async () => {
+    const createDir = await makeDir('pending-create')
+    const deleteDir = await makeDir('pending-delete')
+    const createId = WorkspaceId('00000000-0000-4000-8000-000000000004')
+    const deleteId = WorkspaceId('00000000-0000-4000-8000-000000000005')
+
+    const interruptedCreate = storedPool(
+      [[createId, record(createDir, [])]],
+      {
+        initialized: true,
+        workspaceIds: [],
+        pendingMutation: { operation: 'create', workspaceId: createId },
+      },
+    )
+    const createRecovery = await harness({ pool: interruptedCreate })
+    expect(createRecovery.registry.list()).toEqual([])
+    expect(interruptedCreate.media.get('workspace')!.tables.get('workspaces')!.has(createId)).toBe(false)
+    expect(storedState(interruptedCreate)).toEqual({ initialized: true, workspaceIds: [] })
+
+    const interruptedDelete = storedPool(
+      [[deleteId, record(deleteDir, [])]],
+      {
+        initialized: true,
+        workspaceIds: [],
+        pendingMutation: { operation: 'delete', workspaceId: deleteId },
+      },
+    )
+    const deleteRecovery = await harness({ pool: interruptedDelete })
+    expect(deleteRecovery.registry.list()).toEqual([])
+    expect(interruptedDelete.media.get('workspace')!.tables.get('workspaces')!.has(deleteId)).toBe(false)
+    expect(storedState(interruptedDelete)).toEqual({ initialized: true, workspaceIds: [] })
+
+    const corruptPending = storedPool(
+      [[deleteId, record(deleteDir, [])]],
+      {
+        initialized: true,
+        workspaceIds: [deleteId],
+        pendingMutation: { operation: 'delete', workspaceId: deleteId },
+      },
+    )
+    await expect(harness({ pool: corruptPending })).rejects.toThrow(/still present in registry order/)
   })
 })
 

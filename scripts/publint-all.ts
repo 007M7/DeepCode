@@ -2,19 +2,23 @@
 
 import {
   globSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   statSync,
 } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { dirname, relative, resolve, sep } from 'node:path'
+import { parseArgs } from 'node:util'
 import { publint, type Message, type PackFile } from 'publint'
 import { formatMessage } from 'publint/utils'
 
 const CONCURRENCY_ENV = 'DSH_PUBLINT_CONCURRENCY'
 const repositoryRoot = resolve(import.meta.dirname, '..')
-const options = parseOptions(process.argv.slice(2))
-const packagesRoot = resolve(options.get('--packages-root') ?? repositoryRoot)
+const { values: options } = parseArgs({
+  args: process.argv.slice(2),
+  options: { 'packages-root': { type: 'string' } },
+})
+const packagesRoot = resolve(options['packages-root'] ?? repositoryRoot)
 
 interface PackageTarget {
   path: string
@@ -88,7 +92,12 @@ function publicationFiles(target: PackageTarget): PackFile[] {
 function addPath(path: string, paths: Set<string>): void {
   const stat = statSync(path)
   if (stat.isDirectory()) {
-    for (const entry of readdirSync(path)) addPath(resolve(path, entry), paths)
+    // readdirSync, not globSync: `**/*` skips dot-prefixed segments, but npm
+    // pack publishes dotfiles inside included directories, and this view must
+    // match what npm publishes.
+    for (const entry of readdirSync(path, { recursive: true, withFileTypes: true })) {
+      if (entry.isFile()) paths.add(resolve(entry.parentPath, entry.name))
+    }
   } else if (stat.isFile()) {
     paths.add(path)
   }
@@ -142,20 +151,6 @@ function printResult(result: PublintResult): void {
     console.log(formatMessage(message, result.manifest, { color: false }) ?? message.code)
   }
   if (result.status === 'passed' && result.messages.length === 0) console.log('All good!')
-}
-
-function parseOptions(args: string[]): Map<string, string> {
-  const parsed = new Map<string, string>()
-  for (let index = 0; index < args.length; index += 2) {
-    const name = args[index]
-    const value = args[index + 1]
-    if (name !== '--packages-root' || value === undefined || value.startsWith('--')) {
-      throw new Error(`publint-all: expected [--packages-root PATH], got ${JSON.stringify(args)}.`)
-    }
-    if (parsed.has(name)) throw new Error(`publint-all: duplicate option ${name}.`)
-    parsed.set(name, value)
-  }
-  return parsed
 }
 
 const packages = workspacePackages()

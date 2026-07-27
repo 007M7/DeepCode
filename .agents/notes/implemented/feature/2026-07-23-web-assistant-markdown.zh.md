@@ -12,13 +12,17 @@ Web 对话通过会话事件、历史回放与流式累积保留 assistant Markd
 
 `@deepseek-ai/dsh-client-ui-primitives` 导出 `MarkdownText`，用作不受信任的 assistant 文本渲染器；`ui-conversation` 仅为 assistant `text` 块选择该渲染器。已完成的历史消息、流式输出尾部与被中断的部分输出已经共用 `AssistantMarkdown`，因此无需更改事件或快照，它们便会采用同一渲染器。用户消息与 steering 消息继续使用 `MessageText`，并保持按字面渲染。
 
-`MarkdownText` 使用 `react-markdown` 与 `remark-gfm`，从 AST 构建 React 元素。它支持 CommonMark 块，以及 GFM 表格、任务列表、删除线与自动链接，但不使用 `dangerouslySetInnerHTML`，不解析原始 HTML，也不进行语法高亮。`ui-primitives` 显式声明该依赖；由于这一纯库由 Web shell 预置，解析器会成为初始浏览器 bundle 的一部分。
+`MarkdownText` 使用 `react-markdown` 与 `remark-gfm`，从 AST 构建 React 元素。它覆盖 CommonMark 块，以及 GFM 表格、任务列表、删除线与自动链接，且不解析原始 HTML。围栏代码经共享的 `CodeBlock` 路由；该组件用客户端的 shiki 单例（`--shiki-*` token）高亮已注册语法，否则回退为纯等宽文本。轮次流式输出期间，围栏停留在纯文本分支，以免每收到一个分片就对增长中的围栏重新分词。
+
+视觉间距、表格、链接、引用块、行内代码与代码块外框遵循 deepsuite `@deepseek/md`（`markdown.css` / `code-block.css`），并使用同一套 `--dsw-alias-markdown-*`、`--dsw-font-markdown-*`、`--dsw-alias-border-l*` 与 `--dsw-alias-label-*` token。链接使用 `--dsw-alias-state-business-primary`（deepsuite 的样式表使用 `--dsw-alias-brand-text`，仅在 newDesign 下为蓝色；design-platform 将 brand-text 保持为近黑色，此处不做重新调色）。`CodeBlock` 提供语言横幅与复制控件（`复制` / `复制成功`）。引用胶囊、KaTeX、标题锚点、thinking-small markdown 变体，以及自定义 □/☑ 任务标记均不在范围内，直至存在匹配的产品 DOM；GFM 任务列表继续使用原生复选框。
+
+该依赖在 `ui-primitives` 中显式声明；由于这一纯库由 Web shell 预置，解析器与高亮器会成为初始浏览器 bundle 的一部分。
 
 ## 不受信任输出策略
 
-assistant 生成的目标地址仅限绝对 HTTP、HTTPS 与 mailto URL。HTTP(S) 链接会在新标签页中打开，并带有 `rel="noopener noreferrer"`；相对目标地址与其他协议会渲染为不可导航的文本。Markdown 图片仅渲染替代文本，因此模型输出无法发起远程图片请求。由于管线中未引入 HTML 解析器，原始 HTML 仍是不会生效的源文本。
+assistant 生成的目标地址仅限绝对 HTTP、HTTPS 与 mailto URL。HTTP(S) 链接会在新标签页中打开，并带有 `rel="noopener noreferrer"`；相对目标地址与其他协议会渲染为不可导航的文本。Markdown 图片仅渲染替代文本，因此模型输出无法发起远程图片请求。由于管线中未引入 HTML 解析器，原始 HTML 仍是不会生效的源文本。Shiki 输出是由围栏文本生成的静态 span 树（不含脚本或用户 HTML）。
 
-渲染器使用现有的 `--dsw-*` 排版与颜色 token。围栏代码块与 GFM 表格各自处理横向溢出，因此较长内容无法撑宽对话栏。
+围栏代码与 GFM 表格各自处理横向溢出，因此较长内容无法撑宽对话栏。
 
 ## 考虑过的替代方案
 
@@ -30,6 +34,8 @@ assistant 生成的目标地址仅限绝对 HTTP、HTTPS 与 mailto URL。HTTP(S
 
 **通过净化启用原始 HTML 或远程图片。**当前产品并不需要这两项功能，但二者都会扩大可执行行为或网络隐私边界。因此它们保持禁用，无需增加净化器与图片策略依赖。
 
+**移植 deepsuite 的 Prism `highlight.css` 与 mdast 管线。**外观一致性由 CSS Modules 与共享的 `--dsw-*` token 负责；高亮仍走现有的 shiki 允许列表，使客户端不必引入第二套高亮器或 Prism class 契约。
+
 ## 后果
 
-assistant 回复在流式输出与回放期间都会一致地渲染为语义化 Markdown，而工具卡片、推理行、交互、用户气泡和宿主协议保持不变。每次累积更新后，流式输出都会重新解析当前文本；未完成的 Markdown 可能暂时改变结构，但独立的尾部会限定 React 失效范围，最终事件也不会切换渲染器。初始 Web shell 的体积会因加入 Markdown 解析器与 GFM 运行时而增大；语法高亮或远程媒体等后续扩展需要另行作出 bundle 与安全决策。
+assistant 回复在流式输出与回放期间都会一致地渲染为语义化 Markdown，而工具卡片、推理行、交互、用户气泡和宿主协议保持不变。每次累积更新后，流式输出都会重新解析当前文本；未完成的 Markdown 可能暂时改变结构，但独立的尾部会限定 React 失效范围，最终事件也不会切换渲染器。代码围栏与工具及详情表层共用同一外框与复制路径。初始 Web shell 包含 Markdown 解析器、GFM 运行时与 shiki 允许列表；cite/math/anchor/thinking-small 表层仍暂缓。

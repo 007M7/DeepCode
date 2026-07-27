@@ -11,7 +11,7 @@
 | 工具 | 参数 | 行为 |
 |---|---|---|
 | `web_search` | `query`（string） | 发现。返回可选答案与源 URL。`max_results` **不** 面向模型：工具设置上限（`searchMaxResults` 配置，默认 8）并传给 seam。 |
-| `web_fetch` | `url`（string） | 获取特定 URL。HTML 主体渲染为近似 markdown 的文本；文本主体原样通过。非 2xx 状态会报告，而非报错。工具调用超时是部署策略（`dsh-timeout-policy`），不是模型参数。 |
+| `web_fetch` | `url`（string） | 获取特定 URL。HTML 主体渲染为 markdown（turndown，带 GFM 表格／删除线）；文本主体原样通过。非 2xx 状态会报告，而非报错。工具调用超时是部署策略（`dsh-timeout-policy`），不是模型参数。 |
 
 两个工具都选择并发调度，因为提供方读取会返回内容，不会修改父 agent 状态。
 
@@ -26,8 +26,9 @@
 | `searchMaxResults` | `8` | 一次 `web_search` 调用返回的源数量上限（seam 截断更长的提供方列表并标记）。 |
 | `fetchTimeoutMs` | `30000` | `web_fetch` 的协作式工具调用超时预算（ms）。 |
 | `searchTimeoutMs` | `30000` | `web_search` 的协作式工具调用超时预算（ms）。 |
+| `fetchMaxOutputChars` | `200000` | 同步转换的源字符数与单次完整 `web_fetch` 输出的上限（状态头、渲染后的主体与页脚合并计算）；主体被截断时，在能容纳的情况下附带截断提示。 |
 
-`fetchTimeoutMs`／`searchTimeoutMs` 声明每个工具的协作式超时预算（附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) 强制执行；面向模型的 schema 不公开超时参数。
+`fetchTimeoutMs`／`searchTimeoutMs` 声明每个工具的协作式超时预算（附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) 强制执行；面向模型的 schema 不公开超时参数。`fetchMaxOutputChars` 同时限制同步转换工作量和完整渲染结果：只转换至多该数量的源字符，随后对状态头、转换后的前缀和截断提示合并设限。默认值为本地提供方的 100,000 字符主体上限留出余量，但渲染膨胀仍可能使最终上限截断结果。
 
 ```yaml
 - id: tool-web
@@ -126,6 +127,6 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 ## 已知限制与暂缓事项
 
-- **`htmlToMarkdown` 是最小正则转换器，不是 HTML parser**：它会移除 script/style/noscript，保留标题／项目符号／链接，并解码约十余个命名 entity；表格、图片与嵌套格式会丢失。
+- **HTML→markdown 转换会在 GFM 无法安全表示的输入上降级**：[turndown](https://github.com/mixmark-io/turndown)（带 GFM 表格／删除线）通过真实 DOM 转换至多 `fetchMaxOutputChars` 个源字符。保守的 512 层词法守卫会将深层或嵌套有歧义的主体作为原始 HTML 直接透传，转换异常也会如此处理；表格的 `colspan` 会被忽略，因为 GFM 无法表示跨列单元格。这些限制可避免阻塞事件循环，也避免不受信任的数值属性使输出膨胀（[决策记录](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)）。
 - **面向模型的表层有意保持最小，提升项暂缓**：`max_results` 保持为配置上限（不是模型参数），`web_fetch` 只接受 `url`（没有 `format`／`prompt`／LLM 摘要模式）；两项都列为 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) 中的后续步骤。
 - **没有 web 专用权限策略**：两个工具都不会请求 `ctx.approval` 就直接执行；需要确认的部署必须添加 `tools/pre-execute` 策略，该包不定义持久 URL／domain 授权。

@@ -18,7 +18,7 @@ import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
-import { ConversationRoot, type ConversationRootProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationRoot.tsx'
+import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { deriveSpans, deriveSpanStats, deriveSubSpans } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/spans.ts'
@@ -28,10 +28,6 @@ import { WaterfallView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 
 const SID = 's1' as SessionId
-/** Fallback-only chain stub (no composer takeover in these benches). */
-const fallbackRenderSlotChain: ConversationRootProps['renderSlotChain'] =
-  (_key, _owner, opts) => opts?.fallback ?? null
-
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
@@ -62,20 +58,17 @@ function fakeSession(nodes: ConversationSnapshot['nodes']) {
 /** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready' })
+    { ids: [], byId: {}, current: undefined, phase: 'ready' })
   return bindSnapshotSelector(store)
 }
 
 function emptyWorkspaces() {
   const store = createSnapshotStore<WorkspaceListState>({
-    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+    items: [], state: 'idle', phase: 'ready', error: null, baselinesReady: true,
     recentWorkspaceId: undefined,
   })
   return bindSnapshotSelector(store)
 }
-
-/** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
-const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
 
 /** Standalone view props: the session-scope standard kit the outlet would bake. */
 function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
@@ -113,7 +106,7 @@ function tabsOf(slots: SlotsService): ViewTab[] {
     .map(e => ({ id: e.options.id!, label: e.options.label ?? e.options.id! }))
 }
 
-/** Mount ConversationRoot over the ring ledger with an outlet-faithful renderSlot. */
+/** Mount the strict session content over the ring ledger with an outlet-faithful renderSlot. */
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
   const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
@@ -134,28 +127,26 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
         key={key}
       />
     )
-  }) as unknown as ConversationRootProps['renderSlot']
+  }) as unknown as ConversationSessionProps['renderSlot']
   return render(
-    <ConversationRoot
+    <ConversationSession
       sessionId={SID}
+      SessionProvider={({ children }) => children(SID)}
       useSession={useSession}
       useSessions={emptySessions()}
       useWorkspaces={emptyWorkspaces()}
       useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       renderSlot={renderSlot}
-      renderSlotChain={fallbackRenderSlotChain}
-      SessionProvider={SessionProviderStub}
       views={{
         list: () => tabsOf(slots),
-        subscribe: (fn) => slots.subscribe('conversation.view', fn),
+        subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
         version: () => slots.getVersion('conversation.view'),
       }}
-      send={vi.fn()}
-      stop={vi.fn()}
+      useInput={bindSnapshotSelector(createSnapshotStore({ draft: '', draftRev: 0, phase: 'plain', queue: [] })) as never}
+      inputActions={{ setDraft: vi.fn(), submit: vi.fn() } as never}
+      bindDraftMirror={() => () => {}}
       open={vi.fn()}
-      updateSessionPrompt={vi.fn()}
-      retrySessionPrompt={vi.fn()}
     />,
   )
 }

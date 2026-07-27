@@ -17,38 +17,6 @@ function workspace(id: string, sessionIds: SessionId[] = [], createdAt = '2026-0
 }
 
 describe('WorkspaceManager', () => {
-  it('owns, materializes, retries, supersedes, and discards Workspace objects with local intents', async () => {
-    const api = new FakeApiClient()
-    const manager = new WorkspaceManager(api)
-    manager.startIntent('first')
-    expect(manager.getSnapshot().intent).toEqual({ name: 'first', phase: 'ready' })
-
-    api.onWorkspaceCreate = () => Promise.resolve(err({
-      code: 'workspace-name-conflict', message: 'taken', details: { name: 'first' },
-    } as never))
-    await expect(manager.materializeIntent()).resolves.toMatchObject({ ok: false })
-    expect(manager.getSnapshot().intent).toMatchObject({ name: 'first', phase: 'ready' })
-    expect(typeof manager.getSnapshot().intent?.error).toBe('string')
-
-    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceCreate']>>>()
-    api.onWorkspaceCreate = () => gate.promise
-    const stale = manager.materializeIntent()
-    expect(manager.getSnapshot().intent?.phase).toBe('creating')
-    manager.startIntent('replacement')
-    gate.resolve(ok({ workspace: workspace('first'), created: true }))
-    await stale
-    expect(manager.getSnapshot().intent).toEqual({ name: 'replacement', phase: 'ready' })
-
-    api.onWorkspaceCreate = () => Promise.resolve(ok({ workspace: workspace('replacement'), created: true }))
-    await expect(manager.materializeIntent()).resolves.toMatchObject({ ok: true })
-    expect(manager.getSnapshot().intent).toBeUndefined()
-    await expect(manager.materializeIntent()).resolves.toBeUndefined()
-    manager.discardIntent()
-    manager.startIntent('discarded')
-    manager.discardIntent()
-    expect(manager.getSnapshot().intent).toBeUndefined()
-  })
-
   it('replays changed frames over hydration and keeps established order on refresh', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
@@ -108,10 +76,52 @@ describe('WorkspaceManager', () => {
       ok: false, error: { code: 'internal', message: 'create transport' },
     })
   })
+
+  it('replays removal over an in-flight baseline and ignores duplicate or late updates', async () => {
+    const api = new FakeApiClient()
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
+    api.onWorkspaceList = () => gate.promise
+    const manager = new WorkspaceManager(api)
+    const hydration = manager.refresh()
+    manager.handleHostEnvelope({
+      rpcId: 'removed' as never,
+      payload: { type: 'host/workspace-removed', workspaceId: wid('gone') },
+    })
+    gate.resolve(ok({ items: [workspace('gone'), workspace('kept')] as never[] }))
+    await hydration
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['kept'])
+
+    manager.handleHostEnvelope({
+      rpcId: 'late-change' as never,
+      payload: { type: 'host/workspace-changed', workspace: workspace('gone') },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'duplicate-remove' as never,
+      payload: { type: 'host/workspace-removed', workspaceId: wid('gone') },
+    })
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['kept'])
+  })
+
+  it('removes from the unary delete echo while a refresh is in flight', async () => {
+    const api = new FakeApiClient()
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('gone')] as never[] }))
+    const manager = new WorkspaceManager(api)
+    await manager.refresh()
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
+    api.onWorkspaceList = () => gate.promise
+    const refresh = manager.refresh()
+
+    await expect(manager.delete(wid('gone'))).resolves.toMatchObject({ ok: true })
+    expect(api.callsOf('workspace.delete')).toEqual([{ workspaceId: 'gone' }])
+    expect(manager.getSnapshot().items).toEqual([])
+    gate.resolve(ok({ items: [workspace('gone')] as never[] }))
+    await refresh
+    expect(manager.getSnapshot().items).toEqual([])
+  })
 })
 
 describe('WorkspacesService', () => {
-  it('feeds SessionManager readiness and recent-Workspace targeting without changing Host order', async () => {
+  it('feeds readiness and recent-Workspace targeting without changing Host order', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
     const sessions = new SessionsService(ctx, api)
@@ -127,7 +137,7 @@ describe('WorkspacesService', () => {
     expect(workspaces.list.getSnapshot()).toMatchObject({ baselinesReady: false, recentWorkspaceId: undefined })
 
     api.onList = () => Promise.resolve(ok({
-      items: [{ sessionId: sid('s-active'), updatedAt: Date.parse('2026-02-01'), running: false }] as never[],
+      items: [{ sessionId: sid('s-active'), updatedAt: Date.parse('2026-02-01'), running: false, blank: false }] as never[],
     }))
     await sessions.refresh()
     await Promise.resolve()
@@ -136,10 +146,63 @@ describe('WorkspacesService', () => {
       baselinesReady: true,
       recentWorkspaceId: 'active',
     })
-    expect(sessions.list.getSnapshot().intent).toMatchObject({
-      target: { kind: 'workspace', workspaceId: 'active' },
-    })
     expect(workspaces.list.getSnapshot().items.map(item => item.workspaceId)).toEqual(['stable-first', 'active'])
+  })
+
+  it('connectWorkspace reuses the workspace-matched blank session and creates otherwise', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('alpha'), workspace('beta')] as never[],
+    }))
+    api.onList = () => Promise.resolve(ok({
+      items: [
+        // Blank session already parked in alpha (cwd == workspace path canon).
+        { sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' },
+        // Non-blank sibling in beta must never be reused.
+        { sessionId: sid('s-active'), updatedAt: 3, running: false, blank: false, cwd: '/w/beta' },
+      ] as never[],
+    }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+
+    // Hit: same workspace → the parked blank session comes back, no create RPC.
+    await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-blank')
+    expect(api.callsOf('session.create')).toEqual([])
+    // Resolution guarantee: the id is binding-resolvable synchronously.
+    expect(sessions.binding(sid('s-blank'))).toBeDefined()
+
+    // Miss: beta has only a non-blank session → host create with workspaceId.
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh') }))
+    await expect(workspaces.connectWorkspace(wid('beta'))).resolves.toBe('s-fresh')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }])
+    // Same guarantee on the create arm (draft hand-off writes the machine pre-open).
+    expect(sessions.binding(sid('s-fresh'))).toBeDefined()
+
+    // Unknown workspace fails loud instead of silently creating in nowhere.
+    await expect(workspaces.connectWorkspace(wid('ghost'))).rejects.toThrow(/unknown workspace ghost/)
+  })
+
+  it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
+    api.onList = () => Promise.resolve(ok({
+      items: [{ sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' }] as never[],
+    }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+    const session = sessions.binding(sid('s-blank'))!.session
+    api.onPrompt = () => Promise.resolve(err({ code: 'internal', message: 'agent busy', details: {} }) as never)
+    await session.prompt([{ type: 'text', text: 'hi' }], 'queue')
+    await Promise.resolve()
+    // Failure leaves blank intact, so the same session is still the reuse hit.
+    await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-blank')
+    expect(api.callsOf('session.create')).toEqual([])
   })
 
   it('returns created Workspaces and preserves Host business errors', async () => {
@@ -153,5 +216,21 @@ describe('WorkspacesService', () => {
       code: 'workspace-invalid-path', message: 'missing', details: { path: '/missing' },
     }))
     await expect(workspaces.create({ path: '/missing' })).rejects.toThrow(/workspace-invalid-path: missing/)
+  })
+
+  it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
+    await workspaces.refresh()
+    await expect(workspaces.delete(wid('alpha'))).resolves.toBeUndefined()
+    expect(workspaces.list.getSnapshot().items).toEqual([])
+
+    api.onWorkspaceDelete = () => Promise.resolve(err({
+      code: 'workspace-not-found', message: 'gone', details: { workspaceId: 'ghost' },
+    }))
+    await expect(workspaces.delete(wid('ghost'))).rejects.toThrow(/workspace-not-found: gone/)
   })
 })

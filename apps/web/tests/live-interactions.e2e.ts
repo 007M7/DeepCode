@@ -23,7 +23,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/live-interactions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
@@ -94,6 +94,8 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    // Fresh world: connect a Workspace so the composer scenarios start live.
+    await connectFreshWorkspace(page)
   }
 
   /**
@@ -134,9 +136,11 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await settled
     expect(turnEndReasons(sessionEvents).at(-1)).toBe('aborted')
-    // Composer recovered; no streaming node lingers.
+    // Composer recovered; no streaming node lingers. The host settled first
+    // (awaited above), but the abort frame reaches the browser over SSE — the
+    // frozen-partial swap is eventually consistent, so poll rather than count.
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
-    expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
+    await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 10_000 }).toBe(0)
     // Golden of the aborted end-state: the prompt bubble plus the frozen
     // partial ('partial' is the hang entry's replayed prefix) and no more.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)

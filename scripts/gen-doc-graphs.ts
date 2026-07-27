@@ -917,8 +917,13 @@ function renderEventRelations(pkgs: Pkg[]): string {
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
   // Every declared event needs a dispatcher: zero means dead vocabulary or an
-  // unrecognized semantic dispatch shape. Listener-free extension points remain valid.
+  // unrecognized semantic dispatch shape. Listener-free extension points remain
+  // valid. Client-declared events are exempt: the relation scan seeds the HOST
+  // aggregate program only (host+client cannot share one program — the cordis
+  // Context merges collide), so client dispatch sites are structurally
+  // invisible here; their rows stay in the table for the declarations' sake.
   const undispatched = [...events]
+    .filter(event => !event.source.startsWith('packages/client/'))
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
     .sort()

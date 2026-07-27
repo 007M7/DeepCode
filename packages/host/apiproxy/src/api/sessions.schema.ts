@@ -39,6 +39,7 @@ export const sessionSummarySchema = z.object({
   sessionId: sessionIdSchema,
   updatedAt: z.number(),
   running: z.boolean(),
+  blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
   cwd: z.string().optional(),
 }) satisfies z.ZodType<Wire<SessionSummary>>
@@ -92,10 +93,17 @@ export const historyEntrySchema = z.object({
   view: toolEventViewSchema.optional(),
 }) satisfies z.ZodType<Wire<HistoryEntry>>
 
+/** One todo item of the tail page's session-level projection (the todo/write payload shape). */
+export const todoItemSchema = z.object({
+  content: z.string(),
+  status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
+})
+
 /** session.history response value. */
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
+  todos: z.array(todoItemSchema).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */

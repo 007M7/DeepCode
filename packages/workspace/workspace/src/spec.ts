@@ -30,6 +30,16 @@ export const workspaceRecord = z.object({
 export type WorkspaceRecord = z.infer<typeof workspaceRecord>
 
 /**
+ * Recoverable two-write mutation marker. The marker is persisted before the
+ * record/order pair can diverge, so startup can distinguish an interrupted
+ * registry operation from unexplained medium corruption.
+ */
+const workspacePendingMutation = z.discriminatedUnion('operation', [
+  z.object({ operation: z.literal('create'), workspaceId }),
+  z.object({ operation: z.literal('delete'), workspaceId }),
+])
+
+/**
  * Durable registry state. `initialized` distinguishes a valid empty registry
  * from one that still needs the header-only history bootstrap;
  * `workspaceIds` is the authoritative display order.
@@ -37,6 +47,7 @@ export type WorkspaceRecord = z.infer<typeof workspaceRecord>
 export const workspaceDomainState = z.object({
   initialized: z.boolean(),
   workspaceIds: z.array(workspaceId),
+  pendingMutation: workspacePendingMutation.optional(),
 })
 
 /** Durable registry state inferred from {@link workspaceDomainState}. */
