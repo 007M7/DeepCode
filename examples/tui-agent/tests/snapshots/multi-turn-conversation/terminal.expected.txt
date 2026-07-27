@@ -1,70 +1,62 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "Reply with exactly the word: — DSH TUI snapshot"
-cursor hidden column=1 viewportRow=33 bufferRow=33
+cursor hidden column=7 viewportRow=30 bufferRow=30
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
 1| " Reply with exactly the word:"
   style 1-28 fg=bright-black
-2| " deepseek-v4-flash  •  main-session"
-  style 1-34 dim
+2| " main-session"
+  style 1-12 dim
 3| <blank>
-4| "▌ "
-  style 0-0 fg=bright-blue
-5| "▌ You                                                                                               "
-  style 0-0 fg=bright-blue
-  style 2-4 fg=bright-blue bold
-6| "▌ Reply with exactly the word: ONE. No tools.                                                       "
-  style 0-0 fg=bright-blue
-7| "▌ "
-  style 0-0 fg=bright-blue
+4| "You                                                                                                 "
+  style 0-2 fg=bright-blue bold underline
+5| "Reply with exactly the word: ONE. No tools.                                                         "
+6| <blank>
+7| "Entering plan mode (applies from the next step). Use /plan off to leave.                            "
+  style 0-71 fg=bright-black
 8| <blank>
-9| " Entering plan mode (applies from the next step). Use /plan off to leave.                           "
-  style 1-72 fg=bright-black
-10| <blank>
-11| " Reasoning                                                                                          "
-  style 1-9 fg=bright-black italic
-12| " The user wants me to reply with exactly the word \"ONE\" and use no tools.                           "
-  style 1-72 fg=bright-black italic
-13| <blank>
-14| " Assistant                                                                                          "
-  style 1-9 fg=bright-magenta bold
-15| " ONE                                                                                                "
+9| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+10| "Reasoning                                                                                           "
+  style 0-8 fg=bright-black italic
+11| "The user wants me to reply with exactly the word \"ONE\" and use no tools.                            "
+  style 0-71 fg=bright-black italic
+12| "ONE                                                                                                 "
+13| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+14| <blank>
+15| "Leaving plan mode (applies from the next step).                                                     "
+  style 0-46 fg=bright-black
 16| <blank>
-17| " Leaving plan mode (applies from the next step).                                                    "
-  style 1-47 fg=bright-black
-18| <blank>
-19| "▌ "
-  style 0-0 fg=bright-blue
-20| "▌ You                                                                                               "
-  style 0-0 fg=bright-blue
-  style 2-4 fg=bright-blue bold
-21| "▌ Reply with exactly the word: TWO. No tools.                                                       "
-  style 0-0 fg=bright-blue
-22| "▌ "
-  style 0-0 fg=bright-blue
-23| <blank>
-24| " Context · plan-mode                                                                                "
-  style 1-19 dim
-25| " The user switched this session back to the default mode.                                           "
-  style 1-56 fg=bright-black
-26| <blank>
-27| " Reasoning                                                                                          "
-  style 1-9 fg=bright-black italic
-28| " The user wants me to reply with exactly the word \"TWO\" and no tools.                               "
-  style 1-68 fg=bright-black italic
-29| <blank>
-30| " Assistant                                                                                          "
-  style 1-9 fg=bright-magenta bold
-31| " TWO                                                                                                "
-32| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-33| "                                                                                                    "
-  style 1-1 inverse
-34| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-35| "deepseek-v4-flash  /workspace/project  ↑2.9k ↓41  cache 49%  3% co"
-  style 0-92 dim
-  style 95-99 dim
+17| "You                                                                                                 "
+  style 0-2 fg=bright-blue bold underline
+18| "Reply with exactly the word: TWO. No tools.                                                         "
+19| <blank>
+20| "Context · plan-mode                                                                                 "
+  style 0-18 dim
+21| "The user switched this session back to the default mode.                                            "
+  style 0-55 fg=bright-black
+22| <blank>
+23| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+24| "Reasoning                                                                                           "
+  style 0-8 fg=bright-black italic
+25| "The user wants me to reply with exactly the word \"TWO\" and no tools.                                "
+  style 0-67 fg=bright-black italic
+26| "TWO                                                                                                 "
+27| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+28| <blank>
+29| "/workspace/project  deepseek-v4-flash  ↑2.9k ↓41  cache 49%  3% co"
+  style 0-51 fg=bright-blue bold
+  style 54-70 fg=bright-black
+  style 73-92 fg=bright-black
+  style 95-99 fg=bright-black
+30| " dsh ◍                                                                                              "
+  style 1-3 fg=bright-blue bold
+  style 5-6 fg=bright-black
+  style 7-7 inverse
+31-35| <blank>
