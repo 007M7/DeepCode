@@ -5,7 +5,7 @@
  */
 
 import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
-import type { CacheRetention, ThinkingBudgets, ThinkingLevel, Transport } from '@earendil-works/pi-ai'
+import type { CacheRetention, ModelThinkingLevel, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
 import z from 'schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
@@ -23,7 +23,7 @@ export interface PiAiProviderProfile {
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
-  reasoning?: ThinkingLevel
+  reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
   thinkingBudgets?: ThinkingBudgets
   /** Prompt-cache retention preference. */
@@ -62,7 +62,7 @@ const profile = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
   headers: z.dict(z.string()),
-  reasoning: z.union(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
+  reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
   transport: z.union(['sse', 'websocket', 'websocket-cached', 'auto']),

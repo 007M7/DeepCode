@@ -1,7 +1,7 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=0 viewportRow=31 bufferRow=31
+cursor hidden column=92 viewportRow=15 bufferRow=15
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
@@ -22,13 +22,13 @@ buffer
 7-12| <blank>
 13| "        ╭ Select model ────────────────────────────────────────────────────────────╮        "
   style 8-83 fg=bright-blue
-14| "        │ → deepseek/deepseek-v4-flash      DeepSeek V4 Flash — High — current     │        "
+14| "        │   deepseek/deepseek-v4-flash      DeepSeek V4 Flash — High — current     │        "
+  style 8-8 fg=bright-blue
+  style 38-77 fg=bright-black
+  style 83-83 fg=bright-blue
+15| "        │ → deepseek/deepseek-v4-pro        DeepSeek V4 Pro — provider default     │        "
   style 8-8 fg=bright-blue
   style 10-77 fg=bright-blue inverse
-  style 83-83 fg=bright-blue
-15| "        │   deepseek/deepseek-v4-pro        DeepSeek V4 Pro — provider default     │        "
-  style 8-8 fg=bright-blue
-  style 36-77 fg=bright-black
   style 83-83 fg=bright-blue
 16| "        │                                                                          │        "
   style 8-8 fg=bright-blue

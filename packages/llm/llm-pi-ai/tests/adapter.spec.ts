@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -124,7 +124,7 @@ describe('PiAiAdapter provider routing', () => {
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
-      reasoning: 'xhigh',
+      reasoning: 'max',
       cacheRetention: 'none',
       transport: 'sse',
       timeoutMs: 5000,
@@ -146,6 +146,33 @@ describe('PiAiAdapter provider routing', () => {
       thinking: { type: 'enabled' },
       reasoning_effort: 'max',
     })
+  })
+
+  it('uses a dynamic request effort and rejects unsupported efforts before network I/O', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = await harness(server.url, { reasoning: 'max' })
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [],
+    })
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'high' })
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('off'),
+      messages: [],
+    })
+    expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
+
+    await expect(assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      reasoningEffort: ReasoningEffortId('xhigh'),
+      messages: [],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    expect(server.requests).toHaveLength(2)
   })
 
   it('preserves omitted profile options when constructing the adapter directly', async () => {
@@ -322,9 +349,69 @@ describe('provider profile lifecycle', () => {
       provider: 'openai', id: 'gpt-4.1', name: 'GPT-4.1',
     })
     expect(models.every(model => model.provider === 'openai')).toBe(true)
-    const context = await ctx.llm.resolveModelContext('openai', 'gpt-4.1')
-    expect(context).toBeDefined()
-    expect(typeof context?.contextWindow).toBe('number')
+    const info = await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')
+    expect(typeof info.context?.contextWindow).toBe('number')
+  })
+
+  it('exposes pi-ai model thinking levels verbatim without inventing a provider default', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: [{ provider: 'deepseek' }, { provider: 'openai' }],
+    })
+
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({
+        reasoning: {
+          efforts: [
+            { id: ReasoningEffortId('off'), name: 'Off' },
+            { id: ReasoningEffortId('high'), name: 'High' },
+            { id: ReasoningEffortId('max'), name: 'Max' },
+          ],
+        },
+      })
+    const extended = await ctx.llm.resolveModelInfo('openai', 'gpt-5.6-sol')
+    expect(extended.reasoning?.efforts.map(effort => effort.id)).toEqual([
+      ReasoningEffortId('off'),
+      ReasoningEffortId('minimal'),
+      ReasoningEffortId('low'),
+      ReasoningEffortId('medium'),
+      ReasoningEffortId('high'),
+      ReasoningEffortId('xhigh'),
+      ReasoningEffortId('max'),
+    ])
+    await expect(ctx.llm.resolveModelInfo('openai', 'gpt-4.1'))
+      .resolves.toMatchObject({
+        reasoning: {
+          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
+        },
+      })
+  })
+
+  it('uses a supported profile reasoning value as the model default and rejects an unsupported one', async () => {
+    const supported = new Context()
+    await supported.plugin(LlmService)
+    await supported.plugin(LlmPiAi, {
+      providers: [{ provider: 'deepseek', reasoning: 'max' }],
+    })
+    await expect(supported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('max') } })
+
+    const unsupported = new Context()
+    await unsupported.plugin(LlmService)
+    await unsupported.plugin(LlmPiAi, {
+      providers: [{ provider: 'deepseek', reasoning: 'medium' }],
+    })
+    await expect(unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+
+    const disabled = new Context()
+    await disabled.plugin(LlmService)
+    await disabled.plugin(LlmPiAi, {
+      providers: [{ provider: 'deepseek', reasoning: 'off' }],
+    })
+    await expect(disabled.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('off') } })
   })
 
   it('accepts absent credentials for pi-ai ambient authentication', async () => {
@@ -376,9 +463,9 @@ describe('provider profile lifecycle', () => {
   it('constructs the adapter directly and rejects routes it does not own', async () => {
     const adapter = new PiAiAdapter({ profiles: [{ provider: 'openai' }] })
     await expect(adapter.listModels('anthropic')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
-    await expect(adapter.resolveModelContext('anthropic', 'claude-sonnet-4'))
+    await expect(adapter.resolveModel('anthropic', 'claude-sonnet-4'))
       .rejects.toMatchObject({ code: 'NO_ADAPTER' })
-    await expect(adapter.resolveModelContext('openai', 'not-a-catalog-model'))
+    await expect(adapter.resolveModel('openai', 'not-a-catalog-model'))
       .rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
     await expect((async () => {
       for await (const _chunk of adapter.stream({ provider: 'anthropic', model: 'claude-sonnet-4', messages: [] })) { /* drain */ }

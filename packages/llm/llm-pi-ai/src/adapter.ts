@@ -7,13 +7,27 @@
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   Model,
+  ModelThinkingLevel,
   SimpleStreamOptions,
+  ThinkingLevel,
 } from '@earendil-works/pi-ai'
-import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import {
+  attributionHeaders,
+  LlmAdapter,
+  LlmError,
+  ReasoningEffortId,
+} from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions,
+  LlmModelInfo,
+  LlmResolvedModelInfo,
+  ReasoningEffortId as ReasoningEffortIdType,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { resolveProfiles } from './config.ts'
 import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
@@ -30,7 +44,7 @@ export interface PiAiAdapterOptions {
  * Resolve a catalog model dynamically and apply only the configured endpoint
  * override, preserving the catalog's API/capability/compatibility metadata.
  */
-function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api> {
+function resolvePiModel(profile: PiAiProviderProfile, modelId: string): Model<Api> {
   const model = getBuiltinModels(profile.provider as BuiltinProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
   if (model === undefined) {
     throw new LlmError(`pi-ai provider "${profile.provider}" has no catalog model "${modelId}"`, 'UNKNOWN_MODEL')
@@ -39,10 +53,14 @@ function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api>
 }
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
-function profileOptions(profile: PiAiProviderProfile): SimpleStreamOptions {
+function profileOptions(
+  profile: PiAiProviderProfile,
+  reasoning: ModelThinkingLevel | undefined,
+): SimpleStreamOptions {
+  const enabledReasoning: ThinkingLevel | undefined = reasoning === 'off' ? undefined : reasoning
   return {
     ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
-    ...profile.reasoning === undefined ? {} : { reasoning: profile.reasoning },
+    ...enabledReasoning === undefined ? {} : { reasoning: enabledReasoning },
     ...profile.thinkingBudgets === undefined ? {} : { thinkingBudgets: profile.thinkingBudgets },
     ...profile.cacheRetention === undefined ? {} : { cacheRetention: profile.cacheRetention },
     ...profile.transport === undefined ? {} : { transport: profile.transport },
@@ -51,6 +69,20 @@ function profileOptions(profile: PiAiProviderProfile): SimpleStreamOptions {
     // The agent recovery layer owns visible attempts; one adapter call is one SDK attempt.
     maxRetries: 0,
   }
+}
+
+/** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
+function resolveReasoningLevel(
+  model: Model<Api>,
+  effort: ReasoningEffortIdType | ModelThinkingLevel | undefined,
+): ModelThinkingLevel | undefined {
+  if (effort === undefined) return undefined
+  const supported = getSupportedThinkingLevels(model)
+  if (supported.some(level => level === effort)) return effort as ModelThinkingLevel
+  throw new LlmError(
+    `pi-ai provider "${model.provider}" model "${model.id}" does not support reasoning effort "${effort}"`,
+    'UNSUPPORTED_REASONING_EFFORT',
+  )
 }
 
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
@@ -87,10 +119,11 @@ export class PiAiAdapter extends LlmAdapter {
     })))
   }
 
-  override resolveModelContext(
+  override resolveModel(
     provider: string,
     model: string,
-  ): Promise<LlmModelContext | undefined> {
+    _signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo> {
     const profile = this.profiles.get(provider)
     if (profile === undefined) {
       return Promise.reject(new LlmError(
@@ -98,9 +131,26 @@ export class PiAiAdapter extends LlmAdapter {
         'NO_ADAPTER',
       ))
     }
-    return Promise.resolve().then(() => ({
-      contextWindow: resolveModel(profile, model).contextWindow,
-    }))
+    return Promise.resolve().then(() => {
+      const resolvedModel = resolvePiModel(profile, model)
+      const levels = getSupportedThinkingLevels(resolvedModel)
+      const defaultLevel = resolveReasoningLevel(resolvedModel, profile.reasoning)
+      return {
+        provider,
+        id: model,
+        name: resolvedModel.name,
+        context: { contextWindow: resolvedModel.contextWindow },
+        reasoning: {
+          efforts: levels.map(level => ({
+            id: ReasoningEffortId(level),
+            name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
+          })),
+          ...defaultLevel === undefined
+            ? {}
+            : { defaultEffort: ReasoningEffortId(defaultLevel) },
+        },
+      }
+    })
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -111,7 +161,11 @@ export class PiAiAdapter extends LlmAdapter {
     if (profile === undefined) {
       throw new LlmError(`pi-ai adapter does not own provider "${options.provider}"`, 'NO_ADAPTER')
     }
-    const model = resolveModel(profile, options.model)
+    const model = resolvePiModel(profile, options.model)
+    const reasoning = resolveReasoningLevel(
+      model,
+      options.reasoningEffort ?? profile.reasoning,
+    )
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -122,7 +176,7 @@ export class PiAiAdapter extends LlmAdapter {
 
     try {
       const events = streamSimple(model, toPiContext(options), {
-        ...profileOptions(profile),
+        ...profileOptions(profile, reasoning),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
