@@ -9,6 +9,15 @@
   ],
   "references": [
     {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../subprocess"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

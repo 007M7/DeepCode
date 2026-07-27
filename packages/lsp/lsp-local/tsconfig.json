@@ -30,6 +30,9 @@
       "path": "../lsp"
     },
     {
+      "path": "../../subprocess/subprocess"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

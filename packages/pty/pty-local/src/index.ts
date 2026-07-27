@@ -13,6 +13,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 // SessionEventMap merge; the service itself arrives via `inject`.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { PtyBackendCleanupError } from '@deepseek-ai/dsh-pty'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
@@ -28,7 +29,6 @@ export const name = 'pty-local'
 /** Required services: PTY registry plus the one shared confinement policy. */
 export const inject = ['pty', 'sandbox', 'sandboxPolicy']
 
-const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 interface SandboxModeFenceState {
   pty: Context['pty']
   sandboxPolicy: Context['sandboxPolicy']
@@ -58,12 +58,9 @@ function ensureSandboxModeFence(ctx: Context, owner: Agent): void {
 }
 
 function childEnvironment(spec: PtyBackendSpawnSpec): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith('DSH_')) env[key] = value
-  }
+  // node-pty owns the spawn; the base env shares the subprocess seam's scrub.
   return {
-    ...env,
+    ...scrubbedParentEnv(),
     TERM: 'dumb',
     PAGER: 'cat',
     GIT_PAGER: 'cat',

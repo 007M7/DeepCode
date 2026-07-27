@@ -17,7 +17,7 @@ import type {
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import { abortable, abortError } from './abort.ts'
 import { LspConnection } from './connection.ts'
-import type { ConnectionSpec, ConnectionWriter } from './connection.ts'
+import type { ConnectionSpawner, ConnectionSpec, ConnectionWriter } from './connection.ts'
 import type { HostSource } from './host.ts'
 import type { WireInitializeResult, WireServerCapabilities } from './protocol.ts'
 import {
@@ -35,17 +35,6 @@ export interface InstanceSpec extends ConnectionSpec {
   readonly initializationOptions: unknown
   /** Graceful `shutdown`/`exit` budget before escalation (ms). */
   readonly shutdownTimeoutMs: number
-  /** SIGTERM→SIGKILL grace after graceful shutdown fails (ms). */
-  readonly killGraceMs: number
-}
-
-/**
- * Force-kill a process tree only when graceful termination did not make it exit.
- * @param treeExited - whether the tree exited within its grace period.
- * @param forceKill - forceful process-tree termination primitive.
- */
-export function escalateProcessTree(treeExited: boolean, forceKill: () => void): void {
-  if (!treeExited) forceKill()
 }
 
 /**
@@ -67,10 +56,11 @@ export class LspInstance {
 
   /**
    * @param spec - the launch, initialize, and teardown parameters.
+   * @param spawner - the subprocess seam's spawn function.
    * @param writer - optional connection writer used by transport conformance tests.
    */
-  constructor(private readonly spec: InstanceSpec, writer?: ConnectionWriter) {
-    this.connection = new LspConnection(spec, (method, params) => this.answerServerRequest(method, params), writer)
+  constructor(private readonly spec: InstanceSpec, spawner: ConnectionSpawner, writer?: ConnectionWriter) {
+    this.connection = new LspConnection(spec, spawner, (method, params) => this.answerServerRequest(method, params), writer)
     this.ready = this.initialize()
     // A handshake rejection must not surface as an unhandled rejection before the first query awaits
     // it; queries attach the real handler.
@@ -310,17 +300,14 @@ export class LspInstance {
     await abortable(this.connection.closed, signal)
   }
 
-  /** Terminate the tree, escalate after `killGraceMs`, then await leader and helper exit. */
+  /**
+   * Terminate the tree (the seam escalates SIGTERM→`killGraceMs`→SIGKILL),
+   * then await leader and helper exit. The awaits are unbounded on purpose:
+   * the seam's escalation already committed to SIGKILL, so quiescence — not
+   * another timer — is the postcondition disposal owes its callers.
+   */
   private async forceTerminate(): Promise<void> {
     this.connection.terminate()
-    const graceDeadline = deadline(undefined, this.spec.killGraceMs, 'LSP_KILL_GRACE')
-    let treeExited: boolean
-    try {
-      treeExited = await this.connection.waitForProcessTreeExit(graceDeadline.signal)
-    } finally {
-      graceDeadline[Symbol.dispose]()
-    }
-    escalateProcessTree(treeExited, this.connection.kill.bind(this.connection))
     await Promise.all([
       this.connection.closed,
       this.connection.waitForProcessTreeExit(),

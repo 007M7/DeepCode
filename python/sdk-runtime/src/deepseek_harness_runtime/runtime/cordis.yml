@@ -33,6 +33,10 @@
   name: '@deepseek-ai/dsh-session-checkpoint-policy'
 
 # Local bash executor; $DSH_CWD wins over the process cwd.
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
