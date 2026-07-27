@@ -20,7 +20,7 @@ buffer
 8| <blank>
 9| "○ Tool / cordis_mount"
   style 0-20 fg=yellow
-10| "Mount plugin into live cordis runtime                                                           "
+10| "Mount temporary Cordis Plugin                                                                   "
 11| "{                                                                                               "
 12| "  \"code\": \"return { name: 'snapshot-marker', apply(ctx) { ctx.provide('snapshotMarker', { ready:"
 13| "true }) } }\"                                                                                    "
@@ -28,7 +28,7 @@ buffer
 15| <blank>
 16| "○ Tool / cordis_unmount"
   style 0-22 fg=yellow
-17| "Unmount dyn-1                                                                                   "
+17| "Unmount temporary Cordis Plugin dyn-1                                                           "
 18| "Model wait 0.0s                                                                                 "
   style 0-14 dim
 19| <blank>
