@@ -877,6 +877,11 @@ export interface Config {
   exactProbeAfterMs?: number
   /** Silence duration that yields `inferred_idle`. */
   idleSilenceMs?: number
+  /**
+   * Extra wait beyond `idleSilenceMs`, once a prompt marker was seen, for the shell to
+   * regain the foreground before `inferred_idle` settles; at least one `pollIntervalMs`.
+   */
+  handoffGraceMs?: number
   /** Absolute send wait bound. */
   timeoutMs?: number
   /** Grace before teardown escalates to `SIGKILL`. */
