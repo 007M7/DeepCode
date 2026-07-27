@@ -57,6 +57,7 @@ function stubAgent(session: Session): Agent {
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */
 async function harness(
   workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
+  pickDirectory?: (signal: AbortSignal) => Promise<string | null>,
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -96,9 +97,32 @@ async function harness(
     model: 'test-model',
     cwd: workspaceRoot,
     workspaceRoot,
+    ...pickDirectory === undefined ? {} : { pickDirectory },
   })
   return { api, ctx, storageDomain, workspaceRoot }
 }
+
+describe('host.pickDirectory', () => {
+  it('returns a selected path or explicit cancellation from the injected native boundary', async () => {
+    const selected = await harness(undefined, async () => '/tmp/project')
+    expect((await selected.api.host.pickDirectory(request({}), new AbortController().signal)).result)
+      .toEqual({ ok: true, value: { path: '/tmp/project' } })
+
+    const cancelled = await harness(undefined, async () => null)
+    expect((await cancelled.api.host.pickDirectory(request({}), new AbortController().signal)).result)
+      .toEqual({ ok: true, value: { path: null } })
+  })
+
+  it('propagates abort into the native boundary as a cancelled RPC error', async () => {
+    const { api } = await harness(undefined, signal => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+    }))
+    const abort = new AbortController()
+    const pending = api.host.pickDirectory(request({}), abort.signal)
+    abort.abort()
+    expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+  })
+})
 
 describe('workspace.create', () => {
   it('serializes concurrent names and rejects the duplicate', async () => {
@@ -131,6 +155,13 @@ describe('workspace.create', () => {
     expect(first).toMatchObject({ created: true, workspace: { path: existing, title: 'existing' } })
     expect(repeated).toMatchObject({ created: false, workspace: { workspaceId: first.workspace.workspaceId } })
 
+    expectOk(await api.workspace.rename(request({
+      workspaceId: first.workspace.workspaceId,
+      title: 'renamed-existing',
+    })))
+    const reopened = expectOk(await api.workspace.create(request({ path: existing })))
+    expect(reopened.workspace.title).toBe('renamed-existing')
+
     const missing = join(workspaceRoot, 'missing')
     const missingResult = await api.workspace.create(request({ path: missing }))
     expect(missingResult.result).toMatchObject({ ok: false, error: { code: 'workspace-invalid-path' } })
@@ -140,6 +171,20 @@ describe('workspace.create', () => {
       const invalid = await api.workspace.create(request({ name }))
       expect(invalid.result).toMatchObject({ ok: false, error: { code: 'workspace-invalid-path' } })
     }
+  })
+
+  it('rejects different paths that derive the same Workspace title', async () => {
+    const { api, workspaceRoot } = await harness()
+    const first = join(workspaceRoot, 'one', 'project')
+    const second = join(workspaceRoot, 'two', 'project')
+    mkdirSync(first, { recursive: true })
+    mkdirSync(second, { recursive: true })
+    expectOk(await api.workspace.create(request({ path: first })))
+    const conflict = await api.workspace.create(request({ path: second }))
+    expect(conflict.result).toMatchObject({
+      ok: false,
+      error: { code: 'workspace-name-conflict', details: { name: 'project' } },
+    })
   })
 })
 

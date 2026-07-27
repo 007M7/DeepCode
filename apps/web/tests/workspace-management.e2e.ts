@@ -30,9 +30,14 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let pickedDirectory: string | null = null
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
+    scaffold.ctx.apiProxy.host.pickDirectory = request => Promise.resolve({
+      rpcId: request.rpcId,
+      result: { ok: true, value: { path: pickedDirectory } },
+    })
     // Seed one cold session (Ungrouped bucket) for the flat view + hover card.
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
@@ -55,8 +60,6 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-create'))
     const createByName = async (name: string): Promise<void> => {
       await page.getByRole('button', { name: 'Create workspace' }).click()
-      // The pick menu's Create workspace submenu opens on hover/focus.
-      await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
       await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
       const dialog = page.getByRole('dialog', { name: 'Create a new workspace' })
       await dialog.waitFor({ timeout: 10_000 })
@@ -134,14 +137,14 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
     // Register the scaffold's existing project directory through the real UI.
+    pickedDirectory = scaffold.workspaceCwd
     await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
-    await page.getByRole('menuitem', { name: 'Use an existing folder' }).click()
-    const useFolder = page.getByRole('dialog', { name: 'Use an existing folder' })
-    await useFolder.getByLabel('Existing folder path').fill(scaffold.workspaceCwd)
-    await useFolder.getByRole('button', { name: 'Use folder' }).click()
-    await expect.poll(() => useFolder.count(), { timeout: 10_000 }).toBe(0)
+    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
 
+    await expect.poll(
+      () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
+      { timeout: 10_000 },
+    ).not.toBeUndefined()
     const workspace = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
     if (workspace === undefined) throw new Error('GUI did not register the existing project directory')
     await workspace.attachSession(SessionId(SEED_ID))
@@ -197,13 +200,13 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     // Re-registering the exact deleted path immediately, without a reload, is
     // a supported reversible flow. It creates a fresh Workspace id without
     // re-adopting the retained Session.
+    pickedDirectory = scaffold.workspaceCwd
     await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
-    await page.getByRole('menuitem', { name: 'Use an existing folder' }).click()
-    const reuseFolder = page.getByRole('dialog', { name: 'Use an existing folder' })
-    await reuseFolder.getByLabel('Existing folder path').fill(scaffold.workspaceCwd)
-    await reuseFolder.getByRole('button', { name: 'Use folder' }).click()
-    await expect.poll(() => reuseFolder.count(), { timeout: 10_000 }).toBe(0)
+    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    await expect.poll(
+      () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
+      { timeout: 10_000 },
+    ).not.toBeUndefined()
     const reregistered = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
     expect(reregistered?.id).toBeDefined()
     expect(reregistered?.id).not.toBe(workspace.id)
@@ -269,13 +272,13 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
 
+    pickedDirectory = oldPath
     await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
-    await page.getByRole('menuitem', { name: 'Use an existing folder' }).click()
-    const adopt = page.getByRole('dialog', { name: 'Use an existing folder' })
-    await adopt.getByLabel('Existing folder path').fill(oldPath)
-    await adopt.getByRole('button', { name: 'Use folder' }).click()
-    await expect.poll(() => adopt.count(), { timeout: 10_000 }).toBe(0)
+    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    await expect.poll(
+      () => scaffold.ctx.workspace.resolveByPath(oldPath),
+      { timeout: 10_000 },
+    ).not.toBeUndefined()
     const oldWorkspace = await scaffold.ctx.workspace.resolveByPath(oldPath)
     if (oldWorkspace === undefined) throw new Error('old same-name Workspace was not registered')
 
@@ -288,7 +291,6 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await expect.poll(() => scaffold.ctx.workspace.get(oldWorkspace.id), { timeout: 10_000 }).toBeUndefined()
 
     await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
     await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
     const create = page.getByRole('dialog', { name: 'Create a new workspace' })
     await create.getByLabel('New workspace name').fill(title)

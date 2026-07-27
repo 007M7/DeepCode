@@ -66,6 +66,10 @@ async function harness(
   return { ctx, root, agent, fiber, sandbox: ctx.sandbox as PassthroughSandbox }
 }
 
+// PtySendOperation.append drops output once the operation settles, so this only
+// observes a marker the child prints while `operation` is still active. A caller
+// whose child is slow to print must raise the harness `timing` bounds too;
+// extending this deadline alone cannot recover output the operation never collected.
 async function waitForOutput(operation: PtySendOperation, expected: string, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let output = ''

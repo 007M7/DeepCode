@@ -87,6 +87,8 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/sdk/telemetry': { kind: 'none', reason: 'The launcher-side reporter sends developer-cycle telemetry and registers no live agent or model surface.' },
   'packages/session-query/session-query': { kind: 'none', reason: 'The trusted query service exposes cloned records only to callers and registers no model surface.' },
   'packages/session-query/session-query-sqlite': { kind: 'none', reason: 'The search backend returns hits only to callers and registers no model surface.' },
+  'packages/telemetry/session-telemetry': { kind: 'none', reason: 'The seam observes the session stream and hands redacted copies outward; it registers no model surface.' },
+  'packages/telemetry/session-telemetry-otel': { kind: 'none', reason: 'The backend forwards seam records into the OTel SDK pipeline and registers no model surface.' },
   'packages/skill/skill': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-skill.' },
   'packages/skill/skill-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-skill.' },
   'packages/spill/spill': { kind: 'indirect', reason: 'The storage seam delegates model rendering to spill consumers.' },

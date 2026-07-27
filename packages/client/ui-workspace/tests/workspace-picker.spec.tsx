@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import type {
   SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import { WorkspaceCreateError } from '@deepseek-ai/dsh-client-runtime/client'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 
 afterEach(cleanup)
@@ -32,7 +33,11 @@ function anchor(): { current: HTMLElement } {
   return { current: element }
 }
 
-function mount(items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')], createWorkspace = vi.fn()) {
+function mount(
+  items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
+  createWorkspace = vi.fn(),
+  pickDirectory = vi.fn(async () => null as string | null),
+) {
   const onPick = vi.fn()
   const onClose = vi.fn()
   const anchorRef = anchor()
@@ -45,20 +50,19 @@ function mount(items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')], 
       onPick={onPick}
       onClose={onClose}
       createWorkspace={createWorkspace}
+      pickDirectory={pickDirectory}
     />
   )
   const view = render(
     renderPicker(items),
   )
   return {
-    view, onPick, onClose, createWorkspace,
+    view, onPick, onClose, createWorkspace, pickDirectory,
     rerenderItems: (nextItems: readonly WorkspaceView[]) => { view.rerender(renderPicker(nextItems)) },
   }
 }
 
-function chooseCreateItem(name: 'Use an existing folder' | 'Create a new workspace'): void {
-  const parent = screen.getByRole('menuitem', { name: 'Create workspace' })
-  fireEvent.mouseEnter(parent.parentElement as HTMLElement)
+function chooseItem(name: 'Open local folder…' | 'Create a new workspace'): void {
   fireEvent.click(screen.getByRole('menuitem', { name }))
 }
 
@@ -73,7 +77,7 @@ describe('WorkspacePicker', () => {
     const created = workspace('new', 'New')
     const createWorkspace = vi.fn(async () => created)
     const b = mount([], createWorkspace)
-    chooseCreateItem('Create a new workspace')
+    chooseItem('Create a new workspace')
     const input = screen.getByLabelText('New workspace name')
     fireEvent.change(input, { target: { value: 'project-one' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
@@ -81,31 +85,78 @@ describe('WorkspacePicker', () => {
     await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
   })
 
-  it('adopts an existing path through the same immediate create action', async () => {
-    const created = workspace('adopted')
+  it('opens a native directory picker, adopts its path, and selects the returned Workspace', async () => {
+    const created = { ...workspace('adopted'), path: '/tmp/project', title: 'project' }
     const createWorkspace = vi.fn(async () => created)
-    const b = mount([], createWorkspace)
-    chooseCreateItem('Use an existing folder')
-    const input = screen.getByLabelText('Existing folder path')
-    fireEvent.keyDown(input, { key: 'ArrowRight' })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(createWorkspace).not.toHaveBeenCalled()
-    fireEvent.change(input, { target: { value: ' /tmp/project ' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
+    const pickDirectory = vi.fn(async () => '/tmp/project')
+    const b = mount([], createWorkspace, pickDirectory)
+    chooseItem('Open local folder…')
+    expect(pickDirectory).toHaveBeenCalledOnce()
+    await waitFor(() => { expect(createWorkspace).toHaveBeenCalledWith({ path: '/tmp/project' }) })
     expect(createWorkspace).toHaveBeenCalledWith({ path: '/tmp/project' })
     await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
   })
 
+  it('treats native picker cancellation as a silent no-op', async () => {
+    const b = mount([], vi.fn(), vi.fn(async () => null))
+    chooseItem('Open local folder…')
+    await waitFor(() => { expect(b.pickDirectory).toHaveBeenCalledOnce() })
+    expect(b.createWorkspace).not.toHaveBeenCalled()
+    expect(b.onPick).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('shows a name conflict and retries through the native picker', async () => {
+    const pickDirectory = vi.fn()
+      .mockResolvedValueOnce('/one/project')
+      .mockResolvedValueOnce(null)
+    const createWorkspace = vi.fn(async () => {
+      throw new WorkspaceCreateError({
+        code: 'workspace-name-conflict', message: 'project already exists', details: { name: 'project' },
+      })
+    })
+    const b = mount([], createWorkspace, pickDirectory)
+    chooseItem('Open local folder…')
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'A workspace with this name already exists' })).toBeTruthy()
+    })
+    expect(screen.getByRole('alert').textContent).toBe('Choose a folder with a different name.')
+    fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
+    await waitFor(() => { expect(pickDirectory).toHaveBeenCalledTimes(2) })
+    expect(b.onPick).not.toHaveBeenCalled()
+  })
+
+  it('disables the folder action while the native picker is already open', async () => {
+    let resolve!: (path: string | null) => void
+    const pending = new Promise<string | null>((settle) => { resolve = settle })
+    const b = mount([], vi.fn(), vi.fn(() => pending))
+    chooseItem('Open local folder…')
+    expect((screen.getByRole('menuitem', { name: 'Open local folder…' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('menuitem', { name: 'Create a new workspace' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open local folder…' }))
+    expect(b.pickDirectory).toHaveBeenCalledTimes(1)
+    await act(async () => { resolve(null); await pending })
+  })
+
+  it('reports non-Error native picker failures', async () => {
+    const b = mount([], vi.fn(), vi.fn(async () => { throw 'picker unavailable' }))
+    chooseItem('Open local folder…')
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('picker unavailable')
+    })
+    expect(b.createWorkspace).not.toHaveBeenCalled()
+  })
+
   it('closes a creation modal when the user cancels', () => {
     mount([])
-    chooseCreateItem('Create a new workspace')
+    chooseItem('Create a new workspace')
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('blocks a create-new name already present in the Workspace list', () => {
     const b = mount([workspace('alpha', 'Alpha')])
-    chooseCreateItem('Create a new workspace')
+    chooseItem('Create a new workspace')
     fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: ' Alpha ' } })
     expect(screen.getByRole('alert').textContent).toBe('A workspace named “Alpha” already exists.')
     expect((screen.getByRole('button', { name: 'Create workspace' }) as HTMLButtonElement).disabled).toBe(true)
@@ -118,7 +169,7 @@ describe('WorkspacePicker', () => {
     const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
     const created = workspace('fresh', 'same-name')
     const b = mount([], vi.fn(() => pending))
-    chooseCreateItem('Create a new workspace')
+    chooseItem('Create a new workspace')
     fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: 'same-name' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
 
@@ -134,7 +185,7 @@ describe('WorkspacePicker', () => {
     const pending = new Promise<WorkspaceView>((_resolve, rejectPromise) => { reject = rejectPromise })
     const createWorkspace = vi.fn(() => pending)
     const b = mount([], createWorkspace)
-    chooseCreateItem('Create a new workspace')
+    chooseItem('Create a new workspace')
     const input = screen.getByLabelText('New workspace name')
     fireEvent.keyDown(input, { key: 'ArrowRight' })
     fireEvent.change(input, { target: { value: 'broken' } })
@@ -151,7 +202,7 @@ describe('WorkspacePicker', () => {
 
   it('reports non-Error creation failures', async () => {
     const b = mount([], vi.fn(async () => { throw 'permission denied' }))
-    chooseCreateItem('Create a new workspace')
+    chooseItem('Create a new workspace')
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: permission denied')
@@ -163,7 +214,7 @@ describe('WorkspacePicker', () => {
     render(
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
-        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} pickDirectory={vi.fn()}
       />,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -176,7 +227,7 @@ describe('WorkspacePicker', () => {
     render(
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
-        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} pickDirectory={vi.fn()}
       />,
     )
     expect(screen.getByRole('status').textContent).toBe('Loading workspaces…')

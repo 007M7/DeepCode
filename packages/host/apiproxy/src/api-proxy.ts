@@ -34,6 +34,7 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
+import { pickNativeDirectory } from './native-directory-picker.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -195,6 +196,8 @@ export interface ApiProxyDefaults {
   cwd: string
   /** Parent directory for name-created workspaces. */
   workspaceRoot: string
+  /** Native single-directory picker; injectable for carrier tests. */
+  pickDirectory?: (signal: AbortSignal) => Promise<string | null>
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -833,6 +836,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           model: defaults.model,
           attachedSessions: ctx.agents.list().length,
         }))
+      },
+
+      async pickDirectory(request, signal) {
+        try {
+          const path = await (defaults.pickDirectory ?? pickNativeDirectory)(signal)
+          return ok(request, { path })
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'directory picker was aborted',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
       },
     },
 

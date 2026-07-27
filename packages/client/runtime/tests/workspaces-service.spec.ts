@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionsService } from '../src/client/sessions/service.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
-import { WorkspacesService } from '../src/client/workspaces/service.ts'
+import { WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -210,12 +210,30 @@ describe('WorkspacesService', () => {
     const api = new FakeApiClient()
     const sessions = new SessionsService(ctx, api)
     const workspaces = new WorkspacesService(ctx, api, sessions)
-    await expect(workspaces.create({ path: '/w/existing' })).resolves.toMatchObject({ workspaceId: 'fk-ws' })
-    expect(api.callsOf('workspace.create')).toEqual([{ path: '/w/existing' }])
+    api.onWorkspaceCreate = () => Promise.resolve(ok({
+      workspace: { ...workspace('picked'), path: '/w/alpha', title: 'alpha' }, created: true,
+    }))
+    await expect(workspaces.create({ path: '/w/alpha' })).resolves.toMatchObject({ workspaceId: 'picked' })
+    expect(workspaces.list.getSnapshot().items[0]).toMatchObject({ path: '/w/alpha', title: 'alpha' })
+    expect(api.callsOf('workspace.create')).toEqual([{ path: '/w/alpha' }])
     api.onWorkspaceCreate = () => Promise.resolve(err({
       code: 'workspace-invalid-path', message: 'missing', details: { path: '/missing' },
     }))
-    await expect(workspaces.create({ path: '/missing' })).rejects.toThrow(/workspace-invalid-path: missing/)
+    const rejected = workspaces.create({ path: '/missing' })
+    await expect(rejected).rejects.toThrow(/workspace-invalid-path: missing/)
+    await expect(rejected).rejects.toBeInstanceOf(WorkspaceCreateError)
+  })
+
+  it('passes native directory selection and cancellation through without local state', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onPickDirectory = () => Promise.resolve(ok({ path: '/w/alpha' }))
+    await expect(workspaces.pickDirectory()).resolves.toBe('/w/alpha')
+    api.onPickDirectory = () => Promise.resolve(ok({ path: null }))
+    await expect(workspaces.pickDirectory()).resolves.toBeNull()
+    expect(api.callsOf('host.pickDirectory')).toEqual([{}, {}])
   })
 
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {

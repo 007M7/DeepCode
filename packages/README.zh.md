@@ -37,6 +37,7 @@
 | [`session-persistence/`](session-persistence/README.md) | 持久化能力系列：seam + JSONL/SQLite 后端 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
 | [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务、共享 LLM 策略和选用提供方 | 产品：稳定表面 |
+| [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |
 | [`sdk/`](sdk/README.md) | 项目 SDK 工具 | 产品：稳定表面 |

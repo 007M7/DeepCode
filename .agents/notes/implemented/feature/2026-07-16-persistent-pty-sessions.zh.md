@@ -80,6 +80,8 @@ macOS 没有精确 syscall 层。任何前台进程组输出静默都会返回 `
 
 Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 sleep 或网络阻塞的命令可能看似 ready。Tier 3 在 `timeoutMs` 后返回 `timeout`，避免前台工具调用无限占住 agent。结果保留这些区别；调用方可以通过 `ctx.tasks` 等待、向前台组发信号，或从另一个会话排查。
 
+一次 send 在任一层级 settle 之后，`PtySendOperation.append` 就不再接受输出，此后子进程的输出不会再进入那个已 settle 的 operation；它仍然会进入 scrollback，以及此时恰好处于活跃状态的任何 send。因此，等待自己所启动的 operation 上出现标记的测试，必须把 `idleSilenceMs` 与 `timeoutMs` 设得高于子进程自身的启动耗时；否则在负载较高的 macOS runner 上，解释器启动会在标记打印之前就结束这次 send。
+
 `node-pty` data 通知进入同一个终端 parser。parser 的 carry state 会处理跨 callback 的控制序列和位于 callback 末尾的回车；因此，即使 CRLF 被拆开，也只会生成一个换行，而不会产生改变分页的空行。实现会规范化行式输出，但不承诺正确操作全屏应用。
 
 ### 模型可见输出与持久性
