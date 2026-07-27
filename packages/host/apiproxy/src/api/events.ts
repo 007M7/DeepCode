@@ -8,6 +8,7 @@
 
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm/types'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
@@ -61,20 +62,41 @@ export type MuxFrame =
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
+  /**
+   * A message entered the addressed agent's inbox (`agent/queued` passthrough:
+   * a queued message is not model-visible, so there is no session event to
+   * ride — this transient frame is the only wire signal). On stream open the
+   * host replays the current queue snapshot for every attached session (same
+   * refresh-recovery baseline as pending questions); queue clearing on cancel
+   * has no dedicated frame — clients fold it from the status flip.
+   * source carries the prompt's rpcId when the message came over this wire
+   * (the client's provisional-echo reconciliation key).
+   */
+  | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
   | { type: 'stream/error'; error: RpcError }
 
 /**
- * Host stream frames. session-added carries the lineage anchor and the
- * project cwd (the list-summary fields a client cannot wait for a refresh to
- * learn); agent-error is the only outlet for live failures with no turn
- * position; workspace-changed pushes the full new snapshot after every
- * durable workspace mutation (create/attach/order change — the client
- * upserts, while `workspace.list` provides the reconnect baseline).
+ * Host stream frames. session-added carries the lineage anchor, the project
+ * cwd, and the blank bit (the list-summary fields a client cannot wait for a
+ * refresh to learn); the frame fires at session/created, so blank is
+ * constantly true — clients flip it on the session's first
+ * `host/session-status(running:true)` (a blank session never runs), and a
+ * reconnecting client takes `session.list`'s summary.blank as authoritative.
+ * agent-error is the only outlet for live failures with no turn position;
+ * workspace-changed pushes the full new snapshot after every durable
+ * workspace mutation (create/attach/order change — the client upserts, while
+ * `workspace.list` provides the reconnect baseline).
  */
 export type HostFrame =
-  | { type: 'host/session-added'; sessionId: SessionId; parentSessionId?: SessionId; cwd?: string }
+  | { type: 'host/session-added'; sessionId: SessionId; blank: boolean; parentSessionId?: SessionId; cwd?: string }
   | { type: 'host/session-removed'; sessionId: SessionId }
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
+  /**
+   * The command registry changed (`commands/change` passthrough). Pure
+   * invalidation signal, no payload: clients refetch `command.list` in the
+   * background rather than diffing.
+   */
+  | { type: 'host/commands-changed' }
   | { type: 'stream/error'; error: RpcError }

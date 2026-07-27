@@ -12,8 +12,10 @@ import { entries, plainTurn } from './event-script.ts'
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId
 
-function summary(sessionId: SessionId, over: Partial<{ updatedAt: number; running: boolean; parentSessionId: SessionId }> = {}) {
-  return { sessionId, updatedAt: 100, running: false, ...over }
+type SummaryOver = Partial<{ updatedAt: number; running: boolean; blank: boolean; parentSessionId: SessionId }>
+
+function summary(sessionId: SessionId, over: SummaryOver = {}) {
+  return { sessionId, updatedAt: 100, running: false, blank: false, ...over }
 }
 
 describe('instances', () => {
@@ -81,7 +83,7 @@ describe('list lifecycle', () => {
     const hydration = manager.refreshList()
     manager.handleHostEnvelope({
       rpcId: 'during-first' as never,
-      payload: { type: 'host/session-added', sessionId: S2 },
+      payload: { type: 'host/session-added', blank: true, sessionId: S2 },
     })
     first.resolve(ok({ items: [summary(S1)] as never[] }))
     await hydration
@@ -157,7 +159,7 @@ describe('list lifecycle', () => {
     expect(titled.items[1]?.title).toBeUndefined()
 
     manager.handleHostEnvelope({ rpcId: 'removed' as never, payload: { type: 'host/session-removed', sessionId: S1 } })
-    manager.handleHostEnvelope({ rpcId: 'readded' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'readded' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
     expect(manager.getListSnapshot().items.find(item => item.sessionId === S1)?.title).toBeUndefined()
   })
 
@@ -196,8 +198,8 @@ describe('host frame routing', () => {
   it('adds/removes/flips sessions from host frames and keeps removed instances resident', async () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
-    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
-    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-added', sessionId: S1 } }) // dup: ignored
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } }) // dup: ignored
     expect(manager.getListSnapshot().items).toHaveLength(1)
 
     const session = manager.get(S1)
@@ -273,14 +275,14 @@ describe('remaining branches', () => {
 
     manager.handleHostEnvelope({
       rpcId: 'published-later' as never,
-      payload: { type: 'host/session-added', sessionId: S1, cwd: '/w/one' },
+      payload: { type: 'host/session-added', blank: true, sessionId: S1, cwd: '/w/one' },
     })
     expect(manager.getListSnapshot().items).toEqual([
       expect.objectContaining({ sessionId: S1, cwd: '/w/one' }),
     ])
     manager.handleHostEnvelope({
       rpcId: 'duplicate-frame' as never,
-      payload: { type: 'host/session-added', sessionId: S1, cwd: '/w/one' },
+      payload: { type: 'host/session-added', blank: true, sessionId: S1, cwd: '/w/one' },
     })
     expect(manager.getListSnapshot().items).toHaveLength(1)
   })
@@ -295,7 +297,7 @@ describe('remaining branches', () => {
     expect(notified).toBeGreaterThan(0)
     const seen = notified
     unsubscribe()
-    manager.handleHostEnvelope({ rpcId: 'h' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'h' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(notified).toBe(seen)
   })
@@ -334,8 +336,8 @@ describe('remaining branches', () => {
   it('carries parentSessionId from host/session-added into the lineage row', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
-    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
-    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-added', sessionId: S2, parentSessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-added', blank: true, sessionId: S2, parentSessionId: S1 } })
     const items = manager.getListSnapshot().items
     expect(items.find(e => e.sessionId === S2)).toMatchObject({ parentSessionId: S1, depth: 1 })
   })
