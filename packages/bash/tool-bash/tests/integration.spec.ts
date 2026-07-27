@@ -11,6 +11,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -29,6 +30,7 @@ async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: str
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   await ctx.plugin(ToolBash, dshHome === undefined ? {} : { dshHome })
   ctx.llm.registerAdapter(['mock'], adapter)

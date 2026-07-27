@@ -1,30 +1,22 @@
-/**
- * Package-owned invariant companion for `@deepseek-ai/dsh-subagent-subprocess`.
- * @module @deepseek-ai/dsh-subagent-subprocess/invariant
- */
+/** Package-owned invariant companion for the subprocess seam. @module @deepseek-ai/dsh-subprocess/invariant */
 
-/* jscpd:ignore-start */
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-subagent-subprocess'
+const PACKAGE_NAME = '@deepseek-ai/dsh-subprocess'
 
 /** Cordis companion plugin name. */
-export const name = 'subagent-subprocess-invariant'
+export const name = 'subprocess-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/**
- * No runtime invariant: this package exposes no independent event sequence or mutable data relation
- * beyond contracts enforced at its owning seam.
- */
+/** No runtime invariant: this stateless seam owns spawn-spec/handle types, while implementations own observations. */
 const install: InvariantInstaller = () => {}
 
 /**
- * Register this package's invariant companion.
+ * Register the subprocess invariant companion.
  * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
-/* jscpd:ignore-end */

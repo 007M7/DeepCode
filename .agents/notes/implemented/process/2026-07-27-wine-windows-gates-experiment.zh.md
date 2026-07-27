@@ -18,7 +18,9 @@ Pull request 的 Windows 通道存在的意义是证明两个阻断性 win32 表
 
 该通道靠四个杠杆保持 Linux CI 作业的墙钟：master 刷新的 pnpm store 缓存（只恢复，与 Linux 作业同键）、Wine 供给（apt 安装、Windows Node 下载、`wineboot`）与 `pnpm install` 并发运行、两个阻断表面并发运行——与 `run-gates` 在原生 Windows 上给它们的形状相同——以及按 runner 镜像为键的 apt 归档缓存，由 master 的 `wine apt cache` 作业播种，使每个 pull request 都能从默认分支作用域恢复。
 
-四条环境约束塑造了该作业，每条都以一次红色运行被发现：Ubuntu 的 `wine64` 包本身不往 PATH 放任何东西（要装 `wine` 调度器）；Wine 下的 Node 无法把 stdio 接到 Actions runner 的管道上（引导期 `Socket open EBADF`——所有调用都经文件中转 stdio）；Wine 不对 pnpm isolated 布局的 Unix 符号链接做 realpath（即上文的 hoisted 布局）；Wine 无法创建 Windows 符号链接（VitePress 的 `linkVue` 报 `ENOTSUP`——`vue` 链接在门禁前由宿主侧铺好）。
+门禁逻辑集中在一个脚本里，[scripts/wine-windows-gates.sh](../../../../scripts/wine-windows-gates.sh)：ci.yml 作业只供给 runner 状态（缓存、apt Wine）然后调用它，可选的本地门禁 `pnpm run check:windows-wine` 在装有 Wine 的开发机上运行同一个脚本——单一实现，因此本地复现红色 CI 通道不需要在环境之间做任何转译。该本地门禁是诊断工具而非例行检查：仅在排查已知的 Windows 相关失败时运行；日常 win32 信号归 CI 所有，[dsh-pre-push-checks](../../../skills/dsh-pre-push-checks/SKILL.md) 也从不选择它。脚本从不改动工作树：把被跟踪加未跟踪未忽略的文件快照进一个临时目录，只对快照施加 Wine 特有的 pnpm 覆盖，并在那里对着共享 store 安装；Wine prefix 与校验和验证过的 Windows Node zip 持久存放在 `.cache/wine-windows/` 下，本地重跑跳过供给，nodejs.org 不可达时回退到最新的已缓存 zip。
+
+五条环境约束塑造了 CI 与本地执行，每条都以一次红色运行被发现：Ubuntu 的 `wine64` 包本身不往 PATH 放任何东西（要装 `wine` 调度器）；Wine 下的 Node 无法把 stdio 接到调用方的管道上（引导期 `Socket open EBADF`——所有调用都经文件中转 stdio）；Wine 不对 pnpm isolated 布局的 Unix 符号链接做 realpath（即上文的 hoisted 布局）；macOS Wine 也会把 hoisted workspace 链接暴露为普通目录，因此 client 测试聚合会纳入每个包自己的 CSS 模块声明，而不依赖 project-reference realpath；Wine 无法创建 Windows 符号链接（VitePress 的 `linkVue` 报 `ENOTSUP`——`vue` 链接在门禁前由宿主侧铺好）。
 
 ## 实测结果
 

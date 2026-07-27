@@ -6,8 +6,8 @@
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| `bash/` | 抽象 bash 执行器 seam（接口 + 词汇；沙箱结果事实携带 [`sandbox/`](../sandbox/README.md) seam 的模式／强制执行词汇） | `ctx.bash` |
-| `bash-local/` | 本地子进程 `BashExecutor` 实现 | （注册 `ctx.bash`） |
+| `bash/` | 抽象 bash 执行器 seam（接口 + 词汇；沙箱结果事实携带 [`sandbox/`](../sandbox/README.md) seam 的模式／强制执行词汇，受管环境／输出词汇则从 [`subprocess/`](../subprocess/README.md) seam 重导出） | `ctx.bash` |
+| `bash-local/` | 构建在 [`subprocess/`](../subprocess/README.md) 服务之上的本地 `BashExecutor` 实现（命令默认值补全、deadline、终端环境、后台读取合并） | （注册 `ctx.bash`） |
 | `bash-sandbox/` | 消费沙箱的 `BashExecutor`（通过 `ctx.sandbox` 包装每个命令 argv，标记拒绝／强制执行事实；扩展 `bash-local` 的机制） | （注册 `ctx.bash`） |
 | `tool-bash/` | 面向模型的 `bash` schema；后台进程注册到通用 [`tasks/`](../tasks/README.md) 运行时 | （注册到 `ctx.tools`） |
 
