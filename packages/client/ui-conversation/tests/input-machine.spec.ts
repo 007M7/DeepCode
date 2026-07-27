@@ -36,7 +36,7 @@ function effectAt<T extends InputEffect['type']>(
 ): Extract<InputEffect, { type: T }> {
   const e = effects[index]
   expect(e?.type).toBe(type)
-  return e
+  return e as Extract<InputEffect, { type: T }>
 }
 
 /** Drive plain → adjudicating and hand back the minted attempt. */

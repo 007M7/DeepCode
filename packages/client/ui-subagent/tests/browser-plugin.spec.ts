@@ -22,7 +22,7 @@ function summary(partial: Partial<SessionSummary> & { id: SessionId }): SessionS
     running: false,
     updatedAt: 0,
     ...partial,
-  }
+  } as SessionSummary
 }
 
 const sid = (id: string) => id as SessionId
