@@ -53,6 +53,7 @@ function kitFor(snapshot: ConversationSnapshot) {
     sessionId: SID,
     useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
     useWorkspaces: (() => { throw new Error('unused') }) as never,
+    useProjection: (() => undefined) as never,
     useInput: (() => { throw new Error('unused') }) as never,
     inputActions: { setDraft: () => {}, submit: () => {} } as never,
     session: snapshot,

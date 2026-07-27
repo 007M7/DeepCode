@@ -44,6 +44,14 @@ export interface SessionMaybeProvideInfo {
   hooks: Record<string, HostObservable<unknown> | undefined>
   /** Static plain-member roster; values are undefined with the session. */
   props: Record<string, unknown>
+  /**
+   * Key-addressed projection-cell sources (the useProjection framework seat,
+   * session-projection RFC). Unlike `hooks`, the key space is open — cells
+   * come and go with domain plugins — so the render side binds per resolved
+   * cell instead of per static roster member. Absent with the session; an
+   * unresolved key uniformly reads as capability absent.
+   */
+  projections?: { cellOf(key: string): HostObservable<unknown> | undefined } | undefined
 }
 
 /** Definite per-session standard props resolved for strict session slots. */

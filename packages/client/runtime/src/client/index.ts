@@ -7,6 +7,7 @@ import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
 import { WorkspacesService } from './workspaces/service.ts'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
+import type { UseProjection } from './sessions/projection-cell.ts'
 
 export { SlotsService } from './slots.ts'
 export type { RootOwnerProps } from './slots.ts'
@@ -34,6 +35,12 @@ export type {
 } from './sessions/conversation.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
+// Projection cells (session-projection RFC): domain plugins register cells at
+// scope materialization via `binding.session.projections.register(spec)`.
+export type {
+  ProjectionCell, ProjectionCellSet, ProjectionCellSpec, ProjectionSchemaLike, ProjectionsBaseline,
+  SessionProjectionMap, UseProjection,
+} from './sessions/projection-cell.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Client-side Cordis context after declaration merging. */
@@ -59,12 +66,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     useSession: SnapshotSelectorHook<ConversationSnapshot>
     /** The framework-resolved session id (owners never pass it). */
     sessionId: SessionId
+    /** The fifth framework hook seat: key-addressed projection reader (undefined = capability absent). */
+    useProjection: UseProjection
   }
   /** Standard kit for slots that remain mounted while current session changes. */
   interface SessionMaybeStandardProps {
     useSession: MaybeSnapshotSelectorHook<ConversationSnapshot>
     /** Current session id; absent in the no-session state. */
     sessionId: SessionId | undefined
+    /** Key-addressed projection reader; every key reads absent while no session is current. */
+    useProjection: UseProjection
   }
   /** Props injected into every global slot component. */
   interface GlobalStandardProps {

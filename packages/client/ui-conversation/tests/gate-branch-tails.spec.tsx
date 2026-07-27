@@ -76,6 +76,7 @@ describe('render branch tails', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{ setDraft: () => {}, submit: () => {} }}
         useStore={bindSnapshotSelector(chat)}
@@ -111,6 +112,7 @@ describe('render branch tails', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{ setDraft: () => {}, submit: () => {} }}
         useStore={bindSnapshotSelector(chat)}

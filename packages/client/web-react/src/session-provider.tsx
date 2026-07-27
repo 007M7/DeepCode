@@ -84,6 +84,39 @@ function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S,
 }
 
 /**
+ * The useProjection framework seat (session-projection RFC), one bound
+ * function per provide bundle (cached by info identity — components may hold
+ * it across renders). Key-addressed: the key resolves a per-session cell
+ * source, whose bound selector hook comes from the same per-source cache as
+ * every other kit hook, so exactly one uSES subscription runs per call and
+ * the subscribe reference stays stable while the cell lives. An unresolved
+ * key (no cell, no session, plugin unloaded) reads `undefined` — capability
+ * absence — through the absent source, keeping the hook order constant.
+ */
+export function projectionHook(info: SessionMaybeProvideInfo): (
+  key: string, selector?: (value: unknown) => unknown, eq?: (a: unknown, b: unknown) => boolean
+) => unknown {
+  let hook = projectionHookCache.get(info)
+  if (hook === undefined) {
+    hook = (key, selector, eq) => {
+      const cell = info.projections?.cellOf(key)
+      // The absent branch binds the shared absent source so the caller's
+      // selector still runs over `undefined` (absence flows through the
+      // selector) and the uSES call count stays constant across resolution.
+      const useCell = observableHook(cell ?? absentSource)
+      // Whole values are frozen event/wire data (identical reference between
+      // events), so the identity selector needs no equality function.
+      return useCell(selector ?? (value => value), eq)
+    }
+    projectionHookCache.set(info, hook)
+  }
+  return hook
+}
+const projectionHookCache = new WeakMap<SessionMaybeProvideInfo, (
+  key: string, selector?: (value: unknown) => unknown, eq?: (a: unknown, b: unknown) => boolean
+) => unknown>()
+
+/**
  * Root-level binding provider. It follows current selection without a key, so
  * session-maybe entries retain their React identity while the context value
  * moves between absent and definite session bundles.

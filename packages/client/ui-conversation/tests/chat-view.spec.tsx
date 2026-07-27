@@ -105,6 +105,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useProjection: (() => undefined),
     useInput: (() => { throw new Error('unused') }),
     inputActions: { setDraft: () => {}, submit: () => {} },
     useStore: bindSnapshotSelector(chat),
