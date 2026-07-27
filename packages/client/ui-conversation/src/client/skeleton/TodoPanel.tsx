@@ -1,20 +1,19 @@
 // TodoPanel: persistent plan strip above the composer (the web counterpart
-// of the TUI plan panel). Renders
-// the latest todo/write whole-list snapshot off the session snapshot — no
-// data of its own, hidden while the list is empty. Mounted through the
-// 'conversation.input.dock' slot (QueueDock posture): the standard session
-// kit supplies useSession, so the inner component stays framework-free.
+// of the TUI plan panel). Renders the latest todo/write whole-list snapshot —
+// no data of its own, hidden while the list is empty. Mounted through the
+// 'conversation.input.dock' slot (QueueDock posture): the dock adapter does
+// the selecting, so the panel takes the plain list and stays framework-free.
 
 import { useState } from 'react'
 import type { Context } from 'cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TodoItem } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './TodoPanel.module.css'
 
 export interface TodoPanelProps {
-  useSession: UseSession
+  /** The session's current plan (empty renders nothing) — selected by the dock adapter. */
+  todos: readonly TodoItem[]
 }
 
 /** Status glyphs mirror the TUI plan panel (✓ done / ● active / ○ pending). */
@@ -22,8 +21,7 @@ const STATUS_GLYPHS: Record<TodoItem['status'], string> = {
   completed: '✓', in_progress: '●', pending: '○',
 }
 
-export function TodoPanel({ useSession }: TodoPanelProps) {
-  const todos = useSession(s => (s as { todos: readonly TodoItem[] }).todos)
+export function TodoPanel({ todos }: TodoPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
   if (todos.length === 0) return null
 
@@ -64,9 +62,10 @@ export function TodoPanel({ useSession }: TodoPanelProps) {
 /** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
 export type TodoDockProps = PropsRuntime<'conversation.input.dock'>
 
-/** Dock adapter: the standard kit's useSession feeds the strip. */
+/** Dock adapter: selects the plan off the session snapshot and hands the strip a plain list. */
 export function TodoDock({ useSession }: TodoDockProps) {
-  return <TodoPanel useSession={useSession} />
+  const todos = useSession(s => s.todos)
+  return <TodoPanel todos={todos} />
 }
 
 /**

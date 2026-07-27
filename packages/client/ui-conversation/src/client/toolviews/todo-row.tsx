@@ -5,6 +5,7 @@
 // durable list itself renders in the TodoPanel above the composer, so the
 // row stays one line.
 
+import type { KeyboardEvent } from 'react'
 import type { Context } from 'cordis'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
@@ -46,8 +47,23 @@ export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
   const summary = summarize(argsRaw) ?? model.summary
+  // Button semantics, not a <button>: the row carries inline spans a button
+  // would flatten, and ToolRow takes the same role/tabIndex/Enter-Space route.
+  const openFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    openDetails()
+  }
   return (
-    <div className={css.row} data-sample="todo-row" data-state={model.state} onClick={openDetails}>
+    <div
+      className={css.row}
+      data-sample="todo-row"
+      data-state={model.state}
+      role="button"
+      tabIndex={0}
+      onClick={openDetails}
+      onKeyDown={openFromKeyboard}
+    >
       {model.state === 'ok'
         ? <span className={css.badge} aria-hidden>☰</span>
         : <StateDot state={model.state === 'running' ? 'ongoing' : model.state === 'stopped' ? 'warning' : 'error'} />}

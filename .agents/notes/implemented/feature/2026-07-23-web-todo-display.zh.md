@@ -33,4 +33,4 @@ Status: implemented
 
 ## Consequences
 
-回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。TUI 面板未受改动（自动化专用的 ACP 桥接刻意不做 todo 呈现）；Web 各面渲染同一个事件，不引入任何新的协议词汇。冷加载重建由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；该值跨往前翻页保留，之后的任何写入照常覆盖，而尾页响应不带投影时复位为空。
+回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。TUI 面板未受改动（自动化专用的 ACP 桥接刻意不做 todo 呈现）；Web 各面渲染同一个事件，只新增一个协议字段，不新增事件类型。冷加载重建正是靠这个字段由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；该值跨往前翻页保留，之后的任何写入照常覆盖，而尾页响应不带投影时复位为空。

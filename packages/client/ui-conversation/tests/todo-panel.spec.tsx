@@ -1,26 +1,23 @@
 // @vitest-environment jsdom
 /**
  * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status
- * rows, collapse with active hint) and the todo_write toolview row (progress
- * summary from args, generic fallback on malformed JSON, error badge).
+ * rows, collapse with active hint), its TodoDock adapter (selects the plan off
+ * the session snapshot and follows changes), and the todo_write toolview row
+ * (progress summary from args, generic fallback on malformed JSON, error badge,
+ * keyboard activation).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
 import { TodoRow, todoToolview } from '../src/client/toolviews/todo-row.tsx'
-import { TodoPanel } from '../src/client/skeleton/TodoPanel.tsx'
+import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
+import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
 
 afterEach(cleanup)
-
-function sessionWith(todos: readonly TodoItem[]) {
-  const store = createSnapshotStore<{ todos: readonly TodoItem[] }>({ todos })
-  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession }
-}
 
 const LIST: TodoItem[] = [
   { content: '搭骨架', status: 'completed' },
@@ -29,17 +26,14 @@ const LIST: TodoItem[] = [
 ]
 
 describe('TodoPanel', () => {
-  it('renders nothing while the list is empty, appears when todos land', () => {
-    const { store, useSession } = sessionWith([])
-    render(<TodoPanel useSession={useSession} />)
-    expect(screen.queryByTestId('todo-panel')).toBeNull()
-    act(() => { store.set({ todos: LIST }) })
-    expect(screen.getByTestId('todo-panel')).toBeTruthy()
+  it('renders nothing while the list is empty', () => {
+    const { container } = render(<TodoPanel todos={[]} />)
+    expect(container.innerHTML).toBe('')
   })
 
   it('shows progress, one row per item with its status, and strikes done items', () => {
-    const { useSession } = sessionWith(LIST)
-    render(<TodoPanel useSession={useSession} />)
+    render(<TodoPanel todos={LIST} />)
+    expect(screen.getByTestId('todo-panel')).toBeTruthy()
     expect(screen.getByText('1/3')).toBeTruthy()
     const items = screen.getAllByRole('listitem')
     expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
@@ -48,8 +42,7 @@ describe('TodoPanel', () => {
   })
 
   it('collapse hides the list and surfaces the active item in the header; expand restores', () => {
-    const { useSession } = sessionWith(LIST)
-    render(<TodoPanel useSession={useSession} />)
+    render(<TodoPanel todos={LIST} />)
     const header = screen.getByRole('button', { expanded: true })
     fireEvent.click(header)
     expect(screen.queryByRole('list')).toBeNull()
@@ -60,11 +53,36 @@ describe('TodoPanel', () => {
   })
 
   it('collapsed header omits the hint when nothing is in progress', () => {
-    const { useSession } = sessionWith([{ content: '都完了', status: 'completed' }])
-    render(<TodoPanel useSession={useSession} />)
+    render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} />)
     fireEvent.click(screen.getByRole('button', { expanded: true }))
     expect(screen.queryByText('都完了')).toBeNull()
     expect(screen.getByText('1/1')).toBeTruthy()
+  })
+})
+
+/** Dock props stub: the adapter reads useSession only; the rest of the owner share is unused. */
+function dockProps(store: ReturnType<typeof createSnapshotStore<{ todos: readonly TodoItem[] }>>): TodoDockProps {
+  return { useSession: bindSnapshotSelector(store) } as unknown as TodoDockProps
+}
+
+describe('TodoDock', () => {
+  it('selects the plan off the session snapshot and follows later writes', () => {
+    const store = createSnapshotStore<{ todos: readonly TodoItem[] }>({ todos: [] })
+    render(<TodoDock {...dockProps(store)} />)
+    expect(screen.queryByTestId('todo-panel')).toBeNull()
+    act(() => { store.set({ todos: LIST }) })
+    expect(screen.getByText('1/3')).toBeTruthy()
+    // A rollback to the empty list retires the strip (the panel owns no data).
+    act(() => { store.set({ todos: [] }) })
+    expect(screen.queryByTestId('todo-panel')).toBeNull()
+  })
+
+  it('ships the registrant plugin shape (list entry above the queue rows)', () => {
+    expect(todoDockEntry.name).toBe('conversation-todo-dock')
+    expect(todoDockEntry.inject).toEqual(['slots', 'conversation'])
+    const register = vi.fn()
+    todoDockEntry.apply({ slots: { register } } as never)
+    expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: -1 }, TodoDock)
   })
 })
 
@@ -124,6 +142,21 @@ describe('TodoRow', () => {
     expect(screen.getByText('todo_write · {"other":1}')).toBeTruthy()
     fireEvent.click(screen.getByText('更新任务清单'))
     expect(openDetails).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens details from the keyboard on Enter and Space, ignoring other keys', () => {
+    const openDetails = vi.fn()
+    render(<TodoRow {...rowProps(resultNode(ARGS), openDetails)} />)
+    const row = screen.getByRole('button')
+    expect(row.getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.keyDown(row, { key: ' ' })
+    expect(openDetails).toHaveBeenCalledTimes(2)
+    // Space must not also scroll the flow: the handler claims the event.
+    expect(fireEvent.keyDown(row, { key: ' ' })).toBe(false)
+    fireEvent.keyDown(row, { key: 'a' })
+    fireEvent.keyDown(row, { key: 'ArrowDown' })
+    expect(openDetails).toHaveBeenCalledTimes(3)
   })
 
   it.each([
