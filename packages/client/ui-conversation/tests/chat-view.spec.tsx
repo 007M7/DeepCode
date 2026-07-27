@@ -29,8 +29,8 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
 
@@ -72,13 +72,13 @@ const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
 /** Empty sessions-list hook for the global standard-kit seat. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready' })
+    { ids: [], byId: {}, current: undefined, phase: 'ready' })
   return bindSnapshotSelector(store)
 }
 
 function emptyWorkspaces() {
   const store = createSnapshotStore<WorkspaceListState>({
-    items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+    items: [], state: 'idle', phase: 'ready', error: null,
     baselinesReady: true, recentWorkspaceId: undefined,
   })
   return bindSnapshotSelector(store)
@@ -104,6 +104,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useInput: (() => { throw new Error('unused') }) as never,
+    inputActions: { setDraft: () => {}, submit: () => {} } as never,
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
     renderSlot,

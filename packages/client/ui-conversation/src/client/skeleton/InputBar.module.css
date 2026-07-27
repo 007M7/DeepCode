@@ -1,3 +1,13 @@
+/* One-glyph font: maps ONLY U+FFFC to a blank 4em-advance glyph (every other
+   codepoint falls through to the next family). Loaded first in the composer
+   font stack, it gives the placeholder a real cell width INSIDE the textarea,
+   so the backdrop chip (same char, same stack) matches it by construction —
+   the two layers cannot drift and the chip gets a usable label cell. */
+@font-face {
+  font-family: 'DshChipCell';
+  src: url('data:font/ttf;base64,AAEAAAAKAIAAAwAgT1MvMkT8SmIAAAEoAAAAYGNtYXAADQBPAAABkAAAADRnbHlmAAAAAAAAAcwAAAABaGVhZCwtPGoAAACsAAAANmhoZWEDIg7bAAAA5AAAACRobXR4EZQAAAAAAYgAAAAIbG9jYQAAAAAAAAHEAAAABm1heHAAAwACAAABCAAAACBuYW1lvljk2gAAAdAAAABscG9zdNNweNQAAAI8AAAALQABAAAAAQAAdia1tV8PPPUAAwPoAAAAAOaLfcUAAAAA5ot9xQAAAAAAAAAAAAAAAwACAAAAAAAAAAEAAAMg/zgAAA+gAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAACAAEAAAACAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAwjKAZAABQAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAPz8/PwAA//z//AMg/zgAAAMgAMgAAAAAAAAAAAAAAAAAAAAgAAAB9AAAD6AAAAAAAAIAAAADAAAAFAADAAEAAAAUAAQAIAAAAAQABAABAAD//P//AAD//P//AAUAAQAAAAAAAAAAAAAAAAAAAAAAAAAEADYAAQAAAAAAAQALAAAAAQAAAAAAAgAHAAsAAwABBAkAAQAWABIAAwABBAkAAgAOAChEc2hDaGlwQ2VsbFJlZ3VsYXIARABzAGgAQwBoAGkAcABDAGUAbABsAFIAZQBnAHUAbABhAHIAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAABAgZvYmpyZXAAAAA=') format('truetype');
+}
+
 /* Floating capsule input (figma Input_Bottom 75:8208): card floats above the
    viewport bottom inside the centered message column; textarea on top, action
    row below, one primary circle button bottom-right. Input width rides the
@@ -35,12 +45,30 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.notice {
+  width: 100%;
+  max-width: 800px;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.noticeError {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .error {
   background: var(--dsw-alias-interactive-bg-hover-danger);
   color: var(--dsw-alias-state-error-primary);
 }
 
 .card {
+  position: relative; /* overlay anchor positioning context */
   display: flex;
   flex-direction: column;
   /* figma Input 75:8208: 12px between the text area and the button row; 10px
@@ -67,11 +95,61 @@
   padding: 10px 12px 0;
 }
 
+/* Floating overlay anchor (menu / popupSelect shell): entries position
+   themselves against the card (bottom: 100% + gap); closed entries render null. */
+.overlayAnchor {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+}
+
 /* Mirror-div auto-grow wrapper: the hidden mirror is in normal flow and sets the height
    (min 2 lines / max 14 lines); the textarea rides it absolutely. Mirror and textarea
    MUST share font, line-height, padding and wrapping rules or heights diverge. */
 .grow {
   position: relative;
+}
+
+/* Decoration backdrop: same metrics as the textarea, transparent glyphs; only
+   the highlight backgrounds and the ghost hint show through the transparent
+   textarea background above it. */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: transparent;
+  pointer-events: none;
+}
+
+.hlToken {
+  border-radius: 4px;
+  /* GOAL 稿 amber token emphasis (state warn pair; glyphs stay the textarea's). */
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: transparent;
+}
+
+.hlSegment {
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: transparent;
+}
+
+.hint {
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Machine pending dot (adjudicating / submitting). */
+.pending {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+  animation: input-pending 1s ease-in-out infinite alternate;
+}
+
+@keyframes input-pending {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
 }
 
 .input {
@@ -90,9 +168,15 @@
 }
 
 .input,
-.mirror {
-  /* figma .InputText 34:10434: pl 16 / pr 12 / pt 4. */
+.mirror,
+.backdrop {
+  /* figma .InputText 34:10434: pl 16 / pr 12 / pt 4. Backdrop MUST share these
+     metrics or the highlight ranges drift off the glyphs. */
   padding: 4px 12px 0 16px;
+  /* DshChipCell first: ONLY U+FFFC resolves there (4em blank cell — the chip
+     slot); everything else falls through to the app stack. All three layers
+     share the stack, so placeholder advances agree by construction. */
+  font-family: 'DshChipCell', var(--dsw-font-family);
   font-size: inherit;
   line-height: inherit;
   white-space: pre-wrap;
@@ -240,4 +324,81 @@
 .stopping:hover {
   background: var(--dsw-alias-button-primary-dimmed);
   color: var(--dsw-alias-brand-text);
+}
+
+.retry {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Plain-text reference highlight (decision 21): a pure range mark over the
+   draft's own glyphs — advance untouched, so the two layers cannot drift.
+   Chip family colors; clone keeps rounded ends on soft-wrap fragments. */
+.textRef {
+  color: transparent;
+  background-color: transparent;
+  box-decoration-break: clone;  
+  -webkit-box-decoration-break: clone;
+  position: relative;
+}
+.textRef:after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  
+  width: 100%;
+  height: 100%;
+
+  border-radius: 6px;
+  background: rgba(97, 135, 216, 0.22);
+  transform: translate(-2px, -1px);
+  padding: 2px 4px;
+}
+
+/* Reference chip: rendered in the backdrop at the placeholder offset. Hard
+   alignment constraint: the chip's advance must equal the textarea's U+FFFC
+   advance EXACTLY or every glyph after it drifts (caret/selection follow the
+   textarea character stream). The ::before renders the same U+FFFC through
+   the same font stack (DshChipCell 4em cell), so both layers agree by
+   construction — no measured widths. The label overlays the cell, clipped
+   with an ellipsis; the full name rides the title tooltip. */
+.chip {
+  position: relative;
+  border-radius: 6px;
+  background: rgba(97, 135, 216, 0.22);
+}
+
+.chip::before {
+  content: '\FFFC';
+  color: transparent;
+}
+
+.chipLabel {
+  /* Compensated-scale centering: overflow clipping happens BEFORE transform,
+     so the box is laid out at 1/0.72 of the cell and scaled back down — the
+     clip edge then lands on the visual cell edge, not mid-glyph. */
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(100% / 0.72 - 10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  transform: translate(-50%, -50%) scale(0.72);
+}
+
+.chipInvalid {
+  background: rgba(216, 97, 97, 0.2);
+  text-decoration: line-through;
+  opacity: 0.7;
 }
