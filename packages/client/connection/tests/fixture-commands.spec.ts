@@ -55,7 +55,7 @@ describe('createFixtureApi commands/skills', () => {
       .filter((f): f is { type: string; event: { type: string; data: Record<string, unknown> } } => (f as { type: string }).type === 'session/event')
       .map(f => f.event)
     expect(events).toMatchObject([
-      { type: 'command/run', data: { name: 'echo', line: '/echo hello world', source: { kind: 'user' } } },
+      { type: 'command/run', data: { name: 'echo', args: ' hello world', source: { kind: 'user' } } },
       { type: 'command/done', data: { kind: 'success', text: 'hello world' } },
     ])
     expect(events[0]?.data.commandId).toBe(events[1]?.data.commandId)

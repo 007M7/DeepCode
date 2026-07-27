@@ -112,10 +112,13 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * A resolved slash command entered its handler. Log-only (never model
      * surface); paired with `command/done` by `commandId`, mirroring the
-     * `tool/call`↔`tool/result` pairing. `line` is the exact command line as
-     * dispatched.
+     * `tool/call`↔`tool/result` pairing. The payload is structured — `name`
+     * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
+     * separator whitespace included), so a consumer (a projection unit
+     * folding its own command records, a rich command card) never re-parses
+     * a line.
      */
-    'command/run': { commandId: string; name: string; line: string; source: CommandSource }
+    'command/run': { commandId: string; name: string; args: string; source: CommandSource }
     /**
      * The paired command settled. `kind`/`text` carry the handler's verbatim
      * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
@@ -354,7 +357,7 @@ export class CommandService extends Service {
     if (signal.aborted) throw abortError(signal)
     const commandId = this.mintCommandId()
     await this.appendLifecycle(agent.session, 'command/run', {
-      commandId, name: parsed.name, line, source: { kind: 'user' },
+      commandId, name: parsed.name, args: parsed.rawInput, source: { kind: 'user' },
     })
     const invocation = Object.freeze({ agent, rawInput: parsed.rawInput, signal })
     let result: CommandResult

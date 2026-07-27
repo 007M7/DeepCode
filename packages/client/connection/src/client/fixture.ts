@@ -815,18 +815,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const missing = requireSession(request)
         if (missing !== undefined) return missing
         const id = request.payload.sessionId
-        const line = request.payload.line.trim()
-        const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
+        // Structured split mirroring the host parser: name + verbatim rawInput
+        // (separator whitespace included) — the run payload carries no line.
+        const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
+        const args = match?.[2] ?? ''
         const outcomes: Record<string, string> = {
           compact: 'fixture：已压缩（假动作）',
-          echo: match?.[2] ?? '',
+          echo: args.trim(),
           'goal-fixture': `fixture：goal 已设置（${id}）`,
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
         const commandId = `fx-cmd-${logOf(id).length}`
-        append(id, { type: 'command/run', data: { commandId, name, line, source: { kind: 'user' } } })
+        append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
         append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
         return ok(request, { matched: true as const })
       },

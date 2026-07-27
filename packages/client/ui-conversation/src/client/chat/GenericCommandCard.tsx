@@ -20,12 +20,15 @@ export function GenericCommandCard({ node }: CommandRowOwnerProps) {
   const summary = node.outcome === null
     ? '执行中…'
     : text ?? (node.outcome.kind === 'error' ? '命令失败' : '已完成')
+  // Display line rebuilt from the structured payload (args carries its own
+  // separator whitespace verbatim); a cross-window node whose run page fell
+  // out of the window has neither.
+  const title = node.name === null ? '命令' : `/${node.name}${node.args ?? ''}`
   return (
     <ToolRow
       variant="others"
       icon={<IconApiOutline14 size={16} />}
-      // A cross-window node whose run page fell out of the window has no line.
-      title={node.line ?? '命令'}
+      title={title}
       summary={summary}
       // Expandable only when the outcome text overflows a one-line summary.
       body={text !== undefined && text.includes('\n') ? text : null}

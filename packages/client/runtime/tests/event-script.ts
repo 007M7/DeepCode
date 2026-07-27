@@ -42,8 +42,8 @@ export const ev = {
     at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
   todoWrite: (seq: number, todos: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]): SessionEvent =>
     at(seq, { type: 'todo/write', data: { todos } }),
-  commandRun: (seq: number, commandId: string, name: string, line: string): SessionEvent =>
-    at(seq, { type: 'command/run', data: { commandId, name, line, source: { kind: 'user' } } }),
+  commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
+    at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
   commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>
     at(seq, { type: 'command/done', data: { commandId, kind, ...text === undefined ? {} : { text } } }),
 }

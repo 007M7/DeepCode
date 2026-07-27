@@ -304,7 +304,7 @@ describe('CommandService', () => {
 
     const lifecycle = lifecycleOf(agent)
     expect(lifecycle).toMatchObject([
-      { type: 'command/run', data: { name: 'deploy', line: '/deploy now', source: { kind: 'user' } } },
+      { type: 'command/run', data: { name: 'deploy', args: ' now', source: { kind: 'user' } } },
       { type: 'command/done', data: { kind: 'success', text: 'deployed' } },
     ])
     const ids = lifecycle.map(event => (event.data as { commandId: string }).commandId)

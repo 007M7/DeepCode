@@ -148,23 +148,23 @@ describe('FoldAdapter', () => {
       const adapter = new FoldAdapter()
       adapter.reset([
         ev.user(0, '先说话'),
-        ev.commandRun(1, 'cmd-1', 'plan', '/plan'),
+        ev.commandRun(1, 'cmd-1', 'plan'),
         ev.commandDone(2, 'cmd-1', 'success', '已进入 plan mode'),
         ev.assistant(3, 0, '然后回答'),
       ], 0)
       const { nodes } = adapter.nodes()
       expect(nodes.map(n => [n.kind, n.seq])).toEqual([['user', 0], ['command', 1], ['assistant', 3]])
       expect(nodes[1]).toMatchObject({
-        kind: 'command', commandId: 'cmd-1', name: 'plan', line: '/plan',
+        kind: 'command', commandId: 'cmd-1', name: 'plan', args: '',
         outcome: { kind: 'success', text: '已进入 plan mode' },
       })
     })
 
     it('renders a run with no done as still executing (outcome null)', () => {
       const adapter = new FoldAdapter()
-      adapter.reset([ev.commandRun(0, 'cmd-2', 'goal', '/goal ship it')], 0)
+      adapter.reset([ev.commandRun(0, 'cmd-2', 'goal', ' ship it')], 0)
       expect(adapter.nodes().nodes[0]).toMatchObject({
-        kind: 'command', name: 'goal', line: '/goal ship it', outcome: null,
+        kind: 'command', name: 'goal', args: ' ship it', outcome: null,
       })
     })
 
@@ -172,7 +172,7 @@ describe('FoldAdapter', () => {
       const adapter = new FoldAdapter()
       adapter.reset([ev.commandDone(80, 'cmd-3', 'error', '失败了')], 80)
       expect(adapter.nodes().nodes[0]).toMatchObject({
-        kind: 'command', seq: 80, commandId: 'cmd-3', name: null, line: null,
+        kind: 'command', seq: 80, commandId: 'cmd-3', name: null, args: null,
         outcome: { kind: 'error', text: '失败了' },
       })
     })
@@ -180,7 +180,7 @@ describe('FoldAdapter', () => {
     it('settles a live-appended done in place, keeping the node at the run seq', () => {
       const adapter = new FoldAdapter()
       adapter.reset(plainTurn(0, 0, 'q', 'a'), 0)
-      adapter.append(ev.commandRun(6, 'cmd-4', 'clear', '/clear'))
+      adapter.append(ev.commandRun(6, 'cmd-4', 'clear'))
       const running = adapter.nodes().nodes.find(n => n.kind === 'command')
       expect(running).toMatchObject({ outcome: null })
       adapter.append(ev.commandDone(7, 'cmd-4'))
@@ -192,7 +192,7 @@ describe('FoldAdapter', () => {
 
     it('tails command nodes whose seq is past every surface node', () => {
       const adapter = new FoldAdapter()
-      adapter.reset([ev.user(0, '问'), ev.commandRun(1, 'cmd-tail', 'plan', '/plan')], 0)
+      adapter.reset([ev.user(0, '问'), ev.commandRun(1, 'cmd-tail', 'plan')], 0)
       expect(adapter.nodes().nodes.map(n => n.kind)).toEqual(['user', 'command'])
     })
 
@@ -201,7 +201,7 @@ describe('FoldAdapter', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       try {
         adapter.reset([
-          ev.commandRun(0, 'cmd-5', 'plan', '/plan'),
+          ev.commandRun(0, 'cmd-5', 'plan'),
           ev.commandDone(1, 'cmd-5'),
           at(2, { type: 'assistant/message', surfaceOp: 'bogus-op', data: { turn: 0, step: 0, content: [{ type: 'text', text: '坏 op' }], provenance: { provider: 'x', model: 'y' } } }),
         ], 0)

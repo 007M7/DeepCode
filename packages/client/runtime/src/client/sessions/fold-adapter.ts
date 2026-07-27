@@ -229,10 +229,10 @@ export class FoldAdapter {
     // enter the client program, so this wire consumer narrows structurally
     // (the same posture as tool/code-dispatch in session.ts).
     if ((event.type as string) === 'command/run') {
-      const data = event.data as unknown as { commandId: string; name: string; line: string }
+      const data = event.data as unknown as { commandId: string; name: string; args: string }
       this.commandIdx.set(data.commandId, {
         kind: 'command', seq: event.seq, time: event.time,
-        commandId: data.commandId, name: data.name, line: data.line, outcome: null,
+        commandId: data.commandId, name: data.name, args: data.args, outcome: null,
       })
       return
     }
@@ -245,7 +245,7 @@ export class FoldAdapter {
       // node from the done alone (same soft-fall as a call-less tool result).
       this.commandIdx.set(data.commandId, {
         kind: 'command', seq: event.seq, time: event.time,
-        commandId: data.commandId, name: null, line: null, outcome,
+        commandId: data.commandId, name: null, args: null, outcome,
       })
       return
     }

@@ -103,9 +103,9 @@ describe('live event path', () => {
     // Live path: run mints an executing node, done settles it in the flow.
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
-    feed(ev.commandRun(6, 'cmd-live', 'plan', '/plan'))
+    feed(ev.commandRun(6, 'cmd-live', 'plan'))
     let command = session.getSnapshot().nodes.at(-1)
-    expect(command).toMatchObject({ kind: 'command', name: 'plan', line: '/plan', outcome: null })
+    expect(command).toMatchObject({ kind: 'command', name: 'plan', args: '', outcome: null })
     feed(ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'))
     command = session.getSnapshot().nodes.at(-1)
     expect(command).toMatchObject({ kind: 'command', seq: 6, outcome: { kind: 'success', text: '已进入 plan mode' } })
@@ -113,7 +113,7 @@ describe('live event path', () => {
     // Replay path (refresh): the same pair inside the history window folds identically.
     const replayed = await opened([
       ...plainTurn(0, 0, 'a', 'b'),
-      ev.commandRun(6, 'cmd-live', 'plan', '/plan'),
+      ev.commandRun(6, 'cmd-live', 'plan'),
       ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'),
     ])
     expect(replayed.session.getSnapshot().nodes.at(-1)).toMatchObject({

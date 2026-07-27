@@ -121,7 +121,7 @@ describe('command.execute', () => {
     // lifecycle pair instead of the response.
     const lifecycle = agent.session.events.filter(e => e.type === 'command/run' || e.type === 'command/done')
     expect(lifecycle).toMatchObject([
-      { type: 'command/run', data: { name: 'goal', line: '/goal ship it' } },
+      { type: 'command/run', data: { name: 'goal', args: ' ship it' } },
       { type: 'command/done', data: { kind: 'success', text: `goal:${agent.id}` } },
     ])
   })

@@ -367,7 +367,7 @@ describe('ChatView', () => {
   it('renders command nodes as durable rows: settled text, error state, executing spinner, run-less soft-fall', () => {
     const command = (over: Partial<CommandNode>): CommandNode => ({
       kind: 'command', seq: 5, time: 5_000, commandId: 'cmd-1',
-      name: 'plan', line: '/plan', outcome: { kind: 'success', text: '已进入 plan mode' },
+      name: 'plan', args: '', outcome: { kind: 'success', text: '已进入 plan mode' },
       ...over,
     })
     // Settled success: the command line is the title, the outcome text the summary.
@@ -394,7 +394,7 @@ describe('ChatView', () => {
 
     // Cross-window soft-fall (run page truncated): generic title, outcome preserved.
     const orphan = makeHarness({
-      nodes: [command({ seq: 8, commandId: 'cmd-4', name: null, line: null, outcome: { kind: 'success' } })],
+      nodes: [command({ seq: 8, commandId: 'cmd-4', name: null, args: null, outcome: { kind: 'success' } })],
     })
     const ov = render(<orphan.ChatView {...orphan.props} />)
     expect(ov.getByText('命令')).toBeTruthy()

@@ -168,7 +168,8 @@ export type ToolRowProps = PropsRuntime<'conversation.chat.toolview'>
 /**
  * Owner share of the per-command row slot: the frozen {@link CommandNode}
  * slice off the snapshot (cache-stable reference — memo premise). The node
- * carries the whole lifecycle (line, pairing id, outcome-or-executing), so a
+ * carries the whole lifecycle (structured name/args, pairing id,
+ * outcome-or-executing), so a
  * registrant needs no second data channel; domain state arrives through its
  * own projection cell.
  */

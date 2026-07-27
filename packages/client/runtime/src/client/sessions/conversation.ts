@@ -126,7 +126,7 @@ export interface UnknownSurfaceNode {
  * Log-only events never enter the surface fold, so the FoldAdapter indexes
  * them separately and merges the nodes into the flow by seq. A window cut
  * between the pair soft-falls like tool pairs: a done with no in-window run
- * still builds a node (name/line null), and a run with no done renders as
+ * still builds a node (name/args null), and a run with no done renders as
  * still executing.
  */
 export interface CommandNode {
@@ -137,10 +137,10 @@ export interface CommandNode {
   time: number
   /** Pairing id minted by the host executor. */
   commandId: string
-  /** Command name (run payload); null when the run fell outside the window. */
+  /** Command name (run payload's structured field); null when the run fell outside the window. */
   name: string | null
-  /** Exact dispatched command line (run payload); null when the run fell outside the window. */
-  line: string | null
+  /** Verbatim rawInput after the name, separator whitespace included (run payload); null when the run fell outside the window. */
+  args: string | null
   /** Settlement outcome (done payload); null while the command is still executing. */
   outcome: { kind: 'success' | 'error'; text?: string } | null
 }
