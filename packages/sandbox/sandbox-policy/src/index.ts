@@ -90,10 +90,11 @@ export class SandboxPolicyService extends Service {
 
   /**
    * Resolve the complete policy for one capability call. An approved explicit
-   * mode outranks the session's last `sandbox/mode` event, which outranks the
-   * deployment default. A session cwd is its workspace-write boundary; the
-   * configured root is the fallback for agentless calls and sessions without a
-   * cwd.
+   * mode outranks the session's override chain ({@link overrideOf}: own
+   * post-seed switches, else the inherited header baseline), which outranks
+   * the deployment default. A session cwd is its workspace-write boundary;
+   * the configured root is the fallback for agentless calls and sessions
+   * without a cwd.
    * @param request - optional session and approved mode override.
    * @returns the fully resolved per-call mode and absolute workspace root.
    */

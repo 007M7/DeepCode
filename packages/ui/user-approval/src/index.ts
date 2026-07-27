@@ -59,10 +59,11 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * The session's approval policy was switched — log-only, durable,
      * replayable, never in the model transcript (the model learns the policy
-     * from the prompt section and the narrator's notices). The LAST such
-     * event is the session's override ({@link effectiveApprovalPolicy});
-     * who asked for it is derivable from position (an event after the log's
-     * last `request/header` was a runtime switch by the user).
+     * from the prompt section and the narrator's notices). The last such OWN
+     * (post-seed) event is the session's override
+     * ({@link approvalOverrideOf}); who asked for it is derivable from
+     * position (an own event after the log's last own `request/header` was a
+     * runtime switch by the user).
      */
     'approval/policy': { policy: ApprovalPolicy }
   }
@@ -123,10 +124,12 @@ function toldApprovalPolicy(system: string | undefined): ApprovalPolicy | undefi
 }
 
 /**
- * The session's approval-policy override: the last `approval/policy` event in
- * the log, or undefined when the session never switched (callers apply the
- * plugin's configured default). The pure fold — resume needs no catch-up
- * machinery because replaying the log IS the state.
+ * The pure fold of a slice of `approval/policy` events: the last switch
+ * wins, or undefined without one. The building block
+ * {@link approvalOverrideOf} composes with the seed boundary and the header
+ * baseline — consumers resolving a SESSION's policy go through that chain,
+ * not this raw fold. Resume needs no catch-up machinery because replaying
+ * the log IS the state.
  * @param events - session events in log order (other event types are skipped).
  * @returns the policy of the last switch event, or undefined without one.
  */
@@ -359,9 +362,9 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * The session's effective policy: its own `approval/policy` fold, else the
-   * configured default (the schema already defaulted an omitted policy to
-   * `'ask'`; the `??` only narrows the optional-input TYPE).
+   * The session's effective policy: its override chain ({@link overrideOf}),
+   * else the configured default (the schema already defaulted an omitted
+   * policy to `'ask'`; the `??` only narrows the optional-input TYPE).
    * @param session - the exact accepted session whose policy applies.
    * @returns the policy every ask for this session resolves under right now.
    */

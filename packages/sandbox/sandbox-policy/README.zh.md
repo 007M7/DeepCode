@@ -15,9 +15,9 @@
 
 ## 表层
 
-- `ctx.sandboxPolicy.resolve({ session?, mode? })`：解析一项完整的逐调用策略。显式批准的模式优先于会话最后一条 `sandbox/mode` 事件，后者又优先于 `defaultMode`；会话不可变的 `cwd` 会先按文件系统语义规范化，再成为 `workspaceRoot`，否则使用配置的回退值。规范化先于词法归一化，因此 `symlink/..` 与进程工作目录解析保持一致。
+- `ctx.sandboxPolicy.resolve({ session?, mode? })`：解析一项完整的逐调用策略。显式批准的模式优先于会话的覆盖链（见下文 `overrideOf`），后者又优先于 `defaultMode`；会话不可变的 `cwd` 会先按文件系统语义规范化，再成为 `workspaceRoot`，否则使用配置的回退值。规范化先于词法归一化，因此 `symlink/..` 与进程工作目录解析保持一致。
 - `ctx.sandboxPolicy.defaultMode`／`ctx.sandboxPolicy.workspaceRoot`：`resolve()` 使用的部署默认值与回退根。
-- `effectiveSandboxMode(events)`：会话 `sandbox/mode` 事件的纯 fold（最后一次切换胜出，没有则为 `undefined`），在 `resolve()` 内使用。
+- `effectiveSandboxMode(events)`：对一段 `sandbox/mode` 事件切片的纯折叠（最后一次切换胜出，没有则为 `undefined`），是 `sandboxOverrideOf` 与种子边界和会话头基线进行组合时所用的基础构件。
 - `setSandboxMode(session, mode)`：逐会话覆盖的唯一写入路径：恰好追加一条 `sandbox/mode` 事件。切换本身就是事件；不会在带外修改模式。
 - `ctx.sandboxPolicy.overrideOf(session)`（即纯函数导出 `sandboxOverrideOf`，也供权限 preset 消费）：会话的覆盖链，绝不包含部署默认值：当存在继承的 `sandboxMode` 会话头基线时（即委派子 agent），先折叠会话自己在 `SessionHeader.seedLength` 之后的切换，否则取该基线，读取时按封闭词汇校验（遇到词汇之外的值即抛出异常——这是一条持久边界）；没有基线时（顶层会话或通用的 `SessionStore.fork` 子会话），折叠覆盖完整日志，因此种子携带的切换仍是回放所得的继承事实。进程内 subagent 驱动器在委派时捕获该值，并写入每个子 agent 创建时的会话头，使发起委派的父级收紧后的模式约束其子 agent，且不存在任何第一轮次的时序窗口（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
 - `SANDBOX_MODES`：所有模式，用于选项展示与运行时验证。
@@ -26,7 +26,7 @@
 
 ## 逐会话 store
 
-运行时切换是在对应会话日志中追加的一条 `sandbox/mode` 事件。`effective = explicit grant ?? fold(events) ?? deployment default`，因此覆盖会通过回放跨重启保留，两个会话也绝不会看到彼此状态。Workspace 标识无需另一条事件：创建时记录的不可变 `SessionHeader.cwd` 是该会话每次调用使用的根。该事件只进入日志（沿用 `approval/*` 先例）：模型通过强制执行工具的拒绝标记获知模式，绝不会从事件获知。
+运行时切换是在对应会话日志中追加的一条 `sandbox/mode` 事件。`effective = explicit grant ?? override chain ?? deployment default`，其中覆盖链（override chain）是 `sandboxOverrideOf` 折叠会话自己在种子之后的切换所得，否则取继承的会话头基线——因此覆盖会通过回放跨重启保留，委派子 agent 会在其父级捕获的策略下启动，两个会话也绝不会看到彼此状态。Workspace 标识无需另一条事件：创建时记录的不可变 `SessionHeader.cwd` 是该会话每次调用使用的根。该事件只进入日志（沿用 `approval/*` 先例）：模型通过强制执行工具的拒绝标记获知模式，绝不会从事件获知。
 
 ## 模型体验
 

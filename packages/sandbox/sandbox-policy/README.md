@@ -15,9 +15,9 @@ Two families enforce the same mode vocabulary: the sandboxed bash executor (`@de
 
 ## Surface
 
-- `ctx.sandboxPolicy.resolve({ session?, mode? })` — resolves one complete per-call policy. An explicit approved mode outranks the session's last `sandbox/mode` event, which outranks `defaultMode`; the session's immutable `cwd` is canonicalized with filesystem semantics before becoming `workspaceRoot`, otherwise the configured fallback applies. Canonicalization precedes lexical normalization so `symlink/..` agrees with process working-directory resolution.
+- `ctx.sandboxPolicy.resolve({ session?, mode? })` — resolves one complete per-call policy. An explicit approved mode outranks the session's override chain (`overrideOf`, below), which outranks `defaultMode`; the session's immutable `cwd` is canonicalized with filesystem semantics before becoming `workspaceRoot`, otherwise the configured fallback applies. Canonicalization precedes lexical normalization so `symlink/..` agrees with process working-directory resolution.
 - `ctx.sandboxPolicy.defaultMode` / `ctx.sandboxPolicy.workspaceRoot` — the deployment default and fallback root used by `resolve()`.
-- `effectiveSandboxMode(events)` — the pure fold of a session's `sandbox/mode` events (the last switch wins, or `undefined`), used inside `resolve()`.
+- `effectiveSandboxMode(events)` — the pure fold of a slice of `sandbox/mode` events (the last switch wins, or `undefined`), the building block `sandboxOverrideOf` composes with the seed boundary and the header baseline.
 - `setSandboxMode(session, mode)` — THE write path for a per-session override: appends exactly one `sandbox/mode` event. The switch IS its event; nothing mutates the mode out of band.
 - `ctx.sandboxPolicy.overrideOf(session)` (the pure `sandboxOverrideOf` export, also consumed by the permission presets) — the session's override chain, never the deployment default: with an inherited `sandboxMode` header baseline (a delegation child), the fold of the session's OWN switches past `SessionHeader.seedLength`, else the baseline, validated against the closed vocabulary on read (throws on foreign values — a durable boundary); without one (a top-level session or a generic `SessionStore.fork` child), the whole-log fold, so seed-carried switches remain the replayed inherited truth. The in-process subagent driver captures this at delegation and writes it into each child's creation-time header, so a delegating parent's tightened mode binds its children with no first-turn timing window ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
 - `SANDBOX_MODES` — every mode, for option advertisement and runtime validation.
@@ -26,7 +26,7 @@ The optional `./invariant` companion rejects a forged durable `sandbox/mode` eve
 
 ## The per-session store
 
-A runtime switch is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event.
+A runtime switch is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? override chain ?? deployment default`, where the override chain is `sandboxOverrideOf`'s fold of the session's OWN post-seed switches, else the inherited header baseline — so an override survives restart by replay, a delegation child starts under its parent's captured policy, and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event.
 
 ## Model Experience
 
