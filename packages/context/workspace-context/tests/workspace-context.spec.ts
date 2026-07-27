@@ -2115,6 +2115,7 @@ describe('dynamic nested workspace context injection', () => {
       const instructionPath = join(root, 'pkg/AGENTS.md')
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(instructionPath, { type: 'file', content: 'nested package rule' })
+      fs.omitSizes.add(instructionPath)
       fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
       await ctx.plugin(ToolFs)
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
