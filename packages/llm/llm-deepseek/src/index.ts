@@ -28,18 +28,19 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
 /**
  * Plugin config, validated by the same-named schemastery schema. Every field
  * is optional in yml: credentials/endpoint fall back to the environment (a
- * missing API key fails plugin load, not the first call), and omitted
- * thinking fields send nothing on the wire, so the provider default applies.
+ * missing API key fails plugin load, not the first call), omitted thinking
+ * mode uses the provider default, and omitted reasoning effort resolves to
+ * `high`.
  */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Thinking-mode default for every request (provider default: enabled). */
+  /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
-  /** Thinking effort (only meaningful with thinking enabled). */
-  reasoningEffort?: 'high' | 'max'
+  /** Default thinking effort (default `high`); `off` disables thinking per request. */
+  reasoningEffort?: 'off' | 'high' | 'max'
   /** Positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
@@ -59,7 +60,7 @@ export const Config: z<Config> = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
-  reasoningEffort: z.union(['high', 'max']),
+  reasoningEffort: z.union(['off', 'high', 'max']),
   defaultContextWindow: z.number().step(1).min(1),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
@@ -94,6 +95,11 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
 }
 
 export function apply(ctx: Context, config: Config): void {
+  if (config.thinking === 'disabled'
+    && config.reasoningEffort !== undefined
+    && config.reasoningEffort !== 'off') {
+    throw new Error('llm-deepseek: only reasoningEffort "off" can be configured when thinking is disabled')
+  }
   const apiKey = config.apiKey ?? process.env.DEEPSEEK_API_KEY
   if (apiKey === undefined || apiKey.length === 0) {
     throw new Error('llm-deepseek: an API key is required (Config.apiKey or $DEEPSEEK_API_KEY)')

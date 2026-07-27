@@ -11,7 +11,7 @@ import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { GenerateOptions, LlmModelContext, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
 
 /**
@@ -426,12 +426,20 @@ class ReplayAdapter extends LlmAdapter {
     })))
   }
 
-  override resolveModelContext(provider: string, model: string): Promise<LlmModelContext | undefined> {
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const configured = this.providers.get(provider)
     /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
-    if (configured === undefined) return Promise.resolve(undefined)
-    const contextWindow = configured.models?.find(candidate => candidate.id === model)?.contextWindow
-    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
+    if (configured === undefined) return Promise.resolve({ provider, id: model, name: model })
+    const configuredModel = configured.models?.find(candidate => candidate.id === model)
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: configuredModel?.name ?? model,
+      ...configuredModel?.description === undefined ? {} : { description: configuredModel.description },
+      ...configuredModel?.contextWindow === undefined
+        ? {}
+        : { context: { contextWindow: configuredModel.contextWindow } },
+    })
   }
 
   override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
