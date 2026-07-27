@@ -7,44 +7,23 @@
 
 import type { Context } from 'cordis'
 import { resolve } from 'node:path'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { findLastMessageTurnEnd, SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import type { JsonRpcTransportPeer } from './transport.ts'
-
-/** Parameters for the process-wide SDK handshake. */
-export interface InitializeParams {
-  /** Working directory recorded on every SDK-created session's header. */
-  cwd: string
-  /** Provider route every SDK-created agent runs on. */
-  provider: string
-  /** Model name every SDK-created agent runs on (see {@link HarnessSdkServer.initialize} for adapter fallback). */
-  model: string
-}
-
-/** Wire-stable server identity returned by initialization. */
-export interface InitializeResult {
-  /** Wire-stable server identity (`deepseek-harness-sdk-runtime`) and version. */
-  serverInfo: { name: string; version: string }
-}
-
-/** One user turn on one SDK session. */
-export interface SessionPromptParams {
-  /** The SDK-side session id; an unknown id lazily creates the agent+session pair. */
-  sessionId: string
-  /** The prompt content blocks, sent verbatim as the user message. */
-  contentBlocks: ContentBlock[]
-}
-
-/** Prompt acceptance after turn settlement; outcome rides on `session.finished`. */
-export interface SessionPromptResult {
-  /** Always `true`; the turn outcome is the paired `session.finished` notification. */
-  accepted: true
-}
+import type {
+  InitializeParams,
+  InitializeResult,
+  JsonRpcTransportPeer,
+  SessionEventNotification,
+  SessionFinishedNotification,
+  SessionPromptParams,
+  SessionPromptResult,
+  SubagentFinishedNotification,
+  SubagentStartedNotification,
+} from '@deepseek-ai/dsh-sdk-protocol'
 
 interface SessionRecord {
   handle: AgentHandle
@@ -97,15 +76,17 @@ export class HarnessSdkServer {
           rec.lastTurnEnd = event.data.reason
         }
       }
-      this.transport.notify('session.event', { sessionId: String(session.id), event })
+      const payload: SessionEventNotification = { sessionId: String(session.id), event }
+      this.transport.notify('session.event', payload)
     }))
     this.disposers.push(ctx.on('session/created', (session) => {
       const parentSession = session.header.parentSession
       if (parentSession === undefined) return
-      this.transport.notify('subagent.started', {
+      const payload: SubagentStartedNotification = {
         parentSessionId: String(parentSession),
         childSessionId: String(session.id),
-      })
+      }
+      this.transport.notify('subagent.started', payload)
     }))
     this.disposers.push(ctx.on('subagent/end', function (this: Scoped<SubagentService>, info: SubagentRunEndInfo) {
       const parent = subagentParentOf(this)
@@ -113,7 +94,7 @@ export class HarnessSdkServer {
       // snapshots the provider's exact run provenance through child disposal;
       // matching ids or parent lineage alone never establishes locality.
       if (!info.local) return
-      transport.notify('subagent.finished', {
+      const payload: SubagentFinishedNotification = {
         provider: info.provider,
         agentId: String(info.id),
         parentSessionId: String(parent.session.id),
@@ -121,7 +102,8 @@ export class HarnessSdkServer {
         status: successStatus(info.stopReason, serverOptions),
         stopReason: info.stopReason,
         ...(info.lastAssistantMessage === undefined ? {} : { lastAssistantMessage: info.lastAssistantMessage }),
-      })
+      }
+      transport.notify('subagent.finished', payload)
     }))
   }
 
@@ -160,12 +142,12 @@ export class HarnessSdkServer {
       rec.lastTurnEnd = undefined
       rec.handle.agent.followup({ content: params.contentBlocks, source: { kind: 'user' } })
       await rec.handle.agent.whenIdle()
-      const status = this.finishedStatus(rec.lastTurnEnd)
-      this.transport.notify('session.finished', {
+      const payload: SessionFinishedNotification = {
         sessionId: params.sessionId,
-        status,
+        status: this.finishedStatus(rec.lastTurnEnd),
         reason: rec.lastTurnEnd,
-      })
+      }
+      this.transport.notify('session.finished', payload)
       return { accepted: true }
     } finally {
       rec.activePrompt = false

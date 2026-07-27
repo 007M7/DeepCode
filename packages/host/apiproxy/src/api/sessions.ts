@@ -32,6 +32,78 @@ export interface HistoryEntry {
   view?: ToolEventView
 }
 
+/** Complete model target selected for one session. */
+export interface ModelTarget {
+  /** Registered provider route. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+  /** Adapter-owned reasoning effort; absence preserves adapter/provider default behavior. */
+  reasoningEffort?: string
+}
+
+/** One adapter-owned reasoning effort displayed for an exact model route. */
+export interface ModelReasoningEffort {
+  /** Opaque value submitted back to the owning adapter. */
+  id: string
+  /** Adapter-supplied display name. */
+  name: string
+  /** Optional adapter-supplied description. */
+  description?: string
+}
+
+/** Selectable reasoning metadata for one exact model route. */
+export interface ModelReasoning {
+  /** Efforts in adapter-preferred display order. */
+  efforts: ModelReasoningEffort[]
+  /** Adapter-configured default; absence preserves the provider default. */
+  defaultEffort?: string
+}
+
+/** One model displayed inside its provider group. */
+export interface ModelCatalogModel {
+  /** Provider-owned model id. */
+  id: string
+  /** Provider-supplied display name. */
+  name: string
+  /** Optional provider-supplied description. */
+  description?: string
+  /** The current model was inserted because the advisory catalog omitted it. */
+  unlisted?: true
+  /** Exact-route reasoning metadata when the adapter exposes it. */
+  reasoning?: ModelReasoning
+}
+
+/** One provider and the models it advertised successfully. */
+export interface ModelProviderGroup {
+  /** Provider route id used for requests. */
+  id: string
+  /** Provider display name. */
+  name: string
+  /** Models in provider-preferred order. */
+  models: ModelCatalogModel[]
+}
+
+/** A provider whose asynchronous catalog lookup failed. */
+export interface ModelCatalogFailure {
+  /** Provider route id. */
+  id: string
+  /** Provider display name. */
+  name: string
+  /** Lookup failure diagnostic. */
+  message: string
+}
+
+/** Detached model-directory snapshot for one session. */
+export interface SessionModels {
+  /** Target selected for the session's next assembled step. */
+  current: ModelTarget
+  /** Successfully loaded provider groups. */
+  groups: ModelProviderGroup[]
+  /** Provider-local failures; successful groups remain usable. */
+  failures: ModelCatalogFailure[]
+}
+
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
@@ -84,6 +156,22 @@ export interface SessionsApi {
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[] }>>
+
+  /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
+  models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
+
+  /**
+   * Selects the complete target for this session. Exact model metadata
+   * validates an optional reasoning effort, while catalog membership remains
+   * advisory.
+   */
+  selectModel(request: RpcRequest<{
+    sessionId: SessionId
+    provider: string
+    model: string
+    reasoningEffort?: string
+  }>):
+  Promise<RpcResponse<{ selected: ModelTarget }>>
 
   /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):

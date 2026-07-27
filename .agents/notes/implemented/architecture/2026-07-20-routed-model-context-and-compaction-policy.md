@@ -16,7 +16,7 @@ Neither obvious configuration owner is sufficient. Compact-basic is optional and
 
 `LlmAdapter.resolveModel(provider, model, signal?)` returns aggregate metadata for one exact route, with optional `LlmModelContext` under its `context` field. `LlmService.resolveModelInfo()` selects the registered route owner, validates a positive integer `contextWindow`, and returns detached metadata. The query is independent of `listModels()`: an unlisted dynamic model may have capacity metadata, and an absent `context` means only that the adapter cannot describe capacity.
 
-The hand-rolled DeepSeek adapter accepts optional `contextWindow` on each configured model plus an adapter-wide `defaultContextWindow`. Exact model capacity wins; an entry without capacity and an unlisted pass-through id inherit the adapter default, or omit `context` when it is absent. The two built-in model entries each publish an exact 128,000-token capacity. The pi-ai adapter resolves capacity from the same catalog descriptor that authoritatively resolves the request model.
+The hand-rolled DeepSeek adapter accepts optional `contextWindow` on each configured model plus an adapter-wide `defaultContextWindow`. Exact model capacity wins; an entry without capacity and an unlisted pass-through id inherit the adapter default, or omit `context` when it is absent. The two built-in model entries each publish an exact 256,000-token capacity. The pi-ai adapter resolves capacity from the same catalog descriptor that authoritatively resolves the request model.
 
 ### Token measurement remains model-agnostic
 
