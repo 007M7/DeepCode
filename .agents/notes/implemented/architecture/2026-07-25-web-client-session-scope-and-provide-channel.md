@@ -101,7 +101,7 @@ Slot scope is the closed set `root | session-maybe | session`:
 
 ### The read-only queue mirror
 
-- The MuxFrame `session/queued`: the Session holds a read-only inbox mirror (previews truncated; steering retired by source match); queue frames never enter history — pure stream state, cleared on reconnect and refilled from the new baseline; the never-instantiated window is buffered and replayed through the manager pendingBuffers.
+- The MuxFrame `session/queued`: the Session holds a read-only inbox mirror (previews truncated; steering retired by source match). The host stamps the agent-loop's acceptance-time steering classification on live and replayed frames, so a reconnect baseline does not depend on replaying an earlier `turn/start`. Queue frames never enter history — pure stream state, cleared on reconnect and refilled from the new baseline; the never-instantiated window is buffered and replayed through the manager pendingBuffers.
 - Queue semantics: running does not lock input; ordinary messages queue through `session.prompt {mode:'queue'}`, and commands never queue.
 
 ### Host wire smalls

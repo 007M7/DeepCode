@@ -54,7 +54,7 @@ interface Config {
 
 实体 `ReactLoopAgent`、其排队输入、outbox 与运行控制均为包内部实现。包根只导出插件／服务／配置契约，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个实体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
 
-统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`next-turn` 项加入排队 FIFO，除非 `wakeup: false`，否则会唤醒驱动器；接纳发生在任何轮次开启之前。获准的提示词与提示词 waterfall（瀑布式事件）的 `additionalContexts` 会作为各自独立的消息进入 outbox，然后 `run()` 开启轮次并一起 drain 它们。运行期间的 `next-step`／wakeup `steer()` 进入同一个 outbox，不经过提示词接纳，通常导致再执行一步。`next-step`／不唤醒的 `inject()` 只在轮次打开时才在 outbox 中等待；空闲时它立即追加一条 `user/message`，不开启轮次也不运行模型。由此产生的立即 drain 由持久化负责。每次 inbox 入队都会发布 `agent/inbox/enqueue`；取走它会发布 `agent/inbox/dequeue`；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
+统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`next-turn` 项加入排队 FIFO，除非 `wakeup: false`，否则会唤醒驱动器；接纳发生在任何轮次开启之前。循环在 `agent/prompt-submit` 之前打开一个私有的 next-step 接收窗口，并在 `turn/end` 之前关闭它。在该窗口内，`steer()` 与 `inject()` 会暂存到同一个 outbox；接纳获准后会开启轮次，记录提示词及其返回的 `additionalContexts`，再于首次请求前排空暂存输入。接纳被阻止或失败时，不会写入提示词或钩子生成的上下文，并会保留调用方暂存的输入，以供重试或之后获准的提示词使用。窗口之外，steering（中途引导）会成为唤醒驱动器的排队提示词，而注入会立即追加 `user/message`，不开启轮次也不运行模型。每次 inbox 入队都会发布 `agent/inbox/enqueue`，并携带解析出的 queued 或 steering 路由归类；取走它会发布 `agent/inbox/dequeue`；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
 
 ### 循环生命周期（`agent.ts`）
 
@@ -89,7 +89,7 @@ interface Config {
 
 #### Token 影响
 
-每个步骤都会再次计入系统文本与 schema。逐 agent 作用域决定贡献，而权威组装 waterfall 可以改变最终请求，并使其监听器负责保持协议连贯。
+每个步骤都会再次计入系统文本与 schema。逐 agent 作用域决定贡献，而权威组装 waterfall（瀑布式事件）可以改变最终请求，并使其监听器负责保持协议连贯。
 
 #### KV Cache 影响
 
@@ -99,7 +99,7 @@ interface Config {
 
 #### 模型所见
 
-已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文和 steering（中途引导）都会记录，并在后续步骤中发送。原始流分片、生命周期边界和其他仅写入日志的事件会被排除。
+已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文和 steering 都会记录，并在后续步骤中发送。原始流分片、生命周期边界和其他仅写入日志的事件会被排除。
 
 #### Token 影响
 

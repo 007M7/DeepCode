@@ -76,10 +76,12 @@ choose declarative identity and fresh/resume path
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
   wait for a queued message
-  claimed message -> agent/prompt-submit
-    blocked prompt -> park without opening a turn
+  claim message -> emit agent/status(running) if starting an interval
+  open the next-step acceptance window
+  -> agent/prompt-submit
+    blocked or failed prompt -> close the window without opening a turn
+      caller-staged context and steering remain pending for a later admitted turn
     allowed prompt:
-      emit agent/status(running)
       'turn/start'
       append prompt + additional contexts as separate 'user/message' events
     STEP loop:
@@ -100,6 +102,7 @@ forever:
       'step/end'
       continue for tools or steering unless a result concluded the turn
       otherwise agent/turn-stopping -> drain -> continue only for steering
+    close the next-step acceptance window
     'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
 
@@ -110,7 +113,7 @@ idle inject:
 
 每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-工具执行阶段的上下文，包括活跃轮次内的 `inject()` 和工具执行后的 `additionalContexts`，会在结果记录完毕后落定；steering 在此排空并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
+接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 
 裁剪先于摘要；溢出重试必须取得持久进展。恢复会在失败步骤关闭后、轮次关闭前使用 `agent/request-error`。其策略调用 `agent.retry()` 安排一个重试轮次；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 

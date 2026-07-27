@@ -76,10 +76,12 @@ choose declarative identity and fresh/resume path
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
   wait for a queued message
-  claimed message -> agent/prompt-submit
-    blocked prompt -> park without opening a turn
+  claim message -> emit agent/status(running) if starting an interval
+  open the next-step acceptance window
+  -> agent/prompt-submit
+    blocked or failed prompt -> close the window without opening a turn
+      caller-staged context and steering remain pending for a later admitted turn
     allowed prompt:
-      emit agent/status(running)
       'turn/start'
       append prompt + additional contexts as separate 'user/message' events
     STEP loop:
@@ -100,6 +102,7 @@ forever:
       'step/end'
       continue for tools or steering unless a result concluded the turn
       otherwise agent/turn-stopping -> drain -> continue only for steering
+    close the next-step acceptance window
     'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
 
@@ -110,7 +113,7 @@ idle inject:
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Tool-time context—active-turn `inject()` and post-tool `additionalContexts`—settles after results; steering drains there and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
+Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
 
 Pruning precedes summaries; overflow retries require durable progress. Recovery uses `agent/request-error` after the failed step and before turn close. Its policy calls `agent.retry()` to schedule one retry turn; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 

@@ -58,10 +58,11 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 每个插件面向的 handle：
 
-- `agent.send(input, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`input` 是既有的 `UserMessageData { content, source }`，而 `SendOptions` 只要求路由策略 `target` 与 `wakeup`。它返回被接受消息的不透明 `AgentMessageId`，由该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件携带，调用方可据此把排队项与其生命周期关联。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
+- `agent.send(input, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`input` 是既有的 `UserMessageData { content, source }`，而 `SendOptions` 只要求路由策略 `target` 与 `wakeup`。它返回被接受消息的不透明 `AgentMessageId`，由该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件携带，调用方可据此把排队项与其生命周期关联；入队事件还会携带解析出的 `queued | steering` 路由归类，使监听器无需从后续状态重建接收时的路由。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
 - `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
-- `agent.steer(input)`：`next-step`／wakeup 预设：轮次打开时，为其下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；空闲时委托给会唤醒的后续轮次。取消或 dispose 可能丢弃待处理 steering。
-- `agent.inject(input)`：`next-step`／不唤醒预设：追加面向模型的上下文而不运行模型；下一次请求会看到一条逐字的 user role 消息，其来源由必填的 `input.source` 携带。轮次打开时，注入在 outbox 中等待下一个安全边界。空闲时，它立即追加而不开启轮次；持久化独立地响应 `session/event`。注入不发出 `agent/inbox/*` 事件。
+- `agent.steer(input)`：`next-step`／wakeup 预设：提示词接纳期间或轮次打开时，为下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；该接收窗口之外则委托给会唤醒的后续轮次。接纳失败会保留暂存的 steering，以供重试或之后获准的提示词使用，而取消或 dispose 可能丢弃它。
+- `agent.inject(input)`：`next-step`／不唤醒预设：追加面向模型的上下文而不运行模型；下一次请求会看到一条逐字的 user role 消息，其来源由必填的 `input.source` 携带。提示词接纳期间或轮次打开时，注入会在 outbox 中等待下一个安全边界。该接收窗口之外，它会立即追加而不开启轮次；持久化独立地响应 `session/event`。注入不发出 `agent/inbox/*` 事件。
+- `agent.acceptsNextStep`：当前发送 `next-step` 时，是否会加入提示词接纳或已打开的轮次。当调用方必须在 steering 与新接纳的提示词之间选择时，应使用这一更窄的路由判定；`status === 'running'` 还涵盖接纳收尾与轮次结算阶段。
 - `agent.cancel(cause, options?)`：取消活动轮次，并在未设置 `options.keepInbox` 时取消全部待处理工作。调用方必须显式选择 `user | parent` 原因；活动持有者会在中止前把其判别字段复制为已分离、冻结的信号原因。有效调用会在清除排队与 steering 工作前，随原因发出 `agent/cancel-requested`；丢弃项在 `agent/inbox/discard` 上报告，观察方可以同步状态，但不能 veto 取消。`keepInbox: true` 会中止轮次，但保留排队与 steering 项（不丢弃，且不删除尚未开始的工作）。同进程类型化 seam 不会为无类型调用方添加运行时校验或兼容回退。重复取消活动轮次时，首个信号生效；空闲取消是安全空操作，不发通知。ACP 映射到 `user`，进程内父传播映射到 `parent`。原因只存在于运行时；持久 `turn/end` 保持粗粒度的 `aborted`。
 - `agent.whenIdle()`：agent 从 `running` 结算后达到静默时解析（idle ⇒ 立即；disposed ⇒ 等待循环退出）。这是非拥有者的静默观测钩子：观察工作结算，但不 teardown agent。Teardown 独立存在；生命周期拥有者通过 `AgentHandle.dispose()` 停止并注销，并直接等待循环退出。
 - `agent.session`、`agent.status`、`agent.options`、`agent.id`

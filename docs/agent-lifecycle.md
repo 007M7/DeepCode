@@ -20,10 +20,14 @@ sequenceDiagram
   Agent-->>SDK: <code>agent/inbox/enqueue</code>
   Agent->>Driver: queued work wakes driver
   Driver-->>SDK: <code>agent/status</code> running
-  Driver->>Session: <code>turn/start</code>
+  Note over Agent,Driver: next-step acceptance window opens
   Driver->>Hooks: <code>agent/prompt-submit</code> waterfall
   Hooks-->>Driver: authoritative allow, block, or add context
-  Driver->>Session: <code>user/message</code> or rejected <code>turn/end</code>
+  alt prompt blocked or admission failed
+    Driver-->>Driver: close window and keep caller-staged next-step input pending
+  else prompt allowed
+  Driver->>Session: <code>turn/start</code>
+  Driver->>Session: <code>user/message</code>
   Driver->>Prompt: <code>system-prompt/assemble</code> waterfall
   Driver-->>Driver: <code>agent/step</code> serial checkpoint
   Driver->>Session: <code>step/start</code>
@@ -53,7 +57,9 @@ sequenceDiagram
   Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-stopping</code> serial terminal checkpoint
   end
+  Note over Agent,Driver: next-step acceptance window closes
   Driver->>Session: <code>turn/end</code>
+  end
   Driver-->>SDK: <code>agent/status</code> idle
 ```
 

@@ -420,10 +420,16 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 /**
  * Which inbox queue a {@link Agent.send} item joins:
  * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
- * - `next-step` — the item joins the active turn between steps as steering,
- *   or, when no turn is active, is promoted per its `wakeup` flag.
+ * - `next-step` — during prompt admission or an open turn, the item stages for
+ *   the next safe step boundary; otherwise it is promoted per its `wakeup`
+ *   flag.
  */
 type SendTarget = 'next-turn' | 'next-step'
+```
+
+```ts type-equiv
+/** Resolved inbox placement reported when an accepted message is enqueued. */
+type InboxPlacement = 'queued' | 'steering'
 ```
 
 ```ts type-equiv
@@ -508,6 +514,12 @@ interface Agent {
   readonly session: Session
   /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
+  /**
+   * Whether a `next-step` send currently stages for prompt admission or the
+   * open turn. Unlike {@link status}, this excludes admission exit and turn
+   * settlement, when a waking `next-step` send becomes a queued follow-up.
+   */
+  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
@@ -518,12 +530,13 @@ interface Agent {
    * - `next-turn` queues an item that becomes the sole ordinary message of its
    *   own FIFO-ordered turn; `wakeup:true` wakes a
    *   parked driver, while `wakeup:false` queues without waking.
-   * - `next-step` with `wakeup:true` submits steering into the active turn
-   *   (idle falls back to a woken `next-turn`).
+   * - `next-step` with `wakeup:true` stages steering during prompt admission
+   *   or an open turn; outside that window it falls back to a woken
+   *   `next-turn`.
    * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: an open turn stages it for the next safe log
-   *   position, while an idle injection appends it immediately without opening
-   *   a turn.
+   *   without running the model: admission or an open turn stages it for the
+   *   next safe log position, while an injection outside that window appends
+   *   immediately without opening a turn.
    * @param input - model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
    * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
@@ -554,12 +567,13 @@ interface Agent {
   followup(input: UserMessageData): AgentMessageId
 
   /**
-   * Submit steering into the running turn — the `next-step`/wakeup preset of
-   * {@link send}. An open turn records it at the next steering checkpoint before
-   * a request or stop decision. If the turn fails before that boundary, the
-   * remainder stays staged without waking the agent; retry or a later prompt
-   * takes it. Idle steering falls back to a woken follow-up turn, while
-   * cancellation or disposal may discard pending steering.
+   * Submit steering during prompt admission or an open turn — the
+   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
+   * checkpoint before a request or stop decision. If the activity fails before
+   * that boundary, the remainder stays staged without waking the agent; retry
+   * or a later prompt takes it. Outside that window steering falls back to a
+   * woken follow-up turn, while cancellation or disposal may discard pending
+   * steering.
    * @param input - steering content and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
@@ -567,9 +581,9 @@ interface Agent {
 
   /**
    * Append model-facing context without running the model — the
-   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection stages
-   * at the next safe log position; an idle injection appends immediately
-   * without opening a turn.
+   * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
+   * stages it at the next safe log position; outside that window it appends
+   * immediately without opening a turn.
    * @param input - injected context and its producer provenance.
    * @returns the accepted message's {@link AgentMessageId}.
    */
@@ -586,7 +600,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancellation` 持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`，并在发布 `turn/end` 前退役；冻结后的 `AbortSignal.reason` 仍可读取。只有 loop 会在结算时从自己机器私有的 signal 上读回 cause（`user`、`parent` 或仅用于生命周期的 `disposed`）——不存在公开的读取器，signal 也不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
