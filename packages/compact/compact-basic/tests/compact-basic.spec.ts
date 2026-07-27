@@ -16,7 +16,7 @@ import type {
   ContentBlock,
   GenerateOptions,
   LlmFailure,
-  LlmModelContext,
+  LlmResolvedModelInfo,
   Message,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
@@ -33,8 +33,13 @@ class ContextAdapter extends LlmAdapter {
     super()
   }
 
-  override resolveModelContext(): Promise<LlmModelContext> {
-    return Promise.resolve({ contextWindow: this.contextWindow })
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      context: { contextWindow: this.contextWindow },
+    })
   }
 
   override async * stream(): AsyncIterable<StreamChunk> {
@@ -47,9 +52,14 @@ class RoutedContextAdapter extends LlmAdapter {
     super()
   }
 
-  override resolveModelContext(provider: string): Promise<LlmModelContext | undefined> {
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const contextWindow = this.windows[provider]
-    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      ...contextWindow === undefined ? {} : { context: { contextWindow } },
+    })
   }
 
   override async * stream(): AsyncIterable<StreamChunk> {
@@ -453,6 +463,18 @@ describe('pressure measurement and retention', () => {
       .resolves.not.toBeNull()
   })
 
+  it('forwards turn cancellation to proactive model metadata resolution', async () => {
+    const ctx = createContext()
+    const resolveModelInfo = vi.spyOn(ctx.llm, 'resolveModelInfo')
+    const compact = service(compactConfig, ctx)
+    const session = conversation()
+    const signal = new AbortController().signal
+
+    await expect(compact.compactIfNeeded(agent(session, MODEL), 'pressure', signal))
+      .resolves.not.toBeNull()
+    expect(resolveModelInfo).toHaveBeenCalledWith(MODEL, MODEL, signal)
+  })
+
   it('re-resolves capacity after a same-model-id provider switch in one session', async () => {
     const ctx = new Context()
     void new LlmService(ctx)
@@ -485,7 +507,11 @@ describe('pressure measurement and retention', () => {
     void new LlmService(ctx)
     void new TokenMeterService(ctx)
     ctx.llm.registerAdapter(['unknown-context'], new ContextAdapter(1_000))
-    vi.spyOn(ctx.llm, 'resolveModelContext').mockResolvedValue(undefined)
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation((provider, model) => Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+    }))
     const compact = service(compactConfig, ctx)
     const session = conversation(4)
     session.append('request/header', {
@@ -1337,7 +1363,11 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext()
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    vi.spyOn(ctx.llm, 'resolveModelContext').mockResolvedValue(undefined)
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation((provider, model) => Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+    }))
     void new TestCompactService(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,

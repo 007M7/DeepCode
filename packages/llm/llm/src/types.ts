@@ -5,7 +5,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ProviderRequestId } from './brand.ts'
+import type { CallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
 
 /** Serializable provider-boundary facts; policy decides whether they are retryable. */
 export interface LlmFailure {
@@ -161,6 +161,35 @@ export interface LlmModelContext {
   contextWindow: number
 }
 
+/** Display metadata for one adapter-owned reasoning effort. */
+export interface LlmReasoningEffortInfo {
+  /** Opaque stable value accepted by {@link GenerateOptions.reasoningEffort}. */
+  id: ReasoningEffortId
+  /** Human-readable effort name for selectors and diagnostics. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar efforts. */
+  description?: string
+}
+
+/** Selectable reasoning efforts for one exact provider/model route. */
+export interface LlmModelReasoningInfo {
+  /** Supported efforts in adapter-preferred display order. */
+  efforts: readonly LlmReasoningEffortInfo[]
+  /**
+   * Adapter-configured default materialized into requests when callers omit
+   * an effort. Absence preserves the provider's own default.
+   */
+  defaultEffort?: ReasoningEffortId
+}
+
+/** Exact-route model metadata resolved by its owning adapter. */
+export interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
+}
+
 /**
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
@@ -201,6 +230,8 @@ export interface GenerateOptions {
   /** Registered provider route selecting the adapter instance. */
   provider: string
   model: string
+  /** Adapter-owned reasoning effort selected for this exact model. */
+  reasoningEffort?: ReasoningEffortId
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
    * the `system` slot). A loop-built request assembles them as
