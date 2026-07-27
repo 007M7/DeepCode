@@ -13,7 +13,7 @@ Status: implemented
 新的 `subprocess/` 能力家族拥有「运行并管理一个进程」；bash 家族保留「运行一条 bash 命令」，并成为前者的消费方：
 
 - **`@deepseek-ai/dsh-subprocess`（接口）**——拥有 `ctx.subprocess` 的抽象 `SubprocessService`（仅一个方法：`spawn(spec): SubprocessHandle`），以及共享词汇：完全显式的 `SubprocessSpawnSpec`（argv、cwd、按流划分的 stdio 处置方式（disposition）、宽限期，一律不设默认值；随部署变化的旋钮依照 `dsh-bash` 的 request/spec 模板与无隐藏默认值规则，留在调用方 seam 的配置里）、携带基于偏移量的非消费式读取器的 `SubprocessHandle`、刻意不含超时/取消分类的 `SubprocessOutcome`，以及共享的凭据清除与 `DSH_ENV_PREFIX`/`DshEnvironment`/`CollectedOutput` 类型。`argv` 绝不经过 shell 解释。（[消费方迁移 Agent Note](2026-07-26-subprocess-consumer-migration.md) 其后将 stdio 与终止词汇拓宽为 Node 形状。）
-- **`@deepseek-ai/dsh-subprocess-local`（实现）**——`LocalSubprocessService`，构建在原 `run.ts` 管道（现为 `spawn.ts`）之上：detached 进程组、带私有有界 spill 文件的尾部保留截断、带双通道 `DSH_*` 合并的凭据清除、进程组 kill 升级，以及会终止每个仍在运行的受管进程并等待其退出的 dispose。该实现没有任何配置；每项限制都随 spec 到达。终端相关的 `ENV_OVERRIDES`（`TERM=dumb` 等）并未迁移：那是 bash 工具的呈现策略，留在 `dsh-bash-local` 里，经普通 env 通道合并。
+- **`@deepseek-ai/dsh-subprocess-local`（实现）**——`LocalSubprocessService`，构建在原 `run.ts` 管道（现为 `spawn.ts`）之上：detached 进程组、带私有有界 spill 文件的尾部保留截断、清除之后合并显式 env 的凭据清除、进程组 kill 升级，以及会终止每个仍在运行的受管进程并等待其退出的 dispose。该实现没有任何配置；每项限制都随 spec 到达。终端相关的 `ENV_OVERRIDES`（`TERM=dumb` 等）并未迁移：那是 bash 工具的呈现策略，留在 `dsh-bash-local` 里，经普通 env 通道合并。
 - **`dsh-bash-local`（消费方）**——`inject: ['subprocess']`；把每个解析后的 `BashExecSpec` 映射为一个 `SubprocessSpawnSpec`（`['bash', '-c', command]`），并保留自身配置、`resolve()` 默认值补全、基于融合 deadline 的 `timedOut`/`aborted` 分类、带 `[stderr]` 标记的后台读取合并及其消费游标，以及 `onProcessDone` 子类钩子。`dsh-bash-sandbox` 除了重新声明继承来的 inject 之外没有变化；它仍在命令字符串层面做包装，并重新进入继承的 spawn 路径。
 - **`dsh-bash`（seam）**——把迁走的词汇从 `dsh-subprocess` 重导出，因此没有任何 bash 消费方需要改动导入；`BashExecRequest`/`BashExecSpec`/`BashProcess` 与沙箱事实仍归 bash 所有。
 
@@ -29,7 +29,7 @@ Status: implemented
 
 **改把 `run_in_background`/任务语义放进进程 seam。**否决：那条边界已经存在。`ctx.tasks` 拥有 id、所有权与通知，bash 工具则把 `BashProcess` 适配成任务钩子。进程 seam 位于 bash 执行器*之下*，而不是与任务注册表并列。
 
-**把 `ENV_OVERRIDES`（TERM=dumb、PAGER=cat 等）移入管理器。**否决：通用进程管理器不得把终端呈现策略强加给非终端消费方；凭据清除与 `DSH_*` 通道规则是安全与身份不变式，予以保留，但终端友好性是 bash 工具自己的选择，经普通 env 通道表达，而调用方的显式条目在该通道中依旧优先。
+**把 `ENV_OVERRIDES`（TERM=dumb、PAGER=cat 等）移入管理器。**否决：通用进程管理器不得把终端呈现策略强加给非终端消费方；对环境中凭据形态名称与 `DSH_*` 名称的清除是安全与身份不变式，予以保留，但终端友好性是 bash 工具自己的选择，经 spec 的显式 env 表达，而调用方自己的条目依旧优先。
 
 ## 后果
 

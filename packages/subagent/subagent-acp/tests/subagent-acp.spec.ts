@@ -120,11 +120,10 @@ describe('child env layering (through the subprocess seam)', () => {
     }
   })
 
-  it('routes explicit DSH_* config entries onto the managed channel', async () => {
+  it('forwards explicit DSH_* config entries to the child', async () => {
     // A deployment sets child-harness facts like DSH_PERMISSION_MODE in
-    // config.env; the run must split them onto the seam's managed channel
-    // (the ordinary channel rejects the reserved namespace) and the child
-    // must still see the value.
+    // config.env; the seam's scrub drops only the AMBIENT namesakes, so the
+    // explicit entry merges after it and the child must see the value.
     const ctx = await setup({ MOCK_ECHO_ENV: 'DSH_ACP_TEST_FACT', DSH_ACP_TEST_FACT: 'managed' })
     const parent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
     const run = await ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal })

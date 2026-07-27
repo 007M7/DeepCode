@@ -93,19 +93,14 @@ export interface SubprocessSpawnSpec {
    */
   signal?: AbortSignal | undefined
   /**
-   * Ordinary environment entries merged onto the implementation's scrubbed
-   * parent base (see `scrubbedParentEnv`). `DSH_*` names are rejected and
-   * belong in {@link dshEnv}; a deliberately forwarded credential-shaped
-   * entry survives because this layer merges after the scrub.
+   * Explicit environment entries merged onto the implementation's scrubbed
+   * parent base (see `scrubbedParentEnv`), with no namespace validation:
+   * every entry is a deliberate caller opt-in, so a forwarded
+   * credential-shaped entry or a current `DSH_*` fact survives precisely
+   * because this layer merges after the scrub that drops its ambient
+   * namesake.
    */
   env?: Record<string, string> | undefined
-  /**
-   * Harness-owned `DSH_*` variables for this execution. The scrubbed base has
-   * already discarded ambient `DSH_*` entries, so an unavailable current fact
-   * cannot inherit a stale value from the harness process; non-`DSH_*` names
-   * on this channel are rejected.
-   */
-  dshEnv?: DshEnvironment | undefined
 }
 
 /**

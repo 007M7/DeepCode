@@ -11,7 +11,6 @@
  */
 
 import type { Writable } from 'node:stream'
-import { splitEnvChannels } from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { encodeMessage, MessageDecoder } from './framing.ts'
 
@@ -99,9 +98,10 @@ export class LspConnection {
         stderr: { maxBytes: spec.maxStderrBytes },
       },
       graceMs: spec.killGraceMs,
-      // spec.env mixes the scrubbed base with explicit config entries; a
-      // configured DSH_* fact takes the managed channel the seam reserves.
-      ...splitEnvChannels(spec.env),
+      // spec.env mixes the scrubbed base with explicit config entries; the
+      // seam merges the whole map after its own ambient scrub, so a
+      // configured DSH_* fact reaches the child.
+      env: spec.env,
     })
     /* v8 ignore start -- 'pipe' dispositions expose both streams by the seam contract; defensive. */
     if (this.handle.stdin === undefined || this.handle.stdout === undefined) {
