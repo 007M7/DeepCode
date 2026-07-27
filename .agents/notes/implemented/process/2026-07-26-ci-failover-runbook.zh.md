@@ -28,7 +28,7 @@ Status: implemented
 
 ## 切换期间的容量
 
-6 个常驻实例可承接正常 PR 流量（该池平时唯一的稳态负载是每次 master 推送一个串行热备作业，故障切换时几乎全池可用）。若仍出现排队，用组织级注册 token（组织 Settings → Actions → Runners → New runner）追加注册实例。复制现有 runner 目录时**必须排除身份文件**——`rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/`——再跑 `config.sh`；原样拷贝 `.runner`/`.credentials` 会使 `config.sh` 以 "already configured" 拒绝。每个约一分钟。
+6 个常驻实例可承接正常 PR 流量（该池平时唯一的稳态负载是每次 master 推送一个串行热备作业，故障切换时几乎全池可用）。若仍出现排队，用组织级注册 token（组织 Settings → Actions → Runners → New runner）追加注册实例。复制现有 runner 目录时**必须排除身份文件**——`rsync -a --exclude '.runner' --exclude '.credentials*' --exclude '_diag' --exclude '_work' <src>/ <dst>/`——再跑 `config.sh`；原样拷贝 `.runner`/`.credentials` 会使 `config.sh` 以 "already configured" 拒绝。`config.sh` 只完成注册，不启动监听进程，因此停在这一步的 runner 处于已注册但离线状态，不增加任何容量。还须安装并启动其服务：`sudo ./svc.sh install <user> && sudo ./svc.sh start`（本池由 systemd 管理；前台运行 `./run.sh` 亦可，但会随 shell 退出而终止）。确认该实例在组织 Settings → Actions → Runners 中显示 Idle 后再计入容量。每个约一分钟。
 
 
 ### 切回
