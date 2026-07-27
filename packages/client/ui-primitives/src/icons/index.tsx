@@ -653,6 +653,16 @@ export const IconDataOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** ic_checklist_outline_16 (figma extract): two rings + two list bars. */
+export const IconChecklistOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path transform="translate(1.736 2.0752)" d="M12.5279 8.64648V9.92617H6.48105V8.64648H12.5279Z" fill="currentColor" />
+    <path transform="translate(1.736 2.0752)" d="M12.5279 1.92275V3.20244H6.48105V1.92275H12.5279Z" fill="currentColor" />
+    <path transform="translate(1.736 2.0752)" d="M3.84531 9.28623C3.84525 8.57774 3.271 8.00342 2.5625 8.00342C1.85405 8.00348 1.27975 8.57778 1.27969 9.28623C1.27969 9.99474 1.85401 10.569 2.5625 10.569C3.27105 10.569 3.84531 9.99478 3.84531 9.28623ZM5.12578 9.28623C5.12578 10.7017 3.97797 11.8495 2.5625 11.8495C1.14709 11.8494 0 10.7017 0 9.28623C6.59755e-05 7.87086 1.14713 6.7238 2.5625 6.72373C3.97793 6.72373 5.12572 7.87082 5.12578 9.28623Z" fill="currentColor" />
+    <path transform="translate(1.736 2.0752)" d="M3.84551 2.5625C3.84549 1.85402 3.27118 1.27969 2.5627 1.27969C1.85422 1.2797 1.2799 1.85403 1.27988 2.5625C1.27988 3.27098 1.85422 3.8453 2.5627 3.84531C3.27119 3.84531 3.84551 3.27099 3.84551 2.5625ZM5.1252 2.5625C5.1252 3.97792 3.97811 5.125 2.5627 5.125C1.14729 5.12499 0.000195313 3.97791 0.000195313 2.5625C0.000208508 1.1471 1.1473 1.31957e-05 2.5627 0C3.9781 0 5.12518 1.1471 5.1252 2.5625Z" fill="currentColor" />
+  </svg>
+)
+
 /** ic_ds_List_Pen_outline_16 */
 export const IconListPenOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
