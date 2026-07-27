@@ -6,11 +6,11 @@ English | [中文](2026-07-23-web-todo-display.zh.md)
 
 ## Problem
 
-`todo_write` appends `todo/write` whole-list snapshots to the session log; the TUI renders a persistent plan panel and the ACP bridge maps the event to native `plan` updates. The web client dropped the event entirely: the host mux stream already forwards every session event, but `todo/write` is not a surface type (it never folds into `ConversationSnapshot.nodes`), and no side-effect branch accumulated it — the browser had no consumption point and no display surface.
+`todo_write` appends `todo/write` whole-list snapshots to the session log; the TUI renders a persistent plan panel (the automation-only ACP bridge deliberately omits todo presentation). The web client dropped the event entirely: the host mux stream already forwards every session event, but `todo/write` is not a surface type (it never folds into `ConversationSnapshot.nodes`), and no side-effect branch accumulated it — the browser had no consumption point and no display surface.
 
 ## Decision
 
-Consume `todo/write` as a Session side effect, not a surface node, and render it on two surfaces matching the split the TUI and ACP already draw.
+Consume `todo/write` as a Session side effect, not a surface node, and render it on two surfaces matching the split the TUI already draws.
 
 ### Side-effect channel, converging with window replay
 
@@ -33,4 +33,4 @@ The dedicated `todo_write` chat row is a plain registrant plugin (`todoToolview`
 
 ## Consequences
 
-Replay correctness is owned by one code path: any future change to window rebuild keeps todos consistent for free, and the fixture (fx-alpha turn 65) plus the assembled keyless snapshot (`apps/web/tests/todo-display.snapshot.ts`) pin the full chain (row summary and state, dock panel content, collapse round-trip) over the built client graph. `todos` is a required `ConversationSnapshot` field, so scripted fakes in specs must carry it. The ACP bridge's todo → `plan` mapping and the TUI panel are untouched; the web surfaces render the same event with no new wire vocabulary. Cold-load reconstruction is host-backed: the tail history page carries `todos` — the full-log latest `todo/write`, computed independently of the page window (the same backscan posture the view pairing uses) — so a reopened session restores the plan even when the last write precedes the window; the seeded value is preserved across window rebuilds and overwritten by any later write.
+Replay correctness is owned by one code path: any future change to window rebuild keeps todos consistent for free, and the fixture (fx-alpha turn 65) plus the assembled keyless snapshot (`apps/web/tests/todo-display.snapshot.ts`) pin the full chain (row summary and state, dock panel content, collapse round-trip) over the built client graph. `todos` is a required `ConversationSnapshot` field, so scripted fakes in specs must carry it. The TUI panel is untouched (the automation-only ACP bridge deliberately omits todo presentation); the web surfaces render the same event with no new wire vocabulary. Cold-load reconstruction is host-backed: the tail history page carries `todos` — the full-log latest `todo/write`, computed independently of the page window (the same backscan posture the view pairing uses) — so a reopened session restores the plan even when the last write precedes the window; the seeded value is preserved across window rebuilds and overwritten by any later write.

@@ -6,11 +6,11 @@ Status: implemented
 
 ## Problem
 
-`todo_write` 把 `todo/write` 的整份列表快照追加进会话日志；TUI 渲染一块常驻的 plan 面板，ACP 桥接把该事件映射为原生 `plan` 更新。Web 客户端把这个事件整个丢弃了：host mux 流本已转发每一个会话事件，但 `todo/write` 不是 surface 类型（它从不 fold 进 `ConversationSnapshot.nodes`），也没有任何副作用分支累积它——浏览器既无消费点，也无展示面。
+`todo_write` 把 `todo/write` 的整份列表快照追加进会话日志；TUI 渲染一块常驻的 plan 面板（自动化专用的 ACP 桥接刻意不做 todo 呈现）。Web 客户端把这个事件整个丢弃了：host mux 流本已转发每一个会话事件，但 `todo/write` 不是 surface 类型（它从不 fold 进 `ConversationSnapshot.nodes`），也没有任何副作用分支累积它——浏览器既无消费点，也无展示面。
 
 ## Decision
 
-把 `todo/write` 当作 Session 副作用消费，而非 surface 节点，并在两个面上渲染它，这两个面正对应 TUI 与 ACP 已经绘制的那套划分。
+把 `todo/write` 当作 Session 副作用消费，而非 surface 节点，并在两个面上渲染它，这两个面正对应 TUI 已经绘制的那套划分。
 
 ### 副作用通道，与窗口回放收敛
 
@@ -33,4 +33,4 @@ Status: implemented
 
 ## Consequences
 
-回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。ACP 桥接的 todo → `plan` 映射与 TUI 面板均未受改动；Web 各面渲染同一个事件，不引入任何新的协议词汇。冷加载重建由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；播种值跨窗口重建保留，之后的任何写入照常覆盖。
+回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。TUI 面板未受改动（自动化专用的 ACP 桥接刻意不做 todo 呈现）；Web 各面渲染同一个事件，不引入任何新的协议词汇。冷加载重建由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；播种值跨窗口重建保留，之后的任何写入照常覆盖。

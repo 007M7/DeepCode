@@ -1,5 +1,5 @@
 // TodoPanel: persistent plan strip above the composer (the web counterpart
-// of the TUI plan panel; ACP maps the same event to its native plan). Renders
+// of the TUI plan panel). Renders
 // the latest todo/write whole-list snapshot off the session snapshot — no
 // data of its own, hidden while the list is empty. Mounted through the
 // 'conversation.input.dock' slot (QueueDock posture): the standard session
