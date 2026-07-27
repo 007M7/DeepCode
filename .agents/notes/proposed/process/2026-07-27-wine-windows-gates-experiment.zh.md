@@ -12,9 +12,11 @@ Pull request 的 Windows 通道存在的意义是证明两个阻断性 win32 表
 
 ## 提案
 
-[exp-wine-windows.yml](../../../../.github/workflows/exp-wine-windows.yml)（自身路径过滤，外加手动触发）在 `ubuntu-latest` 上通过 Wine 用真实 Windows 二进制运行阻断门禁命令：下载的 win-x64 Node.js 执行 `tsc -b`、`tsdown` 与 VitePress 生产构建，因此工具链的 win32 分支——反斜杠路径处理、`CreateProcess` 派生语义、`@esbuild/win32-x64` 的 PE 加载、以及 rolldown/rollup 的 MSVC `.node` 插件——都真正执行。
+[exp-wine-windows.yml](../../../../.github/workflows/exp-wine-windows.yml)（自身路径过滤，外加手动触发）在 `ubuntu-latest` 上通过 Wine 用真实 Windows 二进制运行阻断门禁命令：校验和验证过的 win-x64 Node.js 执行 `tsc -b`、`tsdown` 与 VitePress 生产构建，因此工具链的 win32 分支——反斜杠路径处理、`CreateProcess` 派生语义、`@esbuild/win32-x64` 的 PE 加载、以及 rolldown/rollup 的 MSVC `.node` 插件——都真正执行。
 
-依赖在 Linux 上原生安装，`supportedArchitectures` 扩展到 win32-x64，使 Windows 平台包物化进同一个 store；通过直接调用各工具的 JavaScript 入口绕开 cmd-shim 层，这正是 `run-gates` 最终派生的那些进程。
+依赖在 Linux 上原生安装，`supportedArchitectures` 扩展到 win32-x64，使 Windows 平台包物化进同一个 store；通过直接调用各工具的 JavaScript 入口绕开 cmd-shim 层，这正是 `run-gates` 最终派生的那些进程。`nodeLinker: hoisted` 是承重的，不是风格问题：[PR #689](https://github.com/deepseek-harness/deepseek-harness/pull/689) 的独立原型保留了 pnpm 默认的 isolated 布局——包括在 Linux 预取的 store 上忠实地用 Windows pnpm 离线重装——而 Wine 下的 Windows Node 依然无法穿过 isolated 符号链接链解析 `@esbuild/win32-x64` 或加载 koffi 预编译产物，在任何仓库门禁运行前就失败了。扁平的真实文件布局才让门禁变得可达；本通道采纳了 #689 的校验和固定，同时明确放弃其"Windows pnpm 安装依赖树"的目标（安装契约在此仍由 Linux 侧验证）。
+
+该通道以 Linux CI 作业的墙钟（约两分钟）为目标，靠四个杠杆：master 刷新的 pnpm store 缓存（只恢复，与 ci.yml 同键）、Wine 供给（apt 安装、Windows Node 下载、`wineboot`）与 `pnpm install` 并发运行、两个阻断表面并发运行——与 `run-gates` 在原生 Windows 上给它们的形状相同——以及按 runner 镜像为键的 apt 归档缓存，使 Wine 的包下载每个镜像版本只付一次。
 
 这刻意是一次保真度探针，而非直接替换：Wine 在大小写敏感的 ext4 之上重实现 Win32 API（默认不模拟 NTFS 的大小写不敏感）、不提供 ConPTY、并用自己的安全描述符与 `MoveFileExW` 语义替代——恰是本仓库 `win32.ts` 模块与 PTY 后端关心的表面。实验度量哪些阻断门禁通过、哪些因 Wine 原因而非产品原因失败，以及相对已记录 Windows 基准通道的墙钟成本。
 
@@ -26,6 +28,8 @@ Pull request 的 Windows 通道存在的意义是证明两个阻断性 win32 表
 
 **在 Linux runner 内用 QEMU/KVM 跑完整 Windows 客户机。** 真实 NT 内核，保真度完整，包括大小写不敏感的 NTFS 与 ConPTY——但首个门禁运行前要花数十分钟下载镜像并做无人值守安装。作为兄弟实验分支 `exp/kvm-windows-ci` 探索；两个实验共同为保真度与延迟定价。
 
+**在 Wine 下由 Windows pnpm 执行安装（[PR #689](https://github.com/deepseek-harness/deepseek-harness/pull/689)）。** 同一想法的更高保真度变体：把 MinGit 与 pnpm 放进 prefix，用 Linux 预取填充 store，再由 Windows Node 运行 `pnpm install --offline`，让安装契约本身以 win32 身份执行。它到达了安装但没到达门禁——Wine 的网络无法直接访问 registry，且 isolated 的 `node_modules` 布局即便在干净的离线安装后也挫败了 Windows 平台包的解析。本通道用掉这份保真度（hoisted 布局、Linux 侧安装）来换取门禁可达；两份记录是同一裁决互补的两半。
+
 **Linux 上的文件系统语义通道（casefold ext4、文件名 lint）。** 以近零成本捕获最高频的 Windows 破坏类别，但对 win32 二进制什么也证明不了。作为兄弟实验分支 `exp/casefold-windows-ci` 探索。
 
 **Windows 容器。** 不可行：Windows 容器要求 Windows 宿主内核；托管 Linux runner 无法运行。
@@ -34,7 +38,8 @@ Pull request 的 Windows 通道存在的意义是证明两个阻断性 win32 表
 
 ## 验收标准
 
-- 该 workflow 在 `ubuntu-latest` 上完成，对每个阻断门禁（tsc、tsdown、生产站点）给出独立的通过/失败裁决，并记录与 Windows 基准通道的墙钟对比。
+- 该 workflow 在 `ubuntu-latest` 上完成，对每个阻断表面（构建、生产站点）给出独立的通过/失败裁决，并记录与付费 Windows 通道及 Linux CI 作业两者的墙钟对比。
+- 端到端墙钟落在 Linux CI 作业的同一档位（分钟级，而非数十分钟），从成本与信号两方面共同论证替换池的理由。
 - 在此记录一项决定：晋升该通道、保留为非阻断金丝雀、或以观察到的失败类别否决。
 
 ## 风险

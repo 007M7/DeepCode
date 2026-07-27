@@ -1,10 +1,16 @@
 # EXPERIMENT: run the blocking Windows CI gates on a Linux runner through
-# Wine, and execute the gate commands with a real Windows Node.js binary.
-# Dependency provisioning happens natively on Linux with
+# Wine with a real Windows Node.js binary, at roughly the wall clock of the
+# Linux CI jobs (~2 min). Speed comes from four levers: the master-refreshed
+# pnpm store cache, provisioning Wine concurrently with the dependency
+# install, running the two blocking surfaces concurrently (the same shape
+# run-gates gives them on native Windows), and an apt package cache for Wine
+# itself. Dependency provisioning happens natively on Linux with
 # `supportedArchitectures` extended to win32-x64 so the Windows
-# esbuild/rolldown/rollup binaries are present in the store. The pnpm-run/cmd
-# shim layer is deliberately bypassed (a Linux install writes POSIX shims
-# only), so each gate invokes its tool's JavaScript entrypoint directly — the
+# esbuild/rolldown/rollup binaries are present, and `nodeLinker: hoisted`
+# because Windows Node under Wine does not realpath pnpm's isolated-layout
+# Unix symlinks — the sibling prototype in PR #689 kept the isolated layout
+# and failed on exactly that. The pnpm-run/cmd shim layer is deliberately
+# bypassed; each gate invokes its tool's JavaScript entrypoint directly — the
 # same commands run-gates ultimately spawns. Owning rationale and promotion
 # criteria:
 # .agents/notes/proposed/process/2026-07-27-wine-windows-gates-experiment.md
@@ -28,11 +34,17 @@ env:
 
 jobs:
   wine-blocking-gates:
-    name: wine / blocking windows gates
-    # Deliberately the cheapest hosted substrate: if Wine holds up here, the
-    # lane needs no special pool at all.
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    name: wine / blocking windows gates (${{ matrix.runner }})
+    # Pull requests run the free standard runner only; a manual dispatch adds
+    # the 8-core benchmark pool for a like-for-like core-count comparison.
+    # The larger leg stays dispatch-only because those restricted pools can
+    # queue indefinitely (observed on the sibling KVM experiment).
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "dsh-ubuntu-24-04-8core"]' || '["ubuntu-latest"]') }}
+    timeout-minutes: 30
     env:
       WINEDEBUG: '-all'
       WINEARCH: win64
@@ -47,18 +59,39 @@ jobs:
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack and install with win32-x64 artifacts
+      # The default-branch pnpm store cache ci.yml maintains; restore-only,
+      # same key, so this lane rides the cache master already refreshes.
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.local/share/pnpm/store/v11
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Compose Wine apt cache key
+        id: wine-cache-key
+        run: echo "key=wine-debs-${ImageOS:-linux}-${ImageVersion:-v0}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/wine-debs
+          key: ${{ steps.wine-cache-key.outputs.key }}
+
+      - name: Install dependencies and provision Wine concurrently
         run: |
           corepack enable
+
           # Experiment-only install-time overrides. supportedArchitectures
           # additionally materializes the win32-x64 platform packages
-          # (@esbuild/win32-x64, rolldown and rollup MSVC bindings) that the
-          # Windows toolchain resolves at runtime. nodeLinker: hoisted lays
-          # node_modules out flat with real files: Windows Node under Wine
-          # does not realpath pnpm's Unix symlinks, so the default isolated
-          # layout breaks transitive ESM resolution (tsdown -> ansis,
-          # vite -> rollup). Neither override is recorded in the lockfile, so
-          # --frozen-lockfile stays valid.
+          # (@esbuild/win32-x64, rolldown and rollup MSVC bindings) the
+          # Windows toolchain resolves at runtime; nodeLinker: hoisted lays
+          # node_modules out flat with real files because Windows Node under
+          # Wine does not realpath pnpm's isolated-layout symlinks (PR #689's
+          # failure mode). Neither override is recorded in the lockfile, so
+          # --frozen-lockfile stays valid. --ignore-scripts skips the Linux
+          # esbuild/node-pty/lefthook lifecycle scripts: no gate in this lane
+          # loads them, and the win32 binaries ship prebuilt in their
+          # packages.
           cat >> pnpm-workspace.yaml <<'EOF'
 
           nodeLinker: hoisted
@@ -66,61 +99,60 @@ jobs:
             os: [current, win32]
             cpu: [current, x64]
           EOF
-          pnpm install --frozen-lockfile
 
-      - name: Resolve tool entrypoints in the hoisted layout
-        run: |
-          resolve() {
-            local name="$1"; shift
-            for p in "$@"; do
-              if [ -f "$p" ]; then echo "$name=$PWD/$p" >> "$GITHUB_ENV"; return 0; fi
+          pnpm install --frozen-lockfile --ignore-scripts &
+          install_pid=$!
+
+          provision_wine() {
+            set -euo pipefail
+            # Wine from the apt cache when present; else download the full
+            # dependency closure once and keep it for the next run. The
+            # `wine` dispatcher package (not bare `wine64`) is what puts a
+            # binary on PATH.
+            if compgen -G "$HOME/wine-debs/*.deb" > /dev/null; then
+              sudo apt-get install -y --no-install-recommends "$HOME"/wine-debs/*.deb
+            else
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends --download-only wine
+              mkdir -p "$HOME/wine-debs"
+              cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/" 2>/dev/null || true
+              sudo apt-get install -y --no-install-recommends wine
+            fi
+            WINE_BIN=''
+            for candidate in "$(command -v wine || true)" "$(command -v wine64 || true)" /usr/lib/wine/wine64; do
+              if [ -n "$candidate" ] && [ -x "$candidate" ]; then WINE_BIN="$candidate"; break; fi
             done
-            echo "::error::$name not found at any of: $*"; return 1
+            [ -n "$WINE_BIN" ] || { echo '::error::no wine binary found after install'; exit 1; }
+            echo "WINE_BIN=$WINE_BIN" >> "$GITHUB_ENV"
+
+            # Windows Node for the repo's primary line, checksum-verified
+            # against the same dist directory (adopted from PR #689).
+            version=$(curl -fsSL https://nodejs.org/dist/index.json \
+              | jq -r --arg p "v${PRIMARY_NODE_VERSION}." '[.[] | select(.version | startswith($p))][0].version')
+            echo "Windows Node: $version"
+            curl -fsSL -o "$RUNNER_TEMP/node-win.zip" \
+              "https://nodejs.org/dist/${version}/node-${version}-win-x64.zip"
+            curl -fsSL "https://nodejs.org/dist/${version}/SHASUMS256.txt" \
+              | awk -v a="node-${version}-win-x64.zip" '$2 == a { print $1 "  '"$RUNNER_TEMP"'/node-win.zip" }' \
+              | sha256sum --check -
+            unzip -q "$RUNNER_TEMP/node-win.zip" -d "$RUNNER_TEMP/node-win"
+            echo "NODE_WIN=$RUNNER_TEMP/node-win/node-${version}-win-x64/node.exe" >> "$GITHUB_ENV"
+
+            "$WINE_BIN" wineboot --init || true
+            wineserver -w || true
           }
-          resolve TSC_JS node_modules/typescript/bin/tsc
-          resolve TSDOWN_JS node_modules/tsdown/dist/run.mjs
-          resolve VITEPRESS_JS website/node_modules/vitepress/bin/vitepress.js node_modules/vitepress/bin/vitepress.js
-          # VitePress links vue into the site's node_modules at build time;
-          # Wine cannot CREATE Windows symlinks (ENOTSUP) but follows
-          # pre-existing Unix ones, so lay the link down host-side.
-          if [ -d node_modules/vue ] && [ ! -e website/node_modules/vue ]; then
-            mkdir -p website/node_modules
-            ln -s ../../node_modules/vue website/node_modules/vue
-          fi
+          provision_wine &
+          wine_pid=$!
 
-      - name: Install Wine (64-bit)
-        run: |
-          sudo apt-get update
-          # `wine` is the /usr/bin/wine dispatcher; its dependency pulls the
-          # wine64 loader. Ubuntu's wine64 package alone leaves nothing on
-          # PATH (the loader sits at /usr/lib/wine/wine64).
-          sudo apt-get install -y --no-install-recommends wine
-          WINE_BIN=''
-          for candidate in "$(command -v wine || true)" "$(command -v wine64 || true)" /usr/lib/wine/wine64; do
-            if [ -n "$candidate" ] && [ -x "$candidate" ]; then WINE_BIN="$candidate"; break; fi
-          done
-          if [ -z "$WINE_BIN" ]; then
-            echo '::error::no wine binary found after install'
-            dpkg -L wine wine64 2>/dev/null | grep -E '/bin/|wine64$' || true
-            exit 1
-          fi
-          echo "WINE_BIN=$WINE_BIN" >> "$GITHUB_ENV"
-          "$WINE_BIN" --version
+          install_status=0
+          wait "$install_pid" || install_status=$?
+          wine_status=0
+          wait "$wine_pid" || wine_status=$?
+          if (( install_status != 0 )); then exit "$install_status"; fi
+          exit "$wine_status"
 
-      - name: Fetch Windows Node.js
+      - name: Resolve entrypoints, link vue, smoke Windows Node
         run: |
-          version=$(curl -fsSL https://nodejs.org/dist/index.json \
-            | jq -r --arg p "v${PRIMARY_NODE_VERSION}." '[.[] | select(.version | startswith($p))][0].version')
-          echo "Windows Node: $version"
-          curl -fsSL -o "$RUNNER_TEMP/node-win.zip" \
-            "https://nodejs.org/dist/${version}/node-${version}-win-x64.zip"
-          unzip -q "$RUNNER_TEMP/node-win.zip" -d "$RUNNER_TEMP/node-win"
-          echo "NODE_WIN=$RUNNER_TEMP/node-win/node-${version}-win-x64/node.exe" >> "$GITHUB_ENV"
-
-      - name: Boot Wine prefix and smoke Windows Node
-        run: |
-          "$WINE_BIN" wineboot --init || true
-          wineserver -w || true
           # Node under Wine cannot attach stdio to the Actions runner's pipes
           # (Socket open EBADF at bootstrap), so every invocation runs through
           # this wrapper: stdio to a regular file, replayed after exit.
@@ -134,39 +166,60 @@ jobs:
           exit "$status"
           SH
           chmod +x "$RUNNER_TEMP/wine-node.sh"
+
+          resolve() {
+            local name="$1"; shift
+            for p in "$@"; do
+              if [ -f "$p" ]; then echo "$name=$PWD/$p" >> "$GITHUB_ENV"; return 0; fi
+            done
+            echo "::error::$name not found at any of: $*"; return 1
+          }
+          resolve TSC_JS node_modules/typescript/bin/tsc
+          resolve TSDOWN_JS node_modules/tsdown/dist/run.mjs
+          resolve VITEPRESS_JS website/node_modules/vitepress/bin/vitepress.js node_modules/vitepress/bin/vitepress.js
+
+          # VitePress links vue into the site's node_modules at build time;
+          # Wine cannot CREATE Windows symlinks (ENOTSUP) but follows
+          # pre-existing Unix ones, so lay the link down host-side.
+          if [ -d node_modules/vue ] && [ ! -e website/node_modules/vue ]; then
+            mkdir -p website/node_modules
+            ln -s ../../node_modules/vue website/node_modules/vue
+          fi
+
           "$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/smoke.log" -p "'smoke: ' + process.platform + ' ' + process.arch + ' ' + process.version"
 
-      # The continue-on-error gates below mirror ci-windows-blocking
-      # (scripts/run-gates.ts): `build` = tsc -b + tsdown, `production site` =
-      # vitepress build. Each reports independently so one failure does not
-      # hide the others' results; the summary step at the end owns the job
-      # conclusion.
-      - name: 'Gate: tsc -b (Windows node under Wine)'
-        id: tsc
-        continue-on-error: true
-        timeout-minutes: 45
-        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsc.log" "$TSC_JS" -b --pretty false'
-
-      - name: 'Gate: tsdown (Windows node under Wine)'
-        id: tsdown
-        continue-on-error: true
-        timeout-minutes: 30
-        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsdown.log" "$TSDOWN_JS"'
-
-      - name: 'Gate: production site (Windows node under Wine)'
-        id: site
-        continue-on-error: true
-        timeout-minutes: 30
-        working-directory: website
-        run: '"$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/site.log" "$VITEPRESS_JS" build .'
-
-      - name: Report gate outcomes
-        env:
-          TSC: ${{ steps.tsc.outcome }}
-          TSDOWN: ${{ steps.tsdown.outcome }}
-          SITE: ${{ steps.site.outcome }}
+      # The two blocking surfaces run concurrently, the same shape run-gates
+      # gives ci-windows-blocking on native Windows (DSH_GATE_CONCURRENCY):
+      # `build` = tsc -b then tsdown, `production site` = the VitePress
+      # build. Both statuses are captured so one failure cannot hide the
+      # other's result.
+      - name: Run blocking Windows gates concurrently under Wine
+        timeout-minutes: 20
         run: |
-          echo "tsc: $TSC"
-          echo "tsdown: $TSDOWN"
-          echo "production site: $SITE"
-          [ "$TSC" = success ] && [ "$TSDOWN" = success ] && [ "$SITE" = success ]
+          build_gate() {
+            "$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsc.log" "$TSC_JS" -b --pretty false || return $?
+            "$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/tsdown.log" "$TSDOWN_JS"
+          }
+          site_gate() {
+            cd website
+            "$RUNNER_TEMP/wine-node.sh" "$RUNNER_TEMP/site.log" "$VITEPRESS_JS" build .
+          }
+          start=$SECONDS
+          build_gate > "$RUNNER_TEMP/build-gate.out" 2>&1 &
+          build_pid=$!
+          site_gate > "$RUNNER_TEMP/site-gate.out" 2>&1 &
+          site_pid=$!
+          build_status=0
+          wait "$build_pid" || build_status=$?
+          site_status=0
+          wait "$site_pid" || site_status=$?
+          echo "== build gate (exit $build_status, $((SECONDS - start))s elapsed) =="
+          tail -n 120 "$RUNNER_TEMP/build-gate.out"
+          echo "== production site gate (exit $site_status, $((SECONDS - start))s elapsed) =="
+          tail -n 120 "$RUNNER_TEMP/site-gate.out"
+          if (( build_status != 0 )); then exit "$build_status"; fi
+          exit "$site_status"
+
+      - name: Shut down wineserver
+        if: always()
+        run: wineserver -k 2>/dev/null || true
