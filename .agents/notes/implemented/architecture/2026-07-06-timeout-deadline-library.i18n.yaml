@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-06-timeout-deadline-library.md: 11d4b8cd48dd345d2324b63e01bd726f12d846b4
-2026-07-06-timeout-deadline-library.zh.md: 334914c689adf54a654c5907395c29ceeeb50891
+2026-07-06-timeout-deadline-library.md: 63463a76a65743436d4e78479800c19e257a42de
+2026-07-06-timeout-deadline-library.zh.md: c3d3cdf1c63813fc24c10727e42d326142f3f4de
