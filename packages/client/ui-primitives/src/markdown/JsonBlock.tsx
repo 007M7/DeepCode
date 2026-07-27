@@ -15,6 +15,8 @@ export function JsonBlock({ label, payload, defaultOpen = false }: {
     if (!open) return ''
     let s: string
     try {
+      // lib typing hides stringify's undefined arm (undefined/function/symbol payloads).
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       s = JSON.stringify(payload, null, 2) ?? String(payload)
     } catch {
       s = String(payload)

@@ -108,6 +108,10 @@ async function bench(nodes: ToolResultNode[]) {
       return info
     },
     maybeProvideInfo(id: string | undefined) {
+      // `this` inside an object-literal method is any under strict lint; the
+      // fake resolves through its own provideInfo above.
+      /* eslint-disable-next-line @typescript-eslint/no-unsafe-return,
+         @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
       return (id === undefined ? undefined : this.provideInfo(id)) ?? { hooks: {}, props: {} }
     },
     provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },

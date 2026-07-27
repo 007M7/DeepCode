@@ -41,7 +41,7 @@ function createPanelStore() {
   })
 }
 
-const chatStore = () => defineStore({
+const _chatStore = () => defineStore({
   init: () => ({ selection: null as { id: string } | null, draft: '' }),
   actions: {
     select: (d, t: { id: string }) => { d.selection = t },
@@ -49,7 +49,7 @@ const chatStore = () => defineStore({
     clearDraft: (d) => { d.draft = '' },
   },
 })
-type ChatHandle = ReturnType<typeof chatStore>
+type ChatHandle = ReturnType<typeof _chatStore>
 
 type FrameProps =
   & PropsRuntime<'chain.frame'>
@@ -211,7 +211,7 @@ describe('terminal-design type chain', () => {
       // @ts-expect-error non-chain keys have no renderSlotChain dispatch
       chainSlots.renderSlotChain('chain.conv', {})
       // @ts-expect-error a children set without chain keys provides no renderSlotChain
-      fp.renderSlotChain
+      type _NoChainSeat = typeof fp.renderSlotChain
 
       // renderSlot owner share typed at the call site.
       // @ts-expect-error owner shape mismatch (width missing)

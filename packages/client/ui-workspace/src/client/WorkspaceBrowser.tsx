@@ -21,7 +21,10 @@ import { ProjectRowItem, SessionNodeItem } from './rows/Rows.tsx'
 import { WorkspaceCreateFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
-/** Column slide length (--ds-transition-duration-slow): rail-search focus waits it out — focus() forces a synchronous layout and would jank the slide. */
+/**
+ * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
+ * focus() forces a synchronous layout and would jank the slide.
+ */
 const EXPAND_SLIDE_MS = 300
 
 const GROUP_BY_ITEMS = [
@@ -292,7 +295,7 @@ export function WorkspaceBrowser({
     setRenameError(null)
   }
   const confirmRename = () => {
-    if (renameBlocked || renameTarget === null) return
+    if (renameBlocked) return
     setRenaming(true)
     setRenameError(null)
     renameWorkspace(renameTarget.workspaceId, renameTrimmed).then(() => {
@@ -481,7 +484,7 @@ export function WorkspaceBrowser({
             <Button variant="outline" disabled={deleting} onClick={closeDelete}>Cancel</Button>
             <Button
               variant="outline"
-              className={css.deleteAction!}
+              className={css.deleteAction}
               disabled={deleting}
               onClick={confirmDelete}
             >

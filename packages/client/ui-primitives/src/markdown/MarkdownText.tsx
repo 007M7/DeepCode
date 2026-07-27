@@ -53,7 +53,9 @@ function buildComponents(streaming: boolean): Components {
     // plain arm — retokenizing a growing fence on every chunk is quadratic
     // main-thread work; the finalize swap highlights it once.
     pre: ({ children }) => {
-      /* v8 ignore next 2 -- the markdown pipeline always hands `pre` its single `code` element; the undefined arm guards a react-markdown representation change. */
+      // The markdown pipeline always hands `pre` its single `code` element;
+      // the undefined arm guards a react-markdown representation change.
+      /* v8 ignore next 2 */
       const child = isValidElement<{ className?: string; children?: unknown }>(children) ? children : undefined
       const raw = child?.props.children
       // A fence whose content isn't one plain string (e.g. an empty fence)

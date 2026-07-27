@@ -248,7 +248,7 @@ describe('WaterfallView standalone branches', () => {
 
 describe('node half', () => {
   it('node apply is an intentional no-op (loader-managed lifecycle only)', () => {
-    expect(nodeApply()).toBeUndefined()
+    expect(() => { nodeApply() }).not.toThrow()
   })
 })
 

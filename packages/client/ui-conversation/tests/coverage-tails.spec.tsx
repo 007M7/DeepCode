@@ -22,7 +22,7 @@ afterEach(cleanup)
 
 describe('tails', () => {
   it('node-half apply is an intentional no-op', () => {
-    expect(nodeApply()).toBeUndefined()
+    expect(() => { nodeApply() }).not.toThrow()
   })
 
   it('ToolRow stopped state renders the warning dot in the leading slot', () => {

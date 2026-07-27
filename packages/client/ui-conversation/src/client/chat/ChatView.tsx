@@ -86,7 +86,8 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
   seq: number
   onOpenDetails: OpenDetails
   selected: boolean
-  /** `run_code` sub-dispatches in dispatch order (reference-stable per parent; running entries settle in place); undefined for ordinary calls. */
+  /** `run_code` sub-dispatches in dispatch order (reference-stable per
+   *  parent; running entries settle in place); undefined for ordinary calls. */
   subCalls?: readonly CodeSubCall[] | undefined
   /** The store's selected callId, matched against sub-rows (undefined when no sub-row here is selected). */
   selectedCallId?: string | undefined
@@ -162,7 +163,10 @@ function StreamingTail({ useSession, onGrow }: {
   return <AssistantMarkdown blocks={partial.blocks} streaming />
 }
 
-/** The chat view slot entry: pure component over the composed props (tool rows render through the declared keyed hole's renderSlot share). */
+/**
+ * The chat view slot entry: pure component over the composed props (tool rows
+ * render through the declared keyed hole's renderSlot share).
+ */
 export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   const runningCalls = useSession(s => s.runningCalls)

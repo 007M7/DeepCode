@@ -77,7 +77,10 @@ export function maybeObservableHook<T>(source: HostObservable<T> | undefined): M
 }
 
 function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S, b: S) => boolean): S | undefined {
+  // The uSES subscription must still run (hook-order stability); the absent
+  // source always snapshots undefined, returned explicitly.
   observableHook(absentSource)(() => undefined)
+  return undefined
 }
 
 /**

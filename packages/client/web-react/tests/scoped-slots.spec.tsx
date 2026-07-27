@@ -33,7 +33,10 @@ const entryOf = (partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry
  * but entry.store is typed to the full contract — the real defineStore lives
  * in runtime, which web-react tests must not import (dependency direction).
  */
-function miniStore<T extends object>(init: () => T, mutators: Record<string, (state: T, ...params: never[]) => T>): StoreHandle<T, ActionsDecl<T>> {
+function miniStore<T extends object>(
+  init: () => T,
+  mutators: Record<string, (state: T, ...params: never[]) => T>,
+): StoreHandle<T, ActionsDecl<T>> {
   return {
     spec: { init, actions: {} },
     create: () => {
