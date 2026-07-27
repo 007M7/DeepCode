@@ -25,7 +25,7 @@
 
 ## 字段映射
 
-seam 记录 → SDK 日志记录：`time` → `timestamp`/`observedTimestamp`；`severity` → `severityNumber`/`severityText`（INFO 9 / WARN 13 / ERROR 17）；`body` → 结构化日志 body；`attributes` 原样照搬。接收端基于 `(session.id, event.seq)` 去重、按严重级别告警，并通过 `shutdown` 记录的缺失检测崩溃（一个曾有活动、没有 `shutdown` 运维记录、且已然陈旧的会话，就是未干净结束的会话）。该标记的含义是遥测干净地停止了对该会话的观察：它在会话自身 dispose（资源释放）时发出，对于届时仍在运行的会话，则在应用拆卸时发出；标记之后又出现该会话的更多事件，说明发生的是遥测重载，而不是会话重启。跨谱系（lineage）的流并不自足：恢复的会话在其自身 id 的流上从上一个进程停止之处继续；fork 出的会话，其流从继承边界开始，前缀位于父会话的流中，由接收端基于 `session.parent_id` + `session.seed_length` 拼接。
+seam 记录 → SDK 日志记录：`time` → `timestamp`/`observedTimestamp`；`severity` → `severityNumber`/`severityText`（INFO 9 / WARN 13 / ERROR 17）；`body` → 结构化日志 body；`attributes` 原样照搬。接收端基于 `(session.id, event.seq)` 去重、按严重级别告警，并通过 `shutdown` 记录的缺失检测崩溃（一个曾有活动、没有 `shutdown` 运维记录、且已然陈旧的会话，就是未干净结束的会话）。该标记的含义是遥测干净地停止了对该会话的观察：它在会话自身 dispose（资源释放）时发出，对于届时仍在运行的会话，则在应用拆卸时发出；标记之后又出现该会话的更多事件，说明发生的是遥测重载，而不是会话重启。跨谱系（lineage）的流并不自足：恢复的会话在其自身 id 的流上从上一个进程停止之处继续；fork 出的会话，其流从继承边界开始，前缀位于父会话的流中，由接收端基于 `session.parent_id` + `session.seed_length` 拼接。继续而非回放的一个后果：流中一个开启后再未关闭的轮次，标志着上一个进程死在了该轮次之内。恢复时本地日志会以合成的关闭事件修复，但这些修复绝不导出：导出的流忠实于崩溃进程实际发出的内容，其后干净的 `shutdown` 标记也只证明恢复后进程自身的退出。
 
 ## 模型体验
 

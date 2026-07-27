@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-23-session-telemetry-otel-revival.md: f790bafe07caa6da00621f395de62909be9ee238
-2026-07-23-session-telemetry-otel-revival.zh.md: 9b2cf657541cc08ba238c5b5d952f8908e825537
+2026-07-23-session-telemetry-otel-revival.md: 1c855ad8d3263f5ff3343b480983f7cf14d9d4c6
+2026-07-23-session-telemetry-otel-revival.zh.md: 371e8f9fbfbdcc7c74fa5ae39406ea4bf159bc81
