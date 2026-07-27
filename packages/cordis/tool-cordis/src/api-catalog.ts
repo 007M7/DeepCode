@@ -753,6 +753,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'subprocess',
+    summary: 'Abstract subprocess service.',
+    methods: [
+      {
+        signature: 'abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle',
+        jsDoc: '/**\n * Start one managed child process from a fully-specified spec; this seam\n * applies no defaults.\n * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.\n * @returns the live process handle (streams/readers, signalling, outcome promise).\n */',
+      },
+    ],
+  },
+  {
     key: 'systemPrompt',
     summary: 'Registry service for the prompt inputs assembled before each model step.',
     methods: [
@@ -809,6 +819,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract attachSurface(name: string): () => void',
         jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. {@link start}\n * refuses work while none is attached.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
+      },
+    ],
+  },
+  {
+    key: 'telemetry',
+    summary: 'The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis\' standard behavior.',
+    methods: [
+      {
+        signature: 'abstract emit(record: TelemetryRecord): void',
+        jsDoc: '/**\n * See {@link TelemetryBackend.emit} — the seam declaration is the contract\'s one home.\n * @param record - the logical record to report; owned by the backend after the call.\n */',
+      },
+      {
+        signature: 'flush?(): void',
+        jsDoc: '/** See {@link TelemetryBackend.flush}. */',
+      },
+      {
+        signature: 'abstract shutdown(): Promise<void>',
+        jsDoc: '/**\n * See {@link TelemetryBackend.shutdown}.\n * @returns resolves when the backend\'s pipeline has quiesced.\n */',
       },
     ],
   },
@@ -1250,6 +1278,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'system-prompt/change\'(): void',
     jsDoc: '/**\n * Emitted when any prompt provider changes. This registry notification is\n * unfiltered because a global change affects every scope.\n * @mode emit\n */',
     summary: 'Emitted when any prompt provider changes.',
+  },
+  {
+    name: 'telemetry/record',
+    mode: 'waterfall',
+    signature: '\'telemetry/record\'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord',
+    jsDoc: '/**\n * Transform one outbound record before it reaches the backend. This\n * waterfall is the seam\'s redaction extension point. It ships NO rules\n * of its own: the\n * innermost `next()` passes the record through unchanged, and with no\n * listener mounted records reach the backend as captured, so exported\n * data is exactly as clean as the rules a deployment mounts. Listeners\n * stack by transforming `next()`\'s return value; returning without\n * `next()` replaces everything beneath. Dispatched synchronously on the\n * capture hot path inside the coordinator\'s containment: a throwing\n * listener withholds that one record (fail-closed) and never reaches the\n * agent loop. Redaction applies to the exported copy only; the canonical\n * session log is never rewritten.\n * @param record - the candidate record, already the coordinator\'s own deep\n *   copy; listeners return a (possibly new) record and must not mutate it.\n * @mode waterfall\n */',
+    summary: 'Transform one outbound record before it reaches the backend.',
   },
   {
     name: 'tools/change',
@@ -1977,7 +2012,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -2264,6 +2299,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n}',
   },
   {
+    name: 'SubprocessCollect',
+    declaration: 'export interface SubprocessCollect {\n    maxBytes: number;\n    spill?: {\n        maxBytes: number;\n    };\n}',
+  },
+  {
+    name: 'SubprocessCollectedOutputs',
+    declaration: 'export interface SubprocessCollectedOutputs {\n    readonly stdout?: SubprocessOutputReader;\n    readonly stderr?: SubprocessOutputReader;\n}',
+  },
+  {
+    name: 'SubprocessHandle',
+    declaration: 'export interface SubprocessHandle {\n    readonly pid: number;\n    readonly stdin: Writable | undefined;\n    readonly stdout: Readable | undefined;\n    readonly stderr: Readable | undefined;\n    readonly collected: SubprocessCollectedOutputs;\n    readonly done: Promise<SubprocessOutcome>;\n    terminate(): void;\n    waitForExit(signal?: AbortSignal): Promise<boolean>;\n}',
+  },
+  {
+    name: 'SubprocessOutcome',
+    declaration: 'export interface SubprocessOutcome {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n}',
+  },
+  {
+    name: 'SubprocessOutputMode',
+    declaration: 'export type SubprocessOutputMode = \'pipe\' | \'inherit\' | SubprocessCollect;',
+  },
+  {
+    name: 'SubprocessOutputRead',
+    declaration: 'export interface SubprocessOutputRead {\n    text: string;\n    nextOffset: number;\n    lossy: boolean;\n    spillPath?: string;\n}',
+  },
+  {
+    name: 'SubprocessOutputReader',
+    declaration: 'export interface SubprocessOutputReader {\n    readFrom(fromByte: number): SubprocessOutputRead;\n}',
+  },
+  {
+    name: 'SubprocessSpawnSpec',
+    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdio: SubprocessStdio;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    env?: Record<string, string> | undefined;\n}',
+  },
+  {
+    name: 'SubprocessStdinMode',
+    declaration: 'export type SubprocessStdinMode = \'ignore\' | \'pipe\' | {\n    readonly data: string;\n};',
+  },
+  {
+    name: 'SubprocessStdio',
+    declaration: 'export interface SubprocessStdio {\n    stdin: SubprocessStdinMode;\n    stdout: SubprocessOutputMode;\n    stderr: SubprocessOutputMode;\n}',
+  },
+  {
     name: 'SurfaceEvent',
     declaration: 'export type SurfaceEvent = SessionEvent<SurfaceEventType> & {\n    surfaceOp: SurfaceOp;\n};',
   },
@@ -2326,6 +2401,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TaskStatus',
     declaration: 'export type TaskStatus = \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';',
+  },
+  {
+    name: 'TelemetryRecord',
+    declaration: 'export interface TelemetryRecord {\n    channel: \'ledger\' | \'ops\';\n    time: number;\n    severity: TelemetrySeverity;\n    attributes: Record<string, string | number>;\n    body: unknown;\n}',
+  },
+  {
+    name: 'TelemetrySeverity',
+    declaration: 'export type TelemetrySeverity = \'info\' | \'warn\' | \'error\';',
   },
   {
     name: 'TerminalCallView',

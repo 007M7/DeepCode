@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { execa } from 'execa'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
@@ -16,7 +16,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url))
 const seamLib = join(pkgDir, '../lsp/lib/index.js')
-const built = existsSync(join(pkgDir, 'lib/index.js')) && existsSync(seamLib)
+const subprocessLib = join(pkgDir, '../../subprocess/subprocess-local/lib/index.js')
+const built = existsSync(join(pkgDir, 'lib/index.js')) && existsSync(seamLib) && existsSync(subprocessLib)
 
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
 
@@ -41,8 +42,10 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
       const { Context } = await import('cordis')
       const { default: Lsp } = await import('@deepseek-ai/dsh-lsp')
       const LspLocal = await import('@deepseek-ai/dsh-lsp-local')
+      const { default: LocalSubprocessService } = await import('@deepseek-ai/dsh-subprocess-local')
       const ctx = new Context()
       await ctx.plugin(Lsp)
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(LspLocal, {
         servers: {
           fake: {
@@ -57,12 +60,13 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
       console.log(JSON.stringify(result))
       await ctx.fiber.dispose()
     `
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: pkgDir, stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8') })
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8') })
-    const exitCode = await new Promise<number | null>(resolve => child.on('close', resolve))
+    const { exitCode, stdout, stderr } = await execa(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: pkgDir,
+      stdin: 'ignore',
+      timeout: 55_000,
+      killSignal: 'SIGKILL',
+      reject: false,
+    })
 
     expect(exitCode, `stderr:\n${stderr}`).toBe(0)
     const lastLine = stdout.trim().split('\n').at(-1) ?? ''

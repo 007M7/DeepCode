@@ -13,7 +13,7 @@ export type { RootOwnerProps } from './slots.ts'
 export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
 export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
-export { WorkspacesService } from './workspaces/service.ts'
+export { WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
 export type { Session } from './sessions/session.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,

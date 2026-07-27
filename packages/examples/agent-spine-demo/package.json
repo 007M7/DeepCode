@@ -65,6 +65,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-llm-retry": "workspace:^",
+    "@deepseek-ai/dsh-subprocess-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
