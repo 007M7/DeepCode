@@ -13,8 +13,7 @@ import { applyWebSearchTool, WEB_SEARCH_MAX_RESULTS } from './search.ts'
 import { applyWebFetchTool } from './fetch.ts'
 
 export { WEB_SEARCH_MAX_RESULTS, applyWebSearchTool, formatSearchOutput, parseSearchArgs, presentSearchCall } from './search.ts'
-export { applyWebFetchTool, formatFetchOutput, parseFetchArgs, presentFetchCall, renderBody } from './fetch.ts'
-export { htmlToMarkdown } from './html.ts'
+export { applyWebFetchTool, formatFetchOutput, parseFetchArgs, presentFetchCall } from './fetch.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-web'
@@ -25,7 +24,14 @@ export const inject = ['tools', 'web', 'systemPrompt']
 /** Default cooperative tool-call timeout budget (ms) for the web tools. */
 export const DEFAULT_WEB_TOOL_TIMEOUT_MS = 30_000
 
-/** Plugin config: which web tools to register, the source cap, and per-tool budgets. */
+/**
+ * Default cap on one `web_fetch` output and on source characters converted
+ * synchronously. This leaves headroom above the local provider's default
+ * 100,000-character body cap while bounding custom providers and rendered output.
+ */
+export const DEFAULT_FETCH_MAX_OUTPUT_CHARS = 200_000
+
+/** Plugin config: which web tools to register, the source cap, per-tool budgets, and the fetch output cap. */
 export interface Config {
   /** Register `web_search`. Defaults to true. */
   search?: boolean
@@ -37,6 +43,8 @@ export interface Config {
   fetchTimeoutMs?: number
   /** Cooperative timeout budget (ms) for `web_search`. Defaults to 30000. */
   searchTimeoutMs?: number
+  /** Cap on source characters converted and complete `web_fetch` output characters. Defaults to 200000. */
+  fetchMaxOutputChars?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -45,12 +53,13 @@ export const Config: z<Config> = z.object({
   searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS),
   fetchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
   searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
+  fetchMaxOutputChars: z.number().default(DEFAULT_FETCH_MAX_OUTPUT_CHARS),
 })
 
 /** The shape after schemastery applies its defaults to every field. */
 type ResolvedConfig = Required<Config>
 
-/** The result cap must be a positive integer (it bounds a provider's source list). */
+/** Configured count, timeout, and character caps must be positive integers. */
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new Error(`tool-web: ${name} must be a positive integer`)
@@ -72,6 +81,7 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('searchMaxResults', resolved.searchMaxResults)
   assertPositiveInteger('fetchTimeoutMs', resolved.fetchTimeoutMs)
   assertPositiveInteger('searchTimeoutMs', resolved.searchTimeoutMs)
+  assertPositiveInteger('fetchMaxOutputChars', resolved.fetchMaxOutputChars)
   if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs)
-  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs)
+  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs, resolved.fetchMaxOutputChars)
 }

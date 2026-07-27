@@ -45,6 +45,7 @@ export function apply(ctx: ClientContext): void {
     open: (sessionId) => { ctx.sessions.open(sessionId) },
     searchSessions,
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
+    deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },

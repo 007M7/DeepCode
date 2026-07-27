@@ -41,6 +41,7 @@ function scriptedApi(overrides: {
       list: r => ok(r, { items: [] }),
       create: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' }, created: true }),
       rename: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
+      delete: r => ok(r, { deleted: true as const }),
       insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
     },
     commands: {
@@ -115,13 +116,15 @@ describe('unary round trip', () => {
       .rejects.toThrow(/240 Unicode code points/)
   })
 
-  it('routes workspace rename and insertSessionBefore through the wire', async () => {
+  it('routes workspace rename, delete, and insertSessionBefore through the wire', async () => {
     const api = scriptedApi()
     const c = client(api)
     const renamed = await c.workspace.rename({ workspaceId: 'w1' as never, title: 'next' })
     expect(renamed.result.ok).toBe(true)
     const blankTitle = await c.workspace.rename({ workspaceId: 'w1' as never, title: '   ' })
     expect(blankTitle.result).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    const deleted = await c.workspace.delete({ workspaceId: 'w1' as never })
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
     const anchored = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1'), beforeSessionId: sid('s2') })
     expect(anchored.result.ok).toBe(true)
     const appended = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1') })

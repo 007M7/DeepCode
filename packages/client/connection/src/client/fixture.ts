@@ -926,6 +926,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
         return ok(request, { workspace: { ...workspace } })
       },
+      delete: (request) => {
+        const { workspaceId } = request.payload
+        const index = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
+        if (index === -1) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        workspaces.splice(index, 1)
+        emitHost({ type: 'host/workspace-removed', workspaceId })
+        return ok(request, { deleted: true as const })
+      },
       insertSessionBefore: (request) => {
         const { workspaceId, sessionId, beforeSessionId } = request.payload
         const workspace = workspaces.find(w => w.workspaceId === workspaceId)
@@ -1127,6 +1141,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)
+      case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
