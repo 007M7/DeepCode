@@ -8,7 +8,7 @@ This onboarding guide helps project contributors get started with the local envi
 
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
-- Git 2.20 or newer; hook setup enables Git's worktree-specific configuration extension.
+- Git 2.26 or newer; hook setup enables Git's worktree-specific configuration extension.
 - Optional: a DeepSeek API key for the TUI, headless, and ACP automation demos and real-API e2e tests.
 
 ## First-time setup
@@ -19,7 +19,7 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
-The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`. The wrapper gives the current worktree an explicit hook directory under its own Git directory; linked worktrees therefore use their own lefthook binary and configuration instead of rewriting common hooks. The first install enables Git's worktree-specific configuration extension and repository format 1; see the [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md).
+The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`. The wrapper requires Git 2.26 or newer and gives the current worktree an explicit hook directory under its own Git directory; linked worktrees therefore use their own lefthook binary and configuration instead of rewriting common hooks. The first install enables Git's worktree-specific configuration extension and repository format 1; see the [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md).
 
 If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
@@ -27,7 +27,7 @@ If hooks are missing because dependencies were restored from cache or `postinsta
 node scripts/install-lefthook.mjs
 ```
 
-The wrapper refuses to replace an existing user-owned `core.hooksPath`. If an inherited global or repository path should remain active in other worktrees while this worktree opts into lefthook, inspect that path first and rerun with `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`; a worktree-specific custom path is never overwritten and must be integrated or removed explicitly.
+The wrapper refuses to replace an existing user-owned `core.hooksPath`. If an inherited system, global, or common-repository path should remain active in other worktrees while this worktree opts into lefthook, inspect that path first and rerun with `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`; command-scoped and worktree-scoped custom paths are never overridden and must be integrated or removed explicitly. The same rules apply when a currently inactive conditional include can provide a hook path; unrelated conditional includes remain valid. Before enabling the worktree-config extension, conditional common-config targets that may contain `core.worktree` or `core.bare=true` require manual migration. If the installer reports a stale or invalid lock, confirm no installer is running, remove the reported lock manually, and rerun the command.
 
 Run typecheck once after a fresh clone:
 

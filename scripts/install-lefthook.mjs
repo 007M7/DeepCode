@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
-const MINIMUM_GIT = [2, 20, 0]
+const MINIMUM_GIT = [2, 26, 0]
 const HOOKS_DIRECTORY = 'dsh-hooks'
 const OWNERSHIP_MARKER = '.dsh-lefthook-owned'
 const OWNERSHIP_MARKER_CONTENT = 'deepseek-harness worktree-local lefthook hooks\n'
@@ -11,6 +12,7 @@ const INSTALL_LOCK = 'dsh-lefthook-install.lock'
 const INSTALL_LOCK_TIMEOUT_MS = 30_000
 const INSTALL_LOCK_POLL_MS = 50
 const ALLOW_HOOKS_PATH_OVERRIDE = 'DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE'
+const CONDITIONAL_INCLUDE_PATTERN = '^includeif\\..*\\.path$'
 
 function errorCode(error) {
   return typeof error === 'object' && error !== null && 'code' in error
@@ -47,6 +49,13 @@ function nulValues(result) {
   return output.split('\0')
 }
 
+function stripGitLineTerminator(output) {
+  const withoutLineFeed = output.endsWith('\n') ? output.slice(0, -1) : output
+  return process.platform === 'win32' && withoutLineFeed.endsWith('\r')
+    ? withoutLineFeed.slice(0, -1)
+    : withoutLineFeed
+}
+
 function fileConfigValues(root, configPath, key) {
   return nulValues(git(
     ['config', '--file', configPath, '--null', '--get-all', key],
@@ -55,14 +64,76 @@ function fileConfigValues(root, configPath, key) {
   ))
 }
 
-function effectiveConfigValue(root, key) {
-  const values = nulValues(git(
-    ['config', '--null', '--get', key],
+function fileConfigEntries(root, configPath, key) {
+  const fields = nulValues(git(
+    ['config', '--file', configPath, '--includes', '--null', '--show-origin', '--get-all', key],
     root,
     { allowStatuses: [1] },
   ))
-  if (values.length > 1) throw new Error(`git config returned multiple effective values for ${key}`)
-  return values[0]
+  if (fields.length % 2 !== 0) {
+    throw new Error(`git config returned invalid file entries for ${key}`)
+  }
+  const entries = []
+  for (let index = 0; index < fields.length; index += 2) {
+    entries.push({ origin: fields[index], value: fields[index + 1] })
+  }
+  return entries
+}
+
+function splitConfigNameValue(field, pattern) {
+  const separator = field.indexOf('\n')
+  if (separator < 0) throw new Error(`git config returned an invalid name and value for ${pattern}`)
+  return { name: field.slice(0, separator), value: field.slice(separator + 1) }
+}
+
+function fileConfigMatchingEntries(root, configPath, pattern) {
+  const fields = nulValues(git(
+    ['config', '--file', configPath, '--includes', '--null', '--show-origin', '--get-regexp', pattern],
+    root,
+    { allowStatuses: [1] },
+  ))
+  if (fields.length % 2 !== 0) {
+    throw new Error(`git config returned invalid matching file entries for ${pattern}`)
+  }
+  const entries = []
+  for (let index = 0; index < fields.length; index += 2) {
+    entries.push({ origin: fields[index], ...splitConfigNameValue(fields[index + 1], pattern) })
+  }
+  return entries
+}
+
+function scopedConfigMatchingEntries(root, pattern) {
+  const fields = nulValues(git(
+    ['config', '--includes', '--null', '--show-scope', '--show-origin', '--get-regexp', pattern],
+    root,
+    { allowStatuses: [1] },
+  ))
+  if (fields.length % 3 !== 0) {
+    throw new Error(`git config returned invalid scoped entries for ${pattern}`)
+  }
+  const entries = []
+  for (let index = 0; index < fields.length; index += 3) {
+    entries.push({
+      scope: fields[index],
+      origin: fields[index + 1],
+      ...splitConfigNameValue(fields[index + 2], pattern),
+    })
+  }
+  return entries
+}
+
+function effectiveConfigEntry(root, key) {
+  const fields = nulValues(git(
+    ['config', '--null', '--show-scope', '--show-origin', '--get', key],
+    root,
+    { allowStatuses: [1] },
+  ))
+  if (fields.length === 0) return undefined
+  if (fields.length !== 3) {
+    throw new Error(`git config returned an invalid scoped value for ${key}`)
+  }
+  const [scope, origin, value] = fields
+  return { origin, scope, value }
 }
 
 function parseGitBoolean(value, key) {
@@ -85,9 +156,69 @@ function assertSupportedGit(root) {
   for (let index = 0; index < MINIMUM_GIT.length; index += 1) {
     if (actual[index] > MINIMUM_GIT[index]) return
     if (actual[index] < MINIMUM_GIT[index]) {
-      throw new Error(`Git 2.20 or newer is required for worktree-local hooks; found ${version}`)
+      throw new Error(`Git 2.26 or newer is required for worktree-local hooks; found ${version}`)
     }
   }
+}
+
+function conditionalIncludeTarget(entry, root) {
+  if (isAbsolute(entry.value)) return entry.value
+  const sourcePath = configOriginPath(entry.origin, root)
+  if (sourcePath === undefined) return undefined
+  if (entry.value.startsWith('~/')) {
+    const home = process.env.HOME
+    return home === undefined ? undefined : resolve(home, entry.value.slice(2))
+  }
+  if (entry.value.startsWith('~') || entry.value.startsWith('%(')) return undefined
+  return resolve(dirname(sourcePath), entry.value)
+}
+
+function inspectConditionalConfig(root, configPath, inspect, seen = new Set()) {
+  const identity = normalizedPath(configPath)
+  if (seen.has(identity)) return undefined
+  seen.add(identity)
+  if (!existsSync(configPath)) {
+    return { configPath, detail: 'the included config does not exist and cannot be inspected' }
+  }
+  try {
+    const subject = inspect(configPath)
+    if (subject !== undefined) return { configPath, subject }
+    for (const entry of fileConfigMatchingEntries(root, configPath, CONDITIONAL_INCLUDE_PATTERN)) {
+      const target = conditionalIncludeTarget(entry, root)
+      if (target === undefined) {
+        return { configPath, detail: `the nested include path ${JSON.stringify(entry.value)} cannot be resolved safely` }
+      }
+      const nested = inspectConditionalConfig(root, target, inspect, seen)
+      if (nested !== undefined) return nested
+    }
+    return undefined
+  } catch (error) {
+    return {
+      configPath,
+      detail: `the included config could not be inspected: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
+function conditionalIncludeRisk(root, entry, inspect) {
+  const target = conditionalIncludeTarget(entry, root)
+  if (target === undefined) {
+    return { detail: `the include path ${JSON.stringify(entry.value)} cannot be resolved safely` }
+  }
+  return inspectConditionalConfig(root, target, inspect)
+}
+
+function migrationConfigSubject(root, configPath) {
+  const worktreeEntry = fileConfigEntries(root, configPath, 'core.worktree')[0]
+  if (worktreeEntry !== undefined) return `core.worktree (${configSource(worktreeEntry)})`
+  const trueBareEntry = fileConfigEntries(root, configPath, 'core.bare')
+    .find(entry => parseGitBoolean(entry.value, 'core.bare'))
+  return trueBareEntry === undefined ? undefined : `core.bare=true (${configSource(trueBareEntry)})`
+}
+
+function hooksPathConfigSubject(root, configPath) {
+  const entry = fileConfigEntries(root, configPath, 'core.hooksPath')[0]
+  return entry === undefined ? undefined : `core.hooksPath (${configSource(entry)})`
 }
 
 function ensureWorktreeConfig(root, commonConfigPath) {
@@ -98,17 +229,6 @@ function ensureWorktreeConfig(root, commonConfigPath) {
     throw new Error(`unsupported core.repositoryFormatVersion: ${JSON.stringify(versionText)}`)
   }
 
-  const worktrees = fileConfigValues(root, commonConfigPath, 'core.worktree')
-  if (worktrees.length > 0) {
-    throw new Error('cannot enable extensions.worktreeConfig while core.worktree is in the common config; move it to the main worktree config first')
-  }
-
-  const bareText = assertSingle(fileConfigValues(root, commonConfigPath, 'core.bare'), 'core.bare')
-  const bare = bareText === undefined ? undefined : parseGitBoolean(bareText, 'core.bare')
-  if (bare === true) {
-    throw new Error('cannot enable extensions.worktreeConfig for a common config with core.bare=true')
-  }
-
   const extensionText = assertSingle(
     fileConfigValues(root, commonConfigPath, 'extensions.worktreeConfig'),
     'extensions.worktreeConfig',
@@ -117,26 +237,79 @@ function ensureWorktreeConfig(root, commonConfigPath) {
     ? false
     : parseGitBoolean(extensionText, 'extensions.worktreeConfig')
 
+  if (!extensionEnabled) {
+    for (const entry of fileConfigMatchingEntries(root, commonConfigPath, CONDITIONAL_INCLUDE_PATTERN)) {
+      const risk = conditionalIncludeRisk(
+        root,
+        entry,
+        configPath => migrationConfigSubject(root, configPath),
+      )
+      if (risk !== undefined) {
+        const reason = risk.subject ?? risk.detail
+        throw new Error(
+          `cannot enable extensions.worktreeConfig while common conditional include `
+          + `${entry.origin}: ${entry.name}=${JSON.stringify(entry.value)} may provide migration-sensitive config (${reason}); `
+          + 'audit and migrate it, then enable the extension explicitly',
+        )
+      }
+    }
+  }
+
+  const worktreeEntry = fileConfigEntries(root, commonConfigPath, 'core.worktree')[0]
+  if (worktreeEntry !== undefined) {
+    throw new Error(
+      `cannot enable extensions.worktreeConfig while core.worktree is in the common config (${configSource(worktreeEntry)}); `
+      + 'move it to the main worktree config first',
+    )
+  }
+
+  const bareEntries = fileConfigEntries(root, commonConfigPath, 'core.bare')
+  const trueBareEntry = bareEntries.find(entry => parseGitBoolean(entry.value, 'core.bare'))
+  if (trueBareEntry !== undefined) {
+    throw new Error(
+      `cannot enable extensions.worktreeConfig for a common config with core.bare=true (${configSource(trueBareEntry)})`,
+    )
+  }
+  const directBareText = assertSingle(fileConfigValues(root, commonConfigPath, 'core.bare'), 'core.bare')
+  const directBare = directBareText === undefined ? undefined : parseGitBoolean(directBareText, 'core.bare')
+
   if (version === 0) {
     git(['config', '--file', commonConfigPath, 'core.repositoryFormatVersion', '1'], root)
   }
   if (!extensionEnabled) {
     git(['config', '--file', commonConfigPath, 'extensions.worktreeConfig', 'true'], root)
   }
-  if (bare === false) {
+  if (directBare === false) {
     git(['config', '--file', commonConfigPath, '--unset-all', 'core.bare'], root)
   }
 }
 
-function lockOwnerIsAlive(lockPath) {
-  let owner
+function readInstallLock(lockPath) {
   try {
-    owner = Number(readFileSync(lockPath, 'utf8').trim())
+    return readFileSync(lockPath, 'utf8')
   } catch (error) {
-    if (errorCode(error) === 'ENOENT') return false
+    if (errorCode(error) === 'ENOENT') return undefined
     throw error
   }
-  if (!Number.isSafeInteger(owner) || owner <= 0) return true
+}
+
+function installLockStat(lockPath) {
+  try {
+    return lstatSync(lockPath)
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+function parseInstallLock(record) {
+  const match = /^([1-9]\d*) ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\n$/i.exec(record)
+  if (match === null) return undefined
+  const owner = Number(match[1])
+  return Number.isSafeInteger(owner) ? owner : undefined
+}
+
+function lockOwnerIsAlive(owner) {
   try {
     process.kill(owner, 0)
     return true
@@ -147,28 +320,63 @@ function lockOwnerIsAlive(lockPath) {
   }
 }
 
-function removeStaleLock(lockPath) {
+function manualLockRecoveryError(lockPath, condition) {
+  return new Error(
+    `${condition} Lefthook installer lock ${JSON.stringify(lockPath)}. `
+    + 'Confirm no Lefthook installer is running, remove it manually, and retry.',
+  )
+}
+
+function lockOwnershipChangedError(lockPath) {
+  return new Error(`Lefthook installer lock ownership changed for ${lockPath}; refusing to remove it`)
+}
+
+function releaseInstallLock(lockPath, ownedRecord, ownedStat) {
+  const currentStat = installLockStat(lockPath)
+  if (
+    currentStat === undefined
+    || !currentStat.isFile()
+    || currentStat.isSymbolicLink()
+    || currentStat.dev !== ownedStat.dev
+    || currentStat.ino !== ownedStat.ino
+    || readInstallLock(lockPath) !== ownedRecord
+  ) {
+    throw lockOwnershipChangedError(lockPath)
+  }
   try {
     unlinkSync(lockPath)
   } catch (error) {
-    if (errorCode(error) !== 'ENOENT') throw error
-    // Another waiting installer removed the same stale lock first.
+    if (errorCode(error) === 'ENOENT') {
+      throw lockOwnershipChangedError(lockPath)
+    }
+    throw error
   }
 }
 
 async function acquireInstallLock(commonDirectory) {
   const lockPath = join(commonDirectory, INSTALL_LOCK)
   const deadline = Date.now() + INSTALL_LOCK_TIMEOUT_MS
+  const ownedRecord = `${String(process.pid)} ${randomUUID()}\n`
   while (true) {
     try {
-      writeFileSync(lockPath, `${String(process.pid)}\n`, { flag: 'wx', mode: 0o600 })
-      return () => removeStaleLock(lockPath)
+      writeFileSync(lockPath, ownedRecord, { flag: 'wx', mode: 0o600 })
+      const ownedStat = installLockStat(lockPath)
+      if (ownedStat === undefined || !ownedStat.isFile() || ownedStat.isSymbolicLink()) {
+        throw lockOwnershipChangedError(lockPath)
+      }
+      return () => releaseInstallLock(lockPath, ownedRecord, ownedStat)
     } catch (error) {
       if (errorCode(error) !== 'EEXIST') throw error
-      if (!lockOwnerIsAlive(lockPath)) {
-        removeStaleLock(lockPath)
-        continue
+      const existingStat = installLockStat(lockPath)
+      if (existingStat === undefined) continue
+      if (!existingStat.isFile() || existingStat.isSymbolicLink()) {
+        throw manualLockRecoveryError(lockPath, 'invalid')
       }
+      const existingRecord = readInstallLock(lockPath)
+      if (existingRecord === undefined) continue
+      const owner = parseInstallLock(existingRecord)
+      if (owner === undefined) throw manualLockRecoveryError(lockPath, 'invalid')
+      if (!lockOwnerIsAlive(owner)) throw manualLockRecoveryError(lockPath, 'stale')
       if (Date.now() >= deadline) {
         throw new Error(`timed out waiting for Lefthook installer lock ${lockPath}`)
       }
@@ -197,63 +405,176 @@ function ensureOwnedHooksDirectory(hooksPath) {
   }
 }
 
+function environmentWithoutCommandGitConfig() {
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) {
+    const normalized = key.toUpperCase()
+    if (
+      normalized === 'GIT_CONFIG_PARAMETERS'
+      || normalized === 'GIT_CONFIG_COUNT'
+      || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(normalized)
+    ) {
+      delete env[key]
+    }
+  }
+  return env
+}
+
 function runLefthook(root, lefthook) {
   const args = ['install', '--force']
+  const env = environmentWithoutCommandGitConfig()
   // Node refuses to spawn Windows `.cmd` shims directly; the quoted path is
   // re-parsed by cmd.exe, while POSIX can execute its extensionless shim.
   const result = process.platform === 'win32'
-    ? spawnSync(`"${lefthook}"`, args, { cwd: root, stdio: 'inherit', shell: true })
-    : spawnSync(lefthook, args, { cwd: root, stdio: 'inherit' })
+    ? spawnSync(`"${lefthook}"`, args, { cwd: root, env, stdio: 'inherit', shell: true })
+    : spawnSync(lefthook, args, { cwd: root, env, stdio: 'inherit' })
   if (result.status !== 0) throw commandFailure(lefthook, args, result)
 }
 
-function refuseCustomHooksPath(root, hooksPath) {
-  const origin = git(
-    ['config', '--show-origin', '--get', 'core.hooksPath'],
-    root,
-    { allowStatuses: [1] },
-  ).stdout.trim()
-  const source = origin === '' ? hooksPath : origin
+function configSource(entry) {
+  return `${entry.origin}: ${JSON.stringify(entry.value)}`
+}
+
+function normalizedPath(path) {
+  const normalized = resolve(path)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+function configOriginPath(origin, root) {
+  if (!origin.startsWith('file:')) return undefined
+  const originPath = origin.slice('file:'.length)
+  return isAbsolute(originPath) ? originPath : resolve(root, originPath)
+}
+
+function originIsFile(origin, root, configPath) {
+  const originPath = configOriginPath(origin, root)
+  return originPath !== undefined && normalizedPath(originPath) === normalizedPath(configPath)
+}
+
+function conditionalIncludeSource(entry) {
+  return `${entry.origin}: ${entry.name}=${JSON.stringify(entry.value)}`
+}
+
+function conditionalIncludes(root, worktreeConfigPath) {
+  const entries = scopedConfigMatchingEntries(root, CONDITIONAL_INCLUDE_PATTERN)
+  entries.push(...fileConfigMatchingEntries(root, worktreeConfigPath, CONDITIONAL_INCLUDE_PATTERN)
+    .map(entry => ({ ...entry, scope: 'worktree' })))
+  const unique = new Map()
+  for (const entry of entries) {
+    unique.set(`${entry.scope}\0${entry.origin}\0${entry.name}\0${entry.value}`, entry)
+  }
+  return [...unique.values()]
+}
+
+function assertConditionalHooksPaths(root, worktreeConfigPath) {
+  for (const entry of conditionalIncludes(root, worktreeConfigPath)) {
+    const risk = conditionalIncludeRisk(
+      root,
+      entry,
+      configPath => hooksPathConfigSubject(root, configPath),
+    )
+    if (risk === undefined) continue
+    const reason = risk.subject ?? risk.detail
+    if (entry.scope === 'command' || entry.scope === 'worktree') {
+      throw new Error(
+        `refusing ${entry.scope}-scoped conditional include ${conditionalIncludeSource(entry)}; `
+        + `it may provide a user-owned core.hooksPath (${reason}) and cannot be overridden`,
+      )
+    }
+    if (!['system', 'global', 'local'].includes(entry.scope)) {
+      throw new Error(
+        `refusing conditional include from unsupported ${entry.scope} scope ${conditionalIncludeSource(entry)}; `
+        + `it may provide core.hooksPath (${reason})`,
+      )
+    }
+    if (process.env[ALLOW_HOOKS_PATH_OVERRIDE] !== '1') {
+      throw new Error(
+        `refusing to replace core.hooksPath that may be provided by inherited conditional include `
+        + `${conditionalIncludeSource(entry)} (${reason}). Inspect that include and rerun with `
+        + `${ALLOW_HOOKS_PATH_OVERRIDE}=1 only if it may remain active in other worktrees`,
+      )
+    }
+  }
+}
+
+function refuseInheritedHooksPath(entry) {
   throw new Error(
-    `refusing to replace user-owned core.hooksPath (${source}). `
+    `refusing to replace user-owned core.hooksPath (${configSource(entry)}). `
     + `Chain those hooks through lefthook.yml, or, if this inherited path may remain active only in other worktrees, `
     + `rerun with ${ALLOW_HOOKS_PATH_OVERRIDE}=1`,
+  )
+}
+
+function refuseScopedHooksPath(entry) {
+  if (entry.scope === 'command') {
+    throw new Error(
+      `refusing to replace command-scoped core.hooksPath (${configSource(entry)}); `
+      + `${ALLOW_HOOKS_PATH_OVERRIDE} cannot override transient command configuration`,
+    )
+  }
+  if (entry.scope === 'worktree') {
+    throw new Error(
+      `refusing to replace worktree-scoped core.hooksPath (${configSource(entry)}); `
+      + 'a worktree-specific custom path must be integrated or removed explicitly',
+    )
+  }
+  throw new Error(
+    `refusing to replace core.hooksPath from unsupported ${entry.scope} scope (${configSource(entry)})`,
   )
 }
 
 async function main() {
   const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })
   if (probe.status !== 0) return
-  const root = probe.stdout.trim()
+  const root = stripGitLineTerminator(probe.stdout)
   const isWindows = process.platform === 'win32'
   const lefthook = join(root, 'node_modules', '.bin', isWindows ? 'lefthook.cmd' : 'lefthook')
   if (!existsSync(lefthook)) return
 
   assertSupportedGit(root)
-  const gitDirectory = git(['rev-parse', '--absolute-git-dir'], root).stdout.trim()
-  const commonOutput = git(['rev-parse', '--git-common-dir'], root).stdout.trim()
+  const gitDirectory = stripGitLineTerminator(git(['rev-parse', '--absolute-git-dir'], root).stdout)
+  const commonOutput = stripGitLineTerminator(git(['rev-parse', '--git-common-dir'], root).stdout)
   const commonDirectory = isAbsolute(commonOutput) ? commonOutput : resolve(root, commonOutput)
   const commonConfigPath = join(commonDirectory, 'config')
   const worktreeConfigPath = join(gitDirectory, 'config.worktree')
   const hooksPath = join(gitDirectory, HOOKS_DIRECTORY)
   const releaseLock = await acquireInstallLock(commonDirectory)
+  let installationError
 
   try {
+    const worktreeEntries = fileConfigEntries(root, worktreeConfigPath, 'core.hooksPath')
+    const includedWorktreeEntry = worktreeEntries.find(
+      entry => !originIsFile(entry.origin, root, worktreeConfigPath),
+    )
+    if (includedWorktreeEntry !== undefined) {
+      refuseScopedHooksPath({ ...includedWorktreeEntry, scope: 'worktree' })
+    }
     const worktreePath = assertSingle(
-      fileConfigValues(root, worktreeConfigPath, 'core.hooksPath'),
+      worktreeEntries.map(entry => entry.value),
       'worktree core.hooksPath',
     )
-    if (worktreePath !== undefined && worktreePath !== hooksPath) refuseCustomHooksPath(root, worktreePath)
-
-    const effectivePath = effectiveConfigValue(root, 'core.hooksPath')
-    const effectivePathIsOwned = effectivePath === hooksPath && worktreePath === hooksPath
-    if (
-      effectivePath !== undefined
-      && !effectivePathIsOwned
-      && process.env[ALLOW_HOOKS_PATH_OVERRIDE] !== '1'
-    ) {
-      refuseCustomHooksPath(root, effectivePath)
+    if (worktreePath !== undefined && worktreePath !== hooksPath) {
+      refuseScopedHooksPath({ origin: `file:${worktreeConfigPath}`, scope: 'worktree', value: worktreePath })
     }
+    const effectiveEntry = effectiveConfigEntry(root, 'core.hooksPath')
+    if (effectiveEntry !== undefined) {
+      const effectivePathIsOwned = effectiveEntry.scope === 'worktree'
+        && effectiveEntry.value === hooksPath
+        && worktreePath === hooksPath
+        && originIsFile(effectiveEntry.origin, root, worktreeConfigPath)
+      if (!effectivePathIsOwned) {
+        if (effectiveEntry.scope === 'command' || effectiveEntry.scope === 'worktree') {
+          refuseScopedHooksPath(effectiveEntry)
+        }
+        if (!['system', 'global', 'local'].includes(effectiveEntry.scope)) {
+          refuseScopedHooksPath(effectiveEntry)
+        }
+        if (process.env[ALLOW_HOOKS_PATH_OVERRIDE] !== '1') {
+          refuseInheritedHooksPath(effectiveEntry)
+        }
+      }
+    }
+    assertConditionalHooksPaths(root, worktreeConfigPath)
 
     ensureOwnedHooksDirectory(hooksPath)
     ensureWorktreeConfig(root, commonConfigPath)
@@ -262,6 +583,15 @@ async function main() {
     try {
       git(['config', '--worktree', 'core.hooksPath', hooksPath], root)
       pathChanged = worktreePath === undefined
+      const installedEntry = effectiveConfigEntry(root, 'core.hooksPath')
+      if (
+        installedEntry === undefined
+        || installedEntry.scope !== 'worktree'
+        || installedEntry.value !== hooksPath
+        || !originIsFile(installedEntry.origin, root, worktreeConfigPath)
+      ) {
+        throw new Error('new worktree-local core.hooksPath did not become the effective direct worktree value')
+      }
       runLefthook(root, lefthook)
     } catch (error) {
       if (pathChanged) {
@@ -269,8 +599,21 @@ async function main() {
       }
       throw error
     }
+  } catch (error) {
+    installationError = error
+    throw error
   } finally {
-    releaseLock()
+    try {
+      releaseLock()
+    } catch (releaseError) {
+      if (installationError !== undefined) {
+        throw new AggregateError(
+          [installationError, releaseError],
+          `Lefthook installation failed: ${String(installationError)}; installer lock release also failed: ${String(releaseError)}`,
+        )
+      }
+      throw releaseError
+    }
   }
 }
 

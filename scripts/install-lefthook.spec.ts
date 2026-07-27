@@ -62,7 +62,17 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 if (process.argv.slice(2).join(' ') !== 'install --force') process.exit(64)
-const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+const rootOutput = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })
+const root = rootOutput.endsWith('\\n') ? rootOutput.slice(0, -1) : rootOutput
+const forbiddenConfigKey = process.env.DSH_TEST_FORBIDDEN_GIT_CONFIG_KEY
+if (forbiddenConfigKey !== undefined) {
+  try {
+    execFileSync('git', ['config', '--get', forbiddenConfigKey], { encoding: 'utf8' })
+    process.exit(92)
+  } catch (error) {
+    if (error === null || typeof error !== 'object' || !('status' in error) || error.status !== 1) throw error
+  }
+}
 const hooksPath = execFileSync('git', ['config', '--get', 'core.hooksPath'], { encoding: 'utf8' }).trim()
 mkdirSync(hooksPath, { recursive: true })
 const running = join(hooksPath, '.fake-lefthook-running')
@@ -101,11 +111,11 @@ function installFakeLefthook(root: string): void {
   chmodSync(shim, 0o755)
 }
 
-function createFixture(): Fixture {
+function createFixture(names: { main?: string; linked?: string } = {}): Fixture {
   const container = mkdtempSync(join(tmpdir(), 'dsh-lefthook-'))
   fixtures.push(container)
-  const main = join(container, 'main')
-  const linked = join(container, 'linked')
+  const main = join(container, names.main ?? 'main')
+  const linked = join(container, names.linked ?? 'linked')
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_AUTHOR_EMAIL: 'hooks@example.test',
@@ -142,6 +152,18 @@ function commonDirectory(fixture: Fixture): string {
 
 function hooksPath(fixture: Fixture, root: string): string {
   return join(gitDirectory(fixture, root), 'dsh-hooks')
+}
+
+function installLockPath(fixture: Fixture): string {
+  return join(commonDirectory(fixture), 'dsh-lefthook-install.lock')
+}
+
+async function waitForPath(path: string): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`)
+    await new Promise(resolveWait => setTimeout(resolveWait, 10))
+  }
 }
 
 function runInstaller(
@@ -226,6 +248,69 @@ describe('worktree-local Lefthook installer', () => {
     expect(existsSync(join(hooksPath(fixture, fixture.main), '.fake-lefthook-running'))).toBe(false)
   })
 
+  it('leaves stale installer locks for explicit recovery', async () => {
+    const fixture = createFixture()
+    const lockPath = installLockPath(fixture)
+    const completed = spawnSync(process.execPath, ['-e', ''])
+    expect(completed.status).toBe(0)
+    const staleRecord = `${String(completed.pid)} 00000000-0000-4000-8000-000000000000\n`
+    writeFileSync(lockPath, staleRecord)
+
+    const results = await Promise.all(Array.from(
+      { length: 4 },
+      () => runInstaller(fixture, fixture.main),
+    ))
+
+    for (const result of results) {
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('stale Lefthook installer lock')
+      expect(result.stderr).toContain('remove it manually')
+    }
+    expect(readFileSync(lockPath, 'utf8')).toBe(staleRecord)
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+    expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
+  })
+
+  it('leaves invalid installer locks for explicit recovery', async () => {
+    const fixture = createFixture()
+    const lockPath = installLockPath(fixture)
+    const invalidRecord = 'not an installer lock\n'
+    writeFileSync(lockPath, invalidRecord)
+
+    const result = await runInstaller(fixture, fixture.main)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('invalid Lefthook installer lock')
+    expect(result.stderr).toContain('remove it manually')
+    expect(readFileSync(lockPath, 'utf8')).toBe(invalidRecord)
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
+  it('does not release an installer lock whose ownership changed', async () => {
+    const fixture = createFixture()
+    const lockPath = installLockPath(fixture)
+    const runningPath = join(hooksPath(fixture, fixture.main), '.fake-lefthook-running')
+    const install = runInstaller(fixture, fixture.main, { DSH_TEST_LEFTHOOK_DELAY_MS: '250' })
+    await waitForPath(runningPath)
+    const replacementRecord = 'replacement owner\n'
+    writeFileSync(lockPath, replacementRecord)
+
+    const result = await install
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('installer lock ownership changed')
+    expect(readFileSync(lockPath, 'utf8')).toBe(replacementRecord)
+  })
+
+  it.skipIf(process.platform === 'win32')('preserves trailing spaces in worktree paths', async () => {
+    const fixture = createFixture({ main: 'main ', linked: 'linked ' })
+
+    for (const root of [fixture.main, fixture.linked]) {
+      const result = await runInstaller(fixture, root)
+      expect(result.status, result.stderr).toBe(0)
+      expect(git(fixture, root, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe(hooksPath(fixture, root))
+    }
+  })
+
   it('preserves user-owned hook paths unless an inherited value is explicitly overridden', async () => {
     const fixture = createFixture()
     const customHook = join(fixture.main, 'custom-hooks/pre-commit')
@@ -257,6 +342,202 @@ describe('worktree-local Lefthook installer', () => {
     expect(git(fixture, fixture.linked, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe('linked-custom-hooks')
   })
 
+  it('refuses migration keys loaded through active or conditional common-config includes', async () => {
+    for (const includeKey of ['include.path', 'includeIf.onbranch:conditional.path']) {
+      for (const key of ['core.worktree', 'core.bare']) {
+        const fixture = createFixture()
+        const commonConfig = join(commonDirectory(fixture), 'config')
+        const includedConfig = join(fixture.container, `${includeKey.split('.')[0]}-${key.replace('.', '-')}.gitconfig`)
+        const value = key === 'core.worktree' ? fixture.main : 'true'
+        git(fixture, fixture.main, ['config', '--file', includedConfig, key, value])
+        git(fixture, fixture.main, ['config', '--file', commonConfig, includeKey, includedConfig])
+
+        const result = await runInstaller(fixture, fixture.linked)
+
+        expect(result.status).toBe(1)
+        expect(result.stderr).toContain(key)
+        expect(result.stderr).toContain(includedConfig)
+        expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
+        expect(existsSync(join(hooksPath(fixture, fixture.linked), 'pre-commit'))).toBe(false)
+      }
+    }
+  })
+
+  it('allows a conditional common-config include unrelated to migration or hooks', async () => {
+    const fixture = createFixture()
+    const commonConfig = join(commonDirectory(fixture), 'config')
+    const includedConfig = join(fixture.container, 'conditional-identity.gitconfig')
+    git(fixture, fixture.main, ['config', '--file', includedConfig, 'user.email', 'conditional@example.test'])
+    git(fixture, fixture.main, [
+      'config',
+      '--file',
+      commonConfig,
+      'includeIf.onbranch:conditional.path',
+      includedConfig,
+    ])
+
+    const result = await runInstaller(fixture, fixture.linked)
+
+    expect(result.status, result.stderr).toBe(0)
+    expect(git(fixture, fixture.linked, ['config', '--get', 'core.hooksPath'])).toBe(hooksPath(fixture, fixture.linked))
+  })
+
+  it('never overrides a command-scoped hook path', async () => {
+    const fixture = createFixture()
+    const commandHooks = join(fixture.container, 'command-hooks')
+    const sentinel = join(commandHooks, 'pre-commit')
+    write(sentinel, '#!/bin/sh\n# command-scope sentinel\n', 0o755)
+
+    const result = await runInstaller(fixture, fixture.main, {
+      DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE: '1',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.hooksPath',
+      GIT_CONFIG_VALUE_0: commandHooks,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('command-scoped core.hooksPath')
+    expect(readFileSync(sentinel, 'utf8')).toBe('#!/bin/sh\n# command-scope sentinel\n')
+    expect(gitResult(fixture, fixture.main, ['config', '--get', 'core.hooksPath']).status).toBe(1)
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
+  it('never overrides a hook path behind a command-scoped conditional include', async () => {
+    const fixture = createFixture()
+    const includedConfig = join(fixture.container, 'command-conditional.gitconfig')
+    const includedHooks = join(fixture.container, 'command-conditional-hooks')
+    git(fixture, fixture.main, ['config', '--file', includedConfig, 'core.hooksPath', includedHooks])
+
+    const result = await runInstaller(fixture, fixture.main, {
+      DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE: '1',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'includeIf.onbranch:conditional.path',
+      GIT_CONFIG_VALUE_0: includedConfig,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('command-scoped conditional include')
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
+  it('does not pass unrelated command-scoped Git config to Lefthook', async () => {
+    const fixture = createFixture()
+
+    const result = await runInstaller(fixture, fixture.main, {
+      DSH_TEST_FORBIDDEN_GIT_CONFIG_KEY: 'dsh.testSentinel',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'dsh.testSentinel',
+      GIT_CONFIG_VALUE_0: 'must-not-reach-lefthook',
+    })
+
+    expect(result.status, result.stderr).toBe(0)
+    expect(existsSync(join(hooksPath(fixture, fixture.main), 'pre-commit'))).toBe(true)
+  })
+
+  it('never overrides a hook path included by worktree config', async () => {
+    const fixture = createFixture()
+    const commonConfig = join(commonDirectory(fixture), 'config')
+    const worktreeConfig = join(gitDirectory(fixture, fixture.main), 'config.worktree')
+    const includedConfig = join(fixture.container, 'included-worktree.gitconfig')
+    const includedHooks = join(fixture.container, 'included-hooks')
+    const sentinel = join(includedHooks, 'pre-commit')
+    write(sentinel, '#!/bin/sh\n# included-worktree sentinel\n', 0o755)
+    git(fixture, fixture.main, ['config', '--file', includedConfig, 'core.hooksPath', includedHooks])
+    git(fixture, fixture.main, ['config', '--file', commonConfig, 'core.repositoryFormatVersion', '1'])
+    git(fixture, fixture.main, ['config', '--file', commonConfig, 'extensions.worktreeConfig', 'true'])
+    git(fixture, fixture.main, ['config', '--file', worktreeConfig, 'include.path', includedConfig])
+
+    const result = await runInstaller(fixture, fixture.main, {
+      DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE: '1',
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('worktree-scoped core.hooksPath')
+    expect(git(fixture, fixture.main, ['config', '--get', 'core.hooksPath'])).toBe(includedHooks)
+    expect(readFileSync(sentinel, 'utf8')).toBe('#!/bin/sh\n# included-worktree sentinel\n')
+    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+  })
+
+  it('refuses an inactive conditional worktree include that can later provide a hook path', async () => {
+    const fixture = createFixture()
+    const commonConfig = join(commonDirectory(fixture), 'config')
+    const worktreeConfig = join(gitDirectory(fixture, fixture.linked), 'config.worktree')
+    const includedConfig = join(fixture.container, 'conditional-worktree.gitconfig')
+    const includedHooks = join(fixture.container, 'conditional-hooks')
+    const sentinel = join(includedHooks, 'pre-commit')
+    write(sentinel, '#!/bin/sh\n# conditional-worktree sentinel\n', 0o755)
+    git(fixture, fixture.main, ['config', '--file', includedConfig, 'core.hooksPath', includedHooks])
+    git(fixture, fixture.main, ['config', '--file', commonConfig, 'core.repositoryFormatVersion', '1'])
+    git(fixture, fixture.main, ['config', '--file', commonConfig, 'extensions.worktreeConfig', 'true'])
+    git(fixture, fixture.main, [
+      'config',
+      '--file',
+      worktreeConfig,
+      'includeIf.onbranch:conditional.path',
+      includedConfig,
+    ])
+
+    const result = await runInstaller(fixture, fixture.linked)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('worktree-scoped conditional include')
+    expect(result.stderr).toContain('includeif.onbranch:conditional.path')
+    expect(gitResult(fixture, fixture.linked, ['config', '--worktree', '--get', 'core.hooksPath']).status).toBe(1)
+    expect(existsSync(hooksPath(fixture, fixture.linked))).toBe(false)
+
+    git(fixture, fixture.linked, ['switch', '-c', 'conditional'])
+    expect(git(fixture, fixture.linked, ['config', '--get', 'core.hooksPath'])).toBe(includedHooks)
+    expect(readFileSync(sentinel, 'utf8')).toBe('#!/bin/sh\n# conditional-worktree sentinel\n')
+  })
+
+  it('requires opt-in for inherited conditional includes that can later provide a hook path', async () => {
+    for (const scope of ['local', 'global']) {
+      const fixture = createFixture()
+      const commonConfig = join(commonDirectory(fixture), 'config')
+      const conditionalOwner = scope === 'local'
+        ? commonConfig
+        : fixture.env.GIT_CONFIG_GLOBAL
+      if (conditionalOwner === undefined) throw new Error('fixture global config path is missing')
+      const includedConfig = join(fixture.container, `${scope}-conditional.gitconfig`)
+      const includedHooks = join(fixture.container, `${scope}-conditional-hooks`)
+      git(fixture, fixture.main, ['config', '--file', includedConfig, 'core.hooksPath', includedHooks])
+      git(fixture, fixture.main, ['config', '--file', commonConfig, 'core.repositoryFormatVersion', '1'])
+      git(fixture, fixture.main, ['config', '--file', commonConfig, 'extensions.worktreeConfig', 'true'])
+      git(fixture, fixture.main, [
+        'config',
+        '--file',
+        conditionalOwner,
+        'includeIf.onbranch:conditional.path',
+        includedConfig,
+      ])
+
+      const refused = await runInstaller(fixture, fixture.linked)
+
+      expect(refused.status).toBe(1)
+      expect(refused.stderr).toContain('inherited conditional include')
+      expect(refused.stderr).toContain('DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1')
+      expect(gitResult(fixture, fixture.linked, ['config', '--worktree', '--get', 'core.hooksPath']).status).toBe(1)
+
+      const optedIn = await runInstaller(fixture, fixture.linked, {
+        DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE: '1',
+      })
+      expect(optedIn.status, optedIn.stderr).toBe(0)
+
+      git(fixture, fixture.linked, ['switch', '-c', 'conditional'])
+      expect(git(fixture, fixture.linked, ['config', '--get', 'core.hooksPath'])).toBe(hooksPath(fixture, fixture.linked))
+
+      const repeatedRefusal = await runInstaller(fixture, fixture.linked)
+      expect(repeatedRefusal.status).toBe(1)
+      expect(repeatedRefusal.stderr).toContain('inherited conditional include')
+      expect(git(fixture, fixture.linked, ['config', '--get', 'core.hooksPath'])).toBe(hooksPath(fixture, fixture.linked))
+
+      const repeatedOptIn = await runInstaller(fixture, fixture.linked, {
+        DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE: '1',
+      })
+      expect(repeatedOptIn.status, repeatedOptIn.stderr).toBe(0)
+    }
+  })
+
   it('restores the previous hook lookup when Lefthook installation fails', async () => {
     const fixture = createFixture()
     const common = commonDirectory(fixture)
@@ -283,14 +564,14 @@ describe('worktree-local Lefthook installer', () => {
     expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
   })
 
-  it.skipIf(process.platform === 'win32')('rejects Git without worktree-config support before mutation', async () => {
+  it.skipIf(process.platform === 'win32')('rejects Git without config-scope support before mutation', async () => {
     const fixture = createFixture()
     const realGit = commandResult('which', ['git'], fixture.main, fixture.env).stdout.trim()
     const fakeBin = join(fixture.container, 'fake-bin')
     const fakeGit = join(fakeBin, 'git')
     write(
       fakeGit,
-      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "git version 2.19.0"; exit 0; fi\nexec "${realGit}" "$@"\n`,
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "git version 2.25.0"; exit 0; fi\nexec "${realGit}" "$@"\n`,
       0o755,
     )
 
@@ -298,7 +579,7 @@ describe('worktree-local Lefthook installer', () => {
       PATH: `${fakeBin}:${fixture.env.PATH ?? ''}`,
     })
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('Git 2.20 or newer is required')
+    expect(result.stderr).toContain('Git 2.26 or newer is required')
     expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
     expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
   })

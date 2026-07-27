@@ -8,7 +8,7 @@
 
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
-- Git。
+- Git 2.26 或更高版本；钩子设置会启用 Git 的 worktree 专属配置扩展。
 - 可选：一个 DeepSeek API key，用于 TUI、headless 和 ACP（Agent Client Protocol）自动化 agent（智能体）演示以及真实 API 的 e2e 测试。
 
 ## 首次搭建
@@ -19,13 +19,15 @@
 pnpm install
 ```
 
-安装过程同时会运行根目录的 `postinstall` 脚本，该脚本通过 `scripts/install-lefthook.mjs` 从仓库 dev 依赖安装 lefthook。包装脚本使用 lefthook 经过评审的 `--force` 模式，确保已存在 `core.hooksPath` 的关联 worktree 不会导致正常的 `pnpm run …` 命令失败。
+安装过程同时会运行根目录的 `postinstall` 脚本，该脚本通过 `scripts/install-lefthook.mjs` 从仓库 dev 依赖安装 lefthook。包装脚本要求使用 Git 2.26 或更高版本，并会为当前 worktree 在其自身的 Git 目录下设置显式钩子目录；因此，关联 worktree 会使用各自的 lefthook 二进制文件和配置，而不会改写共用钩子。首次安装会启用 Git 的 worktree 专属配置扩展和仓库格式 1；见 [worktree 本地钩子 Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md)。
 
 如果依赖是从缓存恢复或 `postinstall` 被跳过而导致缺少钩子，请手动安装：
 
 ```sh
-pnpm exec lefthook install --force
+node scripts/install-lefthook.mjs
 ```
+
+包装脚本拒绝替换现有且由用户自行管理的 `core.hooksPath`。若要让继承自系统、全局或共用仓库配置的路径在其他 worktree 中继续生效，同时让当前 worktree 显式启用 lefthook，请先检查该路径，再设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1` 重新运行；命令作用域和 worktree 作用域的自定义路径绝不会被覆盖，必须显式集成或移除。当前未生效的 `includeIf` 可能提供钩子路径时，同样适用这些规则；与钩子无关的 `includeIf` 仍然有效。worktree 配置扩展启用之前，可能包含 `core.worktree` 或 `core.bare=true` 的共用配置 `includeIf` 目标需要手动迁移。若安装程序报告陈旧锁或无效锁，请先确认没有安装程序正在运行，手动移除诊断中报告的锁，再重新运行命令。
 
 新克隆后请先运行一次类型检查：
 
