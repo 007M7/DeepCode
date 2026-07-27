@@ -274,6 +274,40 @@ describe('request stability across the loop', () => {
     },
   )
 
+  it('lets a short-circuiting llm/stream listener own an unregistered route', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: 'stable base' })
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    let observed: GenerateOptions | undefined
+    ctx.on('llm/stream', (options) => {
+      observed = options
+      return (async function* () {
+        yield* textResponse('owned')
+      })()
+    })
+    const agent = ctx.agentLoop.create(SessionId('listener-owned'), {
+      provider: 'listener',
+      model: 'virtual',
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(observed).toMatchObject({ provider: 'listener', model: 'virtual' })
+    expect(agent.session.requestHeader()?.config).toEqual({
+      provider: 'listener',
+      model: 'virtual',
+    })
+    expect(agent.session.deriveMessages().at(-1)?.content).toContainEqual({
+      type: 'text',
+      text: 'owned',
+    })
+  })
+
   it('a compaction replace rewrites the resend, and the log explains it', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
